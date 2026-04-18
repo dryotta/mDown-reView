@@ -6,6 +6,8 @@
 [![Release](https://img.shields.io/github/v/release/dryotta/mDown-reView)](https://github.com/dryotta/mDown-reView/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+**[Homepage](https://dryotta.github.io/mDown-reView)**
+
 Browse, read, and annotate `.md` and `.mdx` files natively on Windows and macOS.
 
 ## Features
