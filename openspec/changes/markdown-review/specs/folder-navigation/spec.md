@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Open folder as workspace root
-The application SHALL allow the user to open a folder as the workspace root. The folder tree SHALL display the contents of that folder. The application SHALL remember the last opened folder and restore it on next launch.
+The application SHALL allow the user to open a folder as the workspace root via the "Open Folder…" dialog OR via a folder path provided as a command-line argument. The folder tree SHALL display the contents of that folder. The application SHALL remember the last opened folder and restore it on next launch.
 
 #### Scenario: Open folder via menu
 - **WHEN** the user selects "Open Folder…" from the File menu or toolbar
 - **THEN** a native folder picker dialog opens, and upon confirmation, the selected folder becomes the workspace root and its contents appear in the folder tree
+
+#### Scenario: Open folder via CLI argument
+- **WHEN** the app starts with a folder path as a command-line argument
+- **THEN** that folder becomes the workspace root and its contents appear in the folder tree, identical to using "Open Folder…"
 
 #### Scenario: Restore last folder on launch
 - **WHEN** the application launches and a previously opened folder path is stored in settings
@@ -57,15 +61,38 @@ The application SHALL provide a search/filter input above the folder tree that f
 - **THEN** the parent folder(s) remain visible and expanded so the matching file is accessible
 
 ### Requirement: Collapse/expand all
-The application SHALL provide toolbar buttons to collapse all folder nodes and to expand all folder nodes in the tree.
+The application SHALL provide toolbar buttons to collapse all folder nodes and to expand all folder nodes in the tree. "Expand All" SHALL expand at most 3 levels deep to avoid unbounded filesystem calls on large directory trees; nodes beyond 3 levels remain expandable individually.
 
 #### Scenario: Collapse all
 - **WHEN** the user clicks "Collapse All"
 - **THEN** all expanded folder nodes in the tree collapse to show only top-level entries
 
-#### Scenario: Expand all
+#### Scenario: Expand all (bounded)
 - **WHEN** the user clicks "Expand All"
-- **THEN** all folder nodes expand recursively to reveal the full directory tree
+- **THEN** all folder nodes up to 3 levels deep expand; folders at depth 4 and beyond remain collapsed
+
+### Requirement: Keyboard navigation in folder tree
+The application SHALL support keyboard navigation within the folder tree so users can browse without a mouse.
+
+#### Scenario: Arrow Down moves focus
+- **WHEN** a tree entry is focused and the user presses Arrow Down
+- **THEN** focus moves to the next visible entry in the tree
+
+#### Scenario: Arrow Up moves focus
+- **WHEN** a tree entry is focused and the user presses Arrow Up
+- **THEN** focus moves to the previous visible entry in the tree
+
+#### Scenario: Arrow Right expands or enters folder
+- **WHEN** a collapsed folder node is focused and the user presses Arrow Right
+- **THEN** the folder expands; if it is already expanded, focus moves to its first child
+
+#### Scenario: Arrow Left collapses or moves to parent
+- **WHEN** an expanded folder node is focused and the user presses Arrow Left
+- **THEN** the folder collapses; if the folder is already collapsed, focus moves to its parent
+
+#### Scenario: Enter opens a file
+- **WHEN** a file entry is focused and the user presses Enter
+- **THEN** the file opens in a new tab (or activates its existing tab)
 
 ### Requirement: Folder pane resize
 The application SHALL allow the user to resize the folder pane by dragging its right edge. The pane SHALL have a minimum width (160px) and a maximum width (50% of window width).

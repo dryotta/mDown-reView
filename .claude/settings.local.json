@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openspec new *)",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo tauri *)",
+      "Bash(npx tauri *)",
+      "Bash(powershell *)",
+      "Bash(npx vite *)",
+      "Bash(release)",
+      "Bash(grep -E --line-buffered \"Compiling markdown|Finished `release)",
+      "Bash(^error)",
+      "Bash(Finished 2 bundles\")",
+      "Bash(taskkill /F /IM markdown-review.exe)",
+      "Bash(taskkill //F //IM markdown-review.exe)",
+      "Bash(start *)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d['instruction'][:200]\\)\")",
+      "Bash(sed 's/- \\\\[x\\\\]/- [ ]/g' Q:/src2/markdown-review/openspec/changes/markdown-review/tasks.md)",
+      "Bash(mv /tmp/tasks_unchecked.md Q:/src2/markdown-review/openspec/changes/markdown-review/tasks.md)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a['id'], a['status']\\) for a in d['artifacts']]\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

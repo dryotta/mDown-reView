@@ -24,15 +24,15 @@ The application SHALL render Markdown content using the GitHub Flavored Markdown
 - **THEN** the viewer renders it as a clickable hyperlink
 
 ### Requirement: Syntax-highlighted code blocks
-The application SHALL render fenced code blocks with syntax highlighting based on the declared language identifier. Supported languages SHALL include at minimum: JavaScript, TypeScript, Python, Rust, Go, Java, C, C++, C#, JSON, YAML, TOML, Bash, HTML, CSS, SQL, Markdown.
+The application SHALL render fenced code blocks with syntax highlighting using the same engine as the Source Code Viewer (`@shikijs/rehype`) to ensure visual consistency. Supported languages SHALL include at minimum: JavaScript, TypeScript, Python, Rust, Go, Java, C, C++, C#, JSON, YAML, TOML, Bash, HTML, CSS, SQL, Markdown. Unrecognized language identifiers (e.g., `mermaid`, `plaintext`) SHALL render as a plain monospace block without throwing an error.
 
 #### Scenario: Highlighted fenced code block
 - **WHEN** a markdown file contains a fenced code block with a language identifier (e.g., ` ```python `)
-- **THEN** the viewer renders the block with syntax coloring appropriate to that language
+- **THEN** the viewer renders the block with syntax coloring matching the active theme, consistent with how the Source Code Viewer highlights the same language
 
-#### Scenario: Unlabeled code block
-- **WHEN** a markdown file contains a fenced code block without a language identifier
-- **THEN** the viewer renders it as a plain monospace block without syntax coloring
+#### Scenario: Unlabeled or unknown language code block
+- **WHEN** a markdown file contains a fenced code block without a language identifier, or with an unrecognized language tag
+- **THEN** the viewer renders it as a plain monospace block without syntax coloring and without emitting any error
 
 #### Scenario: Inline code
 - **WHEN** a markdown file contains inline code (backtick-wrapped text)
@@ -61,23 +61,38 @@ The application SHALL open hyperlinks (both in markdown body and autolinks) in t
 - **THEN** the link opens in the system default browser and the application remains unchanged
 
 ### Requirement: Frontmatter display
-The application SHALL detect YAML frontmatter (delimited by `---`) at the top of a markdown file and render it as a collapsed metadata block, visually separated from the document body.
+The application SHALL detect YAML frontmatter (delimited by `---`) at the top of a markdown file and render it as an expanded metadata block by default, visually separated from the document body. The user MAY collapse it.
 
-#### Scenario: Frontmatter collapsed by default
+#### Scenario: Frontmatter expanded by default
 - **WHEN** a markdown file has YAML frontmatter
-- **THEN** the viewer shows a collapsed "Frontmatter" block above the document body
+- **THEN** the viewer shows the frontmatter key-value pairs expanded above the document body, so reviewers can immediately see AI-generated metadata
 
-#### Scenario: Expand frontmatter
-- **WHEN** the user clicks the collapsed frontmatter block
-- **THEN** the block expands to show the raw frontmatter key-value pairs
+#### Scenario: Collapse frontmatter
+- **WHEN** the user clicks the expanded frontmatter block header
+- **THEN** the block collapses to show only the "Frontmatter" label
+
+#### Scenario: Re-expand frontmatter
+- **WHEN** the frontmatter block is collapsed and the user clicks its header
+- **THEN** the block expands again to show the key-value pairs
 
 ### Requirement: Table of contents navigation
-The application SHALL generate a document outline from headings (H1–H3) and display it as a collapsible table of contents panel within the markdown viewer. Clicking an outline entry SHALL scroll to the corresponding heading.
+The application SHALL generate a document outline from headings (H1–H3) and display it as a collapsible table of contents panel within the markdown viewer only when the document contains three or more H1–H3 headings. Clicking an outline entry SHALL scroll to the corresponding heading.
 
-#### Scenario: TOC generated from headings
-- **WHEN** a markdown document contains H1, H2, or H3 headings
+#### Scenario: TOC generated when document has 3 or more headings
+- **WHEN** a markdown document contains three or more H1, H2, or H3 headings
 - **THEN** a table of contents panel lists them hierarchically
+
+#### Scenario: TOC hidden for short documents
+- **WHEN** a markdown document contains fewer than three H1–H3 headings
+- **THEN** no table of contents panel is shown
 
 #### Scenario: Click TOC entry
 - **WHEN** the user clicks an entry in the table of contents
 - **THEN** the document scrolls to bring that heading into view
+
+### Requirement: Large-file performance guard
+When a markdown file exceeds 500 KB the application SHALL display a warning banner above the rendered content. The file SHALL still be rendered; virtualized rendering for very large files is deferred to a future iteration.
+
+#### Scenario: Warning banner for large file
+- **WHEN** the user opens a markdown file larger than 500 KB
+- **THEN** a warning banner is shown above the content: "This file is large (N KB) — rendering may be slow"

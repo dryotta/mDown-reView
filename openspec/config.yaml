@@ -18,3 +18,15 @@ schema: spec-driven
 #       - Always include a "Non-goals" section
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
+
+
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Include requirement on test and debuggibility
+  specs:
+    - Reference existing patterns before inventing new ones
+    - Include test spec
+  tasks:
+    - A task in NOT complete until the code builds and test passes
+    - If a test fail, fix before moving to the next task

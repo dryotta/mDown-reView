@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Open file in tab
-The application SHALL open a file in a new tab when the user selects it, displaying its content in the viewer area. If the file is already open in an existing tab, the application SHALL activate that tab instead of opening a duplicate.
+The application SHALL open a file in a new tab when the user selects it from the folder tree, when a file path is provided via a command-line argument, or when the OS sends a file-open event (e.g., double-click in File Explorer). If the file is already open in an existing tab, the application SHALL activate that tab instead of opening a duplicate.
 
 #### Scenario: Open new file
 - **WHEN** the user selects a file from the folder tree
@@ -10,6 +10,14 @@ The application SHALL open a file in a new tab when the user selects it, display
 #### Scenario: Activate existing tab
 - **WHEN** the user selects a file that is already open in a tab
 - **THEN** the existing tab becomes active and no duplicate tab is created
+
+#### Scenario: Open file via CLI argument
+- **WHEN** the app starts with a file path as a command-line argument
+- **THEN** a new tab opens with that file's content, identical to opening it from the folder tree
+
+#### Scenario: Open file via OS file-open event
+- **WHEN** the OS sends a file-open event (double-click or "Open With") while the app is running
+- **THEN** a new tab opens with that file's content and the window is brought to the foreground
 
 ### Requirement: Switch between open tabs
 The application SHALL allow the user to switch between open tabs by clicking on a tab in the tab bar. The active tab SHALL be visually distinguished from inactive tabs.
@@ -84,3 +92,37 @@ The application SHALL support keyboard shortcuts to navigate between open tabs (
 #### Scenario: Previous tab shortcut
 - **WHEN** the user presses the previous-tab shortcut
 - **THEN** focus moves to the previous tab (wrapping from first to last)
+
+### Requirement: Loading state indicator
+While a file's content is being read from disk, the application SHALL display a skeleton loading placeholder in the viewer area so the user has visual feedback that content is on its way.
+
+#### Scenario: Skeleton shown during load
+- **WHEN** the user opens a file and the read operation has not yet completed
+- **THEN** a skeleton placeholder (animated grey bars mimicking text lines) is shown in the viewer area
+
+#### Scenario: Skeleton replaced by content
+- **WHEN** the file read completes
+- **THEN** the skeleton is replaced by the rendered content with no flash or layout shift
+
+### Requirement: Application color theme
+The application SHALL detect the OS color scheme (light/dark) and apply a matching visual theme. The user SHALL be able to override the theme via a toggle button in the toolbar (cycling: System → Light → Dark). The selected preference SHALL be persisted across restarts.
+
+#### Scenario: OS dark mode applied automatically
+- **WHEN** the application launches on a system with dark mode enabled
+- **THEN** the app renders with a dark theme (dark background, light text, dark code highlighting)
+
+#### Scenario: OS light mode applied automatically
+- **WHEN** the application launches on a system with light mode enabled
+- **THEN** the app renders with a light theme
+
+#### Scenario: User overrides to light theme
+- **WHEN** the user clicks the theme toggle to select "Light"
+- **THEN** the app switches to the light theme regardless of the OS setting
+
+#### Scenario: User overrides to dark theme
+- **WHEN** the user clicks the theme toggle to select "Dark"
+- **THEN** the app switches to the dark theme regardless of the OS setting
+
+#### Scenario: Theme preference persisted
+- **WHEN** the user sets a theme override and restarts the app
+- **THEN** the previously selected theme is restored
