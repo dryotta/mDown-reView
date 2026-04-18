@@ -8,7 +8,7 @@
 
 **[Homepage](https://dryotta.github.io/mDown-reView)**
 
-Browse, read, and annotate `.md` and `.mdx` files natively on Windows and macOS.
+A slim and fast desktop app written in Rust and React for browsing, viewing and reviewing markdown, code and other text files on Windows and macOS.
 
 ## Features
 

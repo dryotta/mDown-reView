@@ -4,7 +4,7 @@ Context for AI agents working on this codebase.
 
 ## What This Is
 
-A native desktop application for reviewing AI-generated markdown artifacts. Users open folders of `.md`/`.mdx` files, read and navigate them, and attach inline review comments. The app is a **viewer/reviewer, not an editor**.
+A slim and fast desktop app written in Rust and React for browsing, viewing and reviewing markdown, code and other text files on Windows and macOS. Users open folders of `.md`/`.mdx` files, read and navigate them, and attach inline review comments. The app is a **viewer/reviewer, not an editor**.
 
 Primary users are developers who receive batches of files from AI tools and need to read, navigate, and annotate them without a full editing environment.
 
