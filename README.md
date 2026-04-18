@@ -2,8 +2,8 @@
 
 > A desktop markdown reviewer for developers
 
-[![CI](https://github.com/dryotta/markdown-review/actions/workflows/ci.yml/badge.svg)](https://github.com/dryotta/markdown-review/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/dryotta/markdown-review)](https://github.com/dryotta/markdown-review/releases/latest)
+[![CI](https://github.com/dryotta/mDown-reView/actions/workflows/ci.yml/badge.svg)](https://github.com/dryotta/mDown-reView/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/dryotta/mDown-reView)](https://github.com/dryotta/mDown-reView/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Browse, read, and annotate `.md` and `.mdx` files natively on Windows and macOS.
@@ -14,11 +14,11 @@ Browse, read, and annotate `.md` and `.mdx` files natively on Windows and macOS.
 - **Tabbed viewer** — open multiple files side by side
 - **Syntax highlighting** — code blocks rendered with Shiki
 - **File associations** — opens `.md` and `.mdx` files directly from your OS
-- **Comments** — annotate sections inline
+- **Comments** — annotate sections inline and persist them alongside your files
 
 ## Download
 
-Get the latest release from the [Releases page](https://github.com/dryotta/markdown-review/releases/latest).
+Get the latest release from the [Releases page](https://github.com/dryotta/mDown-reView/releases/latest).
 
 | Platform | Installer |
 |----------|-----------|
