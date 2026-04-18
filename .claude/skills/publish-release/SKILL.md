@@ -13,9 +13,9 @@ Run `git describe --tags --abbrev=0` to get the most recent tag.
 
 ## Step 2: Collect Unreleased Commits
 
-Run `git log {last-tag}..HEAD --oneline` to get all commits since the last release.
+Run `git log {last-tag}..HEAD --pretty=format:"%s"` to get all commits since the last release.
 
-If there are no tags, use `git log --oneline` to get all commits in the repository.
+If there are no tags, use `git log --pretty=format:"%s"` to get all commits in the repository.
 
 Store the list of commit messages for classification.
 
@@ -54,7 +54,9 @@ Do not proceed past this step until you have explicit confirmation.
 
 ## Step 5: Update Version in Three Files
 
-Once the version is confirmed, update the version string in exactly these **3 files** (they must stay in sync):
+Once the version is confirmed, strip any leading `v` from the version before writing to files. For example, if the user typed `v0.2.0`, write `0.2.0` in all three files.
+
+Update the version string in exactly these **3 files** (they must stay in sync):
 
 1. **`package.json`** → Update the `"version"` field
    ```json
@@ -103,7 +105,7 @@ Format each section with commit messages grouped by type:
 Run these git commands:
 
 ```bash
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
+git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
 git commit -m "chore: release v{version}"
 ```
 
@@ -112,8 +114,8 @@ git commit -m "chore: release v{version}"
 Create the annotated tag and push to the remote:
 
 ```bash
-git tag v{version}
-git push origin main --follow-tags
+git tag -a v{version} -m "Release v{version}"
+git push origin HEAD --follow-tags
 ```
 
 ## Step 9: Print Release Information
