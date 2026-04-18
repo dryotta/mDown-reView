@@ -1,6 +1,6 @@
 # mDown reView
 
-> Markdown Viewer and Review App for AI-first Developers
+> Review your AI Agents' work
 
 [![CI](https://github.com/dryotta/mDown-reView/actions/workflows/ci.yml/badge.svg)](https://github.com/dryotta/mDown-reView/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/dryotta/mDown-reView)](https://github.com/dryotta/mDown-reView/releases/latest)
