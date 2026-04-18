@@ -46,5 +46,12 @@
         "installMode": "currentUser"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/dryotta/mDown-reView/releases/latest/download/latest.json"],
+      "dialog": false,
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_PUBLIC_KEY"
+    }
   }
 }

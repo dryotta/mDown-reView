@@ -64,6 +64,7 @@ pub fn run() {
                 }
             })
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
