@@ -105,7 +105,7 @@ Format each section with commit messages grouped by type:
 Run these git commands:
 
 ```bash
-git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
+git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
 git commit -m "chore: release v{version}"
 ```
 
