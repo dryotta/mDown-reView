@@ -31,8 +31,11 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
       if (cached) return cached;
       try {
         const entries = await readDir(path);
-        setChildrenCache((prev) => ({ ...prev, [path]: entries }));
-        childrenCacheRef.current = { ...childrenCacheRef.current, [path]: entries };
+        setChildrenCache((prev) => {
+          const next = { ...prev, [path]: entries };
+          childrenCacheRef.current = next;
+          return next;
+        });
         return entries;
       } catch {
         return [];
@@ -116,6 +119,7 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
       }),
       listen("menu-collapse-all", () => {
         expandGenRef.current++;
+        useStore.getState().collapseAll();
       }),
     ];
     return () => {

@@ -48,13 +48,23 @@ pub type LaunchArgsState = Arc<Mutex<Option<LaunchArgs>>>;
 
 // ── Commands ───────────────────────────────────────────────────────────────
 
-/// Read directory entries, rejecting path traversal via `..`.
+/// Read directory entries, rejecting path traversal.
 #[tauri::command]
 pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
-    if path.contains("..") {
-        return Err("path traversal not allowed".into());
+    // Canonicalize to resolve symlinks and reject traversal
+    let canonical = std::fs::canonicalize(&path).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    // Ensure the canonical path matches the requested one (no breakout)
+    let requested = std::path::Path::new(&path);
+    if requested.is_absolute() {
+        let req_canonical = std::fs::canonicalize(requested).map_err(|e| e.to_string())?;
+        if req_canonical != canonical {
+            return Err("path traversal not allowed".into());
+        }
     }
-    let entries = std::fs::read_dir(&path).map_err(|e| {
+    let entries = std::fs::read_dir(&canonical).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
@@ -88,20 +98,16 @@ pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
 /// Read a text file, rejecting binary files and files >10 MB.
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
-    let meta = std::fs::metadata(&path).map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-
-    const MAX_SIZE: u64 = 10 * 1024 * 1024;
-    if meta.len() > MAX_SIZE {
-        return Err("file_too_large".into());
-    }
-
+    // Read first, then check size (eliminates TOCTOU race between metadata + read)
     let bytes = std::fs::read(&path).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
+
+    const MAX_SIZE: usize = 10 * 1024 * 1024;
+    if bytes.len() > MAX_SIZE {
+        return Err("file_too_large".into());
+    }
 
     // Detect binary by scanning first 512 bytes for null bytes
     let scan_len = bytes.len().min(512);
@@ -115,10 +121,10 @@ pub fn read_text_file(path: String) -> Result<String, String> {
     })
 }
 
-/// Save review comments sidecar file.
+/// Save review comments sidecar file (atomic via temp + rename).
 #[tauri::command]
 pub fn save_review_comments(file_path: String, comments: Vec<ReviewComment>) -> Result<(), String> {
-    let sidecar_path = format!("{}.review.json", file_path);
+    let sidecar_path = std::path::PathBuf::from(format!("{}.review.json", file_path));
     let payload = ReviewComments {
         version: 1,
         comments,
@@ -127,7 +133,23 @@ pub fn save_review_comments(file_path: String, comments: Vec<ReviewComment>) -> 
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
-    std::fs::write(&sidecar_path, json).map_err(|e| {
+
+    // Write to temp file in same directory, then rename for atomicity
+    let dir = sidecar_path.parent().unwrap_or(std::path::Path::new("."));
+    let tmp_path = dir.join(format!(
+        ".review-{}.tmp",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    std::fs::write(&tmp_path, &json).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    std::fs::rename(&tmp_path, &sidecar_path).map_err(|e| {
+        // Clean up temp file on rename failure
+        let _ = std::fs::remove_file(&tmp_path);
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
@@ -159,9 +181,9 @@ pub fn load_review_comments(file_path: String) -> Result<Option<ReviewComments>,
 
 /// Get (and clear) launch args stored during setup.
 #[tauri::command]
-pub fn get_launch_args(state: State<LaunchArgsState>) -> LaunchArgs {
-    let mut guard = state.lock().unwrap();
-    guard.take().unwrap_or_default()
+pub fn get_launch_args(state: State<LaunchArgsState>) -> Result<LaunchArgs, String> {
+    let mut guard = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+    Ok(guard.take().unwrap_or_default())
 }
 
 /// Get the log file path for display in the About dialog.

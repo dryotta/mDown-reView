@@ -129,15 +129,22 @@ export default function App() {
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  // Apply theme class to <html>
+  // Apply theme class to <html> and listen for OS theme changes
   useEffect(() => {
     const html = document.documentElement;
-    if (theme === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      html.setAttribute("data-theme", prefersDark ? "dark" : "light");
-    } else {
-      html.setAttribute("data-theme", theme);
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function applyTheme() {
+      if (theme === "system") {
+        html.setAttribute("data-theme", mq.matches ? "dark" : "light");
+      } else {
+        html.setAttribute("data-theme", theme);
+      }
     }
+
+    applyTheme();
+    mq.addEventListener("change", applyTheme);
+    return () => mq.removeEventListener("change", applyTheme);
   }, [theme]);
 
   // Load CLI launch args on mount and subscribe to second-instance args
@@ -147,16 +154,13 @@ export default function App() {
       .then(({ files, folders }) => openFilesFromArgs(files, folders, store))
       .catch(() => {});
 
-    let unlisten: (() => void) | null = null;
-    listen<{ files: string[]; folders: string[] }>("args-received", (event) => {
+    const argsListener = listen<{ files: string[]; folders: string[] }>("args-received", (event) => {
       const store = useStore.getState();
       openFilesFromArgs(event.payload.files, event.payload.folders, store);
-    }).then((fn) => {
-      unlisten = fn;
     });
 
     return () => {
-      unlisten?.();
+      argsListener.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -228,18 +232,26 @@ export default function App() {
   }, [triggerUpdateCheck]);
 
   const handleOpenFile = useCallback(async () => {
-    const selected = await open({ directory: false, multiple: true });
-    if (Array.isArray(selected)) {
-      for (const f of selected) openFile(f);
-    } else if (typeof selected === "string") {
-      openFile(selected);
+    try {
+      const selected = await open({ directory: false, multiple: true });
+      if (Array.isArray(selected)) {
+        for (const f of selected) openFile(f);
+      } else if (typeof selected === "string") {
+        openFile(selected);
+      }
+    } catch {
+      // User cancelled or dialog error — ignore
     }
   }, [openFile]);
 
   const handleOpenFolder = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string") {
-      setRoot(selected);
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (typeof selected === "string") {
+        setRoot(selected);
+      }
+    } catch {
+      // User cancelled or dialog error — ignore
     }
   }, [setRoot]);
 
@@ -309,6 +321,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      <ErrorBoundary>
       <div className="toolbar">
         <div className="toolbar-btn-group">
           <button className="toolbar-btn" onClick={handleOpenFile} title="Open file(s)">
@@ -346,6 +359,7 @@ export default function App() {
       </div>
 
       <UpdateBanner update={pendingUpdate} />
+      </ErrorBoundary>
 
       <div className="main-area">
         {/* FolderTree is always mounted so it can handle menu events; hidden via CSS */}

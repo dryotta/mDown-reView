@@ -252,9 +252,12 @@ export function openFilesFromArgs(
     store.setRoot(folders[0]);
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));
-  for (const file of files) {
+  // Deduplicate incoming files
+  const unique = [...new Set(files)];
+  for (const file of unique) {
     if (!alreadyOpen.has(file)) {
       store.openFile(file);
+      alreadyOpen.add(file);
     }
   }
 }

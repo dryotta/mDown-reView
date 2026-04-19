@@ -56,17 +56,18 @@ export function ViewerRouter({ path }: Props) {
   }
 
   const ext = extname(path);
+  const fileSize = content ? new Blob([content]).size : undefined;
   if (MD_EXTENSIONS.has(ext)) {
     return (
       <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }} onScroll={handleScroll}>
-        <MarkdownViewer content={content!} filePath={path} />
+        <MarkdownViewer content={content!} filePath={path} fileSize={fileSize} />
       </div>
     );
   }
 
   return (
     <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }} onScroll={handleScroll}>
-      <SourceViewer content={content!} path={path} />
+      <SourceViewer content={content!} path={path} fileSize={fileSize} />
     </div>
   );
 }

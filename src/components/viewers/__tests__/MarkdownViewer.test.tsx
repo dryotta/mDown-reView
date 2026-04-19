@@ -149,7 +149,7 @@ describe("10.3 – image src transformation", () => {
     await waitFor(() => {
       const img = document.querySelector("img");
       expect(img).toBeInTheDocument();
-      expect(mockConvert).toHaveBeenCalledWith("./image.png");
+      expect(mockConvert).toHaveBeenCalledWith("/docs/./image.png");
       expect(img?.src).toContain("asset://");
     });
   });
