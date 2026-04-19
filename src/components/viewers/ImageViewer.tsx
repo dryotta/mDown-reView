@@ -1,16 +1,45 @@
-import { useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { useState, useEffect } from "react";
+import { readBinaryFile } from "@/lib/tauri-commands";
+import { extname } from "@/lib/path-utils";
 
 interface Props {
   path: string;
 }
 
+const MIME_MAP: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+};
+
 export function ImageViewer({ path }: Props) {
   const [fit, setFit] = useState(true);
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const filename = path.split(/[\\/]/).pop() || path;
-  const src = convertFileSrc(path);
+  const mime = MIME_MAP[extname(path)] ?? "image/png";
+
+  useEffect(() => {
+    let cancelled = false;
+    setDataUrl(null);
+    setError(null);
+    setDimensions(null);
+    readBinaryFile(path)
+      .then((base64) => {
+        if (!cancelled) setDataUrl(`data:${mime};base64,${base64}`);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+    return () => { cancelled = true; };
+  }, [path, mime]);
 
   return (
     <div className="image-viewer" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -29,19 +58,23 @@ export function ImageViewer({ path }: Props) {
         </button>
       </div>
       <div style={{ flex: 1, overflow: "auto", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: 16 }}>
-        <img
-          src={src}
-          alt={filename}
-          onLoad={(e) => {
-            const img = e.currentTarget;
-            setDimensions({ w: img.naturalWidth, h: img.naturalHeight });
-          }}
-          style={{
-            maxWidth: fit ? "100%" : undefined,
-            maxHeight: fit ? "100%" : undefined,
-            objectFit: fit ? "contain" : undefined,
-          }}
-        />
+        {error && <div style={{ color: "var(--color-danger, #cf222e)", padding: 16 }}>Error loading image: {error}</div>}
+        {!dataUrl && !error && <div style={{ color: "var(--color-muted, #656d76)", padding: 16 }}>Loading image…</div>}
+        {dataUrl && (
+          <img
+            src={dataUrl}
+            alt={filename}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              setDimensions({ w: img.naturalWidth, h: img.naturalHeight });
+            }}
+            style={{
+              maxWidth: fit ? "100%" : undefined,
+              maxHeight: fit ? "100%" : undefined,
+              objectFit: fit ? "contain" : undefined,
+            }}
+          />
+        )}
       </div>
     </div>
   );
