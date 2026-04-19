@@ -26,6 +26,7 @@ interface TabsSlice {
   activeTabPath: string | null;
   openFile: (path: string) => void;
   closeTab: (path: string) => void;
+  closeAllTabs: () => void;
   setActiveTab: (path: string) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
 }
@@ -123,6 +124,7 @@ export const useStore = create<Store>()(
         }
         set({ tabs: newTabs, activeTabPath: newActive });
       },
+      closeAllTabs: () => set({ tabs: [], activeTabPath: null }),
       setActiveTab: (path) => set({ activeTabPath: path }),
       setScrollTop: (path, scrollTop) =>
         set((s) => ({
@@ -250,9 +252,12 @@ export function openFilesFromArgs(
     store.setRoot(folders[0]);
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));
-  for (const file of files) {
+  // Deduplicate incoming files
+  const unique = [...new Set(files)];
+  for (const file of unique) {
     if (!alreadyOpen.has(file)) {
       store.openFile(file);
+      alreadyOpen.add(file);
     }
   }
 }

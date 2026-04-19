@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/store";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -12,31 +14,48 @@ const MAX_EXPAND_DEPTH = 3;
 export function FolderTree({ onFileOpen }: FolderTreeProps) {
   const { root, expandedFolders, setFolderExpanded, collapseAll, activeTabPath, commentsByFile } = useStore();
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
+  const childrenCacheRef = useRef(childrenCache);
+  childrenCacheRef.current = childrenCache;
   const [filter, setFilter] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
+  const [isExpanding, setIsExpanding] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const expandGenRef = useRef(0);
 
+  const cancelExpand = useCallback(() => { expandGenRef.current++; }, []);
+
+  // Stable ref — never re-created, reads cache via ref to avoid stale closures
   const loadChildren = useCallback(
-    async (path: string) => {
-      if (childrenCache[path]) return;
+    async (path: string): Promise<DirEntry[]> => {
+      const cached = childrenCacheRef.current[path];
+      if (cached) return cached;
       try {
         const entries = await readDir(path);
-        setChildrenCache((prev) => ({ ...prev, [path]: entries }));
+        setChildrenCache((prev) => {
+          const next = { ...prev, [path]: entries };
+          childrenCacheRef.current = next;
+          return next;
+        });
+        return entries;
       } catch {
-        // ignore
+        return [];
       }
     },
-    [childrenCache]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
-  // Reset cache whenever the root folder changes
+  // Reset cache and cancel any in-flight expand when root changes
   useEffect(() => {
+    cancelExpand();
     setChildrenCache({});
-  }, [root]);
+    childrenCacheRef.current = {};
+  }, [root, cancelExpand]);
 
   useEffect(() => {
     if (root) loadChildren(root);
   }, [root, loadChildren]);
+
 
   const handleToggle = async (path: string, isDir: boolean) => {
     if (!isDir) {
@@ -50,17 +69,64 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
     setFolderExpanded(path, !isExpanded);
   };
 
-  const handleExpandAll = async (parentPath: string, depth = 0) => {
-    if (depth >= MAX_EXPAND_DEPTH) return;
-    await loadChildren(parentPath);
-    setFolderExpanded(parentPath, true);
-    const entries = childrenCache[parentPath] ?? [];
-    for (const entry of entries) {
-      if (entry.is_dir) {
-        await handleExpandAll(entry.path, depth + 1);
+  const handleExpandAll = useCallback(async (parentPath: string) => {
+    const generation = ++expandGenRef.current;
+    setIsExpanding(true);
+    const pathsToExpand: string[] = [];
+
+    const collect = async (path: string, depth: number) => {
+      if (depth >= MAX_EXPAND_DEPTH) return;
+      if (expandGenRef.current !== generation) return;
+      const entries = await loadChildren(path);
+      if (expandGenRef.current !== generation) return;
+      pathsToExpand.push(path);
+      for (const entry of entries) {
+        if (entry.is_dir) await collect(entry.path, depth + 1);
       }
+    };
+
+    await collect(parentPath, 0);
+
+    if (expandGenRef.current === generation) {
+      useStore.setState((s) => ({
+        expandedFolders: {
+          ...s.expandedFolders,
+          ...Object.fromEntries(pathsToExpand.map((p) => [p, true])),
+        },
+      }));
     }
-  };
+    setIsExpanding(false);
+  }, [loadChildren]);
+
+  // Menu event listeners for folder-tree-specific actions (mount once)
+  const expandAllRef = useRef(handleExpandAll);
+  expandAllRef.current = handleExpandAll;
+
+  useEffect(() => {
+    const pending = [
+      listen("menu-open-folder", async () => {
+        const selected = await open({ directory: true, multiple: false });
+        if (typeof selected === "string") {
+          const { setRoot, folderPaneVisible, toggleFolderPane } = useStore.getState();
+          setRoot(selected);
+          setChildrenCache({});
+          if (!folderPaneVisible) toggleFolderPane();
+        }
+      }),
+      listen("menu-expand-all", () => {
+        const { root } = useStore.getState();
+        if (root) expandAllRef.current(root);
+      }),
+      listen("menu-collapse-all", () => {
+        expandGenRef.current++;
+        useStore.getState().collapseAll();
+      }),
+    ];
+    return () => {
+      pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Build visible flat list for keyboard nav
   function buildFlatList(
@@ -142,8 +208,9 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
   return (
     <div className="folder-tree" style={{ width: useStore.getState().folderPaneWidth }}>
       <div className="folder-tree-toolbar">
-        <button onClick={collapseAll}>Collapse All</button>
+        <button onClick={() => { cancelExpand(); collapseAll(); }}>Collapse All</button>
         <button
+          disabled={isExpanding}
           onClick={() => {
             if (root) handleExpandAll(root);
           }}

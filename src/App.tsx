@@ -129,15 +129,22 @@ export default function App() {
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  // Apply theme class to <html>
+  // Apply theme class to <html> and listen for OS theme changes
   useEffect(() => {
     const html = document.documentElement;
-    if (theme === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      html.setAttribute("data-theme", prefersDark ? "dark" : "light");
-    } else {
-      html.setAttribute("data-theme", theme);
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function applyTheme() {
+      if (theme === "system") {
+        html.setAttribute("data-theme", mq.matches ? "dark" : "light");
+      } else {
+        html.setAttribute("data-theme", theme);
+      }
     }
+
+    applyTheme();
+    mq.addEventListener("change", applyTheme);
+    return () => mq.removeEventListener("change", applyTheme);
   }, [theme]);
 
   // Load CLI launch args on mount and subscribe to second-instance args
@@ -147,20 +154,17 @@ export default function App() {
       .then(({ files, folders }) => openFilesFromArgs(files, folders, store))
       .catch(() => {});
 
-    let unlisten: (() => void) | null = null;
-    listen<{ files: string[]; folders: string[] }>("args-received", (event) => {
+    const argsListener = listen<{ files: string[]; folders: string[] }>("args-received", (event) => {
       const store = useStore.getState();
       openFilesFromArgs(event.payload.files, event.payload.folders, store);
-    }).then((fn) => {
-      unlisten = fn;
     });
 
     return () => {
-      unlisten?.();
+      argsListener.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts (kept for e2e tests and non-native environments)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -171,6 +175,15 @@ export default function App() {
       if (mod && e.shiftKey && e.key === "C") {
         e.preventDefault();
         toggleCommentsPane();
+      }
+      if (mod && !e.shiftKey && e.key === "w") {
+        e.preventDefault();
+        const { activeTabPath, closeTab } = useStore.getState();
+        if (activeTabPath) closeTab(activeTabPath);
+      }
+      if (mod && e.shiftKey && e.key === "W") {
+        e.preventDefault();
+        useStore.getState().closeAllTabs();
       }
       // Tab cycling
       if (mod && !e.shiftKey && e.key === "Tab") {
@@ -194,48 +207,93 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleFolderPane, toggleCommentsPane]);
 
-  // Background update check — 5 s delay, non-blocking
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      const { setUpdateStatus, setUpdateVersion } = useStore.getState();
-      try {
-        setUpdateStatus("checking");
-        const { check } = await import("@tauri-apps/plugin-updater");
-        const update = await check();
-        if (update) {
-          setPendingUpdate(update);
-          setUpdateVersion(update.version);
-          setUpdateStatus("available");
-        } else {
-          setUpdateStatus("idle");
-        }
-      } catch {
+  const triggerUpdateCheck = useCallback(async () => {
+    const { setUpdateStatus, setUpdateVersion } = useStore.getState();
+    try {
+      setUpdateStatus("checking");
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        setPendingUpdate(update);
+        setUpdateVersion(update.version);
+        setUpdateStatus("available");
+      } else {
         setUpdateStatus("idle");
       }
-    }, 5000);
-    return () => clearTimeout(t);
+    } catch {
+      setUpdateStatus("idle");
+    }
   }, []);
+
+  // Background update check — 5 s delay, non-blocking
+  useEffect(() => {
+    const t = setTimeout(triggerUpdateCheck, 5000);
+    return () => clearTimeout(t);
+  }, [triggerUpdateCheck]);
+
+  const handleOpenFile = useCallback(async () => {
+    try {
+      const selected = await open({ directory: false, multiple: true });
+      if (Array.isArray(selected)) {
+        for (const f of selected) openFile(f);
+      } else if (typeof selected === "string") {
+        openFile(selected);
+      }
+    } catch {
+      // User cancelled or dialog error — ignore
+    }
+  }, [openFile]);
+
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (typeof selected === "string") {
+        setRoot(selected);
+      }
+    } catch {
+      // User cancelled or dialog error — ignore
+    }
+  }, [setRoot]);
 
   const cycleTheme = useCallback(() => {
     const idx = THEME_CYCLE.indexOf(theme);
     setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
   }, [theme, setTheme]);
 
-  const handleOpenFile = useCallback(async () => {
-    const selected = await open({ directory: false, multiple: true });
-    if (Array.isArray(selected)) {
-      for (const f of selected) openFile(f);
-    } else if (typeof selected === "string") {
-      openFile(selected);
-    }
-  }, [openFile]);
-
-  const handleOpenFolder = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string") {
-      setRoot(selected);
-    }
-  }, [setRoot]);
+  // Native menu event listeners
+  useEffect(() => {
+    const pending = [
+      listen("menu-open-file", () => handleOpenFile()),
+      listen("menu-toggle-folder-pane", () => toggleFolderPane()),
+      listen("menu-toggle-comments-pane", () => toggleCommentsPane()),
+      listen("menu-close-tab", () => {
+        const { activeTabPath, closeTab } = useStore.getState();
+        if (activeTabPath) closeTab(activeTabPath);
+      }),
+      listen("menu-close-all-tabs", () => useStore.getState().closeAllTabs()),
+      listen("menu-next-tab", () => {
+        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
+        if (tabs.length < 2) return;
+        const idx = tabs.findIndex((t) => t.path === activeTabPath);
+        setActiveTab(tabs[(idx + 1) % tabs.length].path);
+      }),
+      listen("menu-prev-tab", () => {
+        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
+        if (tabs.length < 2) return;
+        const idx = tabs.findIndex((t) => t.path === activeTabPath);
+        setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length].path);
+      }),
+      listen("menu-theme-system", () => setTheme("system")),
+      listen("menu-theme-light", () => setTheme("light")),
+      listen("menu-theme-dark", () => setTheme("dark")),
+      listen("menu-about", () => setAboutOpen(true)),
+      listen("menu-check-updates", () => triggerUpdateCheck()),
+      listen("menu-collapse-all", () => useStore.getState().collapseAll()),
+    ];
+    return () => {
+      pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
+    };
+  }, [handleOpenFile, toggleFolderPane, toggleCommentsPane, setTheme, triggerUpdateCheck]);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
@@ -263,6 +321,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      <ErrorBoundary>
       <div className="toolbar">
         <div className="toolbar-btn-group">
           <button className="toolbar-btn" onClick={handleOpenFile} title="Open file(s)">
@@ -300,16 +359,16 @@ export default function App() {
       </div>
 
       <UpdateBanner update={pendingUpdate} />
+      </ErrorBoundary>
 
       <div className="main-area">
-        {folderPaneVisible && (
-          <>
-            <ErrorBoundary>
-              <FolderTree onFileOpen={openFile} />
-            </ErrorBoundary>
-            <div className="drag-handle" onMouseDown={onDragStart} />
-          </>
-        )}
+        {/* FolderTree is always mounted so it can handle menu events; hidden via CSS */}
+        <div style={folderPaneVisible ? { display: "contents" } : { display: "none" }}>
+          <ErrorBoundary>
+            <FolderTree onFileOpen={openFile} />
+          </ErrorBoundary>
+          <div className="drag-handle" onMouseDown={onDragStart} />
+        </div>
 
         <div className="viewer-area">
           <TabBar />

@@ -6,6 +6,7 @@ import type { DirEntry } from "@/lib/tauri-commands";
 
 // Auto-resolved mocks
 vi.mock("@tauri-apps/api/core");
+vi.mock("@tauri-apps/api/event");
 vi.mock("@/logger");
 
 // Mock tauri-commands readDir so we can control what it returns
@@ -13,7 +14,9 @@ vi.mock("@/lib/tauri-commands", () => ({
   readDir: vi.fn(),
 }));
 
+import { listen } from "@tauri-apps/api/event";
 import { readDir } from "@/lib/tauri-commands";
+const mockListen = listen as ReturnType<typeof vi.fn>;
 const mockReadDir = readDir as ReturnType<typeof vi.fn>;
 
 const FOLDER = "/test";
@@ -33,6 +36,7 @@ const initialState = useStore.getState();
 
 beforeEach(() => {
   useStore.setState(initialState, true);
+  mockListen.mockResolvedValue(() => {});
   mockReadDir.mockReset();
   // Default: root returns ROOT_ENTRIES, subfolder returns SUB_ENTRIES
   mockReadDir.mockImplementation((path: string) => {

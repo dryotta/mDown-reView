@@ -61,13 +61,24 @@ export function SourceViewer({ content, path, fileSize }: Props) {
   const [plainMode, setPlainMode] = useState(false);
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
+  // Track data-theme attribute for reactive re-highlighting
+  const [currentTheme, setCurrentTheme] = useState(
+    () => document.documentElement.getAttribute("data-theme") ?? "light"
+  );
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setCurrentTheme(document.documentElement.getAttribute("data-theme") ?? "light");
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (plainMode) {
       setHtml("");
       return;
     }
-    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-    const theme = isDark ? "github-dark" : "github-light";
+    const theme = currentTheme === "dark" ? "github-dark" : "github-light";
     const lang = langFromPath(path);
 
     getHighlighter()
@@ -76,7 +87,7 @@ export function SourceViewer({ content, path, fileSize }: Props) {
         setHtml(rendered);
       })
       .catch(() => setHtml(""));
-  }, [content, path, plainMode]);
+  }, [content, path, plainMode, currentTheme]);
 
   return (
     <div className="source-viewer">

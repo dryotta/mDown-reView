@@ -20,6 +20,7 @@ import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { CommentMargin } from "@/components/comments/CommentMargin";
 import { useStore } from "@/store";
 import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
+import { dirname } from "@/lib/path-utils";
 import "@/styles/markdown.css";
 
 const SIZE_WARN_THRESHOLD = 500 * 1024;
@@ -105,9 +106,20 @@ function getHighlighter() {
 function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
 
+  // Track data-theme for reactive re-highlighting
+  const [currentTheme, setCurrentTheme] = useState(
+    () => document.documentElement.getAttribute("data-theme") ?? "light"
+  );
   useEffect(() => {
-    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-    const theme = isDark ? "github-dark" : "github-light";
+    const observer = new MutationObserver(() => {
+      setCurrentTheme(document.documentElement.getAttribute("data-theme") ?? "light");
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const theme = currentTheme === "dark" ? "github-dark" : "github-light";
 
     getHighlighter()
       .then(async (h) => {
@@ -115,7 +127,7 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
         setHtml(result);
       })
       .catch(() => {});
-  }, [code, lang]);
+  }, [code, lang, currentTheme]);
 
   if (html) {
     return <div dangerouslySetInnerHTML={{ __html: html }} />;
@@ -130,13 +142,6 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
 
 // Static components that don't need filePath or heading context — kept at module scope
 const MD_COMPONENTS_STATIC = {
-  img: ({ src, alt, node: _node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) => {
-    const resolvedSrc =
-      src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")
-        ? convertFileSrc(src)
-        : src;
-    return <img src={resolvedSrc} alt={alt ?? ""} {...props} />;
-  },
   a: ({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<"a"> & ExtraProps) => {
     const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
       if (href) {
@@ -155,7 +160,7 @@ const MD_COMPONENTS_STATIC = {
       const el = children as ReactElement<{ className?: string; children?: ReactNode }>;
       if (el.type === "code") {
         const { className, children: codeChildren } = el.props;
-        const lang = /language-(\w+)/.exec(className ?? "")?.[1];
+        const lang = /language-([\w-]+)/.exec(className ?? "")?.[1];
         if (lang) {
           return (
             <HighlightedCode
@@ -282,8 +287,21 @@ function useMarkdownComponents(
       );
     }
 
+    const fileDir = dirname(filePath);
+
     return {
       ...MD_COMPONENTS_STATIC,
+      img: ({ src, alt, node: _node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) => {
+        let resolvedSrc = src;
+        if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
+          // Resolve relative paths against the markdown file's directory
+          const absolute = src.startsWith("/") || src.startsWith("\\") || /^[a-zA-Z]:/.test(src)
+            ? src
+            : `${fileDir}/${src}`;
+          resolvedSrc = convertFileSrc(absolute);
+        }
+        return <img src={resolvedSrc} alt={alt ?? ""} {...props} />;
+      },
       p: makeBlock("p"),
       h1: makeBlock("h1"),
       h2: makeBlock("h2"),
@@ -308,17 +326,19 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   // Load comments from sidecar on file open
   useEffect(() => {
+    let cancelled = false;
     loadedRef.current = null;
     loadReviewComments(filePath)
       .then((result) => {
-        if (result?.comments) {
+        if (!cancelled && result?.comments) {
           setFileComments(filePath, result.comments);
         }
       })
       .catch(() => {})
       .finally(() => {
-        loadedRef.current = filePath;
+        if (!cancelled) loadedRef.current = filePath;
       });
+    return () => { cancelled = true; };
   }, [filePath, setFileComments]);
 
   // Auto-save comments to sidecar (debounced, only after initial load)
