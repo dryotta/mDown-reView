@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { useStore, openFilesFromArgs } from "@/store";
 import { getLaunchArgs } from "@/lib/tauri-commands";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
@@ -27,6 +28,7 @@ export default function App() {
     toggleCommentsPane,
     activeTabPath,
     openFile,
+    setRoot,
   } = useStore();
 
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -125,6 +127,22 @@ export default function App() {
     setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
   }, [theme, setTheme]);
 
+  const handleOpenFile = useCallback(async () => {
+    const selected = await open({ directory: false, multiple: true });
+    if (Array.isArray(selected)) {
+      for (const f of selected) openFile(f);
+    } else if (typeof selected === "string") {
+      openFile(selected);
+    }
+  }, [openFile]);
+
+  const handleOpenFolder = useCallback(async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected === "string") {
+      setRoot(selected);
+    }
+  }, [setRoot]);
+
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -152,6 +170,24 @@ export default function App() {
       <div className="toolbar">
         <span className="app-title">mDown reView</span>
         <div className="toolbar-actions">
+          <button className="toolbar-btn" onClick={handleOpenFile} title="Open file(s)">Open File</button>
+          <button className="toolbar-btn" onClick={handleOpenFolder} title="Open folder">Open Folder</button>
+          <span className="toolbar-separator" />
+          <button
+            className={`toolbar-btn toolbar-btn-toggle${folderPaneVisible ? " active" : ""}`}
+            onClick={toggleFolderPane}
+            title="Toggle folder pane (Ctrl+B)"
+          >
+            Folders
+          </button>
+          <button
+            className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible ? " active" : ""}`}
+            onClick={toggleCommentsPane}
+            title="Toggle comments pane (Ctrl+Shift+C)"
+          >
+            Comments
+          </button>
+          <span className="toolbar-separator" />
           <button className="toolbar-btn" onClick={() => setAboutOpen(true)}>About</button>
           <button className="toolbar-btn" onClick={cycleTheme}>
             {theme === "system" ? "System" : theme === "light" ? "Light" : "Dark"}

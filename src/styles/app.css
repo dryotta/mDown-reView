@@ -105,6 +105,24 @@ body,
   background: var(--color-surface);
 }
 
+.toolbar-btn-toggle.active {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.toolbar-btn-toggle.active:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 16px;
+  background: var(--color-toolbar-border);
+  flex-shrink: 0;
+}
+
 .main-area {
   display: flex;
   flex: 1;
