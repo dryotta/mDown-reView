@@ -193,6 +193,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::read_dir,
             commands::read_text_file,
+            commands::read_binary_file,
             commands::save_review_comments,
             commands::load_review_comments,
             commands::get_launch_args,

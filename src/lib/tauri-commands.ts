@@ -34,6 +34,9 @@ export interface ReviewComments {
 export const readTextFile = (path: string): Promise<string> =>
   invoke<string>("read_text_file", { path });
 
+export const readBinaryFile = (path: string): Promise<string> =>
+  invoke<string>("read_binary_file", { path });
+
 export const readDir = (path: string): Promise<DirEntry[]> =>
   invoke<DirEntry[]>("read_dir", { path });
 

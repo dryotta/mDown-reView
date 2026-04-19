@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
-    get_launch_args, load_review_comments, read_text_file, save_review_comments, LaunchArgs,
-    LaunchArgsState, ReviewComment,
+    get_launch_args, load_review_comments, read_binary_file, read_text_file, save_review_comments,
+    LaunchArgs, LaunchArgsState, ReviewComment,
 };
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -133,4 +133,41 @@ fn get_launch_args_returns_and_clears() {
     };
     assert!(result2.files.is_empty());
     assert!(result2.folders.is_empty());
+}
+
+// ── read_binary_file ──────────────────────────────────────────────────────
+
+#[test]
+fn read_binary_file_returns_base64() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("image.png");
+    let png_bytes: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    std::fs::write(&path, &png_bytes).unwrap();
+
+    let result = read_binary_file(path.to_string_lossy().into_owned());
+    assert!(result.is_ok());
+    let b64 = result.unwrap();
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(&b64)
+        .unwrap();
+    assert_eq!(decoded, png_bytes);
+}
+
+#[test]
+fn read_binary_file_rejects_too_large() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("huge.bin");
+    let data = vec![0u8; 11 * 1024 * 1024];
+    std::fs::write(&path, &data).unwrap();
+
+    let result = read_binary_file(path.to_string_lossy().into_owned());
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), "file_too_large");
+}
+
+#[test]
+fn read_binary_file_missing_file() {
+    let result = read_binary_file("/nonexistent/file.png".into());
+    assert!(result.is_err());
 }

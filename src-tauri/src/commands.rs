@@ -121,6 +121,23 @@ pub fn read_text_file(path: String) -> Result<String, String> {
     })
 }
 
+/// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
+#[tauri::command]
+pub fn read_binary_file(path: String) -> Result<String, String> {
+    let bytes = std::fs::read(&path).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+
+    const MAX_SIZE: usize = 10 * 1024 * 1024;
+    if bytes.len() > MAX_SIZE {
+        return Err("file_too_large".into());
+    }
+
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
 /// Save review comments sidecar file (atomic via temp + rename).
 #[tauri::command]
 pub fn save_review_comments(file_path: String, comments: Vec<ReviewComment>) -> Result<(), String> {
