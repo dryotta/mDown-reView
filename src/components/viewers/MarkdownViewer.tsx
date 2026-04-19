@@ -10,6 +10,9 @@ import {
   useRef,
   isValidElement,
   useMemo,
+  createContext,
+  useContext,
+  useCallback,
   type ComponentPropsWithoutRef,
   type ReactElement,
   type ReactNode,
@@ -17,8 +20,13 @@ import {
 import type { ExtraProps } from "react-markdown";
 import { FrontmatterBlock } from "./FrontmatterBlock";
 import { TableOfContents, extractHeadings } from "./TableOfContents";
-import { CommentMargin } from "@/components/comments/CommentMargin";
+import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
+import { CommentThread } from "@/components/comments/CommentThread";
+import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
+import { matchComments } from "@/lib/comment-matching";
+import { computeLineHash, captureContext } from "@/lib/comment-anchors";
 import { useStore } from "@/store";
+import type { CommentWithOrphan } from "@/store";
 import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import "@/styles/markdown.css";
@@ -49,46 +57,6 @@ function parseFrontmatter(content: string): {
     if (key) data[key] = value;
   }
   return { body, data };
-}
-
-// FNV-1a hash — 8 hex chars, same algorithm as the Rust side
-function fnv1a8(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
-}
-
-// Extract plain text from React nodes (for block hash computation)
-function extractText(node: ReactNode): string {
-  if (typeof node === "string") return node;
-  if (typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(extractText).join("");
-  if (isValidElement(node))
-    return extractText((node.props as { children?: ReactNode }).children);
-  return "";
-}
-
-// Build map: line number → nearest preceding heading slug
-function buildHeadingContextMap(content: string): Map<number, string | null> {
-  const lines = content.split("\n");
-  const map = new Map<number, string | null>();
-  let current: string | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^#{1,6}\s+(.+)$/.exec(lines[i]);
-    if (m) {
-      current = m[1]
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "");
-    }
-    map.set(i + 1, current);
-  }
-  return map;
 }
 
 let highlighterPromise: ReturnType<typeof createHighlighter> | null = null;
@@ -140,8 +108,53 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   );
 }
 
-// Static components that don't need filePath or heading context — kept at module scope
-const MD_COMPONENTS_STATIC = {
+// Context for inline comment gutters in markdown blocks
+interface MdCommentContextValue {
+  commentCountByLine: Map<number, number>;
+}
+
+const MdCommentContext = createContext<MdCommentContextValue>({
+  commentCountByLine: new Map(),
+});
+
+// Inline gutter component for commentable markdown blocks
+function makeCommentableBlock(Tag: string) {
+  return function CommentableBlock({ children, node, ...props }: ComponentPropsWithoutRef<any> & ExtraProps) {
+    const line = node?.position?.start.line ?? 0;
+    const { commentCountByLine } = useContext(MdCommentContext);
+    const count = commentCountByLine.get(line) ?? 0;
+
+    return (
+      <div
+        className={`md-commentable-block${count > 0 ? " has-comments" : ""}`}
+        data-source-line={line}
+        data-comment-count={count > 0 ? count : undefined}
+      >
+        <Tag {...props}>{children}</Tag>
+      </div>
+    );
+  };
+}
+
+function CommentableLi({ children, node, ...props }: ComponentPropsWithoutRef<"li"> & ExtraProps) {
+  const line = node?.position?.start.line ?? 0;
+  const { commentCountByLine } = useContext(MdCommentContext);
+  const count = commentCountByLine.get(line) ?? 0;
+
+  return (
+    <li
+      {...props}
+      data-source-line={line}
+      data-comment-count={count > 0 ? count : undefined}
+      className={`md-commentable-li${count > 0 ? " has-comments" : ""}`}
+    >
+      {children}
+    </li>
+  );
+}
+
+// Module-scope components — no dependency on filePath or per-render state
+const MD_COMPONENTS: Record<string, unknown> = {
   a: ({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<"a"> & ExtraProps) => {
     const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
       if (href) {
@@ -173,156 +186,67 @@ const MD_COMPONENTS_STATIC = {
     }
     return <pre {...props}>{children}</pre>;
   },
+  p: makeCommentableBlock("p"),
+  h1: makeCommentableBlock("h1"),
+  h2: makeCommentableBlock("h2"),
+  h3: makeCommentableBlock("h3"),
+  h4: makeCommentableBlock("h4"),
+  h5: makeCommentableBlock("h5"),
+  h6: makeCommentableBlock("h6"),
+  li: CommentableLi,
 };
-
-// Build comment-aware block components, memoized by filePath + headingContextMap
-function useMarkdownComponents(
-  filePath: string,
-  headingContextMap: Map<number, string | null>
-) {
-  return useMemo(() => {
-    const makeAnchor = (children: ReactNode, startLine: number) => ({
-      blockHash: fnv1a8(extractText(children).replace(/\s+/g, " ").trim()),
-      headingContext: headingContextMap.get(startLine) ?? null,
-      fallbackLine: startLine,
-    });
-
-    type BlockTag = "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-
-    // Shared inner content for any commentable block
-    function BlockContent({
-      anchor,
-      openTrigger,
-      setOpenTrigger,
-      contextMenuPos,
-      setContextMenuPos,
-    }: {
-      anchor: ReturnType<typeof makeAnchor>;
-      openTrigger: number;
-      setOpenTrigger: React.Dispatch<React.SetStateAction<number>>;
-      contextMenuPos: { x: number; y: number } | null;
-      setContextMenuPos: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
-    }) {
-      return (
-        <>
-          <CommentMargin filePath={filePath} anchor={anchor} openTrigger={openTrigger} />
-          {contextMenuPos && (
-            <>
-              <div className="comment-ctx-backdrop" onClick={() => setContextMenuPos(null)} />
-              <div className="comment-ctx-menu" style={{ top: contextMenuPos.y, left: contextMenuPos.x }}>
-                <button
-                  className="comment-ctx-item"
-                  onClick={() => {
-                    setContextMenuPos(null);
-                    setOpenTrigger((t) => t + 1);
-                  }}
-                >
-                  Add comment
-                </button>
-              </div>
-            </>
-          )}
-        </>
-      );
-    }
-
-    // p / h1–h6: wrap in a div (valid HTML for these tags)
-    function makeBlock(Tag: BlockTag) {
-      return function BlockWithComment({
-        children,
-        node,
-        ...props
-      }: ComponentPropsWithoutRef<BlockTag> & ExtraProps) {
-        const line = node?.position?.start.line ?? 0;
-        const anchor = makeAnchor(children, line);
-        const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
-        const [openTrigger, setOpenTrigger] = useState(0);
-
-        return (
-          <div
-            className="comment-block-wrapper"
-            data-block-hash={anchor.blockHash}
-            onContextMenu={(e) => { e.preventDefault(); setContextMenuPos({ x: e.clientX, y: e.clientY }); }}
-          >
-            <Tag {...(props as ComponentPropsWithoutRef<typeof Tag>)}>{children}</Tag>
-            <BlockContent
-              anchor={anchor}
-              openTrigger={openTrigger}
-              setOpenTrigger={setOpenTrigger}
-              contextMenuPos={contextMenuPos}
-              setContextMenuPos={setContextMenuPos}
-            />
-          </div>
-        );
-      };
-    }
-
-    // li: the li itself becomes the wrapper (div around li would be invalid HTML)
-    function ListItemWithComment({
-      children,
-      node,
-      ...props
-    }: ComponentPropsWithoutRef<"li"> & ExtraProps) {
-      const line = node?.position?.start.line ?? 0;
-      const anchor = makeAnchor(children, line);
-      const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
-      const [openTrigger, setOpenTrigger] = useState(0);
-
-      return (
-        <li
-          className="comment-block-wrapper"
-          data-block-hash={anchor.blockHash}
-          onContextMenu={(e) => { e.preventDefault(); setContextMenuPos({ x: e.clientX, y: e.clientY }); }}
-          {...(props as ComponentPropsWithoutRef<"li">)}
-        >
-          {children}
-          <BlockContent
-            anchor={anchor}
-            openTrigger={openTrigger}
-            setOpenTrigger={setOpenTrigger}
-            contextMenuPos={contextMenuPos}
-            setContextMenuPos={setContextMenuPos}
-          />
-        </li>
-      );
-    }
-
-    const fileDir = dirname(filePath);
-
-    return {
-      ...MD_COMPONENTS_STATIC,
-      img: ({ src, alt, node: _node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) => {
-        let resolvedSrc = src;
-        if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
-          // Resolve relative paths against the markdown file's directory
-          const absolute = src.startsWith("/") || src.startsWith("\\") || /^[a-zA-Z]:/.test(src)
-            ? src
-            : `${fileDir}/${src}`;
-          resolvedSrc = convertFileSrc(absolute);
-        }
-        return <img src={resolvedSrc} alt={alt ?? ""} {...props} />;
-      },
-      p: makeBlock("p"),
-      h1: makeBlock("h1"),
-      h2: makeBlock("h2"),
-      h3: makeBlock("h3"),
-      h4: makeBlock("h4"),
-      h5: makeBlock("h5"),
-      h6: makeBlock("h6"),
-      li: ListItemWithComment,
-    };
-  }, [filePath, headingContextMap]);
-}
 
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const { body, data } = useMemo(() => parseFrontmatter(content), [content]);
   const headings = useMemo(() => extractHeadings(body), [body]);
-  const headingContextMap = useMemo(() => buildHeadingContextMap(body), [body]);
-  const components = useMarkdownComponents(filePath, headingContextMap);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [commentingLine, setCommentingLine] = useState<number | null>(null);
+  const [expandedLine, setExpandedLine] = useState<number | null>(null);
+  const [selectionToolbar, setSelectionToolbar] = useState<{
+    position: { top: number; left: number };
+    lineNumber: number;
+    selectedText: string;
+  } | null>(null);
+  const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<Record<string, unknown> | null>(null);
+
+  const lines = useMemo(() => body.split("\n"), [body]);
 
   const setFileComments = useStore((s) => s.setFileComments);
+  const addComment = useStore((s) => s.addComment);
   const comments = useStore((s) => s.commentsByFile[filePath]);
   const loadedRef = useRef<string | null>(null);
+
+  const matchedComments = useMemo(() => {
+    if (!comments || comments.length === 0) return [];
+    return matchComments(comments, lines);
+  }, [comments, lines]);
+
+  const commentsByLine = useMemo(() => {
+    const map = new Map<number, CommentWithOrphan[]>();
+    for (const c of matchedComments) {
+      const ln = c.matchedLineNumber ?? c.lineNumber ?? 1;
+      const arr = map.get(ln) ?? [];
+      arr.push(c);
+      map.set(ln, arr);
+    }
+    return map;
+  }, [matchedComments]);
+
+  // Build components with img resolver (only img depends on filePath)
+  const components = useMemo(() => ({
+    ...MD_COMPONENTS,
+    img: ({ src, alt, node: _node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) => {
+      let resolvedSrc = src;
+      if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
+        const fileDir = dirname(filePath);
+        const absolute = src.startsWith("/") || src.startsWith("\\") || /^[a-zA-Z]:/.test(src)
+          ? src
+          : `${fileDir}/${src}`;
+        resolvedSrc = convertFileSrc(absolute);
+      }
+      return <img src={resolvedSrc} alt={alt ?? ""} {...props} />;
+    },
+  }), [filePath]);
 
   // Load comments from sidecar on file open
   useEffect(() => {
@@ -350,53 +274,114 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     return () => clearTimeout(timer);
   }, [comments, filePath]);
 
-  // Single selectionchange listener → add/remove .has-selection CSS class on DOM nodes
+  // Scroll-to-line from CommentsPanel click
   useEffect(() => {
-    function onSelectionChange() {
-      document
-        .querySelectorAll<HTMLElement>(".comment-block-wrapper.has-selection")
-        .forEach((el) => el.classList.remove("has-selection"));
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return;
-      let node: Node | null = sel.anchorNode;
-      while (node && node !== document.body) {
-        if (node instanceof HTMLElement && node.classList.contains("comment-block-wrapper")) {
-          node.classList.add("has-selection");
-          break;
-        }
-        node = node.parentNode;
+    const handler = (e: Event) => {
+      const line = (e as CustomEvent).detail.line;
+      const el = bodyRef.current?.querySelector(`[data-source-line="${line}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("comment-flash");
+        setTimeout(() => el.classList.remove("comment-flash"), 1500);
       }
-    }
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, []);
-
-  // Ctrl+Shift+M: open comment input for the block under the cursor / selection.
-  // Works with a collapsed caret (single click to position cursor) or a text selection.
-  // Uses e.code so it's keyboard-layout independent.
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyM") {
-        e.preventDefault();
-        const sel = window.getSelection();
-        // anchorNode is set for both a cursor position (collapsed) and a text selection
-        const anchor = sel?.anchorNode ?? null;
-        if (!anchor) return;
-        let node: Node | null = anchor;
-        while (node && node !== document.body) {
-          if (node instanceof HTMLElement && node.classList.contains("comment-block-wrapper")) {
-            node.querySelector<HTMLButtonElement>(".comment-plus-btn")?.click();
-            break;
-          }
-          node = node.parentNode;
-        }
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+      setExpandedLine(line);
+      setCommentingLine(null);
+    };
+    window.addEventListener("scroll-to-line", handler);
+    return () => window.removeEventListener("scroll-to-line", handler);
   }, []);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
+
+  const commentCountByLine = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const [ln, cmts] of commentsByLine) {
+      map.set(ln, cmts.filter(c => !c.resolved).length);
+    }
+    return map;
+  }, [commentsByLine]);
+
+  const handleLineClick = useCallback((line: number) => {
+    const lineComments = commentsByLine.get(line) ?? [];
+    if (lineComments.length > 0) {
+      setExpandedLine(expandedLine === line ? null : line);
+      setCommentingLine(null);
+    } else {
+      setCommentingLine(commentingLine === line ? null : line);
+      setExpandedLine(null);
+    }
+  }, [commentsByLine, expandedLine, commentingLine]);
+
+  const contextValue = useMemo(() => ({
+    commentCountByLine,
+  }), [commentCountByLine]);
+
+  const handleGutterClick = useCallback((e: React.MouseEvent) => {
+    const container = bodyRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const relativeX = e.clientX - containerRect.left;
+
+    // Only handle clicks in the gutter zone (left 28px)
+    if (relativeX > 28) return;
+
+    const target = (e.target as HTMLElement).closest("[data-source-line]");
+    if (!target) return;
+    const line = Number(target.getAttribute("data-source-line"));
+    if (line <= 0) return;
+
+    e.stopPropagation();
+    handleLineClick(line);
+  }, [handleLineClick]);
+
+  const handleMouseUp = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { setSelectionToolbar(null); return; }
+    const range = sel.getRangeAt(0);
+    const selectedText = sel.toString().trim();
+    if (!selectedText) { setSelectionToolbar(null); return; }
+
+    const startNode = range.startContainer;
+    const startElement = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
+    const lineElement = startElement?.closest("[data-source-line]");
+    if (!lineElement) { setSelectionToolbar(null); return; }
+
+    const lineNumber = Number(lineElement.getAttribute("data-source-line"));
+    if (!lineNumber) { setSelectionToolbar(null); return; }
+
+    const rects = range.getClientRects();
+    const lastRect = rects[rects.length - 1] || range.getBoundingClientRect();
+
+    const toolbarHeight = 36;
+    const toolbarWidth = 120;
+    let top = lastRect.top - toolbarHeight - 4;
+    let left = lastRect.left + (lastRect.width / 2) - (toolbarWidth / 2);
+
+    if (top < 4) top = lastRect.bottom + 4;
+    left = Math.max(4, Math.min(left, window.innerWidth - toolbarWidth - 4));
+
+    setSelectionToolbar({ position: { top, left }, lineNumber, selectedText });
+  }, []);
+
+  const handleAddSelectionComment = useCallback(() => {
+    if (!selectionToolbar) return;
+    const { lineNumber, selectedText } = selectionToolbar;
+    const idx = lineNumber - 1;
+    const ctx = captureContext(lines, idx);
+
+    setPendingSelectionAnchor({
+      anchorType: "selection",
+      lineHash: computeLineHash(lines[idx] ?? ""),
+      lineNumber,
+      contextBefore: ctx.contextBefore,
+      contextAfter: ctx.contextAfter,
+      selectedText,
+    });
+
+    setSelectionToolbar(null);
+    setCommentingLine(lineNumber);
+    setExpandedLine(null);
+  }, [selectionToolbar, lines]);
 
   return (
     <div className="markdown-viewer">
@@ -407,15 +392,84 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       )}
       {data && <FrontmatterBlock data={data} />}
       <TableOfContents headings={headings} />
-      <div className="markdown-body">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeSlug]}
-          components={components as never}
+      <MdCommentContext.Provider value={contextValue}>
+        <div
+          className="markdown-body"
+          ref={bodyRef}
+          onClick={handleGutterClick}
+          onMouseUp={handleMouseUp}
+          style={{ position: "relative" }}
         >
-          {body}
-        </ReactMarkdown>
-      </div>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeSlug]}
+            components={components as never}
+          >
+            {body}
+          </ReactMarkdown>
+
+          {/* Comment popover for expanded/commenting line */}
+          {(expandedLine !== null || commentingLine !== null) && (() => {
+            const activeLine = expandedLine ?? commentingLine;
+            if (!activeLine) return null;
+            const el = bodyRef.current?.querySelector(`[data-source-line="${activeLine}"]`);
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            const containerRect = bodyRef.current!.getBoundingClientRect();
+            const lineComments = commentsByLine.get(activeLine) ?? [];
+
+            return (
+              <div className="md-comment-popover" style={{
+                position: "absolute",
+                top: rect.top - containerRect.top + rect.height,
+                left: 24,
+                zIndex: 20,
+              }}>
+                {lineComments.length > 0 && (
+                  <div className="md-comment-threads">
+                    {lineComments.map(c => <CommentThread key={c.id} comment={c} />)}
+                  </div>
+                )}
+
+                {commentingLine === activeLine ? (
+                  <LineCommentMargin
+                    filePath={filePath}
+                    lineNumber={activeLine}
+                    lineText={lines[activeLine - 1] ?? ""}
+                    fileLines={lines}
+                    matchedComments={[]}
+                    showInput={true}
+                    onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); setPendingSelectionAnchor(null); }}
+                    onSaveComment={
+                      pendingSelectionAnchor
+                        ? (text: string) => {
+                            addComment(filePath, pendingSelectionAnchor as any, text);
+                            setPendingSelectionAnchor(null);
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <button
+                    className="comment-btn comment-btn-primary"
+                    style={{ marginTop: 8 }}
+                    onClick={() => setCommentingLine(activeLine)}
+                  >
+                    Add comment
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      </MdCommentContext.Provider>
+      {selectionToolbar && (
+        <SelectionToolbar
+          position={selectionToolbar.position}
+          onAddComment={handleAddSelectionComment}
+          onDismiss={() => setSelectionToolbar(null)}
+        />
+      )}
     </div>
   );
 }

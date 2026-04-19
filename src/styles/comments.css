@@ -41,6 +41,16 @@
   cursor: pointer;
 }
 
+.comment-panel-item-line {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* Comment thread */
 .comment-thread {
   padding: 10px;
@@ -162,36 +172,9 @@
   background: var(--color-accent-hover);
 }
 
-/* Commentable block wrapper */
-.comment-block-wrapper {
-  position: relative;
-}
-
-/* Transparent hover bridge: extends clickable zone left into the gutter so the
-   cursor doesn't leave the hover area when moving from text to the + button. */
-.comment-block-wrapper::before {
-  content: '';
-  position: absolute;
-  left: -28px;
-  top: 0;
-  bottom: 0;
-  width: 28px;
-}
-
-/* Gutter button strip — absolutely positioned to the left of the block */
-.comment-margin-wrapper {
-  position: absolute;
-  left: -26px;
-  top: 3px;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 2px;
-  width: 24px;
-}
-
+/* Comment plus button in gutter */
 .comment-plus-btn {
-  display: none;
+  display: flex;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -205,75 +188,171 @@
   justify-content: center;
   flex-shrink: 0;
   padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
 }
 
 .comment-plus-btn:hover {
   background: var(--color-tab-hover);
+  opacity: 1;
 }
 
-/* Show + button when: hovering, text is selected inside the block, or block is focused */
-.comment-block-wrapper:hover .comment-plus-btn,
-.comment-block-wrapper.has-selection .comment-plus-btn,
-.comment-block-wrapper:focus-within .comment-plus-btn {
-  display: flex;
+/* Floating comment button in visual mode — DEPRECATED, replaced by inline gutter */
+
+.md-comment-popover {
+  min-width: 280px;
+  max-width: 400px;
+  z-index: 20;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 6px;
 }
 
-/* Professional comment bubble indicator — replaces blue dot */
-.comment-margin-indicator {
-  width: 18px;
-  height: 18px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  flex-shrink: 0;
+/* Remove nested frame from comment input inside popover */
+.md-comment-popover .comment-input {
   padding: 0;
+  border: none;
+  margin: 0;
+  background: none;
+}
+
+/* In visual mode, line-comment-section doesn't need source-view's 82px left indent */
+.md-comment-popover .line-comment-section {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* Inline comment gutter for visual (markdown) mode */
+.md-commentable-block {
+  /* Wrapper div — no special positioning so ::before positions relative to .markdown-body */
+}
+
+.md-commentable-li {
+  /* Styled li — no special positioning */
+}
+
+/* Gutter button as ::before pseudo-element — always at left edge */
+.md-commentable-block::before,
+.md-commentable-li::before {
+  content: "+";
+  position: absolute;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.comment-margin-indicator:hover {
-  opacity: 0.75;
-}
-
-.comment-margin-indicator-resolved {
-  opacity: 0.5;
-}
-
-/* Context menu */
-.comment-ctx-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 99;
-}
-
-.comment-ctx-menu {
-  position: fixed;
-  z-index: 100;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent, #0969da);
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  min-width: 140px;
-  overflow: hidden;
+  box-sizing: border-box;
+  z-index: 5;
 }
 
-.comment-ctx-item {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
-  text-align: left;
-  font-size: 13px;
-  background: transparent;
-  border: none;
-  color: var(--color-text);
-  cursor: pointer;
+/* Show on hover */
+.md-commentable-block:hover::before,
+.md-commentable-li:hover::before {
+  opacity: 0.6;
 }
 
-.comment-ctx-item:hover {
-  background: var(--color-tab-hover);
+/* Lines with comments — always visible badge */
+.md-commentable-block.has-comments::before,
+.md-commentable-li.has-comments::before {
+  content: attr(data-comment-count);
+  opacity: 0.8;
+  background: var(--color-accent, #0969da);
+  color: white;
+  border-color: transparent;
+  font-size: 11px;
+}
+
+.md-commentable-block.has-comments:hover::before,
+.md-commentable-li.has-comments:hover::before {
+  opacity: 1;
+}
+
+.md-comment-threads {
+  margin-bottom: 4px;
 }
 
 .comment-edit {
   margin-top: 4px;
+}
+
+/* Selection toolbar */
+.selection-toolbar {
+  position: fixed;
+  z-index: 100;
+  background: var(--color-bg-elevated, #fff);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 4px 8px;
+}
+
+.selection-toolbar-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--color-fg-default, #1f2328);
+}
+
+.selection-toolbar-btn:hover {
+  background: var(--color-bg-hover, #f3f4f6);
+}
+
+/* Selection highlight */
+.comment-selection-highlight {
+  background: rgba(255, 186, 0, 0.2);
+  border-bottom: 2px solid rgba(255, 186, 0, 0.6);
+  border-radius: 2px;
+}
+
+.comment-selection-highlight.resolved {
+  background: rgba(0, 180, 0, 0.1);
+  border-bottom-color: rgba(0, 180, 0, 0.3);
+}
+
+/* Flash animation for scroll-to-comment */
+@keyframes comment-flash {
+  0% { background: rgba(255, 186, 0, 0.3); }
+  100% { background: transparent; }
+}
+
+.comment-flash {
+  animation: comment-flash 1.5s ease-out;
+}
+
+/* Comment responses */
+.comment-responses {
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-border, #d0d7de);
+}
+.comment-response {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.comment-response-author {
+  font-weight: 600;
+  margin-right: 6px;
+  color: var(--color-accent, #0969da);
+}
+.comment-response-time {
+  color: var(--color-fg-muted, #656d76);
+  font-size: 11px;
+}
+.comment-response-text {
+  margin: 2px 0 0;
 }

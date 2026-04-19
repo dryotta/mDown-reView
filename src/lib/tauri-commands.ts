@@ -14,14 +14,35 @@ export interface LaunchArgs {
   folders: string[];
 }
 
+export interface CommentResponse {
+  author: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface ReviewComment {
   id: string;
-  blockHash: string;
-  headingContext: string | null;
-  fallbackLine: number;
+  anchorType: "line" | "selection" | "block"; // block kept for legacy read
+  // Line anchor (always present for line/selection)
+  lineNumber?: number;
+  lineHash?: string;
+  // Context for re-anchoring
+  contextBefore?: string;
+  contextAfter?: string;
+  // Selection fields
+  selectedText?: string;
+  selectionStartOffset?: number;
+  selectionEndLine?: number;
+  selectionEndOffset?: number;
+  // Legacy block fields (read-only, not created by new code)
+  blockHash?: string;
+  headingContext?: string | null;
+  fallbackLine?: number;
+  // Content
   text: string;
   createdAt: string;
   resolved: boolean;
+  responses?: CommentResponse[];
 }
 
 export interface ReviewComments {
@@ -33,6 +54,9 @@ export interface ReviewComments {
 
 export const readTextFile = (path: string): Promise<string> =>
   invoke<string>("read_text_file", { path });
+
+export const readBinaryFile = (path: string): Promise<string> =>
+  invoke<string>("read_binary_file", { path });
 
 export const readDir = (path: string): Promise<DirEntry[]> =>
   invoke<DirEntry[]>("read_dir", { path });

@@ -1,19 +1,13 @@
 import { useRef, useEffect, useState } from "react";
 import "@/styles/comments.css";
 
-interface Anchor {
-  blockHash: string;
-  headingContext: string | null;
-  fallbackLine: number;
-}
-
 interface Props {
-  anchor: Anchor;
   onSave: (text: string) => void;
   onClose: () => void;
+  placeholder?: string;
 }
 
-export function CommentInput({ onSave, onClose }: Props) {
+export function CommentInput({ onSave, onClose, placeholder }: Props) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -39,7 +33,7 @@ export function CommentInput({ onSave, onClose }: Props) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Add a comment… (Ctrl+Enter to save, Escape to cancel)"
+        placeholder={placeholder ?? "Add a comment… (Ctrl+Enter to save, Escape to cancel)"}
         rows={3}
       />
       <div className="comment-input-actions">

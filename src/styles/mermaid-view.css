@@ -1,0 +1,16 @@
+.mermaid-view {
+  height: 100%;
+}
+
+.mermaid-toolbar button {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border, #d0d7de);
+  background: var(--color-surface, #f6f8fa);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mermaid-toolbar button:hover {
+  background: var(--color-hover, #f3f4f6);
+}

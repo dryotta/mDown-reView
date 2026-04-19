@@ -1,0 +1,11 @@
+project:
+  name: mDown reView
+  version: 1.0.0
+  features:
+    - markdown viewing
+    - syntax highlighting
+    - review comments
+  settings:
+    theme: auto
+    fontSize: 14
+    wordWrap: false

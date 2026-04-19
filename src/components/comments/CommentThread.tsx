@@ -45,6 +45,17 @@ export function CommentThread({ comment }: Props) {
       ) : (
         <p className="comment-text">{comment.text}</p>
       )}
+      {comment.responses && comment.responses.length > 0 && (
+        <div className="comment-responses">
+          {comment.responses.map((r, i) => (
+            <div key={i} className="comment-response">
+              <span className="comment-response-author">{r.author}</span>
+              <span className="comment-response-time">{new Date(r.createdAt).toLocaleString()}</span>
+              <p className="comment-response-text">{r.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="comment-actions">
         {!editing && (
           <button className="comment-action-btn" onClick={() => { setEditing(true); setEditText(comment.text); }}>

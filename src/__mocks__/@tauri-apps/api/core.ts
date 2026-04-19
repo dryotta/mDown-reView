@@ -16,3 +16,5 @@ type InvokeResult =
   | void;
 
 export const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<InvokeResult>>();
+
+export const convertFileSrc = vi.fn((path: string) => "asset://localhost/" + encodeURIComponent(path));

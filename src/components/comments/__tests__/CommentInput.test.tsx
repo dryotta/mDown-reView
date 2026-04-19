@@ -5,12 +5,6 @@ import { CommentInput } from "../CommentInput";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
-const BASE_ANCHOR = {
-  blockHash: "abc123",
-  headingContext: null,
-  fallbackLine: 1,
-};
-
 // ─── 14.1: CommentInput behavior ─────────────────────────────────────────────
 
 describe("14.1 – CommentInput", () => {
@@ -18,7 +12,7 @@ describe("14.1 – CommentInput", () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
-    render(<CommentInput anchor={BASE_ANCHOR} onSave={onSave} onClose={onClose} />);
+    render(<CommentInput onSave={onSave} onClose={onClose} />);
 
     await waitFor(() => {
       const textarea = screen.getByRole("textbox");
@@ -30,7 +24,7 @@ describe("14.1 – CommentInput", () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
-    render(<CommentInput anchor={BASE_ANCHOR} onSave={onSave} onClose={onClose} />);
+    render(<CommentInput onSave={onSave} onClose={onClose} />);
 
     const textarea = screen.getByRole("textbox");
     fireEvent.change(textarea, { target: { value: "  My comment  " } });
@@ -46,7 +40,7 @@ describe("14.1 – CommentInput", () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
-    render(<CommentInput anchor={BASE_ANCHOR} onSave={onSave} onClose={onClose} />);
+    render(<CommentInput onSave={onSave} onClose={onClose} />);
 
     const saveBtn = screen.getByRole("button", { name: /save/i });
     expect(saveBtn).toBeDisabled();
@@ -56,7 +50,7 @@ describe("14.1 – CommentInput", () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
-    render(<CommentInput anchor={BASE_ANCHOR} onSave={onSave} onClose={onClose} />);
+    render(<CommentInput onSave={onSave} onClose={onClose} />);
 
     const textarea = screen.getByRole("textbox");
     fireEvent.change(textarea, { target: { value: "some text" } });
@@ -70,7 +64,7 @@ describe("14.1 – CommentInput", () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
-    render(<CommentInput anchor={BASE_ANCHOR} onSave={onSave} onClose={onClose} />);
+    render(<CommentInput onSave={onSave} onClose={onClose} />);
 
     const textarea = screen.getByRole("textbox");
     fireEvent.change(textarea, { target: { value: "keyboard save" } });
@@ -83,7 +77,7 @@ describe("14.1 – CommentInput", () => {
     const onSave = vi.fn();
     const onClose = vi.fn();
 
-    render(<CommentInput anchor={BASE_ANCHOR} onSave={onSave} onClose={onClose} />);
+    render(<CommentInput onSave={onSave} onClose={onClose} />);
 
     const cancelBtn = screen.getByRole("button", { name: /cancel/i });
     fireEvent.click(cancelBtn);

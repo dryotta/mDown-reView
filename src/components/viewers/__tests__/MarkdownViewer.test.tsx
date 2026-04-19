@@ -65,8 +65,12 @@ vi.mock("../TableOfContents", () => ({
   },
 }));
 
-vi.mock("@/components/comments/CommentMargin", () => ({
-  CommentMargin: () => null,
+vi.mock("@/components/comments/LineCommentMargin", () => ({
+  LineCommentMargin: () => null,
+}));
+
+vi.mock("@/lib/comment-matching", () => ({
+  matchComments: () => [],
 }));
 
 const FILE_PATH = "/docs/README.md";

@@ -1,0 +1,61 @@
+.kql-plan-container {
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+}
+
+.kql-formatted-query {
+  background: var(--color-surface, #f6f8fa);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.kql-keyword {
+  color: var(--color-accent, #0969da);
+  font-weight: 600;
+}
+
+.kql-pipe {
+  color: var(--color-muted, #656d76);
+}
+
+.kql-operator-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.kql-operator-table th {
+  background: var(--color-surface, #f6f8fa);
+  border-bottom: 2px solid var(--color-border, #d0d7de);
+  padding: 6px 12px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.kql-operator-table td {
+  border-bottom: 1px solid var(--color-border, #d0d7de);
+  padding: 4px 12px;
+}
+
+.kql-operator-table tr:hover td {
+  background: var(--color-hover, #f3f4f6);
+}
+
+.kql-plan-footer {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--color-muted, #656d76);
+}
+
+.kql-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--color-muted, #656d76);
+}

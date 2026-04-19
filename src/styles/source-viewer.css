@@ -41,3 +41,173 @@
 .binary-size {
   font-size: 12px;
 }
+
+/* ── SourceView line-based layout ────────────────────────────────── */
+
+.source-view {
+  height: 100%;
+  background: var(--color-bg);
+}
+
+.source-lines {
+  font-size: 13px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.source-line {
+  display: flex;
+  min-height: 20px;
+  line-height: 20px;
+}
+
+.source-line:hover {
+  background: var(--color-hover);
+}
+
+.source-line-gutter {
+  display: flex;
+  align-items: flex-start;
+  width: 74px;
+  min-width: 74px;
+  color: var(--color-muted);
+  user-select: none;
+  position: sticky;
+  left: 0;
+  background: var(--color-bg);
+  z-index: 1;
+}
+
+.source-line:hover .source-line-gutter {
+  background: var(--color-hover);
+}
+
+.source-line-comment-zone {
+  width: 20px;
+  min-width: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.source-line-comment-zone .comment-plus-btn {
+  display: flex;
+  font-size: 14px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 18px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-accent, #0969da);
+}
+
+.source-line:hover .source-line-comment-zone .comment-plus-btn {
+  opacity: 1;
+}
+
+.source-line-number-zone {
+  flex: 1;
+  text-align: right;
+  padding-right: 8px;
+  font-size: 12px;
+  padding-top: 1px;
+  line-height: 20px;
+}
+
+.source-line-content {
+  flex: 1;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.source-view.wrap-enabled .source-line-content {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.source-line-content code {
+  font-family: inherit;
+}
+
+.line-comment-section {
+  padding: 4px 12px 4px 82px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.line-comment-count {
+  font-size: 12px;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.line-comment-count:hover {
+  text-decoration: underline;
+}
+
+/* ── Code folding ──────────────────────────────────────────────── */
+
+.source-line-fold-zone {
+  width: 14px;
+  min-width: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.source-line-fold-toggle {
+  font-size: 10px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  margin-top: 3px;
+}
+
+.source-line-fold-toggle:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.source-fold-placeholder {
+  display: flex;
+  min-height: 20px;
+  line-height: 20px;
+  padding-left: 82px;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  border-top: 1px dashed var(--color-border);
+  border-bottom: 1px dashed var(--color-border);
+  font-size: 12px;
+  font-style: italic;
+  cursor: pointer;
+}
+
+.source-fold-placeholder:hover {
+  background: var(--color-hover);
+}
+
+/* Selection highlight for active selection comments */
+.source-line.selection-active {
+  background: rgba(255, 213, 79, 0.2);
+}
+
+.source-line.selection-active .source-line-gutter {
+  background: rgba(255, 213, 79, 0.2);
+}

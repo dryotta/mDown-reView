@@ -23,6 +23,7 @@
 
 .markdown-body {
   position: relative;
+  padding-left: 28px;
 }
 
 /* GitHub-style markdown */

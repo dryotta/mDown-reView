@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { readTextFile } from "@/lib/tauri-commands";
+import { getFileCategory } from "@/lib/file-types";
 
-export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "error";
+export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "error";
 
 export interface FileContent {
   status: FileStatus;
@@ -14,6 +15,13 @@ export function useFileContent(path: string): FileContent {
 
   useEffect(() => {
     setState({ status: "loading" });
+    
+    // Short-circuit for image files - don't attempt to read as text
+    if (getFileCategory(path) === "image") {
+      setState({ status: "image" });
+      return;
+    }
+    
     readTextFile(path)
       .then((content) => setState({ status: "ready", content }))
       .catch((err: unknown) => {

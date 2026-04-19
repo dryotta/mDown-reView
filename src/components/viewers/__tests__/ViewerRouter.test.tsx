@@ -7,15 +7,15 @@ vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
 // Mock child viewers as simple test stubs
-vi.mock("../MarkdownViewer", () => ({
-  MarkdownViewer: ({ filePath }: { filePath: string }) => (
-    <div data-testid="markdown-viewer" data-path={filePath}>MarkdownViewer</div>
+vi.mock("../EnhancedViewer", () => ({
+  EnhancedViewer: ({ filePath }: { filePath: string }) => (
+    <div data-testid="enhanced-viewer" data-path={filePath}>EnhancedViewer</div>
   ),
 }));
 
-vi.mock("../SourceViewer", () => ({
-  SourceViewer: ({ path }: { path: string }) => (
-    <div data-testid="source-viewer" data-path={path}>SourceViewer</div>
+vi.mock("../ImageViewer", () => ({
+  ImageViewer: ({ path }: { path: string }) => (
+    <div data-testid="image-viewer" data-path={path}>ImageViewer</div>
   ),
 }));
 
@@ -42,56 +42,52 @@ beforeEach(() => {
   mockUseFileContent.mockReset();
 });
 
-// ─── 8.3: ViewerRouter routing ───────────────────────────────────────────────
-
-describe("8.3 – ViewerRouter routing", () => {
-  it(".md extension routes to MarkdownViewer", () => {
+describe("ViewerRouter routing", () => {
+  it(".md extension routes to EnhancedViewer", () => {
     mockUseFileContent.mockReturnValue({ status: "ready", content: "# Hello" });
     useStore.setState({ tabs: [{ path: "/docs/README.md", scrollTop: 0 }] });
-
     render(<ViewerRouter path="/docs/README.md" />);
-    expect(screen.getByTestId("markdown-viewer")).toBeInTheDocument();
-    expect(screen.queryByTestId("source-viewer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("enhanced-viewer")).toBeInTheDocument();
   });
 
-  it(".mdx extension routes to MarkdownViewer", () => {
-    mockUseFileContent.mockReturnValue({ status: "ready", content: "# MDX" });
-    useStore.setState({ tabs: [{ path: "/docs/page.mdx", scrollTop: 0 }] });
-
-    render(<ViewerRouter path="/docs/page.mdx" />);
-    expect(screen.getByTestId("markdown-viewer")).toBeInTheDocument();
+  it(".json extension routes to EnhancedViewer", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: '{"a":1}' });
+    useStore.setState({ tabs: [{ path: "/data.json", scrollTop: 0 }] });
+    render(<ViewerRouter path="/data.json" />);
+    expect(screen.getByTestId("enhanced-viewer")).toBeInTheDocument();
   });
 
-  it(".ts extension routes to SourceViewer", () => {
+  it(".ts extension routes to EnhancedViewer", () => {
     mockUseFileContent.mockReturnValue({ status: "ready", content: "const x = 1;" });
     useStore.setState({ tabs: [{ path: "/src/index.ts", scrollTop: 0 }] });
-
     render(<ViewerRouter path="/src/index.ts" />);
-    expect(screen.getByTestId("source-viewer")).toBeInTheDocument();
-    expect(screen.queryByTestId("markdown-viewer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("enhanced-viewer")).toBeInTheDocument();
+  });
+
+  it("image status routes to ImageViewer", () => {
+    mockUseFileContent.mockReturnValue({ status: "image" });
+    useStore.setState({ tabs: [{ path: "/photos/test.png", scrollTop: 0 }] });
+    render(<ViewerRouter path="/photos/test.png" />);
+    expect(screen.getByTestId("image-viewer")).toBeInTheDocument();
   });
 
   it("loading status shows SkeletonLoader", () => {
     mockUseFileContent.mockReturnValue({ status: "loading" });
     useStore.setState({ tabs: [{ path: "/docs/README.md", scrollTop: 0 }] });
-
     render(<ViewerRouter path="/docs/README.md" />);
     expect(screen.getByTestId("skeleton-loader")).toBeInTheDocument();
-    expect(screen.queryByTestId("markdown-viewer")).not.toBeInTheDocument();
   });
 
   it("binary status shows BinaryPlaceholder", () => {
     mockUseFileContent.mockReturnValue({ status: "binary" });
-    useStore.setState({ tabs: [{ path: "/docs/image.png", scrollTop: 0 }] });
-
-    render(<ViewerRouter path="/docs/image.png" />);
+    useStore.setState({ tabs: [{ path: "/docs/file.bin", scrollTop: 0 }] });
+    render(<ViewerRouter path="/docs/file.bin" />);
     expect(screen.getByTestId("binary-placeholder")).toBeInTheDocument();
   });
 
   it("error status shows error message", () => {
     mockUseFileContent.mockReturnValue({ status: "error", error: "file not found" });
     useStore.setState({ tabs: [{ path: "/missing.md", scrollTop: 0 }] });
-
     render(<ViewerRouter path="/missing.md" />);
     expect(screen.getByText(/Error loading file/)).toBeInTheDocument();
     expect(screen.getByText(/file not found/)).toBeInTheDocument();

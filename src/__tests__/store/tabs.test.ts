@@ -128,3 +128,21 @@ describe("tabs slice – setActiveTab", () => {
     expect(useStore.getState().activeTabPath).toBe("/a.md");
   });
 });
+
+describe("view mode per tab", () => {
+  it("stores and retrieves view mode for a tab", () => {
+    useStore.getState().setViewMode("/test.json", "visual");
+    expect(useStore.getState().viewModeByTab["/test.json"]).toBe("visual");
+  });
+
+  it("defaults to undefined when not set", () => {
+    expect(useStore.getState().viewModeByTab["/unknown"]).toBeUndefined();
+  });
+
+  it("clears view mode when tab is closed", () => {
+    useStore.getState().openFile("/test.json");
+    useStore.getState().setViewMode("/test.json", "source");
+    useStore.getState().closeTab("/test.json");
+    expect(useStore.getState().viewModeByTab["/test.json"]).toBeUndefined();
+  });
+});
