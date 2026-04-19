@@ -1,3 +1,18 @@
+## v0.2.1 — 2026-04-18
+
+### Features
+- feat: improve comment UX — persistence, hover fix, selection/keyboard/context-menu triggers, list items, folder indicator, bubble icon
+- feat: wire CommentMargin into MarkdownViewer
+
+### Fixes
+- fix: replace on_url_open with RunEvent::Opened for macOS builds; deduplicate release assets
+- fix: clean stale bundle cache before release build, remove Cargo.lock from skill git add
+
+### Other
+- ci: parallelize tests and builds, add macOS installers, switch to Swatinem/rust-cache
+- ci: drop Intel macOS (macos-13) — Apple Silicon only
+- chore: update Cargo.lock (new transitive deps from cargo check)
+
 ## v0.2.0 — 2026-04-18
 
 ### Features
