@@ -1,14 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
-import { extname } from "@/lib/path-utils";
 import { SkeletonLoader } from "./SkeletonLoader";
-import { MarkdownViewer } from "./MarkdownViewer";
-import { SourceViewer } from "./SourceViewer";
+import { EnhancedViewer } from "./EnhancedViewer";
+import { ImageViewer } from "./ImageViewer";
 import { BinaryPlaceholder } from "./BinaryPlaceholder";
-import "@/styles/source-viewer.css";
-
-const MD_EXTENSIONS = new Set([".md", ".mdx"]);
 
 interface Props {
   path: string;
@@ -39,6 +35,14 @@ export function ViewerRouter({ path }: Props) {
     );
   }
 
+  if (status === "image") {
+    return (
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <ImageViewer path={path} />
+      </div>
+    );
+  }
+
   if (status === "binary" || status === "too_large") {
     return (
       <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
@@ -55,19 +59,10 @@ export function ViewerRouter({ path }: Props) {
     );
   }
 
-  const ext = extname(path);
   const fileSize = content ? new Blob([content]).size : undefined;
-  if (MD_EXTENSIONS.has(ext)) {
-    return (
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }} onScroll={handleScroll}>
-        <MarkdownViewer content={content!} filePath={path} fileSize={fileSize} />
-      </div>
-    );
-  }
-
   return (
     <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }} onScroll={handleScroll}>
-      <SourceViewer content={content!} path={path} fileSize={fileSize} />
+      <EnhancedViewer content={content!} path={path} filePath={path} fileSize={fileSize} />
     </div>
   );
 }

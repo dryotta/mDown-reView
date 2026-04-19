@@ -10,6 +10,7 @@ import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { getFileCategory } from "@/lib/file-types";
 import type { Update } from "@tauri-apps/plugin-updater";
 import "@/styles/app.css";
 
@@ -383,7 +384,7 @@ export default function App() {
           </ErrorBoundary>
         </div>
 
-        {commentsPaneVisible && activeTabPath && (
+        {commentsPaneVisible && activeTabPath && getFileCategory(activeTabPath) !== "image" && (
           <ErrorBoundary>
             <CommentsPanel filePath={activeTabPath} />
           </ErrorBoundary>
