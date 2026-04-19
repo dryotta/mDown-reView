@@ -58,6 +58,14 @@ npm run tauri</code></pre>
     <p>Requires <a href="https://nodejs.org">Node.js LTS</a> and <a href="https://www.rust-lang.org">Rust stable</a>.</p>
   </section>
 
+  <section class="install">
+    <h2>Agent Integration</h2>
+    <p>Review comments are stored as <code>.review.json</code> sidecar files. Coding agents can read and act on them with the bundled skills.</p>
+    <pre><code>/plugin marketplace add dryotta/mdownreview
+/plugin install mdownreview-skills@mdownreview</code></pre>
+    <p>Or use the CLI directly: <code>python scripts/mdownreview.py read</code></p>
+  </section>
+
   <footer>
     <p>MIT License &middot; <a href="https://github.com/dryotta/mDown-reView">GitHub</a></p>
   </footer>
