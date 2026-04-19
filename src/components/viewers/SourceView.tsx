@@ -187,6 +187,22 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     lineEl?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [currentIndex, matches]);
 
+  // Scroll-to-line from CommentsPanel click
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const line = (e as CustomEvent).detail.line;
+      const lineIdx = line - 1;
+      const el = document.querySelector(`[data-line-idx="${lineIdx}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("comment-flash");
+        setTimeout(() => el.classList.remove("comment-flash"), 1500);
+      }
+    };
+    window.addEventListener("scroll-to-line", handler);
+    return () => window.removeEventListener("scroll-to-line", handler);
+  }, []);
+
   function highlightSearchInLine(lineIdx: number): string {
     const lineMatches = matchesByLine.get(lineIdx);
     if (!lineMatches) return escapeHtml(lines[lineIdx]);
