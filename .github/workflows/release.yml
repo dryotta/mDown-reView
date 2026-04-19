@@ -79,7 +79,7 @@ jobs:
           # Delete any stale .exe/.dmg assets first — prevents duplicates on re-runs
           # and cleans up assets left over from app renames.
           gh release view "$TAG" --json assets \
-            --jq '.assets[] | select(.name | test("\\.(exe|dmg)$")) | .name' \
+            --jq '.assets[] | select(.name | test("[.](exe|dmg)$")) | .name' \
             | while IFS= read -r name; do
                 gh release delete-asset "$TAG" "$name" --yes 2>/dev/null || true
               done
@@ -109,30 +109,29 @@ jobs:
           VERSION="${TAG#v}"
           BASE_URL="https://github.com/dryotta/mDown-reView/releases/download/${TAG}"
 
-          # Helper: fetch a release asset by name pattern and return its content
-          fetch_sig() {
-            local pattern="$1"
-            gh release view "$TAG" --json assets \
-              --jq ".assets[] | select(.name | test(\"${pattern}\")) | .name" \
-              | head -1 \
-              | xargs -I{} gh release download "$TAG" --pattern "{}" --dir /tmp/sigs 2>/dev/null
-            local matched
-            matched=$(ls /tmp/sigs/ 2>/dev/null | grep -E "${pattern}" | head -1)
-            [ -n "$matched" ] && cat "/tmp/sigs/${matched}" || echo ""
-          }
-
           mkdir -p /tmp/sigs
 
-          WIN_SIG=$(fetch_sig ".*\\.nsis\\.zip\\.sig$")
-          ARM_SIG=$(fetch_sig ".*_aarch64\\.app\\.tar\\.gz\\.sig$")
+          # Fetch sig file content by jq-safe pattern (use [.] for literal dots)
+          fetch_sig() {
+            local pattern="$1"
+            local fname
+            fname=$(gh release view "$TAG" --json assets \
+              --jq ".assets[] | select(.name | test(\"${pattern}\")) | .name" | head -1)
+            [ -z "$fname" ] && { echo ""; return; }
+            gh release download "$TAG" --pattern "$fname" --dir /tmp/sigs 2>/dev/null
+            cat "/tmp/sigs/${fname}" 2>/dev/null || echo ""
+          }
+
+          WIN_SIG=$(fetch_sig ".*[.]nsis[.]zip[.]sig$")
+          ARM_SIG=$(fetch_sig ".*[.]app[.]tar[.]gz[.]sig$")
 
           WIN_ZIP=$(gh release view "$TAG" --json assets \
-            --jq '.assets[] | select(.name | test("\\.nsis\\.zip$")) | .name' | head -1)
+            --jq '.assets[] | select(.name | test("[.]nsis[.]zip$")) | .name' | head -1)
           ARM_APP=$(gh release view "$TAG" --json assets \
-            --jq '.assets[] | select(.name | test("_aarch64\\.app\\.tar\\.gz$")) | .name' | head -1)
+            --jq '.assets[] | select(.name | test("[.]app[.]tar[.]gz$")) | .name' | head -1)
 
           [ -z "$WIN_ZIP" ] && { echo "::error::NSIS updater zip not found on release"; exit 1; }
-          [ -z "$ARM_APP" ] && { echo "::error::aarch64 macOS updater bundle not found on release"; exit 1; }
+          [ -z "$ARM_APP" ] && { echo "::error::macOS updater bundle not found on release"; exit 1; }
 
           # URL-encode spaces in filenames (productName "mDown reView" produces spaces)
           url_encode() { echo "$1" | sed 's/ /%20/g'; }
