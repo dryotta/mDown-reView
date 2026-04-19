@@ -1,5 +1,8 @@
 {
   "name": "mdownreview",
+  "owner": {
+    "name": "dryotta"
+  },
   "metadata": {
     "description": "Skills for working with .review.json sidecar comments",
     "version": "1.0.0"
