@@ -2,6 +2,7 @@ pub mod commands;
 
 use commands::LaunchArgsState;
 use std::sync::{Arc, Mutex};
+use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
 
@@ -98,7 +99,93 @@ pub fn run() {
             let state: LaunchArgsState = Arc::new(Mutex::new(Some(launch_args)));
             app.manage(state);
 
-                Ok(())
+            // ── Build application menu ────────────────────────────────────────
+
+            // File menu
+            let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+O"))?;
+            let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+            let close_all_tabs = MenuItem::with_id(app, "close-all-tabs", "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"))?;
+            let file_menu = SubmenuBuilder::new(app, "File")
+                .item(&open_folder)
+                .separator()
+                .item(&close_tab)
+                .item(&close_all_tabs)
+                .separator()
+                .quit()
+                .build()?;
+
+            // View menu — panes
+            let toggle_folder_pane = MenuItem::with_id(app, "toggle-folder-pane", "Toggle Folder Pane", true, Some("CmdOrCtrl+B"))?;
+            let toggle_comments_pane = MenuItem::with_id(app, "toggle-comments-pane", "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"))?;
+            // View menu — tab navigation
+            let next_tab = MenuItem::with_id(app, "next-tab", "Next Tab", true, None::<&str>)?;
+            let prev_tab = MenuItem::with_id(app, "prev-tab", "Previous Tab", true, None::<&str>)?;
+            // View menu — folder tree
+            let expand_all = MenuItem::with_id(app, "expand-all", "Expand All", true, None::<&str>)?;
+            let collapse_all = MenuItem::with_id(app, "collapse-all", "Collapse All", true, None::<&str>)?;
+            // View menu — theme submenu
+            let theme_system = MenuItem::with_id(app, "theme-system", "System Theme", true, None::<&str>)?;
+            let theme_light = MenuItem::with_id(app, "theme-light", "Light Theme", true, None::<&str>)?;
+            let theme_dark = MenuItem::with_id(app, "theme-dark", "Dark Theme", true, None::<&str>)?;
+            let theme_menu = SubmenuBuilder::new(app, "Theme")
+                .item(&theme_system)
+                .item(&theme_light)
+                .item(&theme_dark)
+                .build()?;
+            let view_menu = SubmenuBuilder::new(app, "View")
+                .item(&toggle_folder_pane)
+                .item(&toggle_comments_pane)
+                .separator()
+                .item(&next_tab)
+                .item(&prev_tab)
+                .separator()
+                .item(&expand_all)
+                .item(&collapse_all)
+                .separator()
+                .item(&theme_menu)
+                .build()?;
+
+            // Help menu
+            let about_item = MenuItem::with_id(app, "about", "About mDown reView", true, None::<&str>)?;
+            let check_updates = MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
+            let help_menu = SubmenuBuilder::new(app, "Help")
+                .item(&about_item)
+                .separator()
+                .item(&check_updates)
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&file_menu)
+                .item(&view_menu)
+                .item(&help_menu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
+            // Forward menu events to the frontend as Tauri events
+            app.on_menu_event(|app, event| {
+                let Some(window) = app.get_webview_window("main") else { return };
+                let event_name = match event.id().as_ref() {
+                    "open-folder" => "menu-open-folder",
+                    "close-tab" => "menu-close-tab",
+                    "close-all-tabs" => "menu-close-all-tabs",
+                    "toggle-folder-pane" => "menu-toggle-folder-pane",
+                    "toggle-comments-pane" => "menu-toggle-comments-pane",
+                    "next-tab" => "menu-next-tab",
+                    "prev-tab" => "menu-prev-tab",
+                    "expand-all" => "menu-expand-all",
+                    "collapse-all" => "menu-collapse-all",
+                    "theme-system" => "menu-theme-system",
+                    "theme-light" => "menu-theme-light",
+                    "theme-dark" => "menu-theme-dark",
+                    "about" => "menu-about",
+                    "check-updates" => "menu-check-updates",
+                    _ => return,
+                };
+                let _ = window.emit(event_name, ());
+            });
+
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::read_dir,

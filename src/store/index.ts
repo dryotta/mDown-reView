@@ -26,6 +26,7 @@ interface TabsSlice {
   activeTabPath: string | null;
   openFile: (path: string) => void;
   closeTab: (path: string) => void;
+  closeAllTabs: () => void;
   setActiveTab: (path: string) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
 }
@@ -123,6 +124,7 @@ export const useStore = create<Store>()(
         }
         set({ tabs: newTabs, activeTabPath: newActive });
       },
+      closeAllTabs: () => set({ tabs: [], activeTabPath: null }),
       setActiveTab: (path) => set({ activeTabPath: path }),
       setScrollTop: (path, scrollTop) =>
         set((s) => ({

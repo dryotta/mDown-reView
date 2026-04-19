@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/store";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -61,6 +63,32 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
       }
     }
   };
+
+  // Menu event listeners for folder-tree-specific actions (mount once)
+  const expandAllRef = useRef(handleExpandAll);
+  expandAllRef.current = handleExpandAll;
+
+  useEffect(() => {
+    const pending = [
+      listen("menu-open-folder", async () => {
+        const selected = await open({ directory: true, multiple: false });
+        if (typeof selected === "string") {
+          const { setRoot, folderPaneVisible, toggleFolderPane } = useStore.getState();
+          setRoot(selected);
+          setChildrenCache({});
+          if (!folderPaneVisible) toggleFolderPane();
+        }
+      }),
+      listen("menu-expand-all", () => {
+        const { root } = useStore.getState();
+        if (root) expandAllRef.current(root);
+      }),
+    ];
+    return () => {
+      pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Build visible flat list for keyboard nav
   function buildFlatList(

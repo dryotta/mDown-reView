@@ -160,7 +160,7 @@ export default function App() {
     };
   }, []);
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts (kept for e2e tests and non-native environments)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -194,27 +194,63 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleFolderPane, toggleCommentsPane]);
 
-  // Background update check — 5 s delay, non-blocking
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      const { setUpdateStatus, setUpdateVersion } = useStore.getState();
-      try {
-        setUpdateStatus("checking");
-        const { check } = await import("@tauri-apps/plugin-updater");
-        const update = await check();
-        if (update) {
-          setPendingUpdate(update);
-          setUpdateVersion(update.version);
-          setUpdateStatus("available");
-        } else {
-          setUpdateStatus("idle");
-        }
-      } catch {
+  const triggerUpdateCheck = useCallback(async () => {
+    const { setUpdateStatus, setUpdateVersion } = useStore.getState();
+    try {
+      setUpdateStatus("checking");
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        setPendingUpdate(update);
+        setUpdateVersion(update.version);
+        setUpdateStatus("available");
+      } else {
         setUpdateStatus("idle");
       }
-    }, 5000);
-    return () => clearTimeout(t);
+    } catch {
+      setUpdateStatus("idle");
+    }
   }, []);
+
+  // Background update check — 5 s delay, non-blocking
+  useEffect(() => {
+    const t = setTimeout(triggerUpdateCheck, 5000);
+    return () => clearTimeout(t);
+  }, [triggerUpdateCheck]);
+
+  // Native menu event listeners
+  useEffect(() => {
+    const pending = [
+      listen("menu-toggle-folder-pane", () => toggleFolderPane()),
+      listen("menu-toggle-comments-pane", () => toggleCommentsPane()),
+      listen("menu-close-tab", () => {
+        const { activeTabPath, closeTab } = useStore.getState();
+        if (activeTabPath) closeTab(activeTabPath);
+      }),
+      listen("menu-close-all-tabs", () => useStore.getState().closeAllTabs()),
+      listen("menu-next-tab", () => {
+        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
+        if (tabs.length < 2) return;
+        const idx = tabs.findIndex((t) => t.path === activeTabPath);
+        setActiveTab(tabs[(idx + 1) % tabs.length].path);
+      }),
+      listen("menu-prev-tab", () => {
+        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
+        if (tabs.length < 2) return;
+        const idx = tabs.findIndex((t) => t.path === activeTabPath);
+        setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length].path);
+      }),
+      listen("menu-theme-system", () => setTheme("system")),
+      listen("menu-theme-light", () => setTheme("light")),
+      listen("menu-theme-dark", () => setTheme("dark")),
+      listen("menu-about", () => setAboutOpen(true)),
+      listen("menu-check-updates", () => triggerUpdateCheck()),
+      listen("menu-collapse-all", () => useStore.getState().collapseAll()),
+    ];
+    return () => {
+      pending.forEach((p) => p.then((fn) => fn()));
+    };
+  }, [toggleFolderPane, toggleCommentsPane, setTheme, triggerUpdateCheck]);
 
   const cycleTheme = useCallback(() => {
     const idx = THEME_CYCLE.indexOf(theme);
@@ -302,14 +338,13 @@ export default function App() {
       <UpdateBanner update={pendingUpdate} />
 
       <div className="main-area">
-        {folderPaneVisible && (
-          <>
-            <ErrorBoundary>
-              <FolderTree onFileOpen={openFile} />
-            </ErrorBoundary>
-            <div className="drag-handle" onMouseDown={onDragStart} />
-          </>
-        )}
+        {/* FolderTree is always mounted so it can handle menu events; hidden via CSS */}
+        <div style={folderPaneVisible ? { display: "contents" } : { display: "none" }}>
+          <ErrorBoundary>
+            <FolderTree onFileOpen={openFile} />
+          </ErrorBoundary>
+          <div className="drag-handle" onMouseDown={onDragStart} />
+        </div>
 
         <div className="viewer-area">
           <TabBar />

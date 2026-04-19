@@ -45,6 +45,11 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           return null;
         },
       };
+      // Mock the event plugin internals used by @tauri-apps/api's unlisten() cleanup.
+      (window as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+        registerListener: () => {},
+        unregisterListener: () => {},
+      };
     });
 
     page.on("pageerror", (error) => {
