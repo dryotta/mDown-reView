@@ -55,7 +55,6 @@ function extractInnerCode(html: string): string {
 
 export function SourceView({ content, path, filePath, fileSize, wordWrap }: Props) {
   const [highlightedLines, setHighlightedLines] = useState<string[]>([]);
-  const [hoveredLine, setHoveredLine] = useState<number | null>(null);
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
 
   const setFileComments = useStore((s) => s.setFileComments);
@@ -148,16 +147,11 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           );
           return (
             <div key={idx}>
-              <div
-                className="source-line"
-                onMouseEnter={() => setHoveredLine(lineNum)}
-                onMouseLeave={() => setHoveredLine(null)}
-              >
+              <div className="source-line">
                 <span className="source-line-gutter">
-                  <span className="source-line-number">{lineNum}</span>
-                  {(hoveredLine === lineNum || commentingLine === lineNum) && (
+                  <span className="source-line-comment-zone">
                     <button
-                      className="comment-plus-btn source-line-add-comment"
+                      className="comment-plus-btn"
                       aria-label="Add comment"
                       onClick={() => setCommentingLine(
                         commentingLine === lineNum ? null : lineNum
@@ -165,7 +159,8 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
                     >
                       +
                     </button>
-                  )}
+                  </span>
+                  <span className="source-line-number-zone">{lineNum}</span>
                 </span>
                 <span
                   className="source-line-content"

@@ -67,11 +67,8 @@
 .source-line-gutter {
   display: flex;
   align-items: flex-start;
-  padding-top: 1px;
   width: 60px;
   min-width: 60px;
-  padding-right: 8px;
-  justify-content: flex-end;
   color: var(--color-muted);
   user-select: none;
   position: sticky;
@@ -84,18 +81,41 @@
   background: var(--color-hover);
 }
 
-.source-line-number {
-  font-size: 12px;
+.source-line-comment-zone {
+  width: 20px;
+  min-width: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
 }
 
-.source-line-add-comment {
-  position: absolute;
-  left: 4px;
+.source-line-comment-zone .comment-plus-btn {
   font-size: 14px;
   width: 18px;
   height: 18px;
   padding: 0;
   line-height: 18px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-accent, #0969da);
+}
+
+.source-line:hover .source-line-comment-zone .comment-plus-btn {
+  opacity: 1;
+}
+
+.source-line-number-zone {
+  flex: 1;
+  text-align: right;
+  padding-right: 8px;
+  font-size: 12px;
+  padding-top: 1px;
+  line-height: 20px;
 }
 
 .source-line-content {

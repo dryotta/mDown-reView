@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { SourceView } from "../SourceView";
 
 vi.mock("shiki", () => ({
@@ -32,8 +32,7 @@ describe("SourceView", () => {
     await waitFor(() => {
       expect(screen.getByText("1")).toBeInTheDocument();
     });
-    const lineGutter = screen.getByText("1").closest(".source-line-gutter");
-    if (lineGutter) fireEvent.mouseEnter(lineGutter);
+    // Button is always rendered, CSS controls visibility
     expect(screen.getByLabelText("Add comment")).toBeInTheDocument();
   });
 });
