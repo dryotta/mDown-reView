@@ -14,26 +14,34 @@ const MAX_EXPAND_DEPTH = 3;
 export function FolderTree({ onFileOpen }: FolderTreeProps) {
   const { root, expandedFolders, setFolderExpanded, collapseAll, activeTabPath, commentsByFile } = useStore();
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
+  const childrenCacheRef = useRef(childrenCache);
+  childrenCacheRef.current = childrenCache;
   const [filter, setFilter] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Stable ref — never re-created, reads cache via ref to avoid stale closures
   const loadChildren = useCallback(
-    async (path: string) => {
-      if (childrenCache[path]) return;
+    async (path: string): Promise<DirEntry[]> => {
+      const cached = childrenCacheRef.current[path];
+      if (cached) return cached;
       try {
         const entries = await readDir(path);
         setChildrenCache((prev) => ({ ...prev, [path]: entries }));
+        childrenCacheRef.current = { ...childrenCacheRef.current, [path]: entries };
+        return entries;
       } catch {
-        // ignore
+        return [];
       }
     },
-    [childrenCache]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   // Reset cache whenever the root folder changes
   useEffect(() => {
     setChildrenCache({});
+    childrenCacheRef.current = {};
   }, [root]);
 
   useEffect(() => {
@@ -55,9 +63,8 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
 
   const handleExpandAll = async (parentPath: string, depth = 0) => {
     if (depth >= MAX_EXPAND_DEPTH) return;
-    await loadChildren(parentPath);
+    const entries = await loadChildren(parentPath);
     setFolderExpanded(parentPath, true);
-    const entries = childrenCache[parentPath] ?? [];
     for (const entry of entries) {
       if (entry.is_dir) {
         await handleExpandAll(entry.path, depth + 1);

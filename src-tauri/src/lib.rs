@@ -102,10 +102,12 @@ pub fn run() {
             // ── Build application menu ────────────────────────────────────────
 
             // File menu
+            let open_file = MenuItem::with_id(app, "open-file", "Open File…", true, None::<&str>)?;
             let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+O"))?;
             let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
             let close_all_tabs = MenuItem::with_id(app, "close-all-tabs", "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"))?;
             let file_menu = SubmenuBuilder::new(app, "File")
+                .item(&open_file)
                 .item(&open_folder)
                 .separator()
                 .item(&close_tab)
@@ -166,6 +168,7 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 let Some(window) = app.get_webview_window("main") else { return };
                 let event_name = match event.id().as_ref() {
+                    "open-file" => "menu-open-file",
                     "open-folder" => "menu-open-folder",
                     "close-tab" => "menu-close-tab",
                     "close-all-tabs" => "menu-close-all-tabs",

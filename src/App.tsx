@@ -218,9 +218,31 @@ export default function App() {
     return () => clearTimeout(t);
   }, [triggerUpdateCheck]);
 
+  const handleOpenFile = useCallback(async () => {
+    const selected = await open({ directory: false, multiple: true });
+    if (Array.isArray(selected)) {
+      for (const f of selected) openFile(f);
+    } else if (typeof selected === "string") {
+      openFile(selected);
+    }
+  }, [openFile]);
+
+  const handleOpenFolder = useCallback(async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected === "string") {
+      setRoot(selected);
+    }
+  }, [setRoot]);
+
+  const cycleTheme = useCallback(() => {
+    const idx = THEME_CYCLE.indexOf(theme);
+    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
+  }, [theme, setTheme]);
+
   // Native menu event listeners
   useEffect(() => {
     const pending = [
+      listen("menu-open-file", () => handleOpenFile()),
       listen("menu-toggle-folder-pane", () => toggleFolderPane()),
       listen("menu-toggle-comments-pane", () => toggleCommentsPane()),
       listen("menu-close-tab", () => {
@@ -250,28 +272,7 @@ export default function App() {
     return () => {
       pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
-  }, [toggleFolderPane, toggleCommentsPane, setTheme, triggerUpdateCheck]);
-
-  const cycleTheme = useCallback(() => {
-    const idx = THEME_CYCLE.indexOf(theme);
-    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
-  }, [theme, setTheme]);
-
-  const handleOpenFile = useCallback(async () => {
-    const selected = await open({ directory: false, multiple: true });
-    if (Array.isArray(selected)) {
-      for (const f of selected) openFile(f);
-    } else if (typeof selected === "string") {
-      openFile(selected);
-    }
-  }, [openFile]);
-
-  const handleOpenFolder = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string") {
-      setRoot(selected);
-    }
-  }, [setRoot]);
+  }, [handleOpenFile, toggleFolderPane, toggleCommentsPane, setTheme, triggerUpdateCheck]);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
