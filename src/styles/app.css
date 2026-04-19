@@ -19,6 +19,9 @@
   --color-blockquote-border: #d0d7de;
   --color-badge: #cf222e;
   --color-badge-text: #ffffff;
+  --color-toggle-active-bg: rgba(9, 105, 218, 0.08);
+  --color-toggle-active-bg-hover: rgba(9, 105, 218, 0.14);
+  --color-btn-group-bg: #ffffff;
 }
 
 [data-theme="dark"] {
@@ -39,6 +42,9 @@
   --color-blockquote-border: #30363d;
   --color-badge: #f85149;
   --color-badge-text: #ffffff;
+  --color-toggle-active-bg: rgba(88, 166, 255, 0.12);
+  --color-toggle-active-bg-hover: rgba(88, 166, 255, 0.2);
+  --color-btn-group-bg: #21262d;
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────── */
@@ -73,32 +79,53 @@ body,
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
+  padding: 0 12px;
   background: var(--color-toolbar);
   border-bottom: 1px solid var(--color-toolbar-border);
   flex-shrink: 0;
-  height: 36px;
-}
-
-.app-title {
-  font-weight: 600;
-  font-size: 13px;
+  height: 40px;
+  gap: 8px;
 }
 
 .toolbar-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+  margin-left: auto;
+}
+
+.toolbar-btn-group {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-btn-group-bg);
+}
+
+.toolbar-btn-group .toolbar-btn {
+  border: none;
+  border-radius: 0;
+  background: var(--color-btn-group-bg);
+}
+
+.toolbar-btn-group .toolbar-btn + .toolbar-btn {
+  border-left: 1px solid var(--color-border);
 }
 
 .toolbar-btn {
-  padding: 3px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  height: 28px;
   font-size: 12px;
-  border: 1px solid var(--color-border);
+  font-family: inherit;
+  border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--color-text);
   cursor: pointer;
+  transition: background 0.1s;
 }
 
 .toolbar-btn:hover {
@@ -106,14 +133,36 @@ body,
 }
 
 .toolbar-btn-toggle.active {
-  background: var(--color-accent);
-  color: #fff;
-  border-color: var(--color-accent);
+  background: var(--color-toggle-active-bg);
+  color: var(--color-accent);
 }
 
 .toolbar-btn-toggle.active:hover {
-  background: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
+  background: var(--color-toggle-active-bg-hover);
+  color: var(--color-accent);
+}
+
+.toolbar-btn-utility {
+  color: var(--color-muted);
+}
+
+.toolbar-btn-utility:hover {
+  color: var(--color-text);
+}
+
+.toolbar-btn .toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.toolbar-btn .toolbar-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
 }
 
 .toolbar-separator {

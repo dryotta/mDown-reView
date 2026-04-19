@@ -81,6 +81,9 @@ test.describe("Panels and Keyboard Shortcuts", () => {
     await expect(page.locator(".app-layout")).toBeVisible();
 
     const separators = page.locator(".toolbar-separator");
-    await expect(separators).toHaveCount(2);
+    await expect(separators).toHaveCount(1);
+
+    const btnGroups = page.locator(".toolbar-btn-group");
+    await expect(btnGroups).toHaveCount(2);
   });
 });
