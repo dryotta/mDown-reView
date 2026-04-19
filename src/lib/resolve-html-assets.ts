@@ -1,4 +1,4 @@
-import { readBinaryFile } from "@/lib/tauri-commands";
+import { readBinaryFile, readTextFile } from "@/lib/tauri-commands";
 import { dirname, extname } from "@/lib/path-utils";
 
 const MIME_MAP: Record<string, string> = {
@@ -22,10 +22,14 @@ function resolvePath(src: string, htmlDir: string): string {
   return `${htmlDir}/${clean}`;
 }
 
-export async function resolveLocalAssets(html: string, htmlFilePath: string): Promise<string> {
-  const htmlDir = dirname(htmlFilePath);
-  const srcPattern = /(<img\b[^>]*?\bsrc=")([^"]+)(")/gi;
+interface Replacement {
+  full: string;
+  replacement: string;
+  index: number;
+}
 
+async function resolveImages(html: string, htmlDir: string): Promise<Replacement[]> {
+  const srcPattern = /(<img\b[^>]*?\bsrc=")([^"]+)(")/gi;
   const matches: { full: string; prefix: string; src: string; suffix: string; index: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = srcPattern.exec(html)) !== null) {
@@ -34,25 +38,74 @@ export async function resolveLocalAssets(html: string, htmlFilePath: string): Pr
     }
   }
 
-  if (matches.length === 0) return html;
-
-  const replacements = await Promise.all(
-    matches.map(async ({ src }) => {
+  const results: Replacement[] = [];
+  await Promise.all(
+    matches.map(async ({ full, prefix, src, suffix, index }) => {
       const absPath = resolvePath(src, htmlDir);
       const mime = MIME_MAP[extname(absPath)] ?? "application/octet-stream";
       try {
         const base64 = await readBinaryFile(absPath);
-        return `data:${mime};base64,${base64}`;
+        results.push({ full, replacement: `${prefix}data:${mime};base64,${base64}${suffix}`, index });
       } catch {
-        return src;
+        // keep original on failure
       }
     })
   );
 
+  return results;
+}
+
+async function resolveStylesheets(html: string, htmlDir: string): Promise<Replacement[]> {
+  const linkPattern = /(<link\b[^>]*?\brel=["']stylesheet["'][^>]*?\bhref=["'])([^"']+)(["'][^>]*?>)/gi;
+  const matches: { full: string; prefix: string; href: string; suffix: string; index: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = linkPattern.exec(html)) !== null) {
+    if (isLocalPath(m[2])) {
+      matches.push({ full: m[0], prefix: m[1], href: m[2], suffix: m[3], index: m.index });
+    }
+  }
+
+  // Also match href-first pattern: <link href="..." rel="stylesheet">
+  const linkPattern2 = /(<link\b[^>]*?\bhref=["'])([^"']+)(["'][^>]*?\brel=["']stylesheet["'][^>]*?>)/gi;
+  while ((m = linkPattern2.exec(html)) !== null) {
+    if (isLocalPath(m[2])) {
+      // Avoid duplicates (same index)
+      if (!matches.some((existing) => existing.index === m!.index)) {
+        matches.push({ full: m[0], prefix: m[1], href: m[2], suffix: m[3], index: m.index });
+      }
+    }
+  }
+
+  const results: Replacement[] = [];
+  await Promise.all(
+    matches.map(async ({ full, href, index }) => {
+      const absPath = resolvePath(href, htmlDir);
+      try {
+        const cssContent = await readTextFile(absPath);
+        results.push({ full, replacement: `<style>${cssContent}</style>`, index });
+      } catch {
+        // keep original on failure
+      }
+    })
+  );
+
+  return results;
+}
+
+export async function resolveLocalAssets(html: string, htmlFilePath: string): Promise<string> {
+  const htmlDir = dirname(htmlFilePath);
+
+  const [imageReplacements, stylesheetReplacements] = await Promise.all([
+    resolveImages(html, htmlDir),
+    resolveStylesheets(html, htmlDir),
+  ]);
+
+  const allReplacements = [...imageReplacements, ...stylesheetReplacements]
+    .sort((a, b) => b.index - a.index); // process from end to preserve indices
+
   let result = html;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const { prefix, suffix, index, full } = matches[i];
-    result = result.slice(0, index) + prefix + replacements[i] + suffix + result.slice(index + full.length);
+  for (const { full, replacement, index } of allReplacements) {
+    result = result.slice(0, index) + replacement + result.slice(index + full.length);
   }
 
   return result;

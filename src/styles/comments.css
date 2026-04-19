@@ -178,6 +178,12 @@
   width: 28px;
 }
 
+/* For li elements: extend bridge further to cover list indentation */
+li.comment-block-wrapper::before {
+  left: calc(-28px - 2em);
+  width: calc(28px + 2em);
+}
+
 /* Gutter button strip — absolutely positioned to the left of the block */
 .comment-margin-wrapper {
   position: absolute;
@@ -188,6 +194,11 @@
   align-items: center;
   gap: 2px;
   width: 24px;
+}
+
+/* For li inside lists, offset further to align with outer edge */
+li.comment-block-wrapper > .comment-margin-wrapper {
+  left: calc(-26px - 2em);
 }
 
 .comment-plus-btn {

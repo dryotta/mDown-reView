@@ -3,14 +3,16 @@ import { resolveLocalAssets } from "@/lib/resolve-html-assets";
 
 vi.mock("@/lib/tauri-commands", () => ({
   readBinaryFile: vi.fn(),
+  readTextFile: vi.fn(),
 }));
 
-import { readBinaryFile } from "@/lib/tauri-commands";
+import { readBinaryFile, readTextFile } from "@/lib/tauri-commands";
 
 describe("resolveLocalAssets", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(readBinaryFile).mockResolvedValue("AAAA");
+    vi.mocked(readTextFile).mockResolvedValue("body { color: red; }");
   });
 
   it("replaces relative img src with data URL", async () => {
@@ -51,5 +53,33 @@ describe("resolveLocalAssets", () => {
     const html = '<img src="missing.png">';
     const result = await resolveLocalAssets(html, "/docs/page.html");
     expect(result).toContain("missing.png");
+  });
+
+  it("inlines local stylesheet link as style tag", async () => {
+    const html = '<link rel="stylesheet" href="styles.css">';
+    const result = await resolveLocalAssets(html, "/docs/page.html");
+    expect(result).toContain("<style>body { color: red; }</style>");
+    expect(result).not.toContain("styles.css");
+    expect(readTextFile).toHaveBeenCalledWith("/docs/styles.css");
+  });
+
+  it("inlines stylesheet with href before rel", async () => {
+    const html = '<link href="theme.css" rel="stylesheet">';
+    const result = await resolveLocalAssets(html, "/docs/page.html");
+    expect(result).toContain("<style>body { color: red; }</style>");
+  });
+
+  it("leaves remote stylesheet untouched", async () => {
+    const html = '<link rel="stylesheet" href="https://cdn.example.com/style.css">';
+    const result = await resolveLocalAssets(html, "/docs/page.html");
+    expect(result).toBe(html);
+    expect(readTextFile).not.toHaveBeenCalled();
+  });
+
+  it("handles both images and stylesheets together", async () => {
+    const html = '<link rel="stylesheet" href="style.css"><img src="photo.png">';
+    const result = await resolveLocalAssets(html, "/docs/page.html");
+    expect(result).toContain("<style>body { color: red; }</style>");
+    expect(result).toContain("data:image/png;base64,AAAA");
   });
 });

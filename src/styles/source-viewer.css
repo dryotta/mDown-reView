@@ -91,6 +91,7 @@
 }
 
 .source-line-comment-zone .comment-plus-btn {
+  display: flex;
   font-size: 14px;
   width: 18px;
   height: 18px;
