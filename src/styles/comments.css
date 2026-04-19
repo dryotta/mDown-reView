@@ -207,7 +207,15 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  padding: 8px;
+  padding: 6px;
+}
+
+/* Remove nested frame from comment input inside popover */
+.md-comment-popover .comment-input {
+  padding: 0;
+  border: none;
+  margin: 0;
+  background: none;
 }
 
 /* Inline comment gutter for visual (markdown) mode */
