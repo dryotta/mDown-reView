@@ -24,11 +24,13 @@ export interface Tab {
 interface TabsSlice {
   tabs: Tab[];
   activeTabPath: string | null;
+  viewModeByTab: Record<string, "source" | "visual">;
   openFile: (path: string) => void;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (path: string) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
+  setViewMode: (path: string, mode: "source" | "visual") => void;
 }
 
 // ── Comments slice ─────────────────────────────────────────────────────────
@@ -122,13 +124,19 @@ export const useStore = create<Store>()(
         if (newActive === path) {
           newActive = newTabs[idx] ? newTabs[idx].path : newTabs[idx - 1]?.path ?? null;
         }
-        set({ tabs: newTabs, activeTabPath: newActive });
+        const { [path]: _, ...restViewModes } = get().viewModeByTab;
+        set({ tabs: newTabs, activeTabPath: newActive, viewModeByTab: restViewModes });
       },
-      closeAllTabs: () => set({ tabs: [], activeTabPath: null }),
+      closeAllTabs: () => set({ tabs: [], activeTabPath: null, viewModeByTab: {} }),
       setActiveTab: (path) => set({ activeTabPath: path }),
       setScrollTop: (path, scrollTop) =>
         set((s) => ({
           tabs: s.tabs.map((t) => (t.path === path ? { ...t, scrollTop } : t)),
+        })),
+      viewModeByTab: {},
+      setViewMode: (path, mode) =>
+        set((s) => ({
+          viewModeByTab: { ...s.viewModeByTab, [path]: mode },
         })),
 
       // Comments
