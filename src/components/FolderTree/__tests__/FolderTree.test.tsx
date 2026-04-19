@@ -8,11 +8,6 @@ import type { DirEntry } from "@/lib/tauri-commands";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
-// Mock plugin-dialog so "Open Folder…" doesn't throw
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn().mockResolvedValue(null),
-}));
-
 // Mock tauri-commands readDir so we can control what it returns
 vi.mock("@/lib/tauri-commands", () => ({
   readDir: vi.fn(),
@@ -277,20 +272,9 @@ describe("6.6 – keyboard navigation", () => {
   });
 });
 
-// ─── 6.7: pane-toggle and file open ──────────────────────────────────────────
+// ─── 6.7: file open ──────────────────────────────────────────────────────────
 
-describe("6.7 – pane-toggle button and onFileOpen", () => {
-  it("clicking × calls toggleFolderPane", async () => {
-    const toggleFolderPane = vi.fn();
-    useStore.setState({ toggleFolderPane } as never);
-
-    renderTree();
-    await waitFor(() => screen.getByTitle("Hide folder pane"));
-
-    fireEvent.click(screen.getByTitle("Hide folder pane"));
-    expect(toggleFolderPane).toHaveBeenCalled();
-  });
-
+describe("6.7 – onFileOpen", () => {
   it("clicking a file entry calls onFileOpen with the path", async () => {
     const onFileOpen = vi.fn();
     renderTree(onFileOpen);

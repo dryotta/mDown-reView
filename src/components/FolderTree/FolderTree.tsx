@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/store";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
-import { open } from "@tauri-apps/plugin-dialog";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -11,7 +10,7 @@ interface FolderTreeProps {
 const MAX_EXPAND_DEPTH = 3;
 
 export function FolderTree({ onFileOpen }: FolderTreeProps) {
-  const { root, setRoot, expandedFolders, setFolderExpanded, collapseAll, toggleFolderPane, activeTabPath, commentsByFile } = useStore();
+  const { root, expandedFolders, setFolderExpanded, collapseAll, activeTabPath, commentsByFile } = useStore();
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
   const [filter, setFilter] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
@@ -30,17 +29,14 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
     [childrenCache]
   );
 
+  // Reset cache whenever the root folder changes
+  useEffect(() => {
+    setChildrenCache({});
+  }, [root]);
+
   useEffect(() => {
     if (root) loadChildren(root);
   }, [root, loadChildren]);
-
-  const handleOpenFolder = async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string") {
-      setRoot(selected);
-      setChildrenCache({});
-    }
-  };
 
   const handleToggle = async (path: string, isDir: boolean) => {
     if (!isDir) {
@@ -146,7 +142,6 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
   return (
     <div className="folder-tree" style={{ width: useStore.getState().folderPaneWidth }}>
       <div className="folder-tree-toolbar">
-        <button onClick={handleOpenFolder}>Open Folder…</button>
         <button onClick={collapseAll}>Collapse All</button>
         <button
           onClick={() => {
@@ -155,7 +150,6 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
         >
           Expand All
         </button>
-        <button onClick={toggleFolderPane} title="Hide folder pane">×</button>
       </div>
       <div className="folder-tree-toolbar">
         <input
