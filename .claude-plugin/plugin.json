@@ -1,0 +1,12 @@
+{
+  "name": "mdownreview-skills",
+  "description": "Skills for reading, responding to, resolving, and cleaning up .review.json sidecar comments",
+  "version": "0.3.0",
+  "author": {
+    "name": "dryotta"
+  },
+  "homepage": "https://github.com/dryotta/mdownreview",
+  "repository": "https://github.com/dryotta/mdownreview",
+  "license": "MIT",
+  "keywords": ["review", "comments", "sidecar", "markdown"]
+}
