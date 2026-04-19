@@ -172,6 +172,15 @@ export default function App() {
         e.preventDefault();
         toggleCommentsPane();
       }
+      if (mod && !e.shiftKey && e.key === "w") {
+        e.preventDefault();
+        const { activeTabPath, closeTab } = useStore.getState();
+        if (activeTabPath) closeTab(activeTabPath);
+      }
+      if (mod && e.shiftKey && e.key === "W") {
+        e.preventDefault();
+        useStore.getState().closeAllTabs();
+      }
       // Tab cycling
       if (mod && !e.shiftKey && e.key === "Tab") {
         e.preventDefault();
