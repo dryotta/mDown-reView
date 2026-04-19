@@ -215,3 +215,50 @@
 .comment-edit {
   margin-top: 4px;
 }
+
+/* Selection toolbar */
+.selection-toolbar {
+  position: fixed;
+  z-index: 100;
+  background: var(--color-bg-elevated, #fff);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 4px 8px;
+}
+
+.selection-toolbar-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--color-fg-default, #1f2328);
+}
+
+.selection-toolbar-btn:hover {
+  background: var(--color-bg-hover, #f3f4f6);
+}
+
+/* Selection highlight */
+.comment-selection-highlight {
+  background: rgba(255, 186, 0, 0.2);
+  border-bottom: 2px solid rgba(255, 186, 0, 0.6);
+  border-radius: 2px;
+}
+
+.comment-selection-highlight.resolved {
+  background: rgba(0, 180, 0, 0.1);
+  border-bottom-color: rgba(0, 180, 0, 0.3);
+}
+
+/* Flash animation for scroll-to-comment */
+@keyframes comment-flash {
+  0% { background: rgba(255, 186, 0, 0.3); }
+  100% { background: transparent; }
+}
+
+.comment-flash {
+  animation: comment-flash 1.5s ease-out;
+}

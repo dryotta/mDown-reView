@@ -6,6 +6,7 @@ import { computeLineHash, captureContext } from "@/lib/comment-anchors";
 import { useStore } from "@/store";
 import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
+import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { computeFoldRegions, type FoldRegion } from "@/lib/fold-regions";
 import { useSearch } from "@/hooks/useSearch";
 import { SearchBar } from "./SearchBar";
@@ -62,10 +63,19 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [collapsedLines, setCollapsedLines] = useState<Set<number>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
+  const [selectionToolbar, setSelectionToolbar] = useState<{
+    position: { top: number; left: number };
+    lineNumber: number;
+    selectedText: string;
+    startOffset: number;
+    endLine: number;
+    endOffset: number;
+  } | null>(null);
   const { query, setQuery, matches, currentIndex, next, prev } = useSearch(content);
 
   const setFileComments = useStore((s) => s.setFileComments);
   const comments = useStore((s) => s.commentsByFile[filePath]);
+  const addComment = useStore((s) => s.addComment);
   const loadedRef = useRef<string | null>(null);
 
   const lines = content.split("\n");
@@ -225,6 +235,51 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
+  const handleMouseUp = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { setSelectionToolbar(null); return; }
+    const range = sel.getRangeAt(0);
+    const selectedText = sel.toString();
+    if (!selectedText.trim()) { setSelectionToolbar(null); return; }
+
+    const startEl = range.startContainer.parentElement?.closest("[data-line-idx]");
+    const endEl = range.endContainer.parentElement?.closest("[data-line-idx]");
+    if (!startEl || !endEl) { setSelectionToolbar(null); return; }
+
+    const startIdx = Number(startEl.getAttribute("data-line-idx"));
+    const endIdx = Number(endEl.getAttribute("data-line-idx"));
+    const rect = range.getBoundingClientRect();
+
+    setSelectionToolbar({
+      position: { top: rect.top - 40, left: rect.left },
+      lineNumber: startIdx + 1,
+      selectedText,
+      startOffset: range.startOffset,
+      endLine: endIdx + 1,
+      endOffset: range.endOffset,
+    });
+  };
+
+  const handleAddSelectionComment = () => {
+    if (!selectionToolbar) return;
+    const { lineNumber, selectedText, startOffset, endLine, endOffset } = selectionToolbar;
+    const idx = lineNumber - 1;
+    const ctx = captureContext(lines, idx);
+    addComment(filePath, {
+      anchorType: "selection",
+      lineHash: computeLineHash(lines[idx] ?? ""),
+      lineNumber,
+      contextBefore: ctx.contextBefore,
+      contextAfter: ctx.contextAfter,
+      selectedText,
+      selectionStartOffset: startOffset,
+      selectionEndLine: endLine,
+      selectionEndOffset: endOffset,
+    }, "");
+    setSelectionToolbar(null);
+    setCommentingLine(lineNumber);
+  };
+
   return (
     <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} style={{ position: "relative" }}>
       {searchOpen && (
@@ -243,7 +298,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
         </div>
       )}
-      <div className="source-lines">
+      <div className="source-lines" onMouseUp={handleMouseUp}>
         {(() => {
           const elements: React.ReactNode[] = [];
           let idx = 0;
@@ -327,6 +382,13 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           return elements;
         })()}
       </div>
+      {selectionToolbar && (
+        <SelectionToolbar
+          position={selectionToolbar.position}
+          onAddComment={handleAddSelectionComment}
+          onDismiss={() => setSelectionToolbar(null)}
+        />
+      )}
     </div>
   );
 }
