@@ -5,6 +5,7 @@ import { fnv1a8 } from "@/lib/fnv1a";
 import { useStore } from "@/store";
 import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
+import kqlGrammar from "@/lib/kql.tmLanguage.json";
 import "@/styles/source-viewer.css";
 
 const SIZE_WARN_THRESHOLD = 500 * 1024;
@@ -37,7 +38,7 @@ function langFromPath(path: string): string {
     json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
     sh: "bash", bash: "bash", md: "markdown", sql: "sql",
     rb: "ruby", php: "php", swift: "swift", kt: "kotlin", cs: "csharp",
-    xml: "xml",
+    xml: "xml", kql: "kql", csl: "kql",
   };
   return map[ext] ?? "text";
 }
@@ -106,7 +107,15 @@ export function SourceView({ content, path, filePath, fileSize }: Props) {
       .then(async (hl) => {
         const loaded = hl.getLoadedLanguages();
         if (!loaded.includes(lang) && lang !== "text") {
-          await hl.loadLanguage(lang).catch(() => {});
+          if (lang === "kql") {
+            await hl.loadLanguage({
+              name: "kql",
+              scopeName: "source.kql",
+              ...kqlGrammar,
+            }).catch(() => {});
+          } else {
+            await hl.loadLanguage(lang).catch(() => {});
+          }
         }
         const htmlLines = lines.map((line) => {
           try {

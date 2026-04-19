@@ -1,0 +1,109 @@
+{
+  "scopeName": "source.kql",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#keywords" },
+    { "include": "#functions" },
+    { "include": "#types" },
+    { "include": "#pipes" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.kql",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.kql",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.kql",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.kql", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.single.kql",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.kql", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.backtick.kql",
+          "begin": "`",
+          "end": "`"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.timespan.kql",
+          "match": "\\b\\d+(\\.\\d+)?\\s*(d|h|m|s|ms|tick)\\b"
+        },
+        {
+          "name": "constant.numeric.kql",
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.kql",
+          "match": "\\b(has|has_cs|!has|!has_cs|contains|!contains|contains_cs|!contains_cs|startswith|!startswith|startswith_cs|!startswith_cs|endswith|!endswith|endswith_cs|!endswith_cs|matches\\s+regex|in|!in|in~|!in~|between|!between|has_any|has_all)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.kql",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.operator.kql",
+          "match": "==|!=|<>|<=|>=|<|>"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.kql",
+          "match": "\\b(where|summarize|project|project-away|project-keep|project-rename|project-reorder|extend|join|union|top|sort|order|take|limit|count|distinct|render|let|set|mv-expand|mv-apply|parse|parse-where|evaluate|make-series|print|range|datatable|find|search|lookup|as|on|kind|with|by|asc|desc|nulls\\s+first|nulls\\s+last|bin|toscalar|materialize|consume|fork|facet|partition|invoke|external_data)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.kql",
+          "match": "\\b(count|countif|dcount|dcountif|sum|sumif|avg|avgif|min|minif|max|maxif|percentile|percentiles|stdev|stdevif|variance|varianceif|any|anyif|arg_max|arg_min|make_bag|make_list|make_set|ago|now|datetime|timespan|todatetime|totimespan|tostring|toint|tolong|toreal|tobool|todecimal|toguid|strlen|substring|trim|trim_start|trim_end|toupper|tolower|replace|split|strcat|strcat_delim|indexof|countof|extract|extract_all|parse_json|parse_csv|parse_url|parse_urlquery|parse_path|parse_version|parse_xml|iif|iff|case|coalesce|isempty|isnotempty|isnull|isnotnull|isnan|isinf|isfinite|format_datetime|format_timespan|bin|floor|ceiling|round|log|log10|log2|pow|sqrt|abs|sign|pi|exp|exp2|exp10|gamma|loggamma|hash|hash_sha256|hash_md5|base64_encode_tostring|base64_decode_tostring|url_encode|url_decode|array_length|array_sort_asc|array_sort_desc|array_concat|array_slice|pack|pack_all|pack_array|bag_keys|bag_merge|bag_remove_keys|bag_pack|bag_unpack|zip|repeat|range|todynamic|dynamic|gettype|typeof|treepath|parse_ipv4|parse_ipv6|ipv4_compare|ipv4_is_match|ipv4_is_private|geo_point_in_circle|geo_distance_2points|geo_point_to_geohash|row_number|row_cumsum|row_rank|prev|next|series_fit_line|series_stats|series_fill_linear|series_fill_const|series_fill_forward|series_fill_backward|series_outliers|series_periods_detect|series_periods_validate|series_seasonal|series_decompose|ingestion_time|cursor_after|current_principal|current_cluster_endpoint|extent_id|extent_tags|activity_counts_metrics|activity_engagement|active_users_count|new_activity_metrics|session_count|funnel_sequence|funnel_sequence_completion)(?=\\s*\\()"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.kql",
+          "match": "\\b(string|int|long|real|decimal|bool|boolean|datetime|date|timespan|time|dynamic|guid|uniqueid|type)\\b"
+        }
+      ]
+    },
+    "pipes": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.pipe.kql",
+          "match": "\\|"
+        }
+      ]
+    }
+  }
+}
