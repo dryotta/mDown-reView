@@ -1,0 +1,5 @@
+StormEvents
+| where State == "FLORIDA"
+| summarize count() by EventType
+| top 5 by count_
+| order by count_ desc
