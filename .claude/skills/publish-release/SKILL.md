@@ -102,10 +102,11 @@ Format each section with commit messages grouped by type:
 
 ## Step 7: Stage and Commit Version Files
 
-Run these git commands:
+First sync `package-lock.json` to the new version, then commit all four files:
 
 ```bash
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
+npm install --package-lock-only
+git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
 git commit -m "chore: release v{version}"
 ```
 
