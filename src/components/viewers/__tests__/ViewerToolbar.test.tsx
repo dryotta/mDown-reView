@@ -22,10 +22,18 @@ describe("ViewerToolbar", () => {
     expect(onChange).toHaveBeenCalledWith("visual");
   });
 
-  it("does not render when hidden", () => {
+  it("does not render when hidden and no wrap toggle", () => {
     const { container } = render(
       <ViewerToolbar activeView="source" onViewChange={vi.fn()} hidden />
     );
     expect(container.querySelector(".viewer-toolbar")).toBeNull();
+  });
+
+  it("renders wrap button when showWrapToggle is true", () => {
+    render(
+      <ViewerToolbar activeView="source" onViewChange={vi.fn()} hidden showWrapToggle wordWrap={false} onToggleWrap={vi.fn()} />
+    );
+    expect(screen.getByRole("button", { name: /wrap/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /source/i })).toBeNull();
   });
 });

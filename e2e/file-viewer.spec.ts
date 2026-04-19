@@ -127,7 +127,7 @@ test.describe("Enhanced File Viewer", () => {
     await expect(page.locator(".markdown-viewer")).not.toBeVisible();
   });
 
-  test("Plain text file shows source view without toolbar", async ({ page }) => {
+  test("Plain text file shows source view with wrap button only", async ({ page }) => {
     await setupViewerMocks(page, [
       fileEntry("notes.txt"),
     ], {
@@ -137,8 +137,10 @@ test.describe("Enhanced File Viewer", () => {
     await page.goto("/");
     await page.locator(".folder-tree").getByText("notes.txt").click();
 
-    // Should NOT show toolbar (plain text has no visualization)
-    await expect(page.locator("[role=toolbar]")).not.toBeVisible();
+    // Should show toolbar with wrap button but no Source/Visual toggle
+    await expect(page.locator("[role=toolbar]")).toBeVisible();
+    await expect(page.getByRole("button", { name: /wrap/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /source/i })).not.toBeVisible();
   });
 
   test("View mode persists per tab when switching", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useStore } from "@/store";
 import { getFileCategory, hasVisualization, getDefaultView } from "@/lib/file-types";
 import { ViewerToolbar } from "./ViewerToolbar";
@@ -28,6 +28,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize }: Props) {
   const category = getFileCategory(path);
   const canVisualize = hasVisualization(category);
   const defaultView = getDefaultView(category);
+  const [wordWrap, setWordWrap] = useState(false);
 
   const viewMode = useStore((s) => s.viewModeByTab[filePath]) ?? defaultView;
   const setViewMode = useStore((s) => s.setViewMode);
@@ -44,16 +45,17 @@ export function EnhancedViewer({ content, path, filePath, fileSize }: Props) {
         activeView={viewMode}
         onViewChange={handleViewChange}
         hidden={!canVisualize}
+        showWrapToggle={showSource}
+        wordWrap={wordWrap}
+        onToggleWrap={() => setWordWrap(!wordWrap)}
       />
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {showSource ? (
-          <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} />
-        ) : (
-          <Suspense fallback={<SkeletonLoader />}>
-            {renderVisualView(category, content, path, filePath, fileSize)}
-          </Suspense>
-        )}
-      </div>
+      {showSource ? (
+        <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} />
+      ) : (
+        <Suspense fallback={<SkeletonLoader />}>
+          {renderVisualView(category, content, path, filePath, fileSize)}
+        </Suspense>
+      )}
     </div>
   );
 }

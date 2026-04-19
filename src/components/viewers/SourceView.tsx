@@ -15,6 +15,7 @@ interface Props {
   path: string;
   filePath: string;
   fileSize?: number;
+  wordWrap?: boolean;
 }
 
 let highlighterInstance: Highlighter | null = null;
@@ -52,7 +53,7 @@ function extractInnerCode(html: string): string {
   return match ? match[1] : html;
 }
 
-export function SourceView({ content, path, filePath, fileSize }: Props) {
+export function SourceView({ content, path, filePath, fileSize, wordWrap }: Props) {
   const [highlightedLines, setHighlightedLines] = useState<string[]>([]);
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
@@ -132,7 +133,7 @@ export function SourceView({ content, path, filePath, fileSize }: Props) {
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
   return (
-    <div className="source-view">
+    <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`}>
       {showSizeWarning && (
         <div className="size-warning" role="alert">
           This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow

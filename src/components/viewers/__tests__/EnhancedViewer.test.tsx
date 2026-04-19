@@ -48,9 +48,12 @@ describe("EnhancedViewer", () => {
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
   });
 
-  it("hides ViewerToolbar for plain text files", () => {
+  it("shows toolbar with only wrap button for plain text files", () => {
     render(<EnhancedViewer content="hello" path="/test.txt" filePath="/test.txt" />);
-    expect(screen.queryByRole("toolbar")).toBeNull();
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /source/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /visual/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /wrap/i })).toBeInTheDocument();
   });
 
   it("defaults to visual view for JSON", () => {
@@ -76,8 +79,9 @@ describe("EnhancedViewer", () => {
     expect(screen.getByTestId("source-view")).toBeInTheDocument();
   });
 
-  it("shows source view for plain text (no toolbar)", () => {
+  it("shows source view for plain text with wrap toggle", () => {
     render(<EnhancedViewer content="hello" path="/test.txt" filePath="/test.txt" />);
     expect(screen.getByTestId("source-view")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /wrap/i })).toBeInTheDocument();
   });
 });

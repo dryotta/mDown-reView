@@ -46,7 +46,6 @@
 
 .source-view {
   height: 100%;
-  overflow-y: auto;
   background: var(--color-bg);
 }
 
@@ -67,14 +66,22 @@
 
 .source-line-gutter {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  padding-top: 1px;
   width: 60px;
   min-width: 60px;
   padding-right: 8px;
   justify-content: flex-end;
   color: var(--color-muted);
   user-select: none;
-  position: relative;
+  position: sticky;
+  left: 0;
+  background: var(--color-bg);
+  z-index: 1;
+}
+
+.source-line:hover .source-line-gutter {
+  background: var(--color-hover);
 }
 
 .source-line-number {
@@ -95,7 +102,11 @@
   flex: 1;
   padding: 0 8px;
   white-space: pre;
-  overflow-x: auto;
+}
+
+.source-view.wrap-enabled .source-line-content {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .source-line-content code {
