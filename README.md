@@ -44,7 +44,7 @@ mDown reView persists review comments as `.review.json` sidecar files alongside 
 
 ```
 /plugin marketplace add dryotta/mdownreview-skills
-/plugin install mdownreview-skills@mdownreview-skills
+/plugin install mdownreview@mdownreview-skills
 ```
 
 ## License
