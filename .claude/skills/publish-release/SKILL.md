@@ -75,13 +75,11 @@ Do not proceed past this step until you have explicit confirmation.
 
 Once the version is confirmed, strip any leading `v` from the version before writing to files. For example, if the user typed `v0.2.0`, write `0.2.0` in all three files.
 
-Update the version string in exactly these **5 files** (they must stay in sync):
+Update the version string in exactly these **3 files** (they must stay in sync):
 
 1. **`package.json`** → Update the `"version"` field
 2. **`src-tauri/Cargo.toml`** → Update the `version` field under `[package]`
 3. **`src-tauri/tauri.conf.json`** → Update the `"version"` field
-4. **`.claude-plugin/plugin.json`** → Update the `"version"` field
-5. **`.claude-plugin/marketplace.json`** → Update the `"version"` field of the plugin entry in the `plugins` array (where `name` is `"mdownreview-skills"`)
 
 Note: Use the version without the `v` prefix in the files (e.g., `0.2.0`).
 
@@ -117,7 +115,7 @@ Run each command separately (do not chain with `&&`):
 
 1. `npm install --package-lock-only`
 2. `cargo generate-lockfile --manifest-path src-tauri/Cargo.toml`
-3. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md`
+3. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md`
 4. `git commit -m "chore: release v{version}"`
 
 ## Step 9: Create Tag and Push

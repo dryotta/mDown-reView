@@ -40,39 +40,11 @@ npm run test:e2e    # E2E tests (Playwright)
 
 ## Agent Skills
 
-mDown reView persists review comments as `.review.json` sidecar files alongside your source files. Coding agents can read and act on these comments using the bundled CLI and skills.
+mDown reView persists review comments as `.review.json` sidecar files alongside your source files. Coding agents can read and act on these comments using the skills and CLI in [mdownreview-skills](https://github.com/dryotta/mdownreview-skills).
 
-### Quick Start (agents in this repo)
-
-Skills are automatically available. Run `python scripts/mdownreview.py read` to see outstanding comments.
-
-### Install in Other Projects
-
-**Claude Code / Copilot CLI:**
 ```
-/plugin marketplace add dryotta/mdownreview
-/plugin install mdownreview-skills@mdownreview
-```
-
-### Available Skills
-
-| Skill | Description |
-|-------|-------------|
-| `mdownreview-read` | Scan for `.review.json` files and list unresolved comments |
-| `mdownreview-respond` | Record an agent response after addressing a comment |
-| `mdownreview-resolve` | Mark comments as resolved |
-| `mdownreview-cleanup` | Delete `.review.json` files where all comments are resolved |
-| `mdownreview-review` | Orchestrate the full cycle: read, fix, respond, resolve, clean up |
-| `mdownreview-open` | Find and launch the mDown reView desktop app |
-
-### CLI Usage
-
-```bash
-python scripts/mdownreview.py read [path] [--format json|text] [--all]
-python scripts/mdownreview.py respond <file> <comment-id> "<text>"
-python scripts/mdownreview.py resolve <file> <comment-id> [--all]
-python scripts/mdownreview.py cleanup [path] [--dry-run]
-python scripts/mdownreview.py open [path]
+/plugin marketplace add dryotta/mdownreview-skills
+/plugin install mdownreview-skills@mdownreview-skills
 ```
 
 ## License
