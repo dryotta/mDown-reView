@@ -107,30 +107,55 @@ Format each section with commit messages grouped by type:
 - Use today's date in YYYY-MM-DD format
 - Preserve any existing changelog entries below this new entry
 
-## Step 8: Stage and Commit Version Files
+## Step 8: Create Release Branch, Stage and Commit
 
-Sync lockfiles to the new version, then stage and commit all files.
+Create a release branch, sync lockfiles, then stage and commit all files.
 
 Run each command separately (do not chain with `&&`):
 
-1. `npm install --package-lock-only`
-2. `cargo generate-lockfile --manifest-path src-tauri/Cargo.toml`
-3. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md`
-4. `git commit -m "chore: release v{version}"`
+1. `git checkout -b release/v{version}`
+2. `npm install --package-lock-only`
+3. `cargo generate-lockfile --manifest-path src-tauri/Cargo.toml`
+4. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md`
+5. `git commit -m "chore: release v{version}"`
 
-## Step 9: Create Tag and Push
+## Step 9: Push Branch and Create Pull Request
 
-Create the annotated tag and push to the remote. Run each command separately:
+Push the release branch and open a PR against `main`:
 
-1. `git tag -a v{version} -m "Release v{version}"`
-2. `git push origin main --follow-tags`
+1. `git push origin release/v{version}`
+2. Create PR via `gh pr create --base main --head release/v{version} --title "chore: release v{version}" --body "Version bump to v{version}. Merge this PR, then the release tag will be created automatically."`
 
-## Step 10: Print Release Information
+Print the PR URL and tell the user:
+
+```
+PR created: {pr_url}
+Please merge the PR on GitHub, then come back and confirm so I can tag the release.
+```
+
+**Wait for the user to confirm the PR is merged** using the ask_user tool with choices:
+- `Merged — create the tag`
+- `Cancel release`
+
+If the user cancels, clean up: `git checkout main && git branch -D release/v{version} && git push origin --delete release/v{version}` (each command separately), then stop.
+
+## Step 10: Tag the Merged Commit and Push
+
+After the user confirms the PR is merged:
+
+1. `git checkout main`
+2. `git pull origin main`
+3. `git tag -a v{version} -m "Release v{version}"`
+4. `git push origin v{version}`
+
+The tag push triggers the release workflow (`.github/workflows/release.yml`).
+
+## Step 11: Print Release Information
 
 Print a link to view the GitHub Actions workflow:
 
 ```
-Release v{version} published!
+Release v{version} tagged and pushed!
 Monitor the build at: https://github.com/dryotta/mdownreview/actions
 ```
 
