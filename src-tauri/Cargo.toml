@@ -1,6 +1,6 @@
 [package]
 name = "mdownreview"
-version = "0.2.6"
+version = "0.2.7"
 description = "A desktop markdown reviewer for developers"
 license = "MIT"
 authors = ["davidzh"]

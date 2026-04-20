@@ -1,3 +1,12 @@
+## v0.2.7 — 2026-04-20
+
+### Features
+- overhaul installation system with consistent naming, ARM64, and install scripts
+
+### Other
+- add installation system implementation plan
+- add installation system overhaul design spec
+
 ## v0.2.6 — 2026-04-19
 
 ### Other
