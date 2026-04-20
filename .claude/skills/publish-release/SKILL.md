@@ -131,7 +131,7 @@ Print a link to view the GitHub Actions workflow:
 
 ```
 Release v{version} published!
-Monitor the build at: https://github.com/dryotta/mDown-reView/actions
+Monitor the build at: https://github.com/dryotta/mdownreview/actions
 ```
 
 The CI/CD workflow will automatically build and publish the release.
@@ -143,7 +143,7 @@ The CI/CD workflow will automatically build and publish the release.
 Before the auto-updater can work, a developer needs to set up signing keys once:
 
 ```bash
-npx tauri signer generate -w ~/.tauri/mdown-review.key
+npx tauri signer generate -w ~/.tauri/mdownreview.key
 ```
 
 Then:

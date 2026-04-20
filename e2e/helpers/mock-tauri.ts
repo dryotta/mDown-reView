@@ -8,7 +8,7 @@ const defaultMocks: MockConfig = {
   get_launch_args: () => ({ files: [], folders: [] }),
   read_dir: () => [],
   read_text_file: () => "",
-  get_log_path: () => "/mock/path/mdown-review.log",
+  get_log_path: () => "/mock/path/mdownreview.log",
   save_review_comments: () => null,
   load_review_comments: () => null,
 };

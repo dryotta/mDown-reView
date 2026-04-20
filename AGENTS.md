@@ -128,7 +128,7 @@ e2e/
 
 ## Log File
 
-Release builds write to `{appDataDir}/logs/mdown-review.log`. Rotation at 5 MB, max 3 files. Log level `info` in release, `debug` in debug builds. WebView `console.log/debug` suppressed in release (only `warn`/`error` forwarded). Path exposed in the About dialog with a "Copy path" button.
+Release builds write to `{appDataDir}/logs/mdownreview.log`. Rotation at 5 MB, max 3 files. Log level `info` in release, `debug` in debug builds. WebView `console.log/debug` suppressed in release (only `warn`/`error` forwarded). Path exposed in the About dialog with a "Copy path" button.
 
 ## Comment Data Model
 

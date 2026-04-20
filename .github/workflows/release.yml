@@ -116,7 +116,7 @@ jobs:
         run: |
           TAG="${{ needs.create-release.outputs.tag }}"
           VERSION="${TAG#v}"
-          BASE_URL="https://github.com/dryotta/mDown-reView/releases/download/${TAG}"
+          BASE_URL="https://github.com/dryotta/mdownreview/releases/download/${TAG}"
 
           mkdir -p /tmp/sigs
 

@@ -2,11 +2,11 @@
 
 > Review AI Agent's work
 
-[![CI](https://github.com/dryotta/mDown-reView/actions/workflows/ci.yml/badge.svg)](https://github.com/dryotta/mDown-reView/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/dryotta/mDown-reView)](https://github.com/dryotta/mDown-reView/releases/latest)
+[![CI](https://github.com/dryotta/mdownreview/actions/workflows/ci.yml/badge.svg)](https://github.com/dryotta/mdownreview/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/dryotta/mdownreview)](https://github.com/dryotta/mdownreview/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**[Homepage](https://dryotta.github.io/mDown-reView)**
+**[Homepage](https://dryotta.github.io/mdownreview)**
 
 A slim and fast desktop app written in Rust and React for browsing, viewing and reviewing markdown, code and other text files on Windows and macOS.
 
@@ -20,7 +20,7 @@ A slim and fast desktop app written in Rust and React for browsing, viewing and 
 
 ## Download
 
-Get the latest release from the [Releases page](https://github.com/dryotta/mDown-reView/releases/latest).
+Get the latest release from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest).
 
 | Platform | Installer |
 |----------|-----------|

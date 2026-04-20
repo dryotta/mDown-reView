@@ -33,7 +33,7 @@ test.describe("Native Smoke Tests", () => {
   });
 
   test("26.5 - log file created after first launch", async ({ page }) => {
-    // Placeholder: in real test, check appDataDir/logs/mdown-review.log exists
+    // Placeholder: in real test, check appDataDir/logs/mdownreview.log exists
     expect(true).toBe(true);
   });
 });

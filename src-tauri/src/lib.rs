@@ -20,7 +20,7 @@ pub fn run() {
                 .targets([
                     Target::new(TargetKind::Webview),
                     Target::new(TargetKind::LogDir {
-                        file_name: Some("mdown-review".to_string()),
+                        file_name: Some("mdownreview".to_string()),
                     }),
                     Target::new(TargetKind::Stdout),
                 ]);
@@ -34,7 +34,7 @@ pub fn run() {
                         metadata.level() <= log::Level::Warn
                     }),
                     Target::new(TargetKind::LogDir {
-                        file_name: Some("mdown-review".to_string()),
+                        file_name: Some("mdownreview".to_string()),
                     }),
                 ]);
         }

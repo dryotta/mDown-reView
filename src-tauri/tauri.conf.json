@@ -50,7 +50,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/dryotta/mDown-reView/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/dryotta/mdownreview/releases/latest/download/latest.json"],
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1QUE3NDdDOTBENkMwNUIKUldSYndOYVFmSFNxMWJnWmZFbVZ2V3IyQXFhOGZnYjBHbVVZMWpmU0RKSUhLUlc5c3VsNEl3cDkK"
     }

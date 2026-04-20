@@ -5,7 +5,7 @@
 The application SHALL read file paths passed as command-line arguments at startup and open each as a tab in the viewer. Paths that do not exist SHALL be silently skipped.
 
 ### Scenario: Single file argument opens a tab
-- **WHEN** the app is launched with `mdown-review path/to/file.md`
+- **WHEN** the app is launched with `mdownreview path/to/file.md`
 - **THEN** the file opens in a new tab and its content is displayed in the viewer
 
 ### Scenario: Multiple file arguments open multiple tabs

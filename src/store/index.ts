@@ -236,7 +236,7 @@ export const useStore = create<Store>()(
       dismissUpdate: () => set({ updateStatus: "idle", updateVersion: null, updateProgress: 0 }),
     }),
     {
-      name: "mdown-review-ui",
+      name: "mdownreview-ui",
       // Only persist UI state, not comments (those live in sidecar files)
       partialize: (state) => ({
         theme: state.theme,

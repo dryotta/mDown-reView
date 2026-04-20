@@ -19,7 +19,7 @@ Two workflow gaps remain in the agent review skills:
 - Searches for the installed app binary in this order:
   1. **Windows:** `%LOCALAPPDATA%\Programs\mdownreview\mdownreview.exe`
   2. **macOS:** `/Applications/mdownreview.app/Contents/MacOS/mdownreview`
-  3. **PATH fallback:** `mdownreview` or `mdown-review` on system PATH
+  3. **PATH fallback:** `mdownreview` or `mdownreview` on system PATH
 - Launches the app as a background process (does not block the agent)
 - Passes the target path as a CLI argument to open the folder
 - Exit 0 on successful launch, exit 1 if binary not found (with helpful error listing searched locations)

@@ -248,5 +248,5 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
         .path()
         .app_log_dir()
         .map_err(|e| e.to_string())?;
-    Ok(log_dir.join("mdown-review.log").to_string_lossy().into_owned())
+    Ok(log_dir.join("mdownreview.log").to_string_lossy().into_owned())
 }

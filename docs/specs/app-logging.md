@@ -2,15 +2,15 @@
 
 ## Requirement: Log file written to OS app data directory
 
-The application SHALL write all log events to a rotating log file at `{appDataDir}/logs/mdown-review.log`. The file SHALL rotate when it reaches 5 MB; at most 3 rotated files SHALL be retained. Log entries SHALL include ISO timestamp, log level, and message.
+The application SHALL write all log events to a rotating log file at `{appDataDir}/logs/mdownreview.log`. The file SHALL rotate when it reaches 5 MB; at most 3 rotated files SHALL be retained. Log entries SHALL include ISO timestamp, log level, and message.
 
 ### Scenario: Log file created on first launch
 - **WHEN** the application is launched for the first time
-- **THEN** a log file exists at `{appDataDir}/logs/mdown-review.log` and contains at least one startup entry
+- **THEN** a log file exists at `{appDataDir}/logs/mdownreview.log` and contains at least one startup entry
 
 ### Scenario: Log rotation
 - **WHEN** the log file reaches 5 MB
-- **THEN** it is rotated to `mdown-review.log.1` and a new `mdown-review.log` is started; files beyond `.3` are deleted
+- **THEN** it is rotated to `mdownreview.log.1` and a new `mdownreview.log` is started; files beyond `.3` are deleted
 
 ---
 

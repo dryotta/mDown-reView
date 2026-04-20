@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 const mockWriteText = writeText as ReturnType<typeof vi.fn>;
 
-const LOG_PATH = "/home/user/.local/share/mdown-review/app.log";
+const LOG_PATH = "/home/user/.local/share/mdownreview/app.log";
 
 beforeEach(() => {
   vi.clearAllMocks();
