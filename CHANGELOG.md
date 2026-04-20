@@ -1,3 +1,8 @@
+## v0.2.6 — 2026-04-19
+
+### Other
+- rename to mdownreview
+
 ## v0.2.5 — 2026-04-19
 
 ### Fixes

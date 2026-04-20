@@ -2,7 +2,7 @@
   "name": "mdownreview",
   "private": true,
   "description": "Review AI Agent's work",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
