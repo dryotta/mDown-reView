@@ -15,7 +15,6 @@
 }
 
 .welcome-logo {
-  font-size: 48px;
   margin-bottom: 8px;
 }
 
@@ -27,10 +26,10 @@
 }
 
 .logo-m, .logo-re {
-  color: #6366f1;
+  color: var(--color-brand);
   text-decoration: underline;
-  text-decoration-color: #6366f1;
-  text-underline-offset: 3px;
+  text-decoration-color: var(--color-brand);
+  text-underline-offset: 4px;
 }
 
 .welcome-actions {

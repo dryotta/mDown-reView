@@ -20,6 +20,7 @@
   --color-blockquote-border: #d0d7de;
   --color-badge: #cf222e;
   --color-badge-text: #ffffff;
+  --color-brand: #6366f1;
   --color-toggle-active-bg: rgba(9, 105, 218, 0.08);
   --color-toggle-active-bg-hover: rgba(9, 105, 218, 0.14);
   --color-btn-group-bg: #ffffff;
@@ -44,6 +45,7 @@
   --color-blockquote-border: #30363d;
   --color-badge: #f85149;
   --color-badge-text: #ffffff;
+  --color-brand: #6366f1;
   --color-toggle-active-bg: rgba(88, 166, 255, 0.12);
   --color-toggle-active-bg-hover: rgba(88, 166, 255, 0.2);
   --color-btn-group-bg: #21262d;
