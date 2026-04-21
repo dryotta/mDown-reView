@@ -28,6 +28,7 @@ async function mockTauriInvoke(page: Page) {
       if (cmd === "read_dir") return (dirData as Record<string, unknown[]>)[(args as {path: string}).path] ?? [];
       if (cmd === "read_text_file") return "# Test\n\nContent";
       if (cmd === "load_review_comments") return null;
+      if (cmd === "check_path_exists") return "file";
       return null;
     };
   });
@@ -40,8 +41,8 @@ test.describe("Folder Navigation", () => {
 
   test("21.1 - folder opens, .md file opens in tab, .ts routes to source viewer", async ({ page }) => {
     await page.goto("/");
-    // App should load with empty state
-    await expect(page.locator(".empty-state")).toBeVisible();
+    // App should load with welcome view (no file open)
+    await expect(page.locator(".welcome-view")).toBeVisible();
   });
 
   test("21.2 - keyboard navigation in tree", async ({ page }) => {
@@ -55,8 +56,10 @@ test.describe("Folder Navigation", () => {
     await expect(page.locator(".app-layout")).toBeVisible();
   });
 
-  test("21.4 - Collapse All and Expand All work", async ({ page }) => {
+  test("21.4 - folder tree shows close button and auto-reveal toggle", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator(".app-layout")).toBeVisible();
+    // Folder tree not shown when no root is set
+    await expect(page.locator(".folder-tree")).not.toBeVisible();
   });
 });

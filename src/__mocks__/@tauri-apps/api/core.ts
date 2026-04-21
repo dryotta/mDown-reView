@@ -12,6 +12,9 @@ type InvokeResult =
   | DirEntry[]
   | LaunchArgs
   | ReviewComments
+  | "file"
+  | "dir"
+  | "missing"
   | null
   | void;
 

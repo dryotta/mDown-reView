@@ -3,6 +3,16 @@ import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
 import type { MrsfComment } from "@/lib/tauri-commands";
 
+// ── Recent items ──────────────────────────────────────────────────────────
+
+export interface RecentItem {
+  path: string;
+  type: "file" | "folder";
+  timestamp: number;
+}
+
+const MAX_RECENT_ITEMS = 5;
+
 // ── Workspace slice ────────────────────────────────────────────────────────
 
 interface WorkspaceSlice {
@@ -12,6 +22,7 @@ interface WorkspaceSlice {
   toggleFolder: (path: string) => void;
   setFolderExpanded: (path: string, expanded: boolean) => void;
   collapseAll: () => void;
+  closeFolder: () => void;
 }
 
 // ── Tabs slice ─────────────────────────────────────────────────────────────
@@ -60,11 +71,9 @@ type Theme = "system" | "light" | "dark";
 interface UISlice {
   theme: Theme;
   folderPaneWidth: number;
-  folderPaneVisible: boolean;
   commentsPaneVisible: boolean;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
-  toggleFolderPane: () => void;
   toggleCommentsPane: () => void;
 }
 
@@ -85,8 +94,6 @@ interface WatcherSlice {
   setLastSaveTimestamp: (ts: number) => void;
 }
 
-// ── Combined store ─────────────────────────────────────────────────────────
-
 // ── Update slice ──────────────────────────────────────────────────────
 
 // "error" is treated identically to "idle" by the banner (silent fallback); reserved for future telemetry
@@ -102,9 +109,16 @@ interface UpdateSlice {
   dismissUpdate: () => void;
 }
 
+// ── Recent slice ──────────────────────────────────────────────────────────
+
+interface RecentSlice {
+  recentItems: RecentItem[];
+  addRecentItem: (path: string, type: "file" | "folder") => void;
+}
+
 // ── Combined store ─────────────────────────────────────────────────────────
 
-type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice & WatcherSlice;
+type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice;
 
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -124,6 +138,7 @@ export const useStore = create<Store>()(
       setFolderExpanded: (path, expanded) =>
         set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
       collapseAll: () => set({ expandedFolders: {} }),
+      closeFolder: () => set({ root: null, expandedFolders: {} }),
 
       // Tabs
       tabs: [],
@@ -244,11 +259,9 @@ export const useStore = create<Store>()(
       // UI
       theme: "system",
       folderPaneWidth: 240,
-      folderPaneVisible: true,
       commentsPaneVisible: true,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
-      toggleFolderPane: () => set((s) => ({ folderPaneVisible: !s.folderPaneVisible })),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
 
       // Watcher
@@ -267,6 +280,16 @@ export const useStore = create<Store>()(
       setUpdateVersion: (version) => set({ updateVersion: version }),
       setUpdateProgress: (progress) => set({ updateProgress: progress }),
       dismissUpdate: () => set({ updateStatus: "idle", updateVersion: null, updateProgress: 0 }),
+
+      // Recent items
+      recentItems: [],
+      addRecentItem: (path, type) =>
+        set((s) => {
+          const filtered = s.recentItems.filter((item) => item.path !== path);
+          const newItem: RecentItem = { path, type, timestamp: Date.now() };
+          const updated = [newItem, ...filtered].slice(0, MAX_RECENT_ITEMS);
+          return { recentItems: updated };
+        }),
     }),
     {
       name: "mdownreview-ui",
@@ -274,12 +297,12 @@ export const useStore = create<Store>()(
       partialize: (state) => ({
         theme: state.theme,
         folderPaneWidth: state.folderPaneWidth,
-        folderPaneVisible: state.folderPaneVisible,
         commentsPaneVisible: state.commentsPaneVisible,
         root: state.root,
         expandedFolders: state.expandedFolders,
         autoReveal: state.autoReveal,
         authorName: state.authorName,
+        recentItems: state.recentItems,
       }),
     }
   )
@@ -312,8 +335,11 @@ export function openFilesFromArgs(
   folders: string[],
   store: ReturnType<typeof useStore.getState>
 ) {
+  // Last folder wins (spec requirement)
   if (folders.length > 0) {
-    store.setRoot(folders[0]);
+    const lastFolder = folders[folders.length - 1];
+    store.setRoot(lastFolder);
+    store.addRecentItem(lastFolder, "folder");
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));
   // Deduplicate incoming files
@@ -323,5 +349,6 @@ export function openFilesFromArgs(
       store.openFile(file);
       alreadyOpen.add(file);
     }
+    store.addRecentItem(file, "file");
   }
 }

@@ -1,30 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/store";
-import type { GhostEntry } from "@/store";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
-import { open } from "@tauri-apps/plugin-dialog";
-import { listen } from "@tauri-apps/api/event";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
   onFileOpen: (path: string) => void;
+  onCloseFolder: () => void;
 }
 
-const MAX_EXPAND_DEPTH = 3;
-
-export function FolderTree({ onFileOpen }: FolderTreeProps) {
-  const { root, expandedFolders, setFolderExpanded, collapseAll, activeTabPath, commentsByFile, ghostEntries } = useStore();
+export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
+  const { root, expandedFolders, setFolderExpanded, activeTabPath, commentsByFile, ghostEntries } = useStore();
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
   const childrenCacheRef = useRef(childrenCache);
   childrenCacheRef.current = childrenCache;
   const [filter, setFilter] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
-  const [isExpanding, setIsExpanding] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const expandGenRef = useRef(0);
-  const autoRootRef = useRef<string | null>(null);
-
-  const cancelExpand = useCallback(() => { expandGenRef.current++; }, []);
 
   // Stable ref — never re-created, reads cache via ref to avoid stale closures
   const loadChildren = useCallback(
@@ -47,44 +38,19 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
     []
   );
 
-  // Reset cache and cancel any in-flight expand when root changes
+  // Reset cache when root changes
   useEffect(() => {
-    cancelExpand();
     setChildrenCache({});
     childrenCacheRef.current = {};
-  }, [root, cancelExpand]);
+  }, [root]);
 
   useEffect(() => {
     if (root) loadChildren(root);
   }, [root, loadChildren]);
 
-  // Auto-root to active file's parent when no workspace
-  useEffect(() => {
-    if (!activeTabPath) {
-      // No active tab — if we auto-rooted, clear it
-      if (autoRootRef.current && root === autoRootRef.current) {
-        useStore.setState({ root: null });
-        autoRootRef.current = null;
-      }
-      return;
-    }
-    
-    // Don't override explicit workspace
-    if (root && root !== autoRootRef.current) return;
-    
-    const sep = activeTabPath.includes("/") ? "/" : "\\";
-    const parts = activeTabPath.split(sep);
-    parts.pop();
-    const parentDir = parts.join(sep);
-    
-    if (parentDir && parentDir !== root) {
-      autoRootRef.current = parentDir;
-      useStore.setState({ root: parentDir, expandedFolders: {} });
-    }
-  }, [activeTabPath, root]);
 
 
-  const handleToggle = async (path: string, isDir: boolean) => {
+  const handleToggle= async (path: string, isDir: boolean) => {
     if (!isDir) {
       onFileOpen(path);
       return;
@@ -95,65 +61,6 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
     }
     setFolderExpanded(path, !isExpanded);
   };
-
-  const handleExpandAll = useCallback(async (parentPath: string) => {
-    const generation = ++expandGenRef.current;
-    setIsExpanding(true);
-    const pathsToExpand: string[] = [];
-
-    const collect = async (path: string, depth: number) => {
-      if (depth >= MAX_EXPAND_DEPTH) return;
-      if (expandGenRef.current !== generation) return;
-      const entries = await loadChildren(path);
-      if (expandGenRef.current !== generation) return;
-      pathsToExpand.push(path);
-      for (const entry of entries) {
-        if (entry.is_dir) await collect(entry.path, depth + 1);
-      }
-    };
-
-    await collect(parentPath, 0);
-
-    if (expandGenRef.current === generation) {
-      useStore.setState((s) => ({
-        expandedFolders: {
-          ...s.expandedFolders,
-          ...Object.fromEntries(pathsToExpand.map((p) => [p, true])),
-        },
-      }));
-    }
-    setIsExpanding(false);
-  }, [loadChildren]);
-
-  // Menu event listeners for folder-tree-specific actions (mount once)
-  const expandAllRef = useRef(handleExpandAll);
-  expandAllRef.current = handleExpandAll;
-
-  useEffect(() => {
-    const pending = [
-      listen("menu-open-folder", async () => {
-        const selected = await open({ directory: true, multiple: false });
-        if (typeof selected === "string") {
-          const { setRoot, folderPaneVisible, toggleFolderPane } = useStore.getState();
-          setRoot(selected);
-          setChildrenCache({});
-          if (!folderPaneVisible) toggleFolderPane();
-        }
-      }),
-      listen("menu-expand-all", () => {
-        const { root } = useStore.getState();
-        if (root) expandAllRef.current(root);
-      }),
-      listen("menu-collapse-all", () => {
-        expandGenRef.current++;
-        useStore.getState().collapseAll();
-      }),
-    ];
-    return () => {
-      pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Build visible flat list for keyboard nav
   type TreeNode = { path: string; isDir: boolean; depth: number; name: string; isGhost?: boolean };
@@ -323,23 +230,26 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
 
   return (
     <div className="folder-tree" style={{ width: useStore.getState().folderPaneWidth }}>
-      <div className="folder-tree-toolbar">
-        <button onClick={() => { cancelExpand(); collapseAll(); }}>Collapse All</button>
-        <button
-          disabled={isExpanding}
-          onClick={() => {
-            if (root) handleExpandAll(root);
-          }}
-        >
-          Expand All
-        </button>
-        <button
-          className={`folder-tree-btn${autoReveal ? " active" : ""}`}
-          onClick={toggleAutoReveal}
-          title={autoReveal ? "Auto-reveal: ON" : "Auto-reveal: OFF"}
-        >
-          📍
-        </button>
+      <div className="folder-tree-toolbar folder-tree-header">
+        <span className="folder-tree-title" title={root ?? ""}>
+          📁 {root ? root.split(/[/\\]/).pop() : ""}
+        </span>
+        <span className="folder-tree-header-actions">
+          <button
+            className={`folder-tree-btn${autoReveal ? " active" : ""}`}
+            onClick={toggleAutoReveal}
+            title={autoReveal ? "Auto-reveal: ON" : "Auto-reveal: OFF"}
+          >
+            📍
+          </button>
+          <button
+            className="folder-tree-btn folder-tree-close-btn"
+            onClick={onCloseFolder}
+            title="Close folder"
+          >
+            ✕
+          </button>
+        </span>
       </div>
       <div className="folder-tree-toolbar">
         <input
@@ -352,9 +262,7 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
       </div>
 
       <div className="folder-tree-scroll" ref={containerRef}>
-        {!root ? (
-          <div className="folder-tree-empty">No folder open</div>
-        ) : mergedList.length === 0 ? (
+        {mergedList.length === 0 ? (
           <div className="folder-tree-empty">{filter ? "No matches" : "Empty folder"}</div>
         ) : (
           mergedList.map(({ path, isDir, depth, name, isGhost }) => {

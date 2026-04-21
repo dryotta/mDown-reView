@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 
+/// Check if a path exists and whether it is a directory or file.
+/// Returns "file", "dir", or "missing".
+#[tauri::command]
+pub fn check_path_exists(path: String) -> String {
+    match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_dir() => "dir".to_string(),
+        Ok(_) => "file".to_string(),
+        Err(_) => "missing".to_string(),
+    }
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

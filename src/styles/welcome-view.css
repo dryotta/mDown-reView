@@ -1,0 +1,155 @@
+.welcome-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 40px;
+}
+
+.welcome-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 400px;
+  width: 100%;
+}
+
+.welcome-logo {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.welcome-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 32px;
+}
+
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 32px;
+}
+
+.welcome-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.welcome-action:hover {
+  background: var(--color-tab-hover);
+  border-color: var(--color-accent);
+}
+
+.welcome-action-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.welcome-action-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.welcome-kbd {
+  font-family: "SF Mono", "Consolas", "Monaco", monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.welcome-recent {
+  width: 100%;
+}
+
+.welcome-recent-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.welcome-recent-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.welcome-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.welcome-recent-item:hover:not(:disabled) {
+  background: var(--color-tab-hover);
+}
+
+.welcome-recent-item--missing {
+  opacity: 0.5;
+  text-decoration: line-through;
+  cursor: default;
+}
+
+.welcome-recent-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.welcome-recent-path {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.welcome-recent-path strong {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-recent-parent {
+  font-size: 11px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

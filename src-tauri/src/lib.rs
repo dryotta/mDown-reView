@@ -7,6 +7,46 @@ use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
 
+/// Parse CLI-style arguments into files and folders lists.
+/// Supports --folder <path>, --file <path>, and positional auto-detect.
+/// All paths are resolved relative to `cwd`.
+fn parse_args(args: &[String], cwd: &std::path::Path) -> (Vec<String>, Vec<String>) {
+    let mut files = Vec::new();
+    let mut folders = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--folder" {
+            i += 1;
+            if let Some(val) = args.get(i) {
+                let resolved = cwd.join(val);
+                if let Ok(canon) = std::fs::canonicalize(&resolved) {
+                    folders.push(canon.to_string_lossy().into_owned());
+                }
+            }
+        } else if arg == "--file" {
+            i += 1;
+            if let Some(val) = args.get(i) {
+                let resolved = cwd.join(val);
+                if let Ok(canon) = std::fs::canonicalize(&resolved) {
+                    files.push(canon.to_string_lossy().into_owned());
+                }
+            }
+        } else if !arg.starts_with('-') {
+            let resolved = cwd.join(arg);
+            if let Ok(canon) = std::fs::canonicalize(&resolved) {
+                match std::fs::metadata(&canon) {
+                    Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
+                    Ok(_) => files.push(canon.to_string_lossy().into_owned()),
+                    Err(_) => {}
+                }
+            }
+        }
+        i += 1;
+    }
+    (files, folders)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let log_plugin = {
@@ -49,17 +89,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
-            tauri_plugin_single_instance::init(|app, argv, _cwd| {
-                // Second-instance: classify args and emit event to existing window
-                let mut files = Vec::new();
-                let mut folders = Vec::new();
-                for arg in argv.iter().skip(1) {
-                    match std::fs::metadata(arg) {
-                        Ok(meta) if meta.is_dir() => folders.push(arg.clone()),
-                        Ok(_) => files.push(arg.clone()),
-                        Err(_) => {}
-                    }
-                }
+            tauri_plugin_single_instance::init(|app, argv, cwd| {
+                let cwd_path = std::path::PathBuf::from(&cwd);
+                let (files, folders) = parse_args(&argv[1..], &cwd_path);
                 let payload = serde_json::json!({ "files": files, "folders": folders });
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.emit("args-received", payload);
@@ -86,17 +118,10 @@ pub fn run() {
                 prev_hook(info);
             }));
 
-            // Parse CLI args and classify each as file or folder
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            let mut files = Vec::new();
-            let mut folders = Vec::new();
-            for arg in &args {
-                match std::fs::metadata(arg) {
-                    Ok(meta) if meta.is_dir() => folders.push(arg.clone()),
-                    Ok(_) => files.push(arg.clone()),
-                    Err(_) => {}
-                }
-            }
+            // Parse CLI args: support --folder <path> and --file <path> flags
+            let raw_args: Vec<String> = std::env::args().skip(1).collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let (files, folders) = parse_args(&raw_args, &cwd);
             let launch_args = commands::LaunchArgs { files, folders };
             let state: LaunchArgsState = Arc::new(Mutex::new(Some(launch_args)));
             app.manage(state);
@@ -104,13 +129,15 @@ pub fn run() {
             // ── Build application menu ────────────────────────────────────────
 
             // File menu
-            let open_file = MenuItem::with_id(app, "open-file", "Open File…", true, None::<&str>)?;
-            let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+O"))?;
+            let open_file = MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
+            let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+Shift+O"))?;
+            let close_folder = MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
             let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
             let close_all_tabs = MenuItem::with_id(app, "close-all-tabs", "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"))?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_file)
                 .item(&open_folder)
+                .item(&close_folder)
                 .separator()
                 .item(&close_tab)
                 .item(&close_all_tabs)
@@ -118,16 +145,10 @@ pub fn run() {
                 .quit()
                 .build()?;
 
-            // View menu — panes
-            let toggle_folder_pane = MenuItem::with_id(app, "toggle-folder-pane", "Toggle Folder Pane", true, Some("CmdOrCtrl+B"))?;
+            // View menu
             let toggle_comments_pane = MenuItem::with_id(app, "toggle-comments-pane", "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"))?;
-            // View menu — tab navigation
             let next_tab = MenuItem::with_id(app, "next-tab", "Next Tab", true, None::<&str>)?;
             let prev_tab = MenuItem::with_id(app, "prev-tab", "Previous Tab", true, None::<&str>)?;
-            // View menu — folder tree
-            let expand_all = MenuItem::with_id(app, "expand-all", "Expand All", true, None::<&str>)?;
-            let collapse_all = MenuItem::with_id(app, "collapse-all", "Collapse All", true, None::<&str>)?;
-            // View menu — theme submenu
             let theme_system = MenuItem::with_id(app, "theme-system", "System Theme", true, None::<&str>)?;
             let theme_light = MenuItem::with_id(app, "theme-light", "Light Theme", true, None::<&str>)?;
             let theme_dark = MenuItem::with_id(app, "theme-dark", "Dark Theme", true, None::<&str>)?;
@@ -137,14 +158,10 @@ pub fn run() {
                 .item(&theme_dark)
                 .build()?;
             let view_menu = SubmenuBuilder::new(app, "View")
-                .item(&toggle_folder_pane)
                 .item(&toggle_comments_pane)
                 .separator()
                 .item(&next_tab)
                 .item(&prev_tab)
-                .separator()
-                .item(&expand_all)
-                .item(&collapse_all)
                 .separator()
                 .item(&theme_menu)
                 .build()?;
@@ -172,14 +189,12 @@ pub fn run() {
                 let event_name = match event.id().as_ref() {
                     "open-file" => "menu-open-file",
                     "open-folder" => "menu-open-folder",
+                    "close-folder" => "menu-close-folder",
                     "close-tab" => "menu-close-tab",
                     "close-all-tabs" => "menu-close-all-tabs",
-                    "toggle-folder-pane" => "menu-toggle-folder-pane",
                     "toggle-comments-pane" => "menu-toggle-comments-pane",
                     "next-tab" => "menu-next-tab",
                     "prev-tab" => "menu-prev-tab",
-                    "expand-all" => "menu-expand-all",
-                    "collapse-all" => "menu-collapse-all",
                     "theme-system" => "menu-theme-system",
                     "theme-light" => "menu-theme-light",
                     "theme-dark" => "menu-theme-dark",
@@ -205,6 +220,7 @@ pub fn run() {
             commands::get_log_path,
             commands::scan_review_files,
             commands::get_git_head,
+            commands::check_path_exists,
             watcher::update_watched_files,
         ])
         .build(tauri::generate_context!())

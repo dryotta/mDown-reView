@@ -144,3 +144,49 @@
   color: white;
   border-color: var(--color-accent, #0969da);
 }
+
+/* Slide transition for folder pane */
+.folder-pane-wrapper {
+  display: flex;
+  overflow: hidden;
+  transition: max-width 0.2s ease-out, opacity 0.2s ease-out;
+  max-width: var(--folder-pane-width, 240px);
+  opacity: 1;
+}
+
+.folder-pane-wrapper.folder-pane-hidden {
+  max-width: 0;
+  opacity: 0;
+}
+
+.folder-tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.folder-tree-title {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-tree-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.folder-tree-close-btn {
+  font-size: 13px;
+  line-height: 1;
+}

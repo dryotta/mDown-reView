@@ -10,6 +10,7 @@ import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
 import type { Update } from "@tauri-apps/plugin-updater";
 import "@/styles/app.css";
@@ -34,16 +35,6 @@ function IconFolder() {
     <span className="toolbar-icon">
       <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
         <path d="M1.75 2.5A1.25 1.25 0 00.5 3.75v8.5c0 .69.56 1.25 1.25 1.25h12.5c.69 0 1.25-.56 1.25-1.25V5.25c0-.69-.56-1.25-1.25-1.25H7.56L6.28 2.72A.75.75 0 005.75 2.5H1.75z" />
-      </svg>
-    </span>
-  );
-}
-
-function IconSidebar() {
-  return (
-    <span className="toolbar-icon">
-      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-        <path d="M2.75 2A1.75 1.75 0 001 3.75v8.5c0 .966.784 1.75 1.75 1.75h10.5A1.75 1.75 0 0015 12.25v-8.5A1.75 1.75 0 0013.25 2H2.75zM2.5 3.75a.25.25 0 01.25-.25H5.5v9H2.75a.25.25 0 01-.25-.25v-8.5zM7 3.5h6.25a.25.25 0 01.25.25v8.5a.25.25 0 01-.25.25H7v-9z" />
       </svg>
     </span>
   );
@@ -115,15 +106,15 @@ export default function App() {
   const {
     theme,
     setTheme,
+    root,
     folderPaneWidth,
     setFolderPaneWidth,
-    folderPaneVisible,
-    toggleFolderPane,
     commentsPaneVisible,
     toggleCommentsPane,
     activeTabPath,
     openFile,
     setRoot,
+    addRecentItem,
   } = useStore();
 
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -165,13 +156,46 @@ export default function App() {
     };
   }, []);
 
+  const handleOpenFile = useCallback(async () => {
+    try {
+      const selected = await open({ directory: false, multiple: true });
+      if (Array.isArray(selected)) {
+        for (const f of selected) {
+          openFile(f);
+          addRecentItem(f, "file");
+        }
+      } else if (typeof selected === "string") {
+        openFile(selected);
+        addRecentItem(selected, "file");
+      }
+    } catch {
+      // User cancelled or dialog error — ignore
+    }
+  }, [openFile, addRecentItem]);
+
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (typeof selected === "string") {
+        setRoot(selected);
+        addRecentItem(selected, "folder");
+      }
+    } catch {
+      // User cancelled or dialog error — ignore
+    }
+  }, [setRoot, addRecentItem]);
+
   // Global keyboard shortcuts (kept for e2e tests and non-native environments)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key === "b") {
+      if (mod && !e.shiftKey && e.key === "o") {
         e.preventDefault();
-        toggleFolderPane();
+        handleOpenFile();
+      }
+      if (mod && e.shiftKey && e.key === "O") {
+        e.preventDefault();
+        handleOpenFolder();
       }
       if (mod && e.shiftKey && e.key === "C") {
         e.preventDefault();
@@ -206,7 +230,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleFolderPane, toggleCommentsPane]);
+  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane]);
 
   const triggerUpdateCheck = useCallback(async () => {
     const { setUpdateStatus, setUpdateVersion } = useStore.getState();
@@ -232,30 +256,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [triggerUpdateCheck]);
 
-  const handleOpenFile = useCallback(async () => {
-    try {
-      const selected = await open({ directory: false, multiple: true });
-      if (Array.isArray(selected)) {
-        for (const f of selected) openFile(f);
-      } else if (typeof selected === "string") {
-        openFile(selected);
-      }
-    } catch {
-      // User cancelled or dialog error — ignore
-    }
-  }, [openFile]);
-
-  const handleOpenFolder = useCallback(async () => {
-    try {
-      const selected = await open({ directory: true, multiple: false });
-      if (typeof selected === "string") {
-        setRoot(selected);
-      }
-    } catch {
-      // User cancelled or dialog error — ignore
-    }
-  }, [setRoot]);
-
   const cycleTheme = useCallback(() => {
     const idx = THEME_CYCLE.indexOf(theme);
     setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
@@ -265,7 +265,8 @@ export default function App() {
   useEffect(() => {
     const pending = [
       listen("menu-open-file", () => handleOpenFile()),
-      listen("menu-toggle-folder-pane", () => toggleFolderPane()),
+      listen("menu-open-folder", () => handleOpenFolder()),
+      listen("menu-close-folder", () => useStore.getState().closeFolder()),
       listen("menu-toggle-comments-pane", () => toggleCommentsPane()),
       listen("menu-close-tab", () => {
         const { activeTabPath, closeTab } = useStore.getState();
@@ -289,12 +290,11 @@ export default function App() {
       listen("menu-theme-dark", () => setTheme("dark")),
       listen("menu-about", () => setAboutOpen(true)),
       listen("menu-check-updates", () => triggerUpdateCheck()),
-      listen("menu-collapse-all", () => useStore.getState().collapseAll()),
     ];
     return () => {
       pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
-  }, [handleOpenFile, toggleFolderPane, toggleCommentsPane, setTheme, triggerUpdateCheck]);
+  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, triggerUpdateCheck]);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
@@ -331,16 +331,6 @@ export default function App() {
           <button className="toolbar-btn" onClick={handleOpenFolder} title="Open folder">
             <IconFolder /> Open Folder
           </button>
-        </div>
-        <span className="toolbar-separator" />
-        <div className="toolbar-btn-group">
-          <button
-            className={`toolbar-btn toolbar-btn-toggle${folderPaneVisible ? " active" : ""}`}
-            onClick={toggleFolderPane}
-            title="Toggle folder pane (Ctrl+B)"
-          >
-            <IconSidebar /> Folders
-          </button>
           <button
             className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible ? " active" : ""}`}
             onClick={toggleCommentsPane}
@@ -363,12 +353,18 @@ export default function App() {
       </ErrorBoundary>
 
       <div className="main-area">
-        {/* FolderTree is always mounted so it can handle menu events; hidden via CSS */}
-        <div style={folderPaneVisible ? { display: "contents" } : { display: "none" }}>
-          <ErrorBoundary>
-            <FolderTree onFileOpen={openFile} />
-          </ErrorBoundary>
-          <div className="drag-handle" onMouseDown={onDragStart} />
+        <div
+          className={`folder-pane-wrapper${root === null ? " folder-pane-hidden" : ""}`}
+          style={{ "--folder-pane-width": `${folderPaneWidth}px` } as React.CSSProperties}
+        >
+          {root !== null && (
+            <>
+              <ErrorBoundary>
+                <FolderTree onFileOpen={openFile} onCloseFolder={() => useStore.getState().closeFolder()} />
+              </ErrorBoundary>
+              <div className="drag-handle" onMouseDown={onDragStart} />
+            </>
+          )}
         </div>
 
         <div className="viewer-area">
@@ -377,9 +373,7 @@ export default function App() {
             {activeTabPath ? (
               <ViewerRouter path={activeTabPath} />
             ) : (
-              <div className="empty-state">
-                <p>Open a folder to get started</p>
-              </div>
+              <WelcomeView onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
             )}
           </ErrorBoundary>
         </div>

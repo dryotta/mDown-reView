@@ -18,9 +18,9 @@ describe("openFilesFromArgs – folders", () => {
     expect(useStore.getState().root).toBe("/workspace/project");
   });
 
-  it("uses only the first folder when multiple are supplied", () => {
+  it("uses the last folder when multiple are supplied", () => {
     callOpenFilesFromArgs([], ["/first", "/second"]);
-    expect(useStore.getState().root).toBe("/first");
+    expect(useStore.getState().root).toBe("/second");
   });
 
   it("does not set root when no folders are provided", () => {
@@ -101,5 +101,36 @@ describe("openFilesFromArgs – files and folders together", () => {
     expect(useStore.getState().root).toBe("/workspace");
     expect(useStore.getState().tabs).toHaveLength(1);
     expect(useStore.getState().tabs[0].path).toBe("/workspace/notes.md");
+  });
+});
+
+describe("openFilesFromArgs – recent items tracking", () => {
+  it("adds opened files to recentItems", () => {
+    callOpenFilesFromArgs(["/docs/readme.md"], []);
+    const items = useStore.getState().recentItems;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ path: "/docs/readme.md", type: "file" });
+  });
+
+  it("adds opened folder to recentItems", () => {
+    callOpenFilesFromArgs([], ["/workspace/project"]);
+    const items = useStore.getState().recentItems;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ path: "/workspace/project", type: "folder" });
+  });
+
+  it("adds both files and folders to recentItems", () => {
+    callOpenFilesFromArgs(["/workspace/notes.md"], ["/workspace"]);
+    const items = useStore.getState().recentItems;
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.path)).toContain("/workspace");
+    expect(items.map((i) => i.path)).toContain("/workspace/notes.md");
+  });
+
+  it("uses last folder when multiple folders are supplied", () => {
+    callOpenFilesFromArgs([], ["/first", "/second"]);
+    expect(useStore.getState().root).toBe("/second");
+    const items = useStore.getState().recentItems;
+    expect(items[0]).toMatchObject({ path: "/second", type: "folder" });
   });
 });

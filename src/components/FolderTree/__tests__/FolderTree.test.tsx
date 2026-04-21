@@ -6,7 +6,6 @@ import type { DirEntry } from "@/lib/tauri-commands";
 
 // Auto-resolved mocks
 vi.mock("@tauri-apps/api/core");
-vi.mock("@tauri-apps/api/event");
 vi.mock("@/logger");
 
 // Mock tauri-commands readDir so we can control what it returns
@@ -14,9 +13,7 @@ vi.mock("@/lib/tauri-commands", () => ({
   readDir: vi.fn(),
 }));
 
-import { listen } from "@tauri-apps/api/event";
 import { readDir } from "@/lib/tauri-commands";
-const mockListen = listen as ReturnType<typeof vi.fn>;
 const mockReadDir = readDir as ReturnType<typeof vi.fn>;
 
 const FOLDER = "/test";
@@ -36,7 +33,6 @@ const initialState = useStore.getState();
 
 beforeEach(() => {
   useStore.setState(initialState, true);
-  mockListen.mockResolvedValue(() => {});
   mockReadDir.mockReset();
   // Default: root returns ROOT_ENTRIES, subfolder returns SUB_ENTRIES
   mockReadDir.mockImplementation((path: string) => {
@@ -54,7 +50,7 @@ function renderTree(onFileOpen = vi.fn()) {
     activeTabPath: null,
     folderPaneWidth: 240,
   });
-  return render(<FolderTree onFileOpen={onFileOpen} />);
+  return render(<FolderTree onFileOpen={onFileOpen} onCloseFolder={vi.fn()} />);
 }
 
 // ─── 6.1: renders file and folder entries ────────────────────────────────────
@@ -217,35 +213,33 @@ describe("6.4 – filter hides non-matching files", () => {
   });
 });
 
-// ─── 6.5: Collapse All / Expand All buttons ──────────────────────────────────
+// ─── 6.5: Close button and header ─────────────────────────────────────────
 
-describe("6.5 – Collapse All and Expand All", () => {
-  it("Collapse All collapses all expanded nodes", async () => {
+describe("6.5 – Close button and folder header", () => {
+  it("displays folder name in header", async () => {
     renderTree();
     await waitFor(() => screen.getByText("subdir"));
 
-    // expand
-    fireEvent.click(screen.getByText("subdir").closest(".tree-entry")!);
-    await waitFor(() => screen.getByText("child.md"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse All" }));
-
-    await waitFor(() => {
-      expect(screen.queryByText("child.md")).not.toBeInTheDocument();
-    });
+    const title = screen.getByTitle(FOLDER);
+    expect(title).toBeInTheDocument();
+    expect(title.textContent).toContain("test");
   });
 
-  it("Expand All tries to expand folders (empty returns show no children)", async () => {
-    mockReadDir.mockResolvedValue([]);
-    renderTree();
-    await waitFor(() => screen.queryByText("subdir")); // may or may not appear with empty
-
-    fireEvent.click(screen.getByRole("button", { name: "Expand All" }));
-
-    // Just verify it doesn't throw and readDir was called
-    await waitFor(() => {
-      expect(mockReadDir).toHaveBeenCalled();
+  it("clicking close button calls onCloseFolder", async () => {
+    const onCloseFolder = vi.fn();
+    useStore.setState({
+      root: FOLDER,
+      expandedFolders: {},
+      tabs: [],
+      activeTabPath: null,
+      folderPaneWidth: 240,
     });
+    render(<FolderTree onFileOpen={vi.fn()} onCloseFolder={onCloseFolder} />);
+    await waitFor(() => screen.getByText("subdir"));
+
+    fireEvent.click(screen.getByTitle("Close folder"));
+
+    expect(onCloseFolder).toHaveBeenCalledTimes(1);
   });
 });
 

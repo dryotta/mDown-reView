@@ -14,6 +14,7 @@ test.describe("CLI File Open", () => {
         }
         if (cmd === "read_text_file") return "# Test\n\nContent";
         if (cmd === "load_review_comments") return null;
+        if (cmd === "check_path_exists") return "file";
         return null;
       };
     });
@@ -27,6 +28,7 @@ test.describe("CLI File Open", () => {
         if (cmd === "get_launch_args") return { files: [], folders: [] };
         if (cmd === "read_text_file") return "# Test\n\nContent";
         if (cmd === "load_review_comments") return null;
+        if (cmd === "check_path_exists") return "file";
         return null;
       };
     });

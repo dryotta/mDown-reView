@@ -13,21 +13,20 @@ beforeEach(() => {
 // persist implementation would persist — we simulate it by applying the
 // same fields the store opts into.
 //
-// The partialize callback from store/index.ts is:
-//   (state) => ({ theme, folderPaneWidth, folderPaneVisible, commentsPaneVisible, root, expandedFolders })
-//
+// See the partialize config in store/index.ts for the authoritative field list.
 // We verify the contract by manually calling it on a state snapshot.
 
 function getPersistedSnapshot() {
   const state = useStore.getState();
-  // Replicate the partialize logic from the store definition
   return {
     theme: state.theme,
     folderPaneWidth: state.folderPaneWidth,
-    folderPaneVisible: state.folderPaneVisible,
     commentsPaneVisible: state.commentsPaneVisible,
     root: state.root,
     expandedFolders: state.expandedFolders,
+    autoReveal: state.autoReveal,
+    authorName: state.authorName,
+    recentItems: state.recentItems,
   };
 }
 
@@ -72,12 +71,6 @@ describe("persistence partialize contract", () => {
     expect(snapshot).toHaveProperty("folderPaneWidth", 320);
   });
 
-  it("includes folderPaneVisible in the persisted snapshot", () => {
-    useStore.getState().toggleFolderPane(); // defaults to true → false
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).toHaveProperty("folderPaneVisible", false);
-  });
-
   it("includes commentsPaneVisible in the persisted snapshot", () => {
     useStore.getState().toggleCommentsPane(); // defaults to true → false
     const snapshot = getPersistedSnapshot();
@@ -97,11 +90,18 @@ describe("persistence partialize contract", () => {
     expect(snapshot.expandedFolders).toMatchObject({ "/workspace/folderA": true });
   });
 
+  it("includes recentItems in the persisted snapshot", () => {
+    useStore.getState().addRecentItem("/test/file.md", "file");
+    const snapshot = getPersistedSnapshot();
+    expect(snapshot).toHaveProperty("recentItems");
+    expect(snapshot.recentItems).toHaveLength(1);
+  });
+
   it("persisted snapshot has exactly the expected keys", () => {
     const snapshot = getPersistedSnapshot();
     const keys = Object.keys(snapshot).sort();
     expect(keys).toEqual(
-      ["commentsPaneVisible", "expandedFolders", "folderPaneVisible", "folderPaneWidth", "root", "theme"].sort()
+      ["authorName", "autoReveal", "commentsPaneVisible", "expandedFolders", "folderPaneWidth", "recentItems", "root", "theme"].sort()
     );
   });
 

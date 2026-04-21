@@ -80,4 +80,7 @@ export const updateWatchedFiles = (paths: string[]): Promise<void> =>
 export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
   invoke<[string, string][]>("scan_review_files", { root });
 
+export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
+  invoke<"file" | "dir" | "missing">("check_path_exists", { path });
+
 export const getAppVersion = (): Promise<string> => getVersion();
