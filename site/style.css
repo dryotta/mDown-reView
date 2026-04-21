@@ -23,7 +23,9 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scroll-snap-type: y proximity; }
+
+section { scroll-snap-align: start; min-height: 100svh; }
 
 body {
   background: var(--bg);
@@ -778,6 +780,7 @@ footer {
   border-top: 1px solid var(--border);
   margin-top: 2rem;
   font-size: 0.85rem;
+  scroll-snap-align: start;
 }
 
 footer .footer-links {
