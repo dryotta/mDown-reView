@@ -220,6 +220,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const comments = useStore((s) => s.commentsByFile[filePath]);
   const loadedRef = useRef<string | null>(null);
   const [commentReloadKey, setCommentReloadKey] = useState(0);
+  const [commentLoadKey, setCommentLoadKey] = useState(0);
 
   const matchedComments = useMemo(() => {
     if (!comments || comments.length === 0) return [];
@@ -265,7 +266,10 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) loadedRef.current = filePath;
+        if (!cancelled) {
+          loadedRef.current = filePath;
+          setCommentLoadKey((k) => k + 1);
+        }
       });
     return () => { cancelled = true; };
   }, [filePath, setFileComments]);
@@ -274,7 +278,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string; kind: string };
-      // The review sidecar path is filePath + ".review.json"
       if (detail.kind === "review" && (detail.path === `${filePath}.review.yaml` || detail.path === `${filePath}.review.json`)) {
         setCommentReloadKey((k) => k + 1);
       }
@@ -291,6 +294,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       .then((result) => {
         if (!cancelled && result?.comments) {
           setFileComments(filePath, result.comments);
+          setCommentLoadKey((k) => k + 1);
         }
       })
       .catch(() => {});
@@ -298,7 +302,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   }, [commentReloadKey, filePath, setFileComments]);
 
   // Auto-save comments to sidecar (shared hook with flush-on-unmount)
-  useAutoSaveComments(filePath, comments, loadedRef.current === filePath);
+  useAutoSaveComments(filePath, comments, commentLoadKey);
 
   // Scroll-to-line from CommentsPanel click
   useEffect(() => {

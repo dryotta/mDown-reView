@@ -37,9 +37,11 @@ export function useFileContent(path: string): FileContent {
       return;
     }
 
+    let cancelled = false;
     readTextFile(path)
-      .then((content) => setState({ status: "ready", content }))
+      .then((content) => { if (!cancelled) setState({ status: "ready", content }); })
       .catch((err: unknown) => {
+        if (cancelled) return;
         const msg = String(err);
         if (msg.includes("binary_file")) {
           setState({ status: "binary" });
@@ -49,6 +51,7 @@ export function useFileContent(path: string): FileContent {
           setState({ status: "error", error: msg });
         }
       });
+    return () => { cancelled = true; };
   }, [path, reloadKey]);
 
   return state;

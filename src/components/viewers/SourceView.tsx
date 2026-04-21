@@ -90,6 +90,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const addComment = useStore((s) => s.addComment);
   const loadedRef = useRef<string | null>(null);
   const [commentReloadKey, setCommentReloadKey] = useState(0);
+  const [commentLoadKey, setCommentLoadKey] = useState(0);
 
   const lines = content.split("\n");
 
@@ -125,7 +126,12 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
         }
       })
       .catch(() => {})
-      .finally(() => { if (!cancelled) loadedRef.current = filePath; });
+      .finally(() => {
+        if (!cancelled) {
+          loadedRef.current = filePath;
+          setCommentLoadKey((k) => k + 1);
+        }
+      });
     return () => { cancelled = true; };
   }, [filePath, setFileComments]);
 
@@ -133,7 +139,6 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string; kind: string };
-      // The review sidecar path is filePath + ".review.json"
       if (detail.kind === "review" && (detail.path === `${filePath}.review.yaml` || detail.path === `${filePath}.review.json`)) {
         setCommentReloadKey((k) => k + 1);
       }
@@ -150,6 +155,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
       .then((result) => {
         if (!cancelled && result?.comments) {
           setFileComments(filePath, result.comments);
+          setCommentLoadKey((k) => k + 1);
         }
       })
       .catch(() => {});
@@ -160,7 +166,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   useEffect(() => { setCollapsedLines(new Set()); setPendingSelectionAnchor(null); }, [filePath]);
 
   // Auto-save comments to sidecar (shared hook with flush-on-unmount)
-  useAutoSaveComments(filePath, comments, loadedRef.current === filePath);
+  useAutoSaveComments(filePath, comments, commentLoadKey);
 
   // Theme tracking
   const [currentTheme, setCurrentTheme] = useState(
