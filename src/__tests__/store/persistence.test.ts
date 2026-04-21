@@ -36,13 +36,11 @@ describe("persistence partialize contract", () => {
     // Add a comment so commentsByFile is non-empty
     const comment: CommentWithOrphan = {
       id: "c1",
-      blockHash: "hash1",
-      headingContext: null,
-      fallbackLine: 1,
+      author: "Test User (human)",
+      timestamp: new Date().toISOString(),
       text: "test comment",
-      createdAt: new Date().toISOString(),
       resolved: false,
-      anchorType: "line",
+      line: 1,
     };
     useStore.getState().setFileComments("/docs/file.md", [comment]);
 

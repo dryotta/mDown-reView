@@ -1,0 +1,16 @@
+mrsf_version: "1.0"
+document: examples/architecture.md
+comments:
+  - id: "comment-0001"
+    author: "Wictor Wilén (wictor)"
+    timestamp: "2025-04-15T10:00:00Z"
+    text: "Consider using a microservices architecture here."
+    resolved: false
+    line: 10
+    selected_text: "monolithic design"
+  - id: "comment-0002"
+    author: "Reviewer (reviewer)"
+    timestamp: "2025-04-15T11:00:00Z"
+    text: "Good point, I agree."
+    resolved: false
+    reply_to: "comment-0001"

@@ -1,0 +1,42 @@
+mrsf_version: "1.0"
+document: docs\superpowers\specs\2026-04-20-installation-system-design.md
+comments:
+  - id: bbee1cef-4e23-4f39-a90f-9808f0341784
+    author: er
+    timestamp: 2026-04-21T02:07:44.385Z
+    text: er
+    resolved: false
+    line: 160
+    severity: medium
+    commit: 1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b
+    selected_text: "| `.github/workflows/ci.yml` | Matching 3-entry build matrix with consistent artifact naming |\r"
+    selected_text_hash: cd2031b94ef865793aa5e830d8872da084b40fbc6d53a4e0c5847a1ce79db3fa
+    end_line: 160
+    start_column: 0
+    end_column: 95
+    x_reanchor_status: anchored
+    x_reanchor_score: 1
+
+  - id: afef571c-7e79-45ce-9df4-b632e850f037
+    author: er
+    timestamp: "2026-04-21T02:07:57.538Z"
+    text: erewr
+    resolved: false
+    reply_to: bbee1cef-4e23-4f39-a90f-9808f0341784
+    commit: "1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b"
+
+  - id: c72da7f1-76f9-45d7-913b-75928906738b
+    author: er
+    timestamp: "2026-04-21T02:08:05.302Z"
+    text: rwer
+    resolved: false
+    reply_to: bbee1cef-4e23-4f39-a90f-9808f0341784
+    commit: "1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b"
+
+  - id: "5516895c-bfd0-46ee-9639-5d14df896e98"
+    author: er
+    timestamp: "2026-04-21T02:08:09.104Z"
+    text: ewrw
+    resolved: false
+    reply_to: bbee1cef-4e23-4f39-a90f-9808f0341784
+    commit: "1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b"

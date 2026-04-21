@@ -51,28 +51,61 @@
   gap: 4px;
 }
 
-/* Comment thread */
+/* Comment thread — single card for root + replies */
 .comment-thread {
   padding: 10px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface);
   margin-bottom: 8px;
+  border-left: 3px solid var(--color-accent, #0969da);
 }
 
-.comment-resolved {
+.comment-thread--resolved {
   opacity: 0.6;
+  border-left-color: var(--color-muted, #656d76);
 }
 
-.comment-header {
+/* Single comment item (root or reply) */
+.comment-item {
+  /* No extra border — lives inside thread card */
+}
+
+.comment-item--reply {
+  font-size: 0.95em;
+}
+
+.comment-item-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-.comment-header-resolved {
-  text-decoration: line-through;
+/* Replies container — indented with left border */
+.comment-thread-replies {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-border, #d0d7de);
+}
+
+.comment-thread-replies .comment-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border, #d0d7de);
+}
+
+.comment-thread-replies .comment-item:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Reply composer at bottom of thread */
+.comment-thread-reply-input {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border, #d0d7de);
 }
 
 .comment-timestamp {
@@ -334,25 +367,55 @@
   animation: comment-flash 1.5s ease-out;
 }
 
-/* Comment responses */
-.comment-responses {
-  margin-top: 6px;
-  padding-left: 12px;
-  border-left: 2px solid var(--color-border, #d0d7de);
-}
-.comment-response {
-  margin-bottom: 6px;
-  font-size: 12px;
-}
-.comment-response-author {
-  font-weight: 600;
-  margin-right: 6px;
-  color: var(--color-accent, #0969da);
-}
-.comment-response-time {
-  color: var(--color-fg-muted, #656d76);
+/* Comment responses (replaced by .comment-thread-replies) */
+
+/* Author badges */
+.comment-author-badge {
   font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: capitalize;
 }
-.comment-response-text {
-  margin: 2px 0 0;
+
+.comment-author-badge--human {
+  background: var(--color-surface, #f6f8fa);
+  color: var(--color-muted, #656d76);
+  border: 1px solid var(--color-border, #d0d7de);
 }
+
+.comment-author-badge--agent {
+  background: var(--color-accent, #0969da);
+  color: white;
+  border: 1px solid transparent;
+}
+
+/* Orphan banner */
+.comment-orphan-banner {
+  background: rgba(245, 166, 35, 0.15);
+  border: 1px solid rgba(245, 166, 35, 0.4);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-text, #1f2328);
+  margin-bottom: 8px;
+}
+
+/* Reply area (replaced by .comment-thread-reply-input) */
+
+/* Type badges */
+.comment-type-badge { font-size: 0.7em; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
+.comment-type-badge--suggestion { background: #dbeafe; color: #1d4ed8; }
+.comment-type-badge--issue { background: #fee2e2; color: #dc2626; }
+.comment-type-badge--question { background: #fef9c3; color: #a16207; }
+.comment-type-badge--accuracy { background: #ffedd5; color: #c2410c; }
+.comment-type-badge--style { background: #f3e8ff; color: #7c3aed; }
+.comment-type-badge--clarity { background: #dcfce7; color: #16a34a; }
+
+/* Severity badges */
+.comment-severity-badge { font-size: 0.65em; padding: 1px 5px; border-radius: 8px; font-weight: 600; }
+.comment-severity-badge--high { background: #dc2626; color: white; }
+.comment-severity-badge--medium { background: #ea580c; color: white; }
+.comment-severity-badge--low { background: #9ca3af; color: white; }
+
+/* Reply indent (replaced by .comment-thread-replies) */

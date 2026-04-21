@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useStore } from "@/store";
 import { CommentThread } from "./CommentThread";
+import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import type { CommentWithOrphan } from "@/store";
 import "@/styles/comments.css";
 
@@ -14,15 +15,19 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   const [showResolved, setShowResolved] = useState(false);
 
   const allComments = commentsByFile[filePath] ?? [];
-  const sorted = [...allComments].sort(
-    (a, b) => (a.matchedLineNumber ?? a.lineNumber ?? 0) - (b.matchedLineNumber ?? b.lineNumber ?? 0)
+  const threads = groupCommentsIntoThreads(allComments);
+
+  // Sort threads by root line number
+  const sorted = [...threads].sort(
+    (a, b) => (a.root.matchedLineNumber ?? a.root.line ?? 0) - (b.root.matchedLineNumber ?? b.root.line ?? 0)
   );
-  const unresolved = sorted.filter((c) => !c.resolved);
-  const resolved = sorted.filter((c) => c.resolved);
+
+  const unresolved = sorted.filter(t => !t.root.resolved);
+  const resolved = sorted.filter(t => t.root.resolved);
   const displayed = showResolved ? sorted : unresolved;
 
   const handleClick = (comment: CommentWithOrphan) => {
-    const line = comment.matchedLineNumber ?? comment.lineNumber ?? 1;
+    const line = comment.matchedLineNumber ?? comment.line ?? 1;
     onScrollToLine?.(line);
     window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
   };
@@ -31,7 +36,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     <div className="comments-panel">
       <div className="comments-panel-header">
         <span className="comments-panel-title">Comments ({unresolved.length})</span>
-        <button className="comment-btn" onClick={() => setShowResolved((v) => !v)}>
+        <button className="comment-btn" onClick={() => setShowResolved(v => !v)}>
           {showResolved ? "Hide resolved" : `Show resolved (${resolved.length})`}
         </button>
       </div>
@@ -39,17 +44,17 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         {displayed.length === 0 ? (
           <div className="comments-empty">No comments yet</div>
         ) : (
-          displayed.map((comment) => (
+          displayed.map(thread => (
             <div
-              key={comment.id}
+              key={thread.root.id}
               className="comment-panel-item"
-              onClick={() => handleClick(comment)}
+              onClick={() => handleClick(thread.root)}
             >
               <div className="comment-panel-item-line">
-                Line {comment.matchedLineNumber ?? comment.lineNumber ?? "?"}
-                {comment.isOrphaned && <span className="comment-orphaned-icon" title="Orphaned">⚠</span>}
+                Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}
+                {thread.root.isOrphaned && <span className="comment-orphaned-icon" title="Orphaned">⚠</span>}
               </div>
-              <CommentThread comment={comment} />
+              <CommentThread rootComment={thread.root} replies={thread.replies} filePath={filePath} />
             </div>
           ))
         )}

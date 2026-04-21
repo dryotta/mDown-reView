@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
-    get_launch_args, load_review_comments, read_binary_file, read_text_file, save_review_comments,
-    CommentResponse, LaunchArgs, LaunchArgsState, ReviewComment,
+    load_review_comments, read_binary_file, read_dir, read_text_file, save_review_comments,
+    LaunchArgs, LaunchArgsState, MrsfComment, MrsfSidecar,
 };
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -39,47 +39,94 @@ fn read_text_file_rejects_too_large() {
     assert_eq!(result.unwrap_err(), "file_too_large");
 }
 
-// ── save/load review comments ──────────────────────────────────────────────
+// ── save/load review comments (MRSF) ──────────────────────────────────────
 
-fn make_comment(id: &str) -> ReviewComment {
-    ReviewComment {
+fn make_mrsf_comment(id: &str) -> MrsfComment {
+    MrsfComment {
         id: id.to_string(),
-        anchor_type: "block".to_string(),
-        block_hash: Some("abc12345".to_string()),
-        line_hash: None,
-        line_number: None,
-        context_before: None,
-        context_after: None,
-        selected_text: None,
-        selection_start_offset: None,
-        selection_end_line: None,
-        selection_end_offset: None,
-        heading_context: None,
-        fallback_line: Some(1),
+        author: "Test User (test)".to_string(),
+        timestamp: "2026-04-20T12:00:00-07:00".to_string(),
         text: "Test comment".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
         resolved: false,
-        responses: None,
+        line: Some(10),
+        end_line: None,
+        start_column: None,
+        end_column: None,
+        selected_text: Some("some text".to_string()),
+        anchored_text: None,
+        selected_text_hash: None,
+        commit: None,
+        comment_type: Some("suggestion".to_string()),
+        severity: Some("high".to_string()),
+        reply_to: None,
     }
 }
 
 #[test]
-fn save_and_load_review_comments() {
+fn mrsf_sidecar_yaml_roundtrip() {
+    let sidecar = MrsfSidecar {
+        mrsf_version: "1.0".to_string(),
+        document: "docs/test.md".to_string(),
+        comments: vec![make_mrsf_comment("abc-123")],
+    };
+    let yaml = serde_yaml::to_string(&sidecar).unwrap();
+    let parsed: MrsfSidecar = serde_yaml::from_str(&yaml).unwrap();
+    assert_eq!(parsed.mrsf_version, "1.0");
+    assert_eq!(parsed.comments.len(), 1);
+    assert_eq!(parsed.comments[0].line, Some(10));
+    assert_eq!(parsed.comments[0].comment_type.as_deref(), Some("suggestion"));
+}
+
+#[test]
+fn mrsf_sidecar_json_roundtrip() {
+    let sidecar = MrsfSidecar {
+        mrsf_version: "1.0".to_string(),
+        document: "docs/test.md".to_string(),
+        comments: vec![],
+    };
+    let json = serde_json::to_string_pretty(&sidecar).unwrap();
+    let parsed: MrsfSidecar = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.mrsf_version, "1.0");
+    assert_eq!(parsed.document, "docs/test.md");
+}
+
+#[test]
+fn mrsf_comment_type_field_serializes_as_type() {
+    let comment = make_mrsf_comment("c1");
+    let yaml = serde_yaml::to_string(&comment).unwrap();
+    assert!(yaml.contains("type: suggestion"), "should serialize as 'type' not 'comment_type'");
+}
+
+#[test]
+fn mrsf_optional_fields_omitted_when_none() {
+    let mut comment = make_mrsf_comment("c1");
+    comment.line = None;
+    comment.selected_text = None;
+    comment.comment_type = None;
+    comment.severity = None;
+    let yaml = serde_yaml::to_string(&comment).unwrap();
+    assert!(!yaml.contains("line:"), "None fields should be omitted");
+    assert!(!yaml.contains("selected_text:"), "None fields should be omitted");
+}
+
+#[test]
+fn save_and_load_mrsf_yaml() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let file_path = tmp.path().to_str().unwrap().to_string();
 
-    let comments = vec![make_comment("c1"), make_comment("c2")];
-    save_review_comments(file_path.clone(), comments.clone()).unwrap();
+    let comments = vec![make_mrsf_comment("c1"), make_mrsf_comment("c2")];
+    save_review_comments(file_path.clone(), "test.md".to_string(), comments.clone()).unwrap();
 
-    // Check JSON structure
-    let sidecar = std::fs::read_to_string(format!("{}.review.json", file_path)).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&sidecar).unwrap();
-    assert_eq!(parsed["version"], 3);
-    assert_eq!(parsed["comments"].as_array().unwrap().len(), 2);
+    // Check YAML file was created
+    let sidecar_path = format!("{}.review.yaml", file_path);
+    let content = std::fs::read_to_string(&sidecar_path).unwrap();
+    assert!(content.contains("mrsf_version:"));
+    assert!(content.contains("document: test.md"));
 
-    // Round-trip
+    // Round-trip via load
     let loaded = load_review_comments(file_path).unwrap().unwrap();
-    assert_eq!(loaded.version, 3);
+    assert_eq!(loaded.mrsf_version, "1.0");
+    assert_eq!(loaded.document, "test.md");
     assert_eq!(loaded.comments.len(), 2);
     assert_eq!(loaded.comments[0].id, "c1");
 }
@@ -90,106 +137,32 @@ fn load_review_comments_returns_none_when_missing() {
     assert!(result.is_none());
 }
 
-// ── legacy sidecar migration ────────────────────────────────────────────────
-
 #[test]
-fn load_legacy_sidecar_without_version() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    let file_path = tmp.path().to_str().unwrap().to_string();
-    let sidecar_path = format!("{}.review.json", file_path);
-
-    // Write a legacy sidecar (no version field)
-    let legacy = r#"{"comments":[{"id":"c1","blockHash":"abc12345","headingContext":null,"fallbackLine":1,"text":"legacy comment","createdAt":"2024-01-01T00:00:00Z","resolved":false}]}"#;
-    std::fs::write(&sidecar_path, legacy).unwrap();
-
-    let loaded = load_review_comments(file_path.clone()).unwrap().unwrap();
-    assert_eq!(loaded.version, 0);
-    assert_eq!(loaded.comments.len(), 1);
-
-    // Save re-migrates to version 3
-    save_review_comments(file_path.clone(), loaded.comments).unwrap();
-    let saved = std::fs::read_to_string(sidecar_path).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(parsed["version"], 3);
-}
-
-#[test]
-fn load_v1_comments_defaults_anchor_type_to_block() {
-    let dir = tempfile::tempdir().unwrap();
-    let file_path = dir.path().join("test.md");
-    std::fs::write(&file_path, "# hello").unwrap();
-    let sidecar = dir.path().join("test.md.review.json");
-    std::fs::write(&sidecar, r#"{"version":1,"comments":[{"id":"a","blockHash":"12345678","headingContext":null,"fallbackLine":1,"text":"hello","createdAt":"2026-01-01T00:00:00Z","resolved":false}]}"#).unwrap();
-
-    let result = load_review_comments(file_path.to_string_lossy().into_owned()).unwrap().unwrap();
-    assert_eq!(result.comments[0].anchor_type, "block");
-}
-
-#[test]
-fn save_and_load_v3_comment_with_new_fields() {
+fn load_mrsf_json_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("test.md");
     std::fs::write(&file, "test content").unwrap();
-    let file_str = file.to_str().unwrap().to_string();
+    let sidecar = dir.path().join("test.md.review.json");
+    std::fs::write(&sidecar, r#"{"mrsf_version":"1.0","document":"test.md","comments":[{"id":"j1","author":"A","timestamp":"2026-01-01T00:00:00Z","text":"json comment","resolved":false}]}"#).unwrap();
 
-    let comment = ReviewComment {
-        id: "v3test".into(),
-        anchor_type: "line".into(),
-        line_hash: Some("abcd1234".into()),
-        line_number: Some(5),
-        context_before: Some("line3\nline4".into()),
-        context_after: Some("line6\nline7".into()),
-        selected_text: None,
-        selection_start_offset: None,
-        selection_end_line: None,
-        selection_end_offset: None,
-        block_hash: None,
-        heading_context: None,
-        fallback_line: None,
-        text: "v3 comment".into(),
-        created_at: "2026-01-01T00:00:00Z".into(),
-        resolved: false,
-        responses: Some(vec![CommentResponse {
-            author: "copilot".into(),
-            text: "Fixed it".into(),
-            created_at: "2026-01-01T01:00:00Z".into(),
-        }]),
-    };
-
-    save_review_comments(file_str.clone(), vec![comment]).unwrap();
-    let loaded = load_review_comments(file_str).unwrap().unwrap();
-    assert_eq!(loaded.version, 3);
-    assert_eq!(loaded.comments.len(), 1);
-    assert_eq!(loaded.comments[0].context_before, Some("line3\nline4".into()));
-    assert_eq!(loaded.comments[0].responses.as_ref().unwrap().len(), 1);
-    assert_eq!(loaded.comments[0].responses.as_ref().unwrap()[0].author, "copilot");
+    let loaded = load_review_comments(file.to_str().unwrap().to_string()).unwrap().unwrap();
+    assert_eq!(loaded.mrsf_version, "1.0");
+    assert_eq!(loaded.comments[0].id, "j1");
 }
 
 #[test]
-fn load_v2_sidecar_preserves_all_fields() {
+fn yaml_preferred_over_json() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("test.md");
-    std::fs::write(&file, "").unwrap();
-    let sidecar = dir.path().join("test.md.review.json");
-    std::fs::write(&sidecar, r#"{"version":2,"comments":[{"id":"old","anchorType":"block","blockHash":"aabb","headingContext":null,"fallbackLine":3,"text":"old comment","createdAt":"2025-01-01T00:00:00Z","resolved":false}]}"#).unwrap();
+    std::fs::write(&file, "test").unwrap();
+    // Create both YAML and JSON sidecars
+    let yaml_sidecar = dir.path().join("test.md.review.yaml");
+    std::fs::write(&yaml_sidecar, "mrsf_version: '1.0'\ndocument: test.md\ncomments:\n- id: y1\n  author: A\n  timestamp: '2026-01-01T00:00:00Z'\n  text: yaml comment\n  resolved: false\n").unwrap();
+    let json_sidecar = dir.path().join("test.md.review.json");
+    std::fs::write(&json_sidecar, r#"{"mrsf_version":"1.0","document":"test.md","comments":[{"id":"j1","author":"A","timestamp":"2026-01-01T00:00:00Z","text":"json comment","resolved":false}]}"#).unwrap();
 
     let loaded = load_review_comments(file.to_str().unwrap().to_string()).unwrap().unwrap();
-    assert_eq!(loaded.comments[0].anchor_type, "block");
-    assert_eq!(loaded.comments[0].block_hash, Some("aabb".into()));
-    assert_eq!(loaded.comments[0].fallback_line, Some(3));
-}
-
-#[test]
-fn v3_without_optional_fields_loads_cleanly() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("test.md");
-    std::fs::write(&file, "").unwrap();
-    let sidecar = dir.path().join("test.md.review.json");
-    std::fs::write(&sidecar, r#"{"version":3,"comments":[{"id":"min","anchorType":"line","lineHash":"1234","lineNumber":1,"text":"minimal","createdAt":"2026-01-01T00:00:00Z","resolved":false}]}"#).unwrap();
-
-    let loaded = load_review_comments(file.to_str().unwrap().to_string()).unwrap().unwrap();
-    assert_eq!(loaded.comments[0].context_before, None);
-    assert_eq!(loaded.comments[0].responses, None);
+    assert_eq!(loaded.comments[0].id, "y1", "YAML should be preferred over JSON");
 }
 
 // ── get_launch_args ────────────────────────────────────────────────────────
@@ -203,12 +176,6 @@ fn get_launch_args_returns_and_clears() {
     let state: LaunchArgsState = Arc::new(Mutex::new(Some(args)));
 
     // First call returns the args
-    struct FakeState(LaunchArgsState);
-    impl std::ops::Deref for FakeState {
-        type Target = LaunchArgsState;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-
     let result = {
         let mut guard = state.lock().unwrap();
         guard.take().unwrap_or_default()
@@ -259,4 +226,26 @@ fn read_binary_file_rejects_too_large() {
 fn read_binary_file_missing_file() {
     let result = read_binary_file("/nonexistent/file.png".into());
     assert!(result.is_err());
+}
+
+// ── read_dir ──────────────────────────────────────────────────────────────
+
+#[test]
+fn read_dir_hides_review_sidecars() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("readme.md"), "hello").unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main() {}").unwrap();
+    // Both YAML and JSON review sidecars should be hidden
+    std::fs::write(dir.path().join("readme.md.review.yaml"), "mrsf_version: '1.0'\ndocument: readme.md\ncomments: []\n").unwrap();
+    std::fs::write(dir.path().join("main.rs.review.json"), r#"{"mrsf_version":"1.0","document":"main.rs","comments":[]}"#).unwrap();
+    std::fs::write(dir.path().join("config.json"), "{}").unwrap();
+
+    let entries = read_dir(dir.path().to_str().unwrap().to_string()).unwrap();
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    
+    assert!(names.contains(&"readme.md"));
+    assert!(names.contains(&"main.rs"));
+    assert!(names.contains(&"config.json"));
+    assert!(!names.contains(&"readme.md.review.yaml"), "YAML review sidecars should be hidden");
+    assert!(!names.contains(&"main.rs.review.json"), "JSON review sidecars should be hidden");
 }

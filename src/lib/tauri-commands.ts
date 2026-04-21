@@ -14,40 +14,29 @@ export interface LaunchArgs {
   folders: string[];
 }
 
-export interface CommentResponse {
-  author: string;
-  text: string;
-  createdAt: string;
-}
-
-export interface ReviewComment {
+export interface MrsfComment {
   id: string;
-  anchorType: "line" | "selection" | "block"; // block kept for legacy read
-  // Line anchor (always present for line/selection)
-  lineNumber?: number;
-  lineHash?: string;
-  // Context for re-anchoring
-  contextBefore?: string;
-  contextAfter?: string;
-  // Selection fields
-  selectedText?: string;
-  selectionStartOffset?: number;
-  selectionEndLine?: number;
-  selectionEndOffset?: number;
-  // Legacy block fields (read-only, not created by new code)
-  blockHash?: string;
-  headingContext?: string | null;
-  fallbackLine?: number;
-  // Content
+  author: string;
+  timestamp: string;
   text: string;
-  createdAt: string;
   resolved: boolean;
-  responses?: CommentResponse[];
+  line?: number;
+  end_line?: number;
+  start_column?: number;
+  end_column?: number;
+  selected_text?: string;
+  anchored_text?: string;
+  selected_text_hash?: string;
+  commit?: string;
+  type?: "suggestion" | "issue" | "question" | "accuracy" | "style" | "clarity";
+  severity?: "low" | "medium" | "high";
+  reply_to?: string;
 }
 
-export interface ReviewComments {
-  version: number;
-  comments: ReviewComment[];
+export interface MrsfSidecar {
+  mrsf_version: string;
+  document: string;
+  comments: MrsfComment[];
 }
 
 // ── Typed wrappers ─────────────────────────────────────────────────────────
@@ -69,11 +58,26 @@ export const getLogPath = (): Promise<string> =>
 
 export const saveReviewComments = (
   filePath: string,
-  comments: ReviewComment[]
+  document: string,
+  comments: MrsfComment[]
 ): Promise<void> =>
-  invoke<void>("save_review_comments", { filePath: filePath, comments });
+  invoke<void>("save_review_comments", { filePath, document, comments });
 
-export const loadReviewComments = (filePath: string): Promise<ReviewComments | null> =>
-  invoke<ReviewComments | null>("load_review_comments", { filePath: filePath });
+export const loadReviewComments = (filePath: string): Promise<MrsfSidecar | null> =>
+  invoke<MrsfSidecar | null>("load_review_comments", { filePath });
+
+export const getGitHead = (path: string): Promise<string | null> =>
+  invoke<string | null>("get_git_head", { path });
+
+export interface FileChangeEvent {
+  path: string;
+  kind: "content" | "review" | "deleted";
+}
+
+export const updateWatchedFiles = (paths: string[]): Promise<void> =>
+  invoke<void>("update_watched_files", { paths });
+
+export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
+  invoke<[string, string][]>("scan_review_files", { root });
 
 export const getAppVersion = (): Promise<string> => getVersion();

@@ -1,0 +1,34 @@
+mrsf_version: "1.0"
+document: examples/contributing.md
+comments:
+  - id: "contrib-0001"
+    author: "Wictor Wilén (wictor)"
+    timestamp: "2025-04-15T10:00:00Z"
+    text: "This section needs updating."
+    resolved: false
+    line: 5
+  - id: "contrib-0002"
+    author: "Reviewer (reviewer)"
+    timestamp: "2025-04-15T10:30:00Z"
+    text: "The release process should be documented."
+    resolved: false
+    line: 20
+    selected_text: "Tag the release"
+  - id: "contrib-0003"
+    author: "Wictor Wilén (wictor)"
+    timestamp: "2025-04-15T11:00:00Z"
+    text: "Agreed, will update."
+    resolved: false
+    reply_to: "contrib-0002"
+  - id: "contrib-0004"
+    author: "Reviewer (reviewer)"
+    timestamp: "2025-04-15T11:30:00Z"
+    text: "Also add CI requirements."
+    resolved: true
+    line: 30
+  - id: "contrib-0005"
+    author: "Reviewer (reviewer)"
+    timestamp: "2025-04-15T12:00:00Z"
+    text: "Done."
+    resolved: true
+    reply_to: "contrib-0004"

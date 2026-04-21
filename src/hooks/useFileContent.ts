@@ -12,16 +12,31 @@ export interface FileContent {
 
 export function useFileContent(path: string): FileContent {
   const [state, setState] = useState<FileContent>({ status: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Listen for file-changed DOM events from useFileWatcher
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { path: string; kind: string };
+      if (detail.path === path && detail.kind === "content") {
+        setReloadKey((k) => k + 1);
+      }
+    };
+    window.addEventListener("mdownreview:file-changed", handler);
+    return () => window.removeEventListener("mdownreview:file-changed", handler);
+  }, [path]);
 
   useEffect(() => {
-    setState({ status: "loading" });
-    
-    // Short-circuit for image files - don't attempt to read as text
+    // Don't show loading spinner on reload — keep stale content visible
+    if (reloadKey === 0) {
+      setState({ status: "loading" });
+    }
+
     if (getFileCategory(path) === "image") {
       setState({ status: "image" });
       return;
     }
-    
+
     readTextFile(path)
       .then((content) => setState({ status: "ready", content }))
       .catch((err: unknown) => {
@@ -34,7 +49,7 @@ export function useFileContent(path: string): FileContent {
           setState({ status: "error", error: msg });
         }
       });
-  }, [path]);
+  }, [path, reloadKey]);
 
   return state;
 }

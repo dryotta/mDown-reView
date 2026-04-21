@@ -1,27 +1,38 @@
-import { fnv1a8, normalizeLine } from "@/lib/fnv1a";
+/// MRSF anchor creation helpers.
 
-export { normalizeLine };
-
-export function computeLineHash(lineText: string): string {
-  return fnv1a8(normalizeLine(lineText));
+export async function computeSelectedTextHash(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function captureContext(
-  lines: string[],
-  lineIndex: number
-): { contextBefore: string; contextAfter: string } {
-  const beforeLines: string[] = [];
-  for (let i = Math.max(0, lineIndex - 2); i < lineIndex; i++) {
-    beforeLines.push(normalizeLine(lines[i]));
-  }
+export function createLineAnchor(lineNumber: number): { line: number } {
+  return { line: lineNumber };
+}
 
-  const afterLines: string[] = [];
-  for (let i = lineIndex + 1; i <= Math.min(lines.length - 1, lineIndex + 2); i++) {
-    afterLines.push(normalizeLine(lines[i]));
-  }
-
+export function createSelectionAnchor(
+  startLine: number,
+  endLine: number,
+  startColumn: number,
+  endColumn: number,
+  selectedText: string,
+  selectedTextHash: string
+): {
+  line: number;
+  end_line: number;
+  start_column: number;
+  end_column: number;
+  selected_text: string;
+  selected_text_hash: string;
+} {
   return {
-    contextBefore: beforeLines.join("\n"),
-    contextAfter: afterLines.join("\n"),
+    line: startLine,
+    end_line: endLine,
+    start_column: startColumn,
+    end_column: endColumn,
+    selected_text: selectedText,
+    selected_text_hash: selectedTextHash,
   };
 }

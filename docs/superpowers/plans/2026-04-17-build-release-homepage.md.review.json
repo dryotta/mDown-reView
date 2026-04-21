@@ -1,0 +1,29 @@
+{
+  "version": 3,
+  "comments": [
+    {
+      "id": "78az94r5",
+      "anchorType": "line",
+      "lineHash": "d4d3b759",
+      "lineNumber": 13,
+      "contextBefore": "---\n",
+      "contextAfter": "\n| File | Action | Purpose |",
+      "text": "fdssfd",
+      "createdAt": "2026-04-21T00:39:35.317Z",
+      "resolved": false,
+      "author": "human",
+      "responses": [
+        {
+          "author": "human",
+          "text": "sdfsf",
+          "createdAt": "2026-04-21T00:39:39.674Z"
+        },
+        {
+          "author": "human",
+          "text": "dsfsdf",
+          "createdAt": "2026-04-21T00:39:44.123Z"
+        }
+      ]
+    }
+  ]
+}

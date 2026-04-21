@@ -18,68 +18,41 @@ pub struct LaunchArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CommentResponse {
-    pub author: String,
-    pub text: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReviewComment {
+pub struct MrsfComment {
     pub id: String,
-    #[serde(rename = "anchorType", default = "default_anchor_type")]
-    pub anchor_type: String,
-    // Line anchor fields
-    #[serde(rename = "lineHash", skip_serializing_if = "Option::is_none")]
-    pub line_hash: Option<String>,
-    #[serde(rename = "lineNumber", skip_serializing_if = "Option::is_none")]
-    pub line_number: Option<u32>,
-    // Context for re-anchoring
-    #[serde(rename = "contextBefore", skip_serializing_if = "Option::is_none")]
-    pub context_before: Option<String>,
-    #[serde(rename = "contextAfter", skip_serializing_if = "Option::is_none")]
-    pub context_after: Option<String>,
-    // Selection fields
-    #[serde(rename = "selectedText", skip_serializing_if = "Option::is_none")]
-    pub selected_text: Option<String>,
-    #[serde(rename = "selectionStartOffset", skip_serializing_if = "Option::is_none")]
-    pub selection_start_offset: Option<u32>,
-    #[serde(rename = "selectionEndLine", skip_serializing_if = "Option::is_none")]
-    pub selection_end_line: Option<u32>,
-    #[serde(rename = "selectionEndOffset", skip_serializing_if = "Option::is_none")]
-    pub selection_end_offset: Option<u32>,
-    // Legacy block fields (preserved for migration)
-    #[serde(rename = "blockHash", skip_serializing_if = "Option::is_none")]
-    pub block_hash: Option<String>,
-    #[serde(rename = "headingContext", skip_serializing_if = "Option::is_none")]
-    pub heading_context: Option<String>,
-    #[serde(rename = "fallbackLine", skip_serializing_if = "Option::is_none")]
-    pub fallback_line: Option<u32>,
-    // Content
+    pub author: String,
+    pub timestamp: String,
     pub text: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
     pub resolved: bool,
-    // Responses
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub responses: Option<Vec<CommentResponse>>,
-}
-
-fn default_anchor_type() -> String {
-    "block".to_string()
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_column: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_column: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchored_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_text_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub comment_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReviewComments {
-    pub version: u32,
-    pub comments: Vec<ReviewComment>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LegacyReviewComments {
-    pub version: Option<u32>,
-    pub comments: Vec<ReviewComment>,
+pub struct MrsfSidecar {
+    pub mrsf_version: String,
+    pub document: String,
+    pub comments: Vec<MrsfComment>,
 }
 
 pub type LaunchArgsState = Arc<Mutex<Option<LaunchArgs>>>;
@@ -118,6 +91,12 @@ pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
             e.to_string()
         })?;
         let name = entry.file_name().to_string_lossy().into_owned();
+        
+        // Hide review sidecar files from folder tree
+        if name.ends_with(".review.yaml") || name.ends_with(".review.json") {
+            continue;
+        }
+        
         let path = entry.path().to_string_lossy().into_owned();
         result.push(DirEntry {
             name,
@@ -176,15 +155,16 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
-/// Save review comments sidecar file (atomic via temp + rename).
+/// Save review comments as MRSF YAML sidecar (atomic via temp + rename).
 #[tauri::command]
-pub fn save_review_comments(file_path: String, comments: Vec<ReviewComment>) -> Result<(), String> {
-    let sidecar_path = std::path::PathBuf::from(format!("{}.review.json", file_path));
-    let payload = ReviewComments {
-        version: 3,
+pub fn save_review_comments(file_path: String, document: String, comments: Vec<MrsfComment>) -> Result<(), String> {
+    let sidecar_path = std::path::PathBuf::from(format!("{}.review.yaml", file_path));
+    let payload = MrsfSidecar {
+        mrsf_version: "1.0".to_string(),
+        document,
         comments,
     };
-    let json = serde_json::to_string_pretty(&payload).map_err(|e| {
+    let yaml = serde_yaml::to_string(&payload).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
@@ -198,12 +178,11 @@ pub fn save_review_comments(file_path: String, comments: Vec<ReviewComment>) -> 
             .unwrap_or_default()
             .as_nanos()
     ));
-    std::fs::write(&tmp_path, &json).map_err(|e| {
+    std::fs::write(&tmp_path, &yaml).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
     std::fs::rename(&tmp_path, &sidecar_path).map_err(|e| {
-        // Clean up temp file on rename failure
         let _ = std::fs::remove_file(&tmp_path);
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
@@ -211,25 +190,41 @@ pub fn save_review_comments(file_path: String, comments: Vec<ReviewComment>) -> 
     Ok(())
 }
 
-/// Load review comments sidecar file; returns null if no sidecar exists.
+/// Load review comments sidecar; tries .review.yaml first, then .review.json.
 #[tauri::command]
-pub fn load_review_comments(file_path: String) -> Result<Option<ReviewComments>, String> {
-    let sidecar_path = format!("{}.review.json", file_path);
-    match std::fs::read_to_string(&sidecar_path) {
+pub fn load_review_comments(file_path: String) -> Result<Option<MrsfSidecar>, String> {
+    let yaml_path = format!("{}.review.yaml", file_path);
+    let json_path = format!("{}.review.json", file_path);
+
+    // Try YAML first
+    match std::fs::read_to_string(&yaml_path) {
+        Ok(content) => {
+            let sidecar: MrsfSidecar = serde_yaml::from_str(&content).map_err(|e| {
+                tracing::error!("[rust] YAML parse error: {}", e);
+                e.to_string()
+            })?;
+            return Ok(Some(sidecar));
+        }
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            tracing::error!("[rust] command error: {}", e);
+            return Err(e.to_string());
+        }
+        _ => {} // Not found, try JSON
+    }
+
+    // Try JSON fallback
+    match std::fs::read_to_string(&json_path) {
+        Ok(content) => {
+            let sidecar: MrsfSidecar = serde_json::from_str(&content).map_err(|e| {
+                tracing::error!("[rust] JSON parse error: {}", e);
+                e.to_string()
+            })?;
+            Ok(Some(sidecar))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => {
             tracing::error!("[rust] command error: {}", e);
             Err(e.to_string())
-        }
-        Ok(content) => {
-            let legacy: LegacyReviewComments = serde_json::from_str(&content).map_err(|e| {
-                tracing::error!("[rust] command error: {}", e);
-                e.to_string()
-            })?;
-            Ok(Some(ReviewComments {
-                version: legacy.version.unwrap_or(0),
-                comments: legacy.comments,
-            }))
         }
     }
 }
@@ -249,4 +244,55 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
         .app_log_dir()
         .map_err(|e| e.to_string())?;
     Ok(log_dir.join("mdownreview.log").to_string_lossy().into_owned())
+}
+
+/// Scan a directory tree for MRSF sidecar files (.review.yaml and .review.json).
+/// Returns pairs of (sidecar_path, source_file_path).
+#[tauri::command]
+pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> {
+    let mut results = Vec::new();
+    let walker = walkdir::WalkDir::new(&root)
+        .max_depth(50)
+        .into_iter()
+        .filter_map(|e| e.ok());
+
+    for entry in walker {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            let (is_sidecar, suffix) = if name.ends_with(".review.yaml") {
+                (true, ".review.yaml")
+            } else if name.ends_with(".review.json") {
+                (true, ".review.json")
+            } else {
+                (false, "")
+            };
+            if is_sidecar {
+                let sidecar = path.to_string_lossy().to_string();
+                let source = sidecar.trim_end_matches(suffix).to_string();
+                results.push((sidecar, source));
+            }
+        }
+        if results.len() >= 10_000 {
+            tracing::warn!("[scan] capped at 10,000 review files");
+            break;
+        }
+    }
+    Ok(results)
+}
+
+/// Get the current git HEAD SHA, if in a git repository.
+#[tauri::command]
+pub fn get_git_head(path: String) -> Result<Option<String>, String> {
+    let output = std::process::Command::new("git")
+        .arg("rev-parse")
+        .arg("HEAD")
+        .current_dir(&path)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Ok(if sha.is_empty() { None } else { Some(sha) })
+        }
+        _ => Ok(None),
+    }
 }

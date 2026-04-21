@@ -112,3 +112,35 @@
   margin-top: 1px;
   align-self: center;
 }
+
+/* Ghost entry (deleted file with review sidecar) */
+.tree-entry--ghost .tree-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.tree-entry--ghost .tree-icon {
+  opacity: 0.4;
+}
+
+/* Comment count badge */
+.tree-comment-badge {
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 8px;
+  background: var(--color-accent, #0969da);
+  color: white;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Auto-reveal toggle active state */
+.folder-tree-btn.active {
+  background: var(--color-accent, #0969da);
+  color: white;
+  border-color: var(--color-accent, #0969da);
+}

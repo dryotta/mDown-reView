@@ -36,13 +36,15 @@ Do not implement these — they are explicitly out of scope:
 Two runtime layers bridged by Tauri v2:
 
 **Rust layer** (`src-tauri/src/`)
-- File I/O via custom commands — `read_text_file`, `read_dir` — that bypass `tauri-plugin-fs` scope restrictions (intentional for local-only viewer). Guarded by 10 MB size limit and null-byte binary detection.
-- Comment persistence: `save_review_comments` / `load_review_comments` write versioned sidecar JSON files alongside each reviewed document.
+- File I/O via custom commands — `read_text_file`, `read_dir` — that bypass `tauri-plugin-fs` scope restrictions (intentional for local-only viewer). Guarded by 10 MB size limit and null-byte binary detection. `read_dir` filters out `.review.yaml` and `.review.json` sidecars.
+- Comment persistence: `save_review_comments` / `load_review_comments` write MRSF v1.0 YAML sidecar files alongside each reviewed document. Loads YAML first, falls back to JSON for backward compatibility.
+- File watcher: `watcher.rs` uses `notify-debouncer-mini` (300ms) to watch directories containing open files. Emits `file-changed` events with `content | review | deleted` kinds.
+- Orphan scanner: `scan_review_files` walks a directory tree to find `.review.json` sidecars, used for ghost entry detection (capped at 10K results).
 - CLI arg handling: parsed in `setup` hook, stored in `Arc<Mutex<Option<LaunchArgs>>>`, consumed via `get_launch_args` command (poll on mount, not event push — eliminates the race where events fire before React's first `useEffect`).
 - Logging: `tauri-plugin-log` routes both Rust `tracing` macros and WebView `console.*` calls to a single rotating log file.
 
 **React/TypeScript layer** (`src/`)
-- State: Zustand with three slices — `workspaceSlice` (root folder, tree state), `tabsSlice` (open tabs, scroll positions), `commentsSlice` (comments by file path).
+- State: Zustand with six slices — `workspaceSlice` (root folder, tree state), `tabsSlice` (open tabs, scroll positions), `commentsSlice` (comments by file path), `uiSlice` (theme, pane widths), `updateSlice` (auto-update state), `watcherSlice` (ghost entries, auto-reveal, save timestamp).
 - Viewers: `MarkdownViewer` (react-markdown + remark-gfm + @shikijs/rehype + rehype-slug), `SourceViewer` (Shiki direct API), `BinaryPlaceholder`.
 - All Tauri calls go through `src/lib/tauri-commands.ts` typed wrappers — never call `invoke` directly in components or hooks.
 - All logging goes through `src/logger.ts` — never import `@tauri-apps/plugin-log` directly.
@@ -51,8 +53,8 @@ Two runtime layers bridged by Tauri v2:
 
 1. **Custom Tauri commands bypass `tauri-plugin-fs` scope** (intentional — local viewer). `read_text_file` rejects files >10 MB and detects binary via first-512-byte null scan.
 2. **`MD_COMPONENTS` defined at module scope** (never inside render). Per-block IDs use `node.position.start.line` from react-markdown's `node` prop. Prevents React error #185 in concurrent mode.
-3. **Comments as sidecar JSON** — `<filename>.review.json` in the same directory. Portable alongside files; no database.
-4. **Anchor by content hash** — `blockHash` is an 8-char FNV-1a hex of normalized block text. Comments re-attach after AI regeneration even when block position changes.
+3. **Comments as MRSF v1.0 sidecars** — `<filename>.review.yaml` (primary) or `.review.json` (legacy fallback) in the same directory. Uses the open [Sidemark/MRSF specification](https://sidemark.org/specification.html) for interoperability with VS Code's Sidemark extension. Portable alongside files; no database.
+4. **Anchor by selected text + line number** — MRSF `selected_text` with SHA-256 hash and line/column anchors. 4-step re-anchoring algorithm (exact text → line fallback → fuzzy match → orphan) survives AI refactoring.
 5. **Poll for first-instance CLI args** via `get_launch_args` command (not an event). Events can fire before React's first `useEffect`; the command is called on mount after React commits, eliminating the race. Second-instance args use `args-received` event (safe because the window is already running).
 6. **Unified Shiki** for both `MarkdownViewer` fenced blocks and `SourceViewer`. Using two different highlighters would produce inconsistent code themes.
 7. **Zustand persist middleware** serializes only UI state (tab scroll positions, workspace root, theme preference) — not comment content, which lives in sidecar files.
@@ -68,7 +70,7 @@ Two runtime layers bridged by Tauri v2:
 | Rust logging | `tauri-plugin-log`, `tracing`, `tracing-subscriber` |
 | Single-instance | `tauri-plugin-single-instance` |
 | Frontend | React 18, TypeScript |
-| State | Zustand (`workspaceSlice`, `tabsSlice`, `commentsSlice`) |
+| State | Zustand (`workspaceSlice`, `tabsSlice`, `commentsSlice`, `uiSlice`, `updateSlice`, `watcherSlice`) |
 | Markdown rendering | `react-markdown` + `remark-gfm` + `@shikijs/rehype` + `rehype-slug` |
 | Syntax highlighting | Shiki (`@shikijs/rehype` in MarkdownViewer, direct API in SourceViewer) |
 | Unit/component tests | Vitest + React Testing Library + jsdom |
@@ -80,7 +82,13 @@ Two runtime layers bridged by Tauri v2:
 src/
   lib/
     tauri-commands.ts       ← typed invoke wrappers; ALL Tauri calls go here
+    comment-matching.ts     ← MRSF 4-step re-anchoring algorithm
+    comment-anchors.ts      ← SHA-256 hash, MRSF anchor creators
   logger.ts                 ← re-exports plugin-log; prefix [web] on all messages
+  hooks/
+    useFileContent.ts       ← file content loader with auto-reload on watcher events
+    useFileWatcher.ts       ← connects Rust watcher to frontend, manages ghost entries
+    useSearch.ts            ← in-document search
   __mocks__/
     logger.ts               ← vi.fn() stubs for unit/component tests
     @tauri-apps/api/
@@ -91,18 +99,24 @@ src/
     TabBar/
     viewers/
       MarkdownViewer.tsx
-      SourceViewer.tsx
+      SourceView.tsx          ← full-featured source viewer with comments, folding, search
+      SourceViewer.tsx        ← simple source viewer (no comments)
+      DeletedFileViewer.tsx   ← shows orphaned comments for deleted files
+      ViewerRouter.tsx        ← routes to appropriate viewer (incl. ghost detection)
       BinaryPlaceholder.tsx
     comments/
       CommentInput.tsx
-      CommentThread.tsx
+      CommentThread.tsx       ← threaded comments with author badges, reply, orphan banner
       CommentsPanel.tsx
+      LineCommentMargin.tsx
+      SelectionToolbar.tsx
     AboutDialog.tsx
     ErrorBoundary.tsx
-  store/                    ← Zustand slices
+  store/                    ← Zustand slices (workspace, tabs, comments, ui, update, watcher)
 
 src-tauri/src/
-  commands.rs               ← all Tauri commands
+  commands.rs               ← all Tauri commands (incl. scan_review_files)
+  watcher.rs                ← file system watcher (notify crate, 300ms debounce)
   lib.rs                    ← plugin registration, setup hook, panic hook
 
 e2e/
@@ -130,21 +144,71 @@ e2e/
 
 Release builds write to `{appDataDir}/logs/mdownreview.log`. Rotation at 5 MB, max 3 files. Log level `info` in release, `debug` in debug builds. WebView `console.log/debug` suppressed in release (only `warn`/`error` forwarded). Path exposed in the About dialog with a "Copy path" button.
 
-## Comment Data Model
+## Comment Data Model (MRSF v1.0)
 
-```typescript
-{
-  id: string;           // UUID
-  blockHash: string;    // 8-char FNV-1a hex of normalized block text
-  headingContext: string | null; // slug of nearest preceding heading
-  fallbackLine: number; // creation-time line number (display only)
-  text: string;
-  createdAt: string;    // ISO timestamp
-  resolved: boolean;
-}
+Uses the [Markdown Review Sidecar Format (MRSF) v1.0](https://sidemark.org/specification.html) — an open standard for review comments stored alongside documents. Compatible with VS Code's Sidemark extension.
+
+**Sidecar file:** `<filename>.review.yaml` (primary) or `.review.json` (legacy read-only)
+
+```yaml
+mrsf_version: "1.0"
+document: "filename.ext"        # Relative path to reviewed file
+comments:
+  - id: "uuid"                  # Required: unique identifier
+    author: "Display Name (id)" # Required: "Name (identifier)" format
+    timestamp: "2025-04-15T10:00:00Z"  # Required: RFC 3339
+    text: "Comment text"        # Required: comment body
+    resolved: false             # Required: resolution status
+    # Anchor fields (optional):
+    line: 42                    # 1-based line number
+    end_line: 45                # End line for multi-line selections
+    start_column: 10            # 0-based start column
+    end_column: 30              # 0-based end column
+    selected_text: "code here"  # Selected text for re-anchoring
+    selected_text_hash: "sha256..."  # SHA-256 of selected_text
+    # Metadata (optional):
+    type: "suggestion"          # issue | suggestion | question | note | praise
+    severity: "warning"         # critical | warning | info | nitpick
+    reply_to: "parent-uuid"     # Threading: references parent comment ID
+    commit: "abc1234"           # Git commit SHA at comment creation
 ```
 
-Sidecar format: `{ "version": 1, "comments": [...] }`. Legacy (no `version` field) is migrated on next save.
+### Threading
+
+Flat `reply_to` model — replies are top-level comments with `reply_to` referencing the parent comment's `id`. No nested `responses[]` array (v3 format removed).
+
+### Re-anchoring Algorithm (4-step)
+
+1. **Exact match**: Find `selected_text` at original line, then search full document
+2. **Line fallback**: If line number is still in bounds, anchor there
+3. **Fuzzy match**: Levenshtein similarity ≥ 0.6, prefer closest to original line
+4. **Orphan**: All strategies failed — comment displayed with orphan banner
+
+### Surviving AI Refactoring
+
+1. **MRSF anchoring** with 4-step re-anchoring (exact text → line → fuzzy → orphan)
+2. **Sidecar files** (`<filename>.review.yaml`) travel alongside source files
+3. **Ghost entries**: when a file is deleted but its sidecar remains, the folder tree shows a strikethrough entry and the DeletedFileViewer displays orphaned comments
+4. **File watcher**: Rust `notify` crate watches open files + sidecars with 300ms debounce, auto-reloading content and comments when the AI makes changes
+5. **Save-loop prevention**: 1.5s debounce guard after app saves prevents watcher → reload → save cycles
+
+## File Watcher
+
+Rust-side watcher (`src-tauri/src/watcher.rs`) using `notify-debouncer-mini`:
+- Watches directories containing open files (not individual files)
+- Emits `file-changed` Tauri events with `{path, kind}` where kind is `content | review | deleted`
+- Frontend `useFileWatcher` hook syncs open tabs to watcher, dispatches DOM `CustomEvent`s
+- `useFileContent` hook re-reads file on content changes
+- Viewers reload comments on review sidecar changes
+- `scan_review_files` command walks directory tree to find orphan sidecars (capped at 10K)
+
+## Folder Tree Enhancements
+
+- **Auto-reveal**: 📍 toggle (persisted) expands tree path and scrolls to active file on tab switch
+- **Auto-root**: when no workspace is open, tree root auto-sets to parent dir of active file
+- **Ghost entries**: deleted files with review sidecars appear with strikethrough
+- **Comment badges**: files show unresolved comment count (numeric badge, not just a dot)
+- **Hidden sidecars**: `.review.yaml` and `.review.json` files are filtered from `read_dir` results
 
 ## Behavioral Specs
 

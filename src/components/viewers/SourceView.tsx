@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { createHighlighter, type Highlighter } from "shiki";
 import { extname } from "@/lib/path-utils";
 import { matchComments } from "@/lib/comment-matching";
-import { computeLineHash, captureContext } from "@/lib/comment-anchors";
 import { useStore } from "@/store";
 import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
@@ -73,15 +72,12 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     endOffset: number;
   } | null>(null);
   const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<{
-    anchorType: "selection";
-    lineHash: string;
-    lineNumber: number;
-    contextBefore?: string;
-    contextAfter?: string;
-    selectedText: string;
-    selectionStartOffset: number;
-    selectionEndLine: number;
-    selectionEndOffset: number;
+    line: number;
+    end_line: number;
+    start_column: number;
+    end_column: number;
+    selected_text: string;
+    selected_text_hash?: string;
   } | null>(null);
   const [highlightedSelectionLines, setHighlightedSelectionLines] = useState<Set<number>>(new Set());
   const { query, setQuery, matches, currentIndex, next, prev } = useSearch(content);
@@ -89,7 +85,9 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const setFileComments = useStore((s) => s.setFileComments);
   const comments = useStore((s) => s.commentsByFile[filePath]);
   const addComment = useStore((s) => s.addComment);
+  const setLastSaveTimestamp = useStore((s) => s.setLastSaveTimestamp);
   const loadedRef = useRef<string | null>(null);
+  const [commentReloadKey, setCommentReloadKey] = useState(0);
 
   const lines = content.split("\n");
 
@@ -129,17 +127,47 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     return () => { cancelled = true; };
   }, [filePath, setFileComments]);
 
+  // Listen for review sidecar changes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { path: string; kind: string };
+      // The review sidecar path is filePath + ".review.json"
+      if (detail.kind === "review" && (detail.path === `${filePath}.review.yaml` || detail.path === `${filePath}.review.json`)) {
+        setCommentReloadKey((k) => k + 1);
+      }
+    };
+    window.addEventListener("mdownreview:file-changed", handler);
+    return () => window.removeEventListener("mdownreview:file-changed", handler);
+  }, [filePath]);
+
+  // Reload comments when sidecar changes
+  useEffect(() => {
+    if (commentReloadKey === 0) return; // Skip initial — handled by main load effect
+    let cancelled = false;
+    loadReviewComments(filePath)
+      .then((result) => {
+        if (!cancelled && result?.comments) {
+          setFileComments(filePath, result.comments);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [commentReloadKey, filePath, setFileComments]);
+
   // Reset folds when file changes
   useEffect(() => { setCollapsedLines(new Set()); setPendingSelectionAnchor(null); }, [filePath]);
 
-  // Auto-save comments
+  // Auto-save comments to sidecar (debounced, only after initial load)
   useEffect(() => {
     if (loadedRef.current !== filePath) return;
     const timer = setTimeout(() => {
-      saveReviewComments(filePath, comments ?? []).catch(() => {});
+      const document = filePath.split(/[/\\]/).pop() ?? filePath;
+      saveReviewComments(filePath, document, comments ?? [])
+        .then(() => setLastSaveTimestamp(Date.now()))
+        .catch(() => {});
     }, 500);
     return () => clearTimeout(timer);
-  }, [comments, filePath]);
+  }, [comments, filePath, setLastSaveTimestamp]);
 
   // Theme tracking
   const [currentTheme, setCurrentTheme] = useState(
@@ -184,7 +212,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const commentsByLine = useMemo(() => {
     const map = new Map<number, typeof matchedComments>();
     for (const c of matchedComments) {
-      const ln = c.matchedLineNumber ?? c.lineNumber ?? 1;
+      const ln = c.matchedLineNumber ?? c.line ?? 1;
       const arr = map.get(ln) ?? [];
       arr.push(c);
       map.set(ln, arr);
@@ -310,20 +338,13 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const handleAddSelectionComment = () => {
     if (!selectionToolbar) return;
     const { lineNumber, selectedText, startOffset, endLine, endOffset } = selectionToolbar;
-    const idx = lineNumber - 1;
-    const ctx = captureContext(lines, idx);
 
-    // Store anchor info — don't create comment yet
     setPendingSelectionAnchor({
-      anchorType: "selection",
-      lineHash: computeLineHash(lines[idx] ?? ""),
-      lineNumber,
-      contextBefore: ctx.contextBefore,
-      contextAfter: ctx.contextAfter,
-      selectedText,
-      selectionStartOffset: startOffset,
-      selectionEndLine: endLine,
-      selectionEndOffset: endOffset,
+      line: lineNumber,
+      end_line: endLine,
+      start_column: startOffset,
+      end_column: endOffset,
+      selected_text: selectedText,
     });
 
     // Highlight selected lines

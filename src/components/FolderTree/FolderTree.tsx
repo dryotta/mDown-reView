@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/store";
+import type { GhostEntry } from "@/store";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
@@ -12,7 +13,7 @@ interface FolderTreeProps {
 const MAX_EXPAND_DEPTH = 3;
 
 export function FolderTree({ onFileOpen }: FolderTreeProps) {
-  const { root, expandedFolders, setFolderExpanded, collapseAll, activeTabPath, commentsByFile } = useStore();
+  const { root, expandedFolders, setFolderExpanded, collapseAll, activeTabPath, commentsByFile, ghostEntries } = useStore();
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
   const childrenCacheRef = useRef(childrenCache);
   childrenCacheRef.current = childrenCache;
@@ -21,6 +22,7 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
   const [isExpanding, setIsExpanding] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const expandGenRef = useRef(0);
+  const autoRootRef = useRef<string | null>(null);
 
   const cancelExpand = useCallback(() => { expandGenRef.current++; }, []);
 
@@ -55,6 +57,31 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
   useEffect(() => {
     if (root) loadChildren(root);
   }, [root, loadChildren]);
+
+  // Auto-root to active file's parent when no workspace
+  useEffect(() => {
+    if (!activeTabPath) {
+      // No active tab — if we auto-rooted, clear it
+      if (autoRootRef.current && root === autoRootRef.current) {
+        useStore.setState({ root: null });
+        autoRootRef.current = null;
+      }
+      return;
+    }
+    
+    // Don't override explicit workspace
+    if (root && root !== autoRootRef.current) return;
+    
+    const sep = activeTabPath.includes("/") ? "/" : "\\";
+    const parts = activeTabPath.split(sep);
+    parts.pop();
+    const parentDir = parts.join(sep);
+    
+    if (parentDir && parentDir !== root) {
+      autoRootRef.current = parentDir;
+      useStore.setState({ root: parentDir, expandedFolders: {} });
+    }
+  }, [activeTabPath, root]);
 
 
   const handleToggle = async (path: string, isDir: boolean) => {
@@ -129,12 +156,14 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
   }, []);
 
   // Build visible flat list for keyboard nav
+  type TreeNode = { path: string; isDir: boolean; depth: number; name: string; isGhost?: boolean };
+  
   function buildFlatList(
     parentPath: string,
     depth: number
-  ): { path: string; isDir: boolean; depth: number; name: string }[] {
+  ): TreeNode[] {
     const entries = childrenCache[parentPath] ?? [];
-    const result: { path: string; isDir: boolean; depth: number; name: string }[] = [];
+    const result: TreeNode[] = [];
     for (const entry of entries) {
       if (filter) {
         const matchesSelf =
@@ -160,21 +189,108 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
   }
 
   const flatList = root ? buildFlatList(root, 0) : [];
+  
+  // Merge ghost entries into flat list
+  const mergedList = [...flatList];
+  if (root) {
+    for (const ghost of ghostEntries) {
+      // Only show if the source file isn't already in the tree
+      const alreadyInTree = flatList.some((n) => n.path === ghost.sourcePath);
+      if (alreadyInTree) continue;
+      
+      // Find the parent directory
+      const sep = ghost.sourcePath.includes("/") ? "/" : "\\";
+      const parts = ghost.sourcePath.split(sep);
+      const parentPath = parts.slice(0, -1).join(sep);
+      const fileName = parts[parts.length - 1];
+      
+      // Check if parent is in the expanded tree
+      const parentIdx = mergedList.findIndex((n) => n.path === parentPath && n.isDir);
+      if (parentIdx === -1 && parentPath !== root) continue;
+      
+      // Calculate depth
+      const parentDepth = parentIdx >= 0 ? mergedList[parentIdx].depth : -1;
+      const ghostDepth = parentDepth + 1;
+      
+      // Insert after parent's children (find last child at same or deeper level)
+      let insertIdx = parentIdx + 1;
+      while (insertIdx < mergedList.length && mergedList[insertIdx].depth >= ghostDepth) {
+        insertIdx++;
+      }
+      
+      mergedList.splice(insertIdx, 0, {
+        path: ghost.sourcePath,
+        isDir: false,
+        depth: ghostDepth,
+        name: fileName,
+        isGhost: true,
+      });
+    }
+  }
+
+  const autoReveal = useStore((s) => s.autoReveal);
+  const toggleAutoReveal = useStore((s) => s.toggleAutoReveal);
+
+  // Auto-reveal active file in tree
+  useEffect(() => {
+    if (!autoReveal || !activeTabPath || !root) return;
+    
+    // Build path segments from root to active file's parent
+    const sep = activeTabPath.includes("/") ? "/" : "\\";
+    const relativePath = activeTabPath.startsWith(root) 
+      ? activeTabPath.slice(root.length + 1) 
+      : null;
+    
+    if (!relativePath) return;
+    
+    const segments = relativePath.split(sep);
+    segments.pop(); // Remove the file name
+    
+    // Expand each directory in the path
+    let currentPath = root;
+    const pathsToExpand: string[] = [];
+    for (const segment of segments) {
+      currentPath = currentPath + sep + segment;
+      if (!expandedFolders[currentPath]) {
+        pathsToExpand.push(currentPath);
+      }
+    }
+    
+    if (pathsToExpand.length > 0) {
+      // Load children for each path, then expand
+      Promise.all(pathsToExpand.map(loadChildren)).then(() => {
+        useStore.setState((s) => ({
+          expandedFolders: {
+            ...s.expandedFolders,
+            ...Object.fromEntries(pathsToExpand.map((p) => [p, true])),
+          },
+        }));
+      });
+    }
+    
+    // Scroll to the active file entry after a short delay for DOM update
+    setTimeout(() => {
+      const el = containerRef.current?.querySelector<HTMLDivElement>(
+        `[data-path="${CSS.escape(activeTabPath)}"]`
+      );
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, 100);
+  }, [activeTabPath, autoReveal, root, expandedFolders, loadChildren]);
 
   const handleKeyDown = (e: React.KeyboardEvent, path: string, isDir: boolean) => {
-    const idx = flatList.findIndex((n) => n.path === path);
+    const idx = mergedList.findIndex((n) => n.path === path);
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (idx < flatList.length - 1) setFocusedPath(flatList[idx + 1].path);
+      if (idx < mergedList.length - 1) setFocusedPath(mergedList[idx + 1].path);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      if (idx > 0) setFocusedPath(flatList[idx - 1].path);
+      if (idx > 0) setFocusedPath(mergedList[idx - 1].path);
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
       if (isDir && !expandedFolders[path]) {
         handleToggle(path, true);
       } else if (isDir && expandedFolders[path]) {
-        const firstChild = flatList[idx + 1];
+        const firstChild = mergedList[idx + 1];
         if (firstChild) setFocusedPath(firstChild.path);
       }
     } else if (e.key === "ArrowLeft") {
@@ -183,10 +299,10 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
         setFolderExpanded(path, false);
       } else {
         // find parent
-        const depth = flatList[idx].depth;
+        const depth = mergedList[idx].depth;
         for (let i = idx - 1; i >= 0; i--) {
-          if (flatList[i].depth < depth) {
-            setFocusedPath(flatList[i].path);
+          if (mergedList[i].depth < depth) {
+            setFocusedPath(mergedList[i].path);
             break;
           }
         }
@@ -217,6 +333,13 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
         >
           Expand All
         </button>
+        <button
+          className={`folder-tree-btn${autoReveal ? " active" : ""}`}
+          onClick={toggleAutoReveal}
+          title={autoReveal ? "Auto-reveal: ON" : "Auto-reveal: OFF"}
+        >
+          📍
+        </button>
       </div>
       <div className="folder-tree-toolbar">
         <input
@@ -231,21 +354,21 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
       <div className="folder-tree-scroll" ref={containerRef}>
         {!root ? (
           <div className="folder-tree-empty">No folder open</div>
-        ) : flatList.length === 0 ? (
+        ) : mergedList.length === 0 ? (
           <div className="folder-tree-empty">{filter ? "No matches" : "Empty folder"}</div>
         ) : (
-          flatList.map(({ path, isDir, depth, name }) => {
+          mergedList.map(({ path, isDir, depth, name, isGhost }) => {
             const isActive = activeTabPath === path;
             return (
               <div
                 key={path}
                 data-path={path}
-                className={`tree-entry${isActive ? " active" : ""}`}
+                className={`tree-entry${isActive ? " active" : ""}${isGhost ? " tree-entry--ghost" : ""}`}
                 tabIndex={0}
                 role={isDir ? "treeitem" : "option"}
                 aria-selected={isActive}
                 aria-expanded={isDir ? expandedFolders[path] : undefined}
-                onClick={() => handleToggle(path, isDir)}
+                onClick={() => isGhost ? onFileOpen(path) : handleToggle(path, isDir)}
                 onKeyDown={(e) => handleKeyDown(e, path, isDir)}
               >
                 {Array.from({ length: depth }, (_, i) => (
@@ -255,9 +378,14 @@ export function FolderTree({ onFileOpen }: FolderTreeProps) {
                   {isDir ? (expandedFolders[path] ? "▾" : "▸") : "·"}
                 </span>
                 <span className="tree-name" title={path}>{name}</span>
-                {!isDir && (commentsByFile[path] ?? []).some((c) => !c.resolved) && (
-                  <span className="tree-comment-dot" title="Has open comments" aria-label="Has open comments" />
-                )}
+                {!isDir && (() => {
+                  const unresolvedCount = (commentsByFile[path] ?? []).filter((c) => !c.resolved).length;
+                  return unresolvedCount > 0 ? (
+                    <span className="tree-comment-badge" title={`${unresolvedCount} open comment${unresolvedCount > 1 ? "s" : ""}`}>
+                      {unresolvedCount}
+                    </span>
+                  ) : null;
+                })()}
               </div>
             );
           })

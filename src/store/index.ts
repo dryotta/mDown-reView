@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
-import type { ReviewComment } from "@/lib/tauri-commands";
+import type { MrsfComment } from "@/lib/tauri-commands";
 
 // ── Workspace slice ────────────────────────────────────────────────────────
 
@@ -35,20 +35,22 @@ interface TabsSlice {
 
 // ── Comments slice ─────────────────────────────────────────────────────────
 
-export interface CommentWithOrphan extends ReviewComment {
+export interface CommentWithOrphan extends MrsfComment {
   isOrphaned?: boolean;
-  matchedLineNumber?: number; // resolved position after matching algorithm
+  matchedLineNumber?: number;
 }
 
 interface CommentsSlice {
   commentsByFile: Record<string, CommentWithOrphan[]>;
+  authorName: string;
+  setAuthorName: (name: string) => void;
   setFileComments: (filePath: string, comments: CommentWithOrphan[]) => void;
-  addComment: (filePath: string, anchor: Omit<CommentWithOrphan, "id" | "createdAt" | "resolved" | "text" | "isOrphaned">, text: string) => void;
+  addComment: (filePath: string, anchor: Partial<Pick<MrsfComment, "line" | "end_line" | "start_column" | "end_column" | "selected_text" | "selected_text_hash" | "commit" | "type" | "severity">>, text: string) => void;
+  addReply: (filePath: string, parentId: string, text: string) => void;
   editComment: (id: string, text: string) => void;
   deleteComment: (id: string) => void;
   resolveComment: (id: string) => void;
   unresolveComment: (id: string) => void;
-  addResponse: (commentId: string, author: string, text: string) => void;
 }
 
 // ── UI slice ──────────────────────────────────────────────────────────────
@@ -64,6 +66,23 @@ interface UISlice {
   setFolderPaneWidth: (width: number) => void;
   toggleFolderPane: () => void;
   toggleCommentsPane: () => void;
+}
+
+// ── Watcher slice ──────────────────────────────────────────────────────────
+
+/** Ghost entry: a .review.yaml/.review.json exists but its source file doesn't */
+export interface GhostEntry {
+  sidecarPath: string;
+  sourcePath: string;
+}
+
+interface WatcherSlice {
+  ghostEntries: GhostEntry[];
+  setGhostEntries: (entries: GhostEntry[]) => void;
+  autoReveal: boolean;
+  toggleAutoReveal: () => void;
+  lastSaveTimestamp: number;
+  setLastSaveTimestamp: (ts: number) => void;
 }
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -85,7 +104,7 @@ interface UpdateSlice {
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice;
+type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice & WatcherSlice;
 
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -143,20 +162,45 @@ export const useStore = create<Store>()(
 
       // Comments
       commentsByFile: {},
+      authorName: "",
+      setAuthorName: (name) => set({ authorName: name }),
       setFileComments: (filePath, comments) =>
         set((s) => ({ commentsByFile: { ...s.commentsByFile, [filePath]: comments } })),
       addComment: (filePath, anchor, text) => {
+        const state = get();
         const comment: CommentWithOrphan = {
-          ...anchor,
           id: generateId(),
+          author: state.authorName || "Anonymous",
+          timestamp: new Date().toISOString(),
           text,
-          createdAt: new Date().toISOString(),
           resolved: false,
+          ...anchor,
         };
         set((s) => ({
           commentsByFile: {
             ...s.commentsByFile,
             [filePath]: [...(s.commentsByFile[filePath] ?? []), comment],
+          },
+        }));
+      },
+      addReply: (filePath, parentId, text) => {
+        const state = get();
+        const parent = Object.values(state.commentsByFile)
+          .flat()
+          .find((c) => c.id === parentId);
+        const reply: CommentWithOrphan = {
+          id: generateId(),
+          author: state.authorName || "Anonymous",
+          timestamp: new Date().toISOString(),
+          text,
+          resolved: false,
+          reply_to: parentId,
+          line: parent?.line,
+        };
+        set((s) => ({
+          commentsByFile: {
+            ...s.commentsByFile,
+            [filePath]: [...(s.commentsByFile[filePath] ?? []), reply],
           },
         }));
       },
@@ -196,25 +240,6 @@ export const useStore = create<Store>()(
             ])
           ),
         })),
-      addResponse: (commentId, author, text) =>
-        set((s) => ({
-          commentsByFile: Object.fromEntries(
-            Object.entries(s.commentsByFile).map(([fp, comments]) => [
-              fp,
-              comments.map((c) =>
-                c.id === commentId
-                  ? {
-                      ...c,
-                      responses: [
-                        ...(c.responses ?? []),
-                        { author, text, createdAt: new Date().toISOString() },
-                      ],
-                    }
-                  : c
-              ),
-            ])
-          ),
-        })),
 
       // UI
       theme: "system",
@@ -225,6 +250,14 @@ export const useStore = create<Store>()(
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleFolderPane: () => set((s) => ({ folderPaneVisible: !s.folderPaneVisible })),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
+
+      // Watcher
+      ghostEntries: [],
+      setGhostEntries: (entries) => set({ ghostEntries: entries }),
+      autoReveal: true,
+      toggleAutoReveal: () => set((s) => ({ autoReveal: !s.autoReveal })),
+      lastSaveTimestamp: 0,
+      setLastSaveTimestamp: (ts) => set({ lastSaveTimestamp: ts }),
 
       // Update
       updateStatus: "idle",
@@ -245,6 +278,8 @@ export const useStore = create<Store>()(
         commentsPaneVisible: state.commentsPaneVisible,
         root: state.root,
         expandedFolders: state.expandedFolders,
+        autoReveal: state.autoReveal,
+        authorName: state.authorName,
       }),
     }
   )

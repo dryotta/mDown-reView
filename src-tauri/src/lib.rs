@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod watcher;
 
 use commands::LaunchArgsState;
 use std::sync::{Arc, Mutex};
@@ -66,6 +67,7 @@ pub fn run() {
             })
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(watcher::WatcherState::new())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
@@ -188,6 +190,9 @@ pub fn run() {
                 let _ = window.emit(event_name, ());
             });
 
+            // Start file watcher
+            watcher::start_watcher(&app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -198,6 +203,9 @@ pub fn run() {
             commands::load_review_comments,
             commands::get_launch_args,
             commands::get_log_path,
+            commands::scan_review_files,
+            commands::get_git_head,
+            watcher::update_watched_files,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

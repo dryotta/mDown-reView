@@ -5,6 +5,7 @@ import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewer } from "./ImageViewer";
 import { BinaryPlaceholder } from "./BinaryPlaceholder";
+import { DeletedFileViewer } from "./DeletedFileViewer";
 
 interface Props {
   path: string;
@@ -14,6 +15,8 @@ export function ViewerRouter({ path }: Props) {
   const { status, content, error } = useFileContent(path);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { setScrollTop, tabs } = useStore();
+  const ghostEntries = useStore((s) => s.ghostEntries);
+  const isGhost = ghostEntries.some((g) => g.sourcePath === path);
   const tab = tabs.find((t) => t.path === path);
 
   // Restore scroll position when tab becomes active
@@ -52,6 +55,9 @@ export function ViewerRouter({ path }: Props) {
   }
 
   if (status === "error") {
+    if (isGhost) {
+      return <DeletedFileViewer filePath={path} />;
+    }
     return (
       <div style={{ padding: 20, color: "var(--color-badge)" }}>
         Error loading file: {error}

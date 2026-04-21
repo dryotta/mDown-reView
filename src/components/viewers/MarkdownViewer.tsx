@@ -25,7 +25,7 @@ import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import { CommentThread } from "@/components/comments/CommentThread";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { matchComments } from "@/lib/comment-matching";
-import { computeLineHash, captureContext } from "@/lib/comment-anchors";
+import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { useStore } from "@/store";
 import type { CommentWithOrphan } from "@/store";
 import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
@@ -215,7 +215,9 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const setFileComments = useStore((s) => s.setFileComments);
   const addComment = useStore((s) => s.addComment);
   const comments = useStore((s) => s.commentsByFile[filePath]);
+  const setLastSaveTimestamp = useStore((s) => s.setLastSaveTimestamp);
   const loadedRef = useRef<string | null>(null);
+  const [commentReloadKey, setCommentReloadKey] = useState(0);
 
   const matchedComments = useMemo(() => {
     if (!comments || comments.length === 0) return [];
@@ -225,7 +227,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const commentsByLine = useMemo(() => {
     const map = new Map<number, CommentWithOrphan[]>();
     for (const c of matchedComments) {
-      const ln = c.matchedLineNumber ?? c.lineNumber ?? 1;
+      const ln = c.matchedLineNumber ?? c.line ?? 1;
       const arr = map.get(ln) ?? [];
       arr.push(c);
       map.set(ln, arr);
@@ -266,14 +268,44 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     return () => { cancelled = true; };
   }, [filePath, setFileComments]);
 
+  // Listen for review sidecar changes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { path: string; kind: string };
+      // The review sidecar path is filePath + ".review.json"
+      if (detail.kind === "review" && (detail.path === `${filePath}.review.yaml` || detail.path === `${filePath}.review.json`)) {
+        setCommentReloadKey((k) => k + 1);
+      }
+    };
+    window.addEventListener("mdownreview:file-changed", handler);
+    return () => window.removeEventListener("mdownreview:file-changed", handler);
+  }, [filePath]);
+
+  // Reload comments when sidecar changes
+  useEffect(() => {
+    if (commentReloadKey === 0) return; // Skip initial — handled by main load effect
+    let cancelled = false;
+    loadReviewComments(filePath)
+      .then((result) => {
+        if (!cancelled && result?.comments) {
+          setFileComments(filePath, result.comments);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [commentReloadKey, filePath, setFileComments]);
+
   // Auto-save comments to sidecar (debounced, only after initial load)
   useEffect(() => {
     if (loadedRef.current !== filePath) return;
     const timer = setTimeout(() => {
-      saveReviewComments(filePath, comments ?? []).catch(() => {});
+      const document = filePath.split(/[/\\]/).pop() ?? filePath;
+      saveReviewComments(filePath, document, comments ?? [])
+        .then(() => setLastSaveTimestamp(Date.now()))
+        .catch(() => {});
     }, 500);
     return () => clearTimeout(timer);
-  }, [comments, filePath]);
+  }, [comments, filePath, setLastSaveTimestamp]);
 
   // Scroll-to-line from CommentsPanel click
   useEffect(() => {
@@ -367,22 +399,16 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const handleAddSelectionComment = useCallback(() => {
     if (!selectionToolbar) return;
     const { lineNumber, selectedText } = selectionToolbar;
-    const idx = lineNumber - 1;
-    const ctx = captureContext(lines, idx);
 
     setPendingSelectionAnchor({
-      anchorType: "selection",
-      lineHash: computeLineHash(lines[idx] ?? ""),
-      lineNumber,
-      contextBefore: ctx.contextBefore,
-      contextAfter: ctx.contextAfter,
-      selectedText,
+      line: lineNumber,
+      selected_text: selectedText,
     });
 
     setSelectionToolbar(null);
     setCommentingLine(lineNumber);
     setExpandedLine(null);
-  }, [selectionToolbar, lines]);
+  }, [selectionToolbar]);
 
   return (
     <div className="markdown-viewer">
@@ -428,7 +454,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               }}>
                 {lineComments.length > 0 && (
                   <div className="md-comment-threads">
-                    {lineComments.map(c => <CommentThread key={c.id} comment={c} />)}
+                    {groupCommentsIntoThreads(lineComments).map(t => <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />)}
                   </div>
                 )}
 

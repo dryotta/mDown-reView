@@ -1,197 +1,138 @@
-import { computeLineHash, normalizeLine } from "@/lib/comment-anchors";
-import type { ReviewComment } from "@/lib/tauri-commands";
+import type { MrsfComment } from "@/lib/tauri-commands";
 import type { CommentWithOrphan } from "@/store";
 
 export type MatchedComment = CommentWithOrphan;
 
+const FUZZY_THRESHOLD = 0.6;
+
 export function matchComments(
-  comments: ReviewComment[],
+  comments: MrsfComment[],
   fileLines: string[]
 ): MatchedComment[] {
   const lineCount = fileLines.length;
-  const lineHashes = fileLines.map((l) => computeLineHash(l));
 
   return comments.map((comment) => {
-    // Legacy block comments → orphaned at fallbackLine
-    if (comment.anchorType === "block") {
-      const pos = Math.min(comment.fallbackLine ?? 1, Math.max(lineCount, 1));
-      return { ...comment, matchedLineNumber: pos, isOrphaned: true };
-    }
-
     if (lineCount === 0) {
-      return { ...comment, matchedLineNumber: 1, isOrphaned: true, lineNumber: 1 };
+      return { ...comment, matchedLineNumber: 1, isOrphaned: true };
     }
 
-    const origLine = comment.lineNumber ?? 1;
-    const hash = comment.lineHash ?? "";
+    const origLine = comment.line;
+    const selectedText = comment.selected_text;
 
-    // Strategy 1: Exact match at lineNumber
-    if (origLine >= 1 && origLine <= lineCount && lineHashes[origLine - 1] === hash) {
+    // Step 1: Exact selected_text match
+    if (selectedText) {
+      // Try exact match at original line first
+      if (origLine && origLine >= 1 && origLine <= lineCount) {
+        if (fileLines[origLine - 1].includes(selectedText)) {
+          return { ...comment, matchedLineNumber: origLine, isOrphaned: false };
+        }
+      }
+      // Search entire document for exact match
+      for (let i = 0; i < lineCount; i++) {
+        if (fileLines[i].includes(selectedText)) {
+          const newLine = i + 1;
+          return { ...comment, matchedLineNumber: newLine, line: newLine, isOrphaned: false };
+        }
+      }
+    }
+
+    // Step 2: Line/column fallback (no selected_text or not found)
+    if (origLine && origLine >= 1 && origLine <= lineCount) {
+      if (selectedText) {
+        // Step 3: Fuzzy match — selected_text was provided but exact match failed
+        const fuzzyResult = findFuzzyMatch(fileLines, selectedText, origLine);
+        if (fuzzyResult) {
+          return {
+            ...comment,
+            matchedLineNumber: fuzzyResult.line,
+            line: fuzzyResult.line,
+            anchored_text: fuzzyResult.anchoredText,
+            isOrphaned: false,
+          };
+        }
+        // Had selected_text but couldn't find it at all → orphan
+        return { ...comment, matchedLineNumber: origLine, isOrphaned: true };
+      }
+      // Pure line fallback (no selected_text)
       return { ...comment, matchedLineNumber: origLine, isOrphaned: false };
     }
 
-    // Strategy 2: Nearby hash match (±30)
-    const nearbyResult = findNearestHash(lineHashes, hash, origLine, 30);
-    if (nearbyResult !== null) {
-      return {
-        ...comment,
-        lineNumber: nearbyResult,
-        matchedLineNumber: nearbyResult,
-        isOrphaned: false,
-      };
-    }
-
-    // Strategy 3: Context match (±30)
-    const contextResult = findByContext(fileLines, comment, origLine, 30);
-    if (contextResult !== null) {
-      return {
-        ...comment,
-        lineNumber: contextResult,
-        matchedLineNumber: contextResult,
-        isOrphaned: false,
-      };
-    }
-
-    // Strategy 4: Global hash search
-    const globalResult = findNearestHash(lineHashes, hash, origLine, lineCount);
-    if (globalResult !== null) {
-      return {
-        ...comment,
-        lineNumber: globalResult,
-        matchedLineNumber: globalResult,
-        isOrphaned: false,
-      };
-    }
-
-    // Strategy 5: Selected text search (selection comments only)
-    if (comment.anchorType === "selection" && comment.selectedText) {
-      const textResult = findBySelectedText(fileLines, comment.selectedText, origLine);
-      if (textResult !== null) {
+    // Step 3: Fuzzy match (when no valid line)
+    if (selectedText) {
+      const fuzzyResult = findFuzzyMatch(fileLines, selectedText, origLine ?? 1);
+      if (fuzzyResult) {
         return {
           ...comment,
-          lineNumber: textResult,
-          matchedLineNumber: textResult,
+          matchedLineNumber: fuzzyResult.line,
+          line: fuzzyResult.line,
+          anchored_text: fuzzyResult.anchoredText,
           isOrphaned: false,
         };
       }
     }
 
-    // Strategy 6: Orphaned — all strategies failed
-    const clampedLine = Math.min(origLine, Math.max(lineCount, 1));
-    return {
-      ...comment,
-      lineNumber: clampedLine,
-      matchedLineNumber: clampedLine,
-      isOrphaned: true,
-    };
+    // Step 4: Orphan
+    const fallbackLine = origLine ? Math.min(origLine, lineCount) : 1;
+    return { ...comment, matchedLineNumber: fallbackLine, isOrphaned: true };
   });
 }
 
-function findNearestHash(
-  lineHashes: string[],
-  targetHash: string,
-  centerLine: number,
-  radius: number
-): number | null {
-  const start = Math.max(0, centerLine - 1 - radius);
-  const end = Math.min(lineHashes.length - 1, centerLine - 1 + radius);
-  let bestLine: number | null = null;
-  let bestDist = Infinity;
-
-  for (let i = start; i <= end; i++) {
-    if (lineHashes[i] === targetHash) {
-      // Skip the exact original position — Strategy 1 already handles that
-      if (i === centerLine - 1) continue;
-      const dist = Math.abs(i - (centerLine - 1));
-      if (dist < bestDist || (dist === bestDist && i < (bestLine! - 1))) {
-        bestDist = dist;
-        bestLine = i + 1; // 1-indexed
-      }
-    }
-  }
-
-  return bestLine;
-}
-
-function findByContext(
-  fileLines: string[],
-  comment: ReviewComment,
-  centerLine: number,
-  radius: number
-): number | null {
-  const ctxBefore = comment.contextBefore;
-  const ctxAfter = comment.contextAfter;
-  if (!ctxBefore && !ctxAfter) return null;
-
-  const start = Math.max(0, centerLine - 1 - radius);
-  const end = Math.min(fileLines.length - 1, centerLine - 1 + radius);
-  let bestLine: number | null = null;
-  let bestScore = 0;
-  let bestDist = Infinity;
-
-  for (let i = start; i <= end; i++) {
-    let matchScore = 0;
-
-    if (ctxBefore) {
-      const ctxLines = ctxBefore.split("\n");
-      let beforeMatch = true;
-      for (let j = 0; j < ctxLines.length; j++) {
-        const checkIdx = i - ctxLines.length + j;
-        if (checkIdx < 0 || normalizeLine(fileLines[checkIdx]) !== ctxLines[j]) {
-          beforeMatch = false;
-          break;
-        }
-      }
-      if (beforeMatch) matchScore++;
-    }
-
-    if (ctxAfter) {
-      const ctxLines = ctxAfter.split("\n");
-      let afterMatch = true;
-      for (let j = 0; j < ctxLines.length; j++) {
-        const checkIdx = i + 1 + j;
-        if (checkIdx >= fileLines.length || normalizeLine(fileLines[checkIdx]) !== ctxLines[j]) {
-          afterMatch = false;
-          break;
-        }
-      }
-      if (afterMatch) matchScore++;
-    }
-
-    if (matchScore > 0) {
-      // When both contexts are available, require both to match
-      const requiredScore = ctxBefore && ctxAfter ? 2 : 1;
-      if (matchScore < requiredScore) continue;
-
-      const dist = Math.abs(i - (centerLine - 1));
-      if (matchScore > bestScore || (matchScore === bestScore && dist < bestDist)) {
-        bestScore = matchScore;
-        bestDist = dist;
-        bestLine = i + 1;
-      }
-    }
-  }
-
-  return bestLine;
-}
-
-function findBySelectedText(
+function findFuzzyMatch(
   fileLines: string[],
   selectedText: string,
   centerLine: number
-): number | null {
+): { line: number; anchoredText: string } | null {
   let bestLine: number | null = null;
-  let bestDist = Infinity;
+  let bestScore = 0;
+  let bestText = "";
 
   for (let i = 0; i < fileLines.length; i++) {
-    if (fileLines[i].includes(selectedText)) {
-      const dist = Math.abs(i - (centerLine - 1));
-      if (dist < bestDist) {
-        bestDist = dist;
+    const score = fuzzyScore(selectedText, fileLines[i]);
+    if (score >= FUZZY_THRESHOLD && score > bestScore) {
+      bestScore = score;
+      bestLine = i + 1;
+      bestText = fileLines[i];
+    } else if (score >= FUZZY_THRESHOLD && score === bestScore && bestLine !== null) {
+      // Prefer closer to original line
+      const newDist = Math.abs(i - (centerLine - 1));
+      const oldDist = Math.abs((bestLine - 1) - (centerLine - 1));
+      if (newDist < oldDist) {
         bestLine = i + 1;
+        bestText = fileLines[i];
       }
     }
   }
 
-  return bestLine;
+  return bestLine !== null ? { line: bestLine, anchoredText: bestText } : null;
+}
+
+function fuzzyScore(a: string, b: string): number {
+  const al = a.toLowerCase().trim();
+  const bl = b.toLowerCase().trim();
+  if (al === bl) return 1.0;
+  if (bl.includes(al) || al.includes(bl)) return 0.9;
+
+  // Levenshtein-based similarity
+  const maxLen = Math.max(al.length, bl.length);
+  if (maxLen === 0) return 1.0;
+  const dist = levenshtein(al, bl);
+  return 1 - dist / maxLen;
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+  return dp[m][n];
 }

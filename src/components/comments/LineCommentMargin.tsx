@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useStore } from "@/store";
-import { computeLineHash, captureContext } from "@/lib/comment-anchors";
 import { CommentInput } from "./CommentInput";
 import { CommentThread } from "./CommentThread";
+import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import type { CommentWithOrphan } from "@/store";
 import "@/styles/comments.css";
 
@@ -31,19 +31,7 @@ export function LineCommentMargin({
     if (onSaveComment) {
       onSaveComment(text);
     } else {
-      const idx = lineNumber - 1;
-      const ctx = captureContext(fileLines, idx);
-      addComment(
-        filePath,
-        {
-          anchorType: "line",
-          lineHash: computeLineHash(lineText),
-          lineNumber,
-          contextBefore: ctx.contextBefore,
-          contextAfter: ctx.contextAfter,
-        },
-        text
-      );
+      addComment(filePath, { line: lineNumber }, text);
     }
     onCloseInput?.();
     setExpanded(true);
@@ -58,7 +46,9 @@ export function LineCommentMargin({
       {showInput && (
         <CommentInput onSave={handleSave} onClose={() => onCloseInput?.()} />
       )}
-      {shouldExpand && matchedComments.map((c) => <CommentThread key={c.id} comment={c} />)}
+      {shouldExpand && groupCommentsIntoThreads(matchedComments).map((t) => (
+        <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />
+      ))}
       {!shouldExpand && unresolved.length > 0 && (
         <button className="line-comment-count" onClick={() => setExpanded(true)}>
           {unresolved.length} comment{unresolved.length > 1 ? "s" : ""}

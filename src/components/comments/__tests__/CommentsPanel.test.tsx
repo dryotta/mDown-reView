@@ -16,12 +16,11 @@ function makeComment(
 ): CommentWithOrphan {
   return {
     id,
-    anchorType: "line" as const,
-    lineNumber: 1,
-    lineHash: `hash-${id}`,
+    author: "Test User (human)",
+    timestamp: new Date().toISOString(),
     text,
-    createdAt: new Date().toISOString(),
     resolved: false,
+    line: 1,
     isOrphaned: false,
     ...overrides,
   };
@@ -46,9 +45,9 @@ describe("14.3 – CommentsPanel", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("3", "Third comment", { lineNumber: 30 }),
-          makeComment("1", "First comment", { lineNumber: 10 }),
-          makeComment("2", "Second comment", { lineNumber: 20 }),
+          makeComment("3", "Third comment", { line: 30 }),
+          makeComment("1", "First comment", { line: 10 }),
+          makeComment("2", "Second comment", { line: 20 }),
         ],
       },
     });
@@ -64,7 +63,7 @@ describe("14.3 – CommentsPanel", () => {
   it("shows line number prefix for each comment", () => {
     useStore.setState({
       commentsByFile: {
-        [FILE]: [makeComment("1", "A comment", { lineNumber: 42 })],
+        [FILE]: [makeComment("1", "A comment", { line: 42 })],
       },
     });
 
@@ -76,8 +75,8 @@ describe("14.3 – CommentsPanel", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("1", "Orphaned comment", { isOrphaned: true, lineNumber: 5 }),
-          makeComment("2", "Normal comment", { isOrphaned: false, lineNumber: 10 }),
+          makeComment("1", "Orphaned comment", { isOrphaned: true, line: 5 }),
+          makeComment("2", "Normal comment", { isOrphaned: false, line: 10 }),
         ],
       },
     });
@@ -92,8 +91,8 @@ describe("14.3 – CommentsPanel", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("1", "Active comment", { lineNumber: 1 }),
-          makeComment("2", "Resolved comment", { resolved: true, lineNumber: 2 }),
+          makeComment("1", "Active comment", { line: 1 }),
+          makeComment("2", "Resolved comment", { resolved: true, line: 2 }),
         ],
       },
     });
@@ -113,8 +112,8 @@ describe("14.3 – CommentsPanel", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("1", "Active comment", { lineNumber: 1 }),
-          makeComment("2", "Resolved comment", { resolved: true, lineNumber: 2 }),
+          makeComment("1", "Active comment", { line: 1 }),
+          makeComment("2", "Resolved comment", { resolved: true, line: 2 }),
         ],
       },
     });
@@ -133,7 +132,7 @@ describe("14.3 – CommentsPanel", () => {
 
     useStore.setState({
       commentsByFile: {
-        [FILE]: [makeComment("1", "Scrollable comment", { lineNumber: 15, matchedLineNumber: 18 })],
+        [FILE]: [makeComment("1", "Scrollable comment", { line: 15, matchedLineNumber: 18 })],
       },
     });
 
@@ -151,7 +150,7 @@ describe("14.3 – CommentsPanel", () => {
 
     useStore.setState({
       commentsByFile: {
-        [FILE]: [makeComment("1", "Click me", { lineNumber: 7 })],
+        [FILE]: [makeComment("1", "Click me", { line: 7 })],
       },
     });
 
@@ -170,9 +169,9 @@ describe("14.3 – CommentsPanel", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("1", "A", { lineNumber: 1 }),
-          makeComment("2", "B", { lineNumber: 2 }),
-          makeComment("3", "C", { resolved: true, lineNumber: 3 }),
+          makeComment("1", "A", { line: 1 }),
+          makeComment("2", "B", { line: 2 }),
+          makeComment("3", "C", { resolved: true, line: 3 }),
         ],
       },
     });
@@ -185,8 +184,8 @@ describe("14.3 – CommentsPanel", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("a", "Should be second", { lineNumber: 5, matchedLineNumber: 20 }),
-          makeComment("b", "Should be first", { lineNumber: 50, matchedLineNumber: 10 }),
+          makeComment("a", "Should be second", { line: 5, matchedLineNumber: 20 }),
+          makeComment("b", "Should be first", { line: 50, matchedLineNumber: 10 }),
         ],
       },
     });
@@ -198,26 +197,20 @@ describe("14.3 – CommentsPanel", () => {
     expect(comments[1]).toHaveTextContent("Should be second");
   });
 
-  it("displays responses in CommentThread", () => {
+  it("displays reply comments threaded under parent", () => {
     useStore.setState({
       commentsByFile: {
         [FILE]: [
-          makeComment("1", "Parent comment", {
-            lineNumber: 1,
-            responses: [
-              { author: "Alice", text: "Good point!", createdAt: "2024-01-15T10:00:00Z" },
-              { author: "Bob", text: "I agree", createdAt: "2024-01-15T11:00:00Z" },
-            ],
-          }),
+          makeComment("1", "Parent comment", { line: 1 }),
+          makeComment("reply-1", "Good point!", { line: 1, reply_to: "1", author: "Alice (human)" }),
+          makeComment("reply-2", "I agree", { line: 1, reply_to: "1", author: "Bob (human)" }),
         ],
       },
     });
 
     render(<CommentsPanel filePath={FILE} />);
 
-    expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Good point!")).toBeInTheDocument();
-    expect(screen.getByText("Bob")).toBeInTheDocument();
     expect(screen.getByText("I agree")).toBeInTheDocument();
   });
 });
