@@ -118,7 +118,6 @@
           <div class="tab-bar">
             <button class="tab-btn active" data-tab="download">Download</button>
             <button class="tab-btn" data-tab="script">Script</button>
-            <button class="tab-btn" data-tab="releases">GitHub Releases</button>
           </div>
 
           <div class="tab-panel" id="tab-download">
@@ -147,12 +146,6 @@
             </div>
           </div>
 
-          <div class="tab-panel hidden" id="tab-releases">
-            <div class="releases-block">
-              <p>Browse all releases, download any version, or find builds for all platforms.</p>
-              <a href="https://github.com/dryotta/mdownreview/releases/latest" class="btn-releases">View all releases on GitHub →</a>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -233,14 +226,6 @@
     };
 
     const detected = detectPlatform();
-
-    // If unknown platform, default to releases tab
-    if (!detected) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-      document.querySelector('[data-tab="releases"]').classList.add('active');
-      document.getElementById('tab-releases').classList.remove('hidden');
-    }
 
     // Set platform label in Download tab
     if (detected && PLATFORM_LABELS[detected]) {
