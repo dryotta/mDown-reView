@@ -225,48 +225,52 @@ nav {
 .workflow-steps {
   display: flex;
   flex-direction: column;
-  gap: 3rem;
+  max-width: 620px;
+  margin: 0 auto;
 }
 
 .workflow-step {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3rem;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border);
 }
 
-.workflow-step:nth-child(even) { direction: rtl; }
-.workflow-step:nth-child(even) > * { direction: ltr; }
+.workflow-step:last-child {
+  border-bottom: none;
+}
 
-.step-info { display: flex; flex-direction: column; gap: 0.75rem; }
+.step-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
 
-.step-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-  color: white;
+.step-num {
+  font-family: var(--mono);
+  font-size: 1rem;
   font-weight: 700;
-  font-size: 0.85rem;
+  color: var(--text);
   flex-shrink: 0;
 }
 
-.step-info h3 {
-  font-size: 1.25rem;
+.step-header h3 {
+  font-size: 1rem;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  color: var(--text);
 }
 
-.step-info p { color: var(--muted); font-size: 0.95rem; line-height: 1.7; }
+.workflow-step > p {
+  font-size: 0.92rem;
+  color: var(--muted);
+  line-height: 1.7;
+}
 
-.step-info code {
+.step-header h3 code,
+.workflow-step > p code {
   font-family: var(--mono);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   background: var(--surface);
   border: 1px solid var(--border);
   padding: 0.15rem 0.5rem;
@@ -329,148 +333,150 @@ nav {
 
 /* ── App Mockup ── */
 .app-mock {
-  background: var(--terminal-bg);
-  border: 1px solid var(--terminal-border);
-  border-radius: 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 10px;
   overflow: hidden;
   display: grid;
   grid-template-columns: 160px 1fr;
-  font-size: 0.82rem;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  font-size: 0.8rem;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  margin-top: 6px;
 }
 
 .app-sidebar {
-  background: rgba(255,255,255,0.02);
-  border-right: 1px solid var(--terminal-border);
-  padding: 0.75rem 0;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  padding: 6px 0;
 }
 
 .app-sidebar .hdr {
-  padding: 0.5rem 0.75rem;
-  color: var(--muted);
+  padding: 4px 10px 6px;
+  color: #8b949e;
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 600;
+  font-family: var(--mono);
 }
 
 .app-sidebar .file {
-  padding: 0.3rem 0.75rem;
-  color: var(--muted);
+  padding: 4px 10px;
+  color: #8b949e;
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 4px;
   cursor: default;
 }
 
 .app-sidebar .file.active {
-  background: rgba(99,102,241,0.1);
-  color: var(--text);
+  background: rgba(88,166,255,0.08);
+  color: #c9d1d9;
 }
 
 .app-sidebar .file .badge-count {
   margin-left: auto;
-  background: var(--accent-1);
+  background: #cf222e;
   color: white;
-  font-size: 0.65rem;
-  padding: 0 0.35rem;
+  font-size: 0.62rem;
+  padding: 0 4px;
   border-radius: 8px;
   font-weight: 600;
+  line-height: 16px;
 }
 
 .app-content {
-  padding: 0.75rem 0;
+  padding: 6px 0;
   font-family: var(--mono);
   overflow-x: auto;
 }
 
 .app-content .toolbar {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.25rem 1rem 0.5rem;
-  border-bottom: 1px solid var(--terminal-border);
-  margin-bottom: 0.5rem;
+  gap: 2px;
+  padding: 2px 8px 6px;
+  border-bottom: 1px solid #30363d;
+  margin-bottom: 2px;
 }
 
 .app-content .tab {
-  padding: 0.2rem 0.6rem;
+  padding: 2px 8px;
   border-radius: 4px;
-  font-size: 0.72rem;
-  color: var(--muted);
+  font-size: 0.68rem;
+  color: #8b949e;
   cursor: default;
 }
 
 .app-content .tab.active {
-  background: var(--surface-hover);
-  color: var(--text);
+  background: #0d1117;
+  color: #c9d1d9;
 }
 
 .code-line {
-  padding: 0.1rem 1rem;
+  padding: 1.5px 8px;
   display: flex;
-  gap: 1rem;
+  gap: 10px;
   white-space: pre;
 }
 
 .code-line .ln {
-  color: var(--muted);
-  min-width: 24px;
+  color: #30363d;
+  min-width: 16px;
   text-align: right;
-  opacity: 0.5;
   user-select: none;
 }
 
-.code-line .code { color: var(--text-secondary); }
-.code-line .kw { color: var(--purple); }
-.code-line .fn { color: var(--blue); }
-.code-line .str { color: var(--green); }
-.code-line .cm { color: #6a737d; font-style: italic; }
-.code-line.highlighted { background: rgba(99,102,241,0.08); }
+.code-line .code { color: #8b949e; }
+.code-line .kw { color: #ff7b72; }
+.code-line .fn { color: #d2a8ff; }
+.code-line .str { color: #a5d6ff; }
+.code-line.highlighted { background: rgba(88,166,255,0.06); }
 
 .comment-bubble {
-  margin: 0.4rem 1rem 0.4rem 3.5rem;
-  background: rgba(99,102,241,0.08);
-  border: 1px solid rgba(99,102,241,0.2);
-  border-radius: 8px;
-  padding: 0.6rem 0.75rem;
+  margin: 4px 8px 6px 8px;
+  background: rgba(99,102,241,0.18);
+  border: 1px solid rgba(99,102,241,0.5);
+  border-left: 4px solid #818cf8;
+  border-radius: 6px;
+  padding: 8px 10px;
   font-family: 'Inter', sans-serif;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
+  box-shadow: 0 0 12px rgba(99,102,241,0.12);
 }
 
 .comment-bubble .comment-header {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.3rem;
+  gap: 5px;
+  margin-bottom: 4px;
 }
 
 .comment-bubble .comment-author {
-  font-weight: 600;
-  color: var(--accent-1);
-  font-size: 0.72rem;
+  font-weight: 700;
+  color: #c7d2fe;
+  font-size: 0.7rem;
 }
 
 .comment-bubble .comment-type {
-  font-size: 0.65rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  font-size: 0.62rem;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.comment-bubble .comment-type.issue {
+  background: rgba(248,81,73,0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(248,81,73,0.4);
+}
+
+.comment-bubble .comment-text {
+  color: #e2e8f0;
+  line-height: 1.5;
   font-weight: 500;
 }
-
-.comment-bubble .comment-type.issue { background: rgba(248,113,113,0.15); color: var(--red); }
-.comment-bubble .comment-type.suggestion { background: rgba(96,165,250,0.15); color: var(--blue); }
-
-.comment-bubble .comment-text { color: var(--text-secondary); line-height: 1.5; }
-
-.comment-bubble.resolved {
-  border-color: rgba(74,222,128,0.2);
-  background: rgba(74,222,128,0.05);
-  opacity: 0.7;
-}
-
-.comment-bubble.resolved .comment-author { color: var(--green); }
 
 /* ── Install Section ── */
 .install-grid {

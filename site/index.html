@@ -39,152 +39,66 @@
 
     <div class="workflow-steps">
 
-      <!-- Step 1: AI does work -->
       <div class="workflow-step">
-        <div class="step-info">
-          <h3><span class="step-number">1</span> Your AI agent writes code</h3>
-          <p>Ask your coding agent to build a feature, fix a bug, or refactor. It produces files — you need to review them.</p>
+        <div class="step-header">
+          <span class="step-num">01</span>
+          <h3>Your AI agent writes code</h3>
         </div>
-        <div class="terminal">
-          <div class="terminal-header">
-            <span class="terminal-dot r"></span>
-            <span class="terminal-dot y"></span>
-            <span class="terminal-dot g"></span>
-            <span class="terminal-title">Agent CLI</span>
-          </div>
-          <div class="terminal-body">
-            <span class="line"><span class="prompt">$</span> <span class="cmd">Build the auth module with JWT tokens</span></span>
-            <span class="line"><span class="dim">Creating src/auth/validate.ts...</span></span>
-            <span class="line"><span class="dim">Creating src/auth/refresh.ts...</span></span>
-            <span class="line"><span class="dim">Creating src/auth/middleware.ts...</span></span>
-            <span class="line"><span class="grn">✓ Created 3 files</span></span>
-          </div>
-        </div>
+        <p>Ask it to build a feature, fix a bug, or refactor. It produces files you need to review.</p>
       </div>
 
-      <!-- Step 2: Open in mdownreview -->
       <div class="workflow-step">
-        <div class="step-info">
-          <h3><span class="step-number">2</span> Open in mdownreview</h3>
-          <p>Use the <code>open</code> skill to launch the app with your project folder. Browse the file tree, read rendered markdown, and leave inline review comments.</p>
+        <div class="step-header">
+          <span class="step-num">02</span>
+          <h3>Open in mdownreview</h3>
         </div>
+        <p>Browse the file tree, read rendered markdown, and leave inline review comments.</p>
         <div class="app-mock">
           <div class="app-sidebar">
             <div class="hdr">Files</div>
-            <div class="file active">📄 validate.ts <span class="badge-count">2</span></div>
-            <div class="file">📄 refresh.ts</div>
-            <div class="file">📄 middleware.ts <span class="badge-count">1</span></div>
-          </div>
-          <div class="app-content">
-            <div class="toolbar">
-              <span class="tab active">validate.ts</span>
-              <span class="tab">refresh.ts</span>
-            </div>
-            <div class="code-line"><span class="ln">1</span><span class="code"><span class="kw">import</span> { verify } <span class="kw">from</span> <span class="str">'jsonwebtoken'</span>;</span></div>
-            <div class="code-line"><span class="ln">2</span><span class="code"></span></div>
-            <div class="code-line highlighted"><span class="ln">3</span><span class="code"><span class="kw">export function</span> <span class="fn">validate</span>(token: string) {</span></div>
-            <div class="comment-bubble">
-              <div class="comment-header">
-                <span class="comment-author">You</span>
-                <span class="comment-type issue">issue</span>
-              </div>
-              <span class="comment-text">Missing null check — token could be undefined when called from middleware</span>
-            </div>
-            <div class="code-line"><span class="ln">4</span><span class="code">  <span class="kw">return</span> verify(token, SECRET);</span></div>
-            <div class="code-line"><span class="ln">5</span><span class="code">}</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Step 3: Read comments -->
-      <div class="workflow-step">
-        <div class="step-info">
-          <h3><span class="step-number">3</span> Summarize with <code>read</code></h3>
-          <p>The <code>read</code> skill scans all <code>.review.yaml</code> sidecar files and gives your agent a summary of every unresolved comment.</p>
-        </div>
-        <div class="terminal">
-          <div class="terminal-header">
-            <span class="terminal-dot r"></span>
-            <span class="terminal-dot y"></span>
-            <span class="terminal-dot g"></span>
-            <span class="terminal-title">Agent CLI</span>
-          </div>
-          <div class="terminal-body">
-            <span class="line"><span class="prompt">$</span> <span class="cmd">mdownreview:read</span></span>
-            <span class="line"></span>
-            <span class="line"><span class="bld amb">3 unresolved comments</span> in 2 files:</span>
-            <span class="line"></span>
-            <span class="line"><span class="blu">src/auth/validate.ts</span> <span class="dim">(2 comments)</span></span>
-            <span class="line">  <span class="red">issue</span>  L3: Missing null check — token could be undefined</span>
-            <span class="line">  <span class="blu">suggestion</span>  L4: Use try/catch around verify()</span>
-            <span class="line"></span>
-            <span class="line"><span class="blu">src/auth/middleware.ts</span> <span class="dim">(1 comment)</span></span>
-            <span class="line">  <span class="red">issue</span>  L12: No rate limiting on token refresh</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Step 4: Review — agent fixes -->
-      <div class="workflow-step">
-        <div class="step-info">
-          <h3><span class="step-number">4</span> Fix with <code>review</code></h3>
-          <p>The <code>review</code> skill orchestrates the full cycle — it reads the comments, makes fixes, and marks them resolved. Your agent responds to every issue.</p>
-        </div>
-        <div class="app-mock">
-          <div class="app-sidebar">
-            <div class="hdr">Files</div>
-            <div class="file active">📄 validate.ts</div>
-            <div class="file">📄 refresh.ts</div>
+            <div class="file active">📄 validate.ts <span class="badge-count">1</span></div>
             <div class="file">📄 middleware.ts</div>
           </div>
           <div class="app-content">
             <div class="toolbar">
               <span class="tab active">validate.ts</span>
             </div>
-            <div class="code-line"><span class="ln">3</span><span class="code"><span class="kw">export function</span> <span class="fn">validate</span>(token: string<span class="grn"> | undefined</span>) {</span></div>
-            <div class="comment-bubble resolved">
+            <div class="code-line"><span class="ln">1</span><span class="code"><span class="kw">export function</span> <span class="fn">validate</span>(token: string) {</span></div>
+            <div class="code-line highlighted"><span class="ln">2</span><span class="code">  <span class="kw">return</span> verify(token, SECRET);</span></div>
+            <div class="comment-bubble">
               <div class="comment-header">
                 <span class="comment-author">You</span>
                 <span class="comment-type issue">issue</span>
               </div>
               <span class="comment-text">Missing null check — token could be undefined</span>
             </div>
-            <div class="comment-bubble">
-              <div class="comment-header">
-                <span class="comment-author">Agent</span>
-                <span class="comment-type suggestion">reply</span>
-              </div>
-              <span class="comment-text">Added union type and early return guard at L4. Marked resolved. ✓</span>
-            </div>
-            <div class="code-line highlighted"><span class="ln">4</span><span class="code">  <span class="kw">if</span> (!token) <span class="kw">return</span> { valid: <span class="red">false</span>, error: <span class="str">'no token'</span> };</span></div>
-            <div class="code-line"><span class="ln">5</span><span class="code">  <span class="kw">try</span> { <span class="kw">return</span> { valid: <span class="grn">true</span>, payload: verify(token, SECRET) }; }</span></div>
+            <div class="code-line"><span class="ln">3</span><span class="code">}</span></div>
           </div>
         </div>
       </div>
 
-      <!-- Step 5: Cleanup -->
       <div class="workflow-step">
-        <div class="step-info">
-          <h3><span class="step-number">5</span> Clean up with <code>cleanup</code></h3>
-          <p>Once all comments are resolved, the <code>cleanup</code> skill removes the <code>.review.yaml</code> sidecar files, leaving your project clean.</p>
+        <div class="step-header">
+          <span class="step-num">03</span>
+          <h3>Summarize with <code>/mdownreview:read</code></h3>
         </div>
-        <div class="terminal">
-          <div class="terminal-header">
-            <span class="terminal-dot r"></span>
-            <span class="terminal-dot y"></span>
-            <span class="terminal-dot g"></span>
-            <span class="terminal-title">Agent CLI</span>
-          </div>
-          <div class="terminal-body">
-            <span class="line"><span class="prompt">$</span> <span class="cmd">mdownreview:cleanup</span></span>
-            <span class="line"></span>
-            <span class="line"><span class="dim">Scanning for resolved review files...</span></span>
-            <span class="line"><span class="grn">✓</span> Removed <span class="bld">validate.ts.review.yaml</span> <span class="dim">(2/2 resolved)</span></span>
-            <span class="line"><span class="grn">✓</span> Removed <span class="bld">middleware.ts.review.yaml</span> <span class="dim">(1/1 resolved)</span></span>
-            <span class="line"></span>
-            <span class="line"><span class="grn bld">Done — 2 sidecar files cleaned up</span></span>
-          </div>
+        <p>Your agent scans all <code>.review.yaml</code> sidecars and lists every unresolved comment.</p>
+      </div>
+
+      <div class="workflow-step">
+        <div class="step-header">
+          <span class="step-num">04</span>
+          <h3>Fix with <code>/mdownreview:review</code></h3>
         </div>
+        <p>Your agent reads comments, makes fixes, and marks them resolved.</p>
+      </div>
+
+      <div class="workflow-step">
+        <div class="step-header">
+          <span class="step-num">05</span>
+          <h3>Clean up with <code>/mdownreview:cleanup</code></h3>
+        </div>
+        <p>Removes <code>.review.yaml</code> sidecar files once all comments are resolved.</p>
       </div>
 
     </div>
