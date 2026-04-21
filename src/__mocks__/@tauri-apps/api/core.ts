@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import type {
   DirEntry,
   LaunchArgs,
-  ReviewComments,
+  MrsfSidecar,
 } from "@/lib/tauri-commands";
 
 // Typed mock return values are validated at compile time against shared interfaces
@@ -11,7 +11,7 @@ type InvokeResult =
   | string[]
   | DirEntry[]
   | LaunchArgs
-  | ReviewComments
+  | MrsfSidecar
   | "file"
   | "dir"
   | "missing"

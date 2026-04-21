@@ -460,7 +460,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
                     filePath={filePath}
                     lineNumber={activeLine}
                     lineText={lines[activeLine - 1] ?? ""}
-                    fileLines={lines}
                     matchedComments={[]}
                     showInput={true}
                     onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); setPendingSelectionAnchor(null); }}

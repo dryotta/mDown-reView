@@ -438,7 +438,6 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
                     filePath={filePath}
                     lineNumber={lineNum}
                     lineText={line}
-                    fileLines={lines}
                     matchedComments={lineComments}
                     showInput={commentingLine === lineNum}
                     forceExpanded={expandedLine === lineNum}

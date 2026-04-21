@@ -9,12 +9,6 @@ beforeEach(() => {
   useStore.setState(initialState, true);
 });
 
-function addAndGetId(text = "Hello"): string {
-  useStore.getState().addComment(FILE, { line: 10 }, text);
-  const comments = useStore.getState().commentsByFile[FILE];
-  return comments[comments.length - 1].id;
-}
-
 describe("Comments slice (MRSF)", () => {
   beforeEach(() => {
     useStore.setState({ commentsByFile: {}, authorName: "" });

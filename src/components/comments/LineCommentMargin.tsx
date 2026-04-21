@@ -12,7 +12,6 @@ interface Props {
   filePath: string;
   lineNumber: number;
   lineText: string;
-  fileLines: string[];
   matchedComments: CommentWithOrphan[];
   showInput?: boolean;
   onCloseInput?: () => void;
@@ -22,7 +21,7 @@ interface Props {
 }
 
 export function LineCommentMargin({
-  filePath, lineNumber, lineText, fileLines, matchedComments, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput,
+  filePath, lineNumber, lineText, matchedComments, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput,
 }: Props) {
   const { addComment } = useStore();
   const [expanded, setExpanded] = useState(false);
