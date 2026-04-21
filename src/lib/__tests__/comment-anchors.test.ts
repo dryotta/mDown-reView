@@ -37,3 +37,21 @@ describe("createSelectionAnchor", () => {
     });
   });
 });
+
+describe("createSelectionAnchor — truncation and validation", () => {
+  it("truncates selected_text exceeding 4096 characters", () => {
+    const longText = "x".repeat(5000);
+    const anchor = createSelectionAnchor(1, 1, 0, 5000, longText, "hash");
+    expect(anchor.selected_text.length).toBe(4096);
+  });
+
+  it("clamps end_line to be >= line", () => {
+    const anchor = createSelectionAnchor(10, 5, 0, 10, "text", "hash");
+    expect(anchor.end_line).toBe(10);
+  });
+
+  it("clamps end_column to >= start_column on same line", () => {
+    const anchor = createSelectionAnchor(10, 10, 20, 5, "text", "hash");
+    expect(anchor.end_column).toBe(20);
+  });
+});

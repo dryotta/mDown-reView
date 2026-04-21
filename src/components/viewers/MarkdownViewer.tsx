@@ -25,10 +25,13 @@ import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import { CommentThread } from "@/components/comments/CommentThread";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { matchComments } from "@/lib/comment-matching";
+import { computeSelectedTextHash } from "@/lib/comment-anchors";
+import { truncateSelectedText } from "@/lib/comment-utils";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { useStore } from "@/store";
 import type { CommentWithOrphan } from "@/store";
-import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
+import { loadReviewComments } from "@/lib/tauri-commands";
+import { useAutoSaveComments } from "@/hooks/useAutoSaveComments";
 import { dirname } from "@/lib/path-utils";
 import "@/styles/markdown.css";
 
@@ -215,7 +218,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const setFileComments = useStore((s) => s.setFileComments);
   const addComment = useStore((s) => s.addComment);
   const comments = useStore((s) => s.commentsByFile[filePath]);
-  const setLastSaveTimestamp = useStore((s) => s.setLastSaveTimestamp);
   const loadedRef = useRef<string | null>(null);
   const [commentReloadKey, setCommentReloadKey] = useState(0);
 
@@ -295,17 +297,8 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     return () => { cancelled = true; };
   }, [commentReloadKey, filePath, setFileComments]);
 
-  // Auto-save comments to sidecar (debounced, only after initial load)
-  useEffect(() => {
-    if (loadedRef.current !== filePath) return;
-    const timer = setTimeout(() => {
-      const document = filePath.split(/[/\\]/).pop() ?? filePath;
-      saveReviewComments(filePath, document, comments ?? [])
-        .then(() => setLastSaveTimestamp(Date.now()))
-        .catch(() => {});
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [comments, filePath, setLastSaveTimestamp]);
+  // Auto-save comments to sidecar (shared hook with flush-on-unmount)
+  useAutoSaveComments(filePath, comments, loadedRef.current === filePath);
 
   // Scroll-to-line from CommentsPanel click
   useEffect(() => {
@@ -396,13 +389,17 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     setSelectionToolbar({ position: { top, left }, lineNumber, selectedText });
   }, []);
 
-  const handleAddSelectionComment = useCallback(() => {
+  const handleAddSelectionComment = useCallback(async () => {
     if (!selectionToolbar) return;
     const { lineNumber, selectedText } = selectionToolbar;
 
+    const truncated = truncateSelectedText(selectedText);
+    const hash = await computeSelectedTextHash(truncated);
+
     setPendingSelectionAnchor({
       line: lineNumber,
-      selected_text: selectedText,
+      selected_text: truncated,
+      selected_text_hash: hash,
     });
 
     setSelectionToolbar(null);

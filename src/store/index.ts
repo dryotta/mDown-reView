@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
 import type { MrsfComment } from "@/lib/tauri-commands";
+import { generateCommentId } from "@/lib/comment-utils";
 
 // ── Recent items ──────────────────────────────────────────────────────────
 
@@ -120,9 +121,6 @@ interface RecentSlice {
 
 type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice;
 
-function generateId(): string {
-  return Math.random().toString(36).slice(2, 10);
-}
 
 export const useStore = create<Store>()(
   persist(
@@ -184,7 +182,7 @@ export const useStore = create<Store>()(
       addComment: (filePath, anchor, text) => {
         const state = get();
         const comment: CommentWithOrphan = {
-          id: generateId(),
+          id: generateCommentId(),
           author: state.authorName || "Anonymous",
           timestamp: new Date().toISOString(),
           text,
@@ -204,7 +202,7 @@ export const useStore = create<Store>()(
           .flat()
           .find((c) => c.id === parentId);
         const reply: CommentWithOrphan = {
-          id: generateId(),
+          id: generateCommentId(),
           author: state.authorName || "Anonymous",
           timestamp: new Date().toISOString(),
           text,
@@ -231,10 +229,40 @@ export const useStore = create<Store>()(
       deleteComment: (id) =>
         set((s) => ({
           commentsByFile: Object.fromEntries(
-            Object.entries(s.commentsByFile).map(([fp, comments]) => [
-              fp,
-              comments.filter((c) => c.id !== id),
-            ])
+            Object.entries(s.commentsByFile).map(([fp, comments]) => {
+              const parent = comments.find((c) => c.id === id);
+              if (!parent) return [fp, comments];
+
+              // MRSF §9.1: Promote direct replies before removing parent
+              const promoted = comments.map((c) => {
+                if (c.reply_to !== id) return c;
+                const updated = { ...c };
+
+                // Copy targeting fields from parent if reply omits them
+                if (updated.line === undefined && parent.line !== undefined)
+                  updated.line = parent.line;
+                if (updated.end_line === undefined && parent.end_line !== undefined)
+                  updated.end_line = parent.end_line;
+                if (updated.start_column === undefined && parent.start_column !== undefined)
+                  updated.start_column = parent.start_column;
+                if (updated.end_column === undefined && parent.end_column !== undefined)
+                  updated.end_column = parent.end_column;
+                // Only copy selected_text + hash together to avoid mismatched pairs
+                if (updated.selected_text === undefined && parent.selected_text !== undefined) {
+                  updated.selected_text = parent.selected_text;
+                  if (parent.selected_text_hash !== undefined)
+                    updated.selected_text_hash = parent.selected_text_hash;
+                }
+
+                // Reparent to grandparent (or remove reply_to if parent was root)
+                updated.reply_to = parent.reply_to;
+                if (!updated.reply_to) delete updated.reply_to;
+
+                return updated;
+              });
+
+              return [fp, promoted.filter((c) => c.id !== id)];
+            })
           ),
         })),
       resolveComment: (id) =>

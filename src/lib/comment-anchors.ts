@@ -1,5 +1,7 @@
 /// MRSF anchor creation helpers.
 
+import { truncateSelectedText, validateTargetingFields } from "./comment-utils";
+
 export async function computeSelectedTextHash(text: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
@@ -27,12 +29,19 @@ export function createSelectionAnchor(
   selected_text: string;
   selected_text_hash: string;
 } {
-  return {
+  const validated = validateTargetingFields({
     line: startLine,
     end_line: endLine,
     start_column: startColumn,
     end_column: endColumn,
-    selected_text: selectedText,
+  });
+
+  return {
+    line: validated.line!,
+    end_line: validated.end_line!,
+    start_column: validated.start_column!,
+    end_column: validated.end_column!,
+    selected_text: truncateSelectedText(selectedText),
     selected_text_hash: selectedTextHash,
   };
 }

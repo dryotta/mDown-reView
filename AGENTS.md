@@ -167,8 +167,8 @@ comments:
     selected_text: "code here"  # Selected text for re-anchoring
     selected_text_hash: "sha256..."  # SHA-256 of selected_text
     # Metadata (optional):
-    type: "suggestion"          # issue | suggestion | question | note | praise
-    severity: "warning"         # critical | warning | info | nitpick
+    type: "suggestion"          # suggestion | issue | question | accuracy | style | clarity
+    severity: "low"             # low | medium | high
     reply_to: "parent-uuid"     # Threading: references parent comment ID
     commit: "abc1234"           # Git commit SHA at comment creation
 ```

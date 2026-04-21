@@ -3,6 +3,8 @@ import { useStore } from "@/store";
 import { CommentInput } from "./CommentInput";
 import { CommentThread } from "./CommentThread";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
+import { computeSelectedTextHash } from "@/lib/comment-anchors";
+import { truncateSelectedText } from "@/lib/comment-utils";
 import type { CommentWithOrphan } from "@/store";
 import "@/styles/comments.css";
 
@@ -27,11 +29,14 @@ export function LineCommentMargin({
 
   const unresolved = matchedComments.filter((c) => !c.resolved);
 
-  const handleSave = (text: string) => {
+  const handleSave = async (text: string) => {
     if (onSaveComment) {
       onSaveComment(text);
     } else {
-      addComment(filePath, { line: lineNumber }, text);
+      // MRSF §6.2: line-only comments SHOULD include full line as selected_text
+      const selectedText = truncateSelectedText(lineText);
+      const hash = await computeSelectedTextHash(selectedText);
+      addComment(filePath, { line: lineNumber, selected_text: selectedText, selected_text_hash: hash }, text);
     }
     onCloseInput?.();
     setExpanded(true);

@@ -2,8 +2,11 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { createHighlighter, type Highlighter } from "shiki";
 import { extname } from "@/lib/path-utils";
 import { matchComments } from "@/lib/comment-matching";
+import { computeSelectedTextHash } from "@/lib/comment-anchors";
+import { truncateSelectedText } from "@/lib/comment-utils";
 import { useStore } from "@/store";
-import { loadReviewComments, saveReviewComments } from "@/lib/tauri-commands";
+import { loadReviewComments } from "@/lib/tauri-commands";
+import { useAutoSaveComments } from "@/hooks/useAutoSaveComments";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { computeFoldRegions, type FoldRegion } from "@/lib/fold-regions";
@@ -85,7 +88,6 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const setFileComments = useStore((s) => s.setFileComments);
   const comments = useStore((s) => s.commentsByFile[filePath]);
   const addComment = useStore((s) => s.addComment);
-  const setLastSaveTimestamp = useStore((s) => s.setLastSaveTimestamp);
   const loadedRef = useRef<string | null>(null);
   const [commentReloadKey, setCommentReloadKey] = useState(0);
 
@@ -157,17 +159,8 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   // Reset folds when file changes
   useEffect(() => { setCollapsedLines(new Set()); setPendingSelectionAnchor(null); }, [filePath]);
 
-  // Auto-save comments to sidecar (debounced, only after initial load)
-  useEffect(() => {
-    if (loadedRef.current !== filePath) return;
-    const timer = setTimeout(() => {
-      const document = filePath.split(/[/\\]/).pop() ?? filePath;
-      saveReviewComments(filePath, document, comments ?? [])
-        .then(() => setLastSaveTimestamp(Date.now()))
-        .catch(() => {});
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [comments, filePath, setLastSaveTimestamp]);
+  // Auto-save comments to sidecar (shared hook with flush-on-unmount)
+  useAutoSaveComments(filePath, comments, loadedRef.current === filePath);
 
   // Theme tracking
   const [currentTheme, setCurrentTheme] = useState(
@@ -335,16 +328,20 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     });
   };
 
-  const handleAddSelectionComment = () => {
+  const handleAddSelectionComment = async () => {
     if (!selectionToolbar) return;
     const { lineNumber, selectedText, startOffset, endLine, endOffset } = selectionToolbar;
+
+    const truncated = truncateSelectedText(selectedText);
+    const hash = await computeSelectedTextHash(truncated);
 
     setPendingSelectionAnchor({
       line: lineNumber,
       end_line: endLine,
       start_column: startOffset,
       end_column: endOffset,
-      selected_text: selectedText,
+      selected_text: truncated,
+      selected_text_hash: hash,
     });
 
     // Highlight selected lines

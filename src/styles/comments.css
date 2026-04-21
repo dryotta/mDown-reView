@@ -419,3 +419,15 @@
 .comment-severity-badge--low { background: #9ca3af; color: white; }
 
 /* Reply indent (replaced by .comment-thread-replies) */
+
+.comment-char-count {
+  font-size: 11px;
+  text-align: right;
+  padding: 0 4px;
+  color: var(--text-muted, #888);
+}
+
+.comment-char-count.over-limit {
+  color: var(--error-color, #d32f2f);
+  font-weight: 600;
+}

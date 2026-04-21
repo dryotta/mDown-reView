@@ -8,7 +8,7 @@ comments:
     resolved: false
     line: 160
     severity: medium
-    commit: 1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b
+    commit: ea23dbcedbfb0045fe1de7ba90193643e30266cb
     selected_text: "| `.github/workflows/ci.yml` | Matching 3-entry build matrix with consistent artifact naming |\r"
     selected_text_hash: cd2031b94ef865793aa5e830d8872da084b40fbc6d53a4e0c5847a1ce79db3fa
     end_line: 160
@@ -23,7 +23,7 @@ comments:
     text: erewr
     resolved: false
     reply_to: bbee1cef-4e23-4f39-a90f-9808f0341784
-    commit: "1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b"
+    commit: ea23dbcedbfb0045fe1de7ba90193643e30266cb
 
   - id: c72da7f1-76f9-45d7-913b-75928906738b
     author: er
@@ -31,7 +31,7 @@ comments:
     text: rwer
     resolved: false
     reply_to: bbee1cef-4e23-4f39-a90f-9808f0341784
-    commit: "1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b"
+    commit: ea23dbcedbfb0045fe1de7ba90193643e30266cb
 
   - id: "5516895c-bfd0-46ee-9639-5d14df896e98"
     author: er
@@ -39,4 +39,4 @@ comments:
     text: ewrw
     resolved: false
     reply_to: bbee1cef-4e23-4f39-a90f-9808f0341784
-    commit: "1edbea450eb46dd2a291f3bb5fcc87ff0fb5899b"
+    commit: ea23dbcedbfb0045fe1de7ba90193643e30266cb
