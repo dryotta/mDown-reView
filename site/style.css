@@ -10,17 +10,14 @@
   --text: #fafafa;
   --text-secondary: #d4d4d8;
   --muted: #a1a1aa;
-  --accent-1: #6366f1;
-  --accent-2: #a855f7;
-  --accent-glow: rgba(99,102,241,0.15);
+  --accent-1: #5C60EF;
+  --accent-dark: #4B4FD9;
+  --accent-glow: rgba(92,96,239,0.15);
   --warning-bg: rgba(234,179,8,0.08);
   --warning-border: rgba(234,179,8,0.25);
   --warning-text: #fbbf24;
   --terminal-bg: #0c0c0e;
   --terminal-border: rgba(255,255,255,0.08);
-  --green: #4ade80;
-  --purple: #c084fc;
-  --cyan: #22d3ee;
   --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
 
@@ -37,7 +34,7 @@ body {
 }
 
 a { color: var(--accent-1); text-decoration: none; transition: color 0.2s; }
-a:hover { color: var(--accent-2); }
+a:hover { color: var(--accent-1); }
 
 /* ── Nav ── */
 nav {
@@ -109,7 +106,7 @@ nav {
 .badge .dot {
   width: 6px; height: 6px;
   border-radius: 50%;
-  background: var(--green);
+  background: var(--accent-1);
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -127,7 +124,7 @@ nav {
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2), var(--cyan));
+  background: linear-gradient(150deg, #7B7FF5, #4B4FD9);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -155,7 +152,7 @@ nav {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+  background: linear-gradient(150deg, var(--accent-1), var(--accent-dark));
   color: white;
   border: none;
   box-shadow: 0 0 20px var(--accent-glow);
@@ -163,7 +160,7 @@ nav {
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 30px rgba(99,102,241,0.25);
+  box-shadow: 0 0 30px rgba(92,96,239,0.25);
   color: white;
 }
 
@@ -277,7 +274,7 @@ nav {
   border: 1px solid var(--border);
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
-  color: var(--purple);
+  color: var(--accent-1);
 }
 
 /* ── App Mockup ── */
@@ -504,9 +501,9 @@ nav {
 }
 
 .copy-btn.copied {
-  color: var(--green);
-  border-color: rgba(74,222,128,0.3);
-  background: rgba(74,222,128,0.06);
+  color: var(--accent-1);
+  border-color: rgba(92,96,239,0.3);
+  background: rgba(92,96,239,0.06);
 }
 
 .download-row {
@@ -605,7 +602,7 @@ nav {
   gap: 0.4rem;
   padding: 0.65rem 1.5rem;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+  background: linear-gradient(150deg, var(--accent-1), var(--accent-dark));
   color: white;
   font-weight: 600;
   font-size: 0.9rem;
@@ -763,7 +760,7 @@ nav {
 
 .skills-table td:first-child {
   font-family: var(--mono);
-  color: var(--purple);
+  color: var(--accent-1);
   font-weight: 500;
   white-space: nowrap;
 }
