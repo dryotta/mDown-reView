@@ -31,7 +31,7 @@ const comment1 = { id: "c1", author: "A", timestamp: "2026-01-01T00:00:00Z", tex
 
 describe("useAutoSaveComments", () => {
   it("does not save on initial load (not dirty)", async () => {
-    renderHook(() => useAutoSaveComments("/path/file.md", [comment1], true));
+    renderHook(() => useAutoSaveComments("/path/file.md", [comment1], 1));
 
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
@@ -41,12 +41,12 @@ describe("useAutoSaveComments", () => {
 
   it("saves after comments change post-load", async () => {
     const { rerender } = renderHook(
-      ({ comments, loaded }) => useAutoSaveComments("/path/file.md", comments, loaded),
-      { initialProps: { comments: [comment1], loaded: true } }
+      ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
+      { initialProps: { comments: [comment1], loadKey: 1 } }
     );
 
     const comment2 = { ...comment1, id: "c2", text: "new" };
-    rerender({ comments: [comment1, comment2], loaded: true });
+    rerender({ comments: [comment1, comment2], loadKey: 1 });
 
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
@@ -57,12 +57,12 @@ describe("useAutoSaveComments", () => {
   it("uses relative path when workspace root is set", async () => {
     useStore.setState({ root: "/path" });
     const { rerender } = renderHook(
-      ({ comments, loaded }) => useAutoSaveComments("/path/sub/file.md", comments, loaded),
-      { initialProps: { comments: [comment1], loaded: true } }
+      ({ comments, loadKey }) => useAutoSaveComments("/path/sub/file.md", comments, loadKey),
+      { initialProps: { comments: [comment1], loadKey: 1 } }
     );
 
     const comment2 = { ...comment1, id: "c2" };
-    rerender({ comments: [comment1, comment2], loaded: true });
+    rerender({ comments: [comment1, comment2], loadKey: 1 });
 
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
@@ -76,12 +76,12 @@ describe("useAutoSaveComments", () => {
 
   it("flushes save on unmount instead of canceling", async () => {
     const { rerender, unmount } = renderHook(
-      ({ comments, loaded }) => useAutoSaveComments("/path/file.md", comments, loaded),
-      { initialProps: { comments: [comment1], loaded: true } }
+      ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
+      { initialProps: { comments: [comment1], loadKey: 1 } }
     );
 
     const comment2 = { ...comment1, id: "c2" };
-    rerender({ comments: [comment1, comment2], loaded: true });
+    rerender({ comments: [comment1, comment2], loadKey: 1 });
 
     // Unmount before debounce fires
     unmount();
@@ -91,8 +91,8 @@ describe("useAutoSaveComments", () => {
     expect(commands.saveReviewComments).toHaveBeenCalledTimes(1);
   });
 
-  it("does not save when loaded is false", async () => {
-    renderHook(() => useAutoSaveComments("/path/file.md", [comment1], false));
+  it("does not save when loadKey is 0 (not loaded)", async () => {
+    renderHook(() => useAutoSaveComments("/path/file.md", [comment1], 0));
 
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
@@ -101,11 +101,58 @@ describe("useAutoSaveComments", () => {
   });
 
   it("does not create empty sidecar when opening file with no sidecar", async () => {
-    renderHook(() => useAutoSaveComments("/path/file.md", undefined, true));
+    renderHook(() => useAutoSaveComments("/path/file.md", undefined, 1));
 
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
 
     expect(commands.saveReviewComments).not.toHaveBeenCalled();
+  });
+
+  it("does not save back externally-reloaded comments (loadKey bump resets dirty)", async () => {
+    const { rerender } = renderHook(
+      ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
+      { initialProps: { comments: [comment1], loadKey: 1 } }
+    );
+
+    // Simulate sidecar reload: new comments array + loadKey bump
+    const externalComments = [{ ...comment1, text: "externally edited" }];
+    rerender({ comments: externalComments, loadKey: 2 });
+
+    await act(async () => { vi.advanceTimersByTime(600); });
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    expect(commands.saveReviewComments).not.toHaveBeenCalled();
+  });
+
+  it("updates lastSaveTimestamp after successful save", async () => {
+    const { rerender } = renderHook(
+      ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
+      { initialProps: { comments: [comment1], loadKey: 1 } }
+    );
+
+    const comment2 = { ...comment1, id: "c2" };
+    rerender({ comments: [comment1, comment2], loadKey: 1 });
+
+    await act(async () => { vi.advanceTimersByTime(600); });
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    expect(useStore.getState().lastSaveTimestamp).toBeGreaterThan(0);
+  });
+
+  it("does not update lastSaveTimestamp on save failure", async () => {
+    vi.mocked(commands.saveReviewComments).mockRejectedValueOnce(new Error("disk full"));
+    const { rerender } = renderHook(
+      ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
+      { initialProps: { comments: [comment1], loadKey: 1 } }
+    );
+
+    const comment2 = { ...comment1, id: "c2" };
+    rerender({ comments: [comment1, comment2], loadKey: 1 });
+
+    await act(async () => { vi.advanceTimersByTime(600); });
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    expect(useStore.getState().lastSaveTimestamp).toBe(0);
   });
 });

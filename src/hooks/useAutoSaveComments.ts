@@ -23,7 +23,7 @@ function computeDocumentPath(filePath: string, root: string | null): string {
 export function useAutoSaveComments(
   filePath: string,
   comments: MrsfComment[] | undefined,
-  loaded: boolean
+  loadKey: number
 ) {
   const root = useStore((s) => s.root);
   const setLastSaveTimestamp = useStore((s) => s.setLastSaveTimestamp);
@@ -31,19 +31,21 @@ export function useAutoSaveComments(
   // Track load state as ref (not state) to avoid triggering saves on load completion
   const loadedRef = useRef(false);
   useEffect(() => {
-    loadedRef.current = loaded;
-  }, [loaded]);
+    loadedRef.current = loadKey > 0;
+  }, [loadKey]);
 
-  // Track whether comments have changed since initial load (dirty flag)
+  // Track whether comments have changed since initial load (dirty flag).
+  // Reset on every load (initial or sidecar reload) so that externally-loaded
+  // comments are not treated as dirty and redundantly saved back.
   const dirtyRef = useRef(false);
   const initialCommentsRef = useRef<MrsfComment[] | undefined>(undefined);
 
   useEffect(() => {
-    if (loaded) {
+    if (loadKey > 0) {
       initialCommentsRef.current = comments;
       dirtyRef.current = false;
     }
-  }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mark dirty when comments change after initial load
   useEffect(() => {

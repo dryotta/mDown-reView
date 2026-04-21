@@ -1,7 +1,6 @@
 .markdown-viewer {
   padding: 20px 28px;
   max-width: 860px;
-  overflow-y: auto;
   height: 100%;
 }
 
