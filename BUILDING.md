@@ -36,3 +36,172 @@ npm run tauri:build    # builds platform installer
 Output locations:
 - **Windows:** `src-tauri/target/release/bundle/nsis/`
 - **macOS:** `src-tauri/target/release/bundle/dmg/`
+
+---
+
+## Claude Code Automation
+
+The project ships a set of Claude Code skills and subagent definitions in `.claude/` that automate the full development cycle — from starting a branch to running a continuous self-improvement loop.
+
+### Skills
+
+Skills are invoked in a Claude Code session with `/skill-name`. They are defined in `.claude/skills/<name>/SKILL.md`.
+
+---
+
+#### `/start-feature`
+
+Starts a task safely by ensuring you're always on a feature branch, never main.
+
+**What it does:**
+1. Checks the working tree is clean (stops if dirty)
+2. Pulls latest main
+3. Creates and checks out a typed branch (`feature/`, `fix/`, or `chore/`)
+4. Prints a reminder of how to push and open a PR when done
+
+**When to use:** at the beginning of any development task before touching code.
+
+---
+
+#### `/run-tests`
+
+Selects and runs the right test suite based on what changed.
+
+| Changed files | Suite run |
+|---|---|
+| `src/` logic, store, utilities | `npm test` (Vitest, fastest) |
+| `e2e/browser/`, UI components | `npm run test:e2e` (Playwright + Vite dev server) |
+| `src-tauri/`, watcher, file I/O | `npm run test:e2e:native:build` (builds binary first) |
+
+Reports pass count, fail count, and full output for any failures.
+
+---
+
+#### `/write-missing-tests`
+
+Writes unit tests for high-value untested source files following the project's Vitest + React Testing Library conventions. Targets files in `src/lib/` and `src/components/` that have no corresponding `__tests__/` file.
+
+---
+
+#### `/expert-review`
+
+Fires all six expert subagents **in parallel**, cross-references open GitHub issues, then synthesizes a single prioritized improvement plan.
+
+**Output sections:**
+- GitHub issue status table
+- Priority 1 / 2 / 3 improvements (with file locations and fix hints)
+- Quick wins (< 1 hour each)
+- Expert consensus items (issues flagged by 2+ experts independently)
+- Recommended sprint plan
+
+Use this before planning a sprint or when you want a full health check of the codebase.
+
+---
+
+#### `/self-improve`
+
+One cycle of the autonomous self-improvement loop. Designed to be run repeatedly via `/loop Xh /self-improve`.
+
+**Full cycle walkthrough:**
+
+```
+1. Safety pre-flight
+   └─ git status clean? branch = main? → stop if not
+
+2. Load log (.claude/self-improve-log.md)
+   └─ read DONE / FAILED / SKIPPED task IDs to avoid repeats
+
+3. Get task list
+   ├─ Cache < 24h old? → reuse .claude/self-improve-cache.md
+   └─ Cache stale/missing → spawn 6 expert agents in parallel,
+      write new cache with Quick Wins + Priority 1/2 tables
+
+4. Select next task
+   └─ First Quick Win (risk=low) not already in log
+
+5. Create branch
+   └─ git checkout -b auto-improve/YYYYMMDD-short-slug
+
+6. Implement  (task-implementer agent)
+   └─ scoped, style-matching code change; returns change summary
+
+7. Validate  (implementation-validator agent)
+   └─ npx tsc --noEmit → npm test → eslint --max-warnings=0
+   └─ PASS or DO NOT COMMIT verdict
+
+8. Commit or abort
+   ├─ PASS  → git add <specific files> + commit + update log (DONE)
+   └─ FAIL  → delete branch + update log (FAILED) + print reason
+```
+
+**State files written/read each cycle:**
+
+| File | Purpose |
+|---|---|
+| `.claude/self-improve-cache.md` | Expert review output, reused for 24h |
+| `.claude/self-improve-log.md` | Persistent record of every attempted task (DONE / FAILED / SKIPPED) |
+
+**Auto-mode safety scope** — the loop will never automatically:
+- Modify `src-tauri/tauri.conf.json` or capability/permissions config
+- Add dependencies (`npm install`, `cargo add`)
+- Touch `.claude/` directory
+- Implement anything touching auth, file deletion, or process execution
+- Commit to `main` — all changes land on `auto-improve/*` branches for human review
+
+**Starting the loop:**
+
+```bash
+/loop 2h /self-improve    # run a cycle every 2 hours
+/loop 6h /self-improve    # slower / less aggressive
+/self-improve             # single manual cycle
+```
+
+**Reviewing loop output:**
+
+Each completed cycle leaves an `auto-improve/*` branch. Review and merge (or discard) at your own pace:
+
+```bash
+git log --oneline auto-improve/20260422-fix-unlisten-cleanup
+git checkout main && git merge auto-improve/20260422-fix-unlisten-cleanup
+# or discard:
+git branch -D auto-improve/20260422-fix-unlisten-cleanup
+```
+
+---
+
+#### `/publish-release`
+
+Publishes a new release: bumps the version in `package.json` and `tauri.conf.json`, updates `CHANGELOG.md`, commits, and pushes a version tag that triggers the CI build workflow.
+
+Requires an explicit confirmation step before writing any files — will stop and show the proposed version for approval first.
+
+---
+
+### Expert Subagents
+
+Subagents are specialist Claude instances invoked in parallel by `/expert-review` and `/self-improve`. Defined in `.claude/agents/`.
+
+| Agent | Specialisation |
+|---|---|
+| `product-improvement-expert` | Feature gaps in the AI-output review workflow; missing capabilities; friction points |
+| `performance-expert` | React rendering bottlenecks (shiki, Mermaid), Rust watcher efficiency, IPC payload size |
+| `architect-expert` | Component boundaries, Zustand store design, IPC contract integrity, dependency direction |
+| `react-tauri-expert` | React 19 API misuse (missing `useTransition`, stale closures), Tauri v2 pattern correctness, plugin usage |
+| `ux-expert` | Keyboard navigation, loading/error states, comment workflow friction, empty states |
+| `bug-hunter` | Race conditions, async error handling, `listen()` leaks without `unlisten()`, comment anchor edge cases |
+| `task-implementer` | Implements a single scoped task; returns a structured change summary; used by `/self-improve` |
+| `implementation-validator` | Runs TS check → vitest → eslint; returns COMMIT or DO NOT COMMIT verdict; used by `/self-improve` |
+| `security-reviewer` | Tauri IPC handlers, path traversal, XSS in markdown rendering, IPC type mismatches |
+| `e2e-test-writer` | Writes Playwright browser and native tests following the IPC mock pattern |
+| `test-gap-reviewer` | Identifies missing unit test cases for recently changed source files |
+
+### Hooks
+
+Hooks in `.claude/hooks/` run automatically after every file edit (PostToolUse on `Edit` and `Write`):
+
+| Hook | What it does |
+|---|---|
+| `prettier-on-edit.js` | Formats `.ts`, `.tsx`, `.js`, `.jsx`, `.css` files with Prettier |
+| `check-test-exists.js` | Warns (non-blocking) when a `src/lib/` or `src/components/` file is written with no corresponding `__tests__/` file |
+
+TypeScript is also checked after every edit via `npx tsc --noEmit` (configured directly in `.claude/settings.json`).
