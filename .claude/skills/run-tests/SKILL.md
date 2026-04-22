@@ -1,15 +1,16 @@
 ---
 name: run-tests
-description: Run the appropriate mdownreview test suite based on what changed. Selects between vitest unit tests, browser e2e, or native e2e.
+description: Run the appropriate mdownreview test suite based on what changed. Selects between lint, vitest unit tests, browser e2e, or native e2e.
 ---
 
 Run the correct test suite for mdownreview based on what changed:
 
+- **Lint** (any `src/` or `e2e/` TypeScript changes): `npm run lint`
 - **Unit tests** (`src/` changes, store/hook/utility logic): `npm test`
 - **Browser E2E** (`e2e/browser/` changes, component UI flows): `npm run test:e2e`
 - **Native E2E** (`src-tauri/`, watcher, file I/O — needs built binary): `npm run test:e2e:native:build`
 
-If unsure, run `npm test` first (fastest), then `npm run test:e2e` if UI-facing.
+Always run `npm run lint` first (fastest). Then `npm test`, then `npm run test:e2e` if UI-facing.
 
 ## Native E2E — local only
 
