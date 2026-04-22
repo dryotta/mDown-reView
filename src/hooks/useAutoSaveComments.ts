@@ -63,13 +63,18 @@ export function useAutoSaveComments(
 
     enrichCommentsWithCommit(commentsToSave, filePath)
       .then((enriched) => saveReviewComments(filePath, document, enriched))
-      .then(() => recordSave(filePath))
+      .then(() => {
+        recordSave(filePath);
+        recordSave(`${filePath}.review.yaml`);
+      })
       .catch((err) => logError(`Failed to save review comments for ${filePath}: ${err}`));
   }, [comments, filePath, root, recordSave]);
 
   // Store latest doSave in a ref for the unmount effect
   const doSaveRef = useRef(doSave);
-  useEffect(() => { doSaveRef.current = doSave; }, [doSave]);
+  useEffect(() => {
+    doSaveRef.current = doSave;
+  }, [doSave]);
 
   // Debounced save effect — cleanup only cancels timer (no flush)
   useEffect(() => {
