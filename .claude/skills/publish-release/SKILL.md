@@ -119,6 +119,25 @@ Run each command separately (do not chain with `&&`):
 4. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md`
 5. `git commit -m "chore: release v{version}"`
 
+## Step 8.5: Local Test Gate (Native E2E)
+
+Native E2E tests cannot run in GitHub Actions (WebView2 + CDP not available on headless runners). They must pass locally before pushing the release branch.
+
+**This step only runs on Windows.** If the current machine is not Windows, tell the user they need to run native E2E on a Windows machine before proceeding, then skip to Step 9.
+
+1. Run all three test suites in order. Stop at the first failure:
+   - `npm test` (Vitest unit tests)
+   - `npm run test:e2e` (Playwright browser E2E)
+   - `npm run test:e2e:native:build` (builds debug binary + runs native E2E)
+
+2. **If any test suite fails**, show the failure output and stop. Do not push or create a PR until all tests pass.
+
+3. **If all tests pass**, print:
+   ```
+   ✅ All local tests passed (unit, browser e2e, native e2e).
+   Proceeding to push release branch...
+   ```
+
 ## Step 9: Push Branch, Create Pull Request, and Wait for CI
 
 Push the release branch and open a PR against `main`:
