@@ -172,6 +172,18 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub fn save_review_comments(file_path: String, document: String, comments: Vec<MrsfComment>) -> Result<(), String> {
     let sidecar_path = std::path::PathBuf::from(format!("{}.review.yaml", file_path));
+
+    // When all comments are gone, remove the sidecar rather than leaving an empty file.
+    if comments.is_empty() {
+        if sidecar_path.exists() {
+            std::fs::remove_file(&sidecar_path).map_err(|e| {
+                tracing::error!("[rust] command error: {}", e);
+                e.to_string()
+            })?;
+        }
+        return Ok(());
+    }
+
     let payload = MrsfSidecar {
         mrsf_version: "1.0".to_string(),
         document,

@@ -138,6 +138,35 @@ fn load_review_comments_returns_none_when_missing() {
 }
 
 #[test]
+fn save_review_comments_deletes_sidecar_when_empty() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let file_path = tmp.path().to_str().unwrap().to_string();
+    let sidecar_path = format!("{}.review.yaml", file_path);
+
+    // Write a sidecar with one comment, then save empty to clear it.
+    save_review_comments(file_path.clone(), "test.md".to_string(), vec![make_mrsf_comment("c1")]).unwrap();
+    assert!(std::path::Path::new(&sidecar_path).exists());
+
+    save_review_comments(file_path.clone(), "test.md".to_string(), vec![]).unwrap();
+    assert!(!std::path::Path::new(&sidecar_path).exists(), "empty save should delete the sidecar");
+
+    // Subsequent load should return None (no sidecar).
+    let result = load_review_comments(file_path).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn save_review_comments_empty_is_noop_when_no_sidecar() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let file_path = tmp.path().to_str().unwrap().to_string();
+    let sidecar_path = format!("{}.review.yaml", file_path);
+
+    // Saving empty with no pre-existing sidecar must not create one.
+    save_review_comments(file_path, "test.md".to_string(), vec![]).unwrap();
+    assert!(!std::path::Path::new(&sidecar_path).exists(), "empty save must not create a sidecar");
+}
+
+#[test]
 fn load_mrsf_json_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("test.md");
