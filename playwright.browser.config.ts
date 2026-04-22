@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./e2e/browser",
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   reporter: "html",

@@ -12,8 +12,9 @@
     "tauri:build": "tauri build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
-    "test:e2e:native": "playwright test --config=playwright.native.config.ts"
+    "test:e2e": "playwright test --config=playwright.browser.config.ts",
+    "test:e2e:native": "playwright test --config=playwright.native.config.ts",
+    "test:e2e:native:build": "npm run tauri:build && npm run test:e2e:native"
   },
   "dependencies": {
     "@shikijs/rehype": "^4.0.2",
