@@ -47,13 +47,10 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
 
       - name: Rust tests
         working-directory: src-tauri
@@ -93,6 +90,11 @@ jobs:
             rust_target: x86_64-pc-windows-msvc
             target_dir: src-tauri/target/release
             tauri_args: ""
+          - os: windows-latest
+            name: windows-arm64
+            rust_target: aarch64-pc-windows-msvc
+            target_dir: src-tauri/target/aarch64-pc-windows-msvc/release
+            tauri_args: "--target aarch64-pc-windows-msvc"
           - os: macos-latest
             name: macos-arm64
             rust_target: aarch64-apple-darwin

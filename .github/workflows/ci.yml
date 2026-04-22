@@ -61,14 +61,11 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Install Linux system dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+      - name: Cache Linux system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
 
       - name: Rust tests
         working-directory: src-tauri
@@ -94,9 +91,12 @@ jobs:
           retention-days: 7
 
   # ── Installer builds (Windows + macOS) ───────────────────────────────────
-  # Runs in parallel with the test job above.
+  # Only on push to main (not PRs) — saves ~800s of billed minutes per PR.
+  # Release-gate workflow covers cross-platform builds for release branches.
   build:
     name: Build (${{ matrix.name }})
+    if: github.event_name == 'push'
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
