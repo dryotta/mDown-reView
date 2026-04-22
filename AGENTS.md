@@ -74,7 +74,56 @@ Two runtime layers bridged by Tauri v2:
 | Markdown rendering | `react-markdown` + `remark-gfm` + `@shikijs/rehype` + `rehype-slug` |
 | Syntax highlighting | Shiki (`@shikijs/rehype` in MarkdownViewer, direct API in SourceViewer) |
 | Unit/component tests | Vitest + React Testing Library + jsdom |
-| E2E tests | Playwright (Vite dev server + Tauri IPC mock) |
+| Browser integration tests | Playwright (Vite dev server + Tauri IPC mock) |
+| Native E2E tests | Playwright (real Tauri binary via CDP, Windows only) |
+
+## Test Strategy
+
+Three layers. Know which to use and why:
+
+| Layer | Location | Runner | What it tests | When it runs |
+|---|---|---|---|---|
+| Unit / component | `src/**/__tests__/` | `npm test` (Vitest) | Pure logic, React component rendering, store slices, utility functions | Every commit |
+| Browser integration | `e2e/browser/` | `npm run test:e2e` (Playwright, Vite dev server) | UI flows with mocked Tauri IPC — verifies React components respond correctly to events and commands. **Does NOT test Rust, file I/O, or real IPC.** | Every commit |
+| Native E2E | `e2e/native/` | `npm run test:e2e:native` (Playwright, real binary) | Full-stack scenarios: OS file events → Rust watcher → Tauri emit → React re-render; CLI arg handling; comment persistence to disk. Windows only (WebView2 + CDP). | Release workflow only |
+
+### What belongs in each layer
+
+**Write a unit test when:** testing a pure function, a store action, or a React component in isolation (no IPC, no file I/O).
+
+**Write a browser integration test when:** testing a UI flow (open file → see content, toggle panel, keyboard shortcut). Use `window.__TAURI_IPC_MOCK__` and dispatch `mdownreview:file-changed` CustomEvents to simulate Tauri responses. These tests run in milliseconds and need no build step.
+
+**Write a native E2E test when:** the scenario requires real file I/O, real OS events, the Rust watcher, CLI arg handling, or actual comment persistence. Every native test MUST include a comment explaining why it cannot be a browser test.
+
+### IPC mock pattern (browser tests)
+
+```typescript
+await page.addInitScript(({ dir }) => {
+  window.__TAURI_IPC_MOCK__ = async (cmd, args) => {
+    if (cmd === "get_launch_args") return { files: [], folders: [dir] };
+    if (cmd === "read_dir") return [{ name: "file.md", path: `${dir}/file.md`, is_dir: false }];
+    if (cmd === "read_text_file") return "# Content";
+    if (cmd === "load_review_comments") return null;
+    if (cmd === "save_review_comments") return null;
+    if (cmd === "check_path_exists") return "file";
+    if (cmd === "get_log_path") return "/mock/log.log";
+    return null;
+  };
+}, { dir: "/e2e/fixtures" });
+```
+
+Always mock ALL commands listed above or the app will hang on an unresolved promise.
+
+### File-changed event simulation (browser tests)
+
+```typescript
+await page.evaluate(() => {
+  window.dispatchEvent(new CustomEvent("mdownreview:file-changed", {
+    detail: { path: "/e2e/fixtures/file.md", kind: "content" }
+  }));
+});
+```
+Kinds: `"content"` (source file changed), `"review"` (sidecar changed), `"deleted"`.
 
 ## Codebase Layout
 
@@ -120,16 +169,12 @@ src-tauri/src/
   lib.rs                    ← plugin registration, setup hook, panic hook
 
 e2e/
-  fixtures/
-    error-tracking.ts       ← extended test fixture with pageerror + console collectors
-    index.ts                ← re-exports test/expect; always import from here, not @playwright/test
-  helpers/
-    mock-tauri.ts           ← setupTauriMocks() / teardownTauriMocks() using @tauri-apps/api/mocks
-  fixtures/
-    sample.md               ← 4 headings, table, code block, frontmatter (~4 KB)
-    sample.ts               ← TypeScript source
-    large.md                ← >500 KB for large-file tests
-    legacy.review.json      ← comment sidecar without version field (migration tests)
+  browser/                  ← Playwright tests (Vite dev server + IPC mock)
+    fixtures/               ← error-tracking.ts, index.ts, test data files
+    helpers/                ← mock-tauri.ts
+    *.spec.ts
+  native/                   ← Playwright tests (real binary, Windows-only CDP)
+    *.spec.ts
 ```
 
 ## Testing Conventions
