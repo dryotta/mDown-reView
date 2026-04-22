@@ -20,6 +20,38 @@ Branch naming: `feature/` new functionality · `fix/` bug fixes · `chore/` tool
 
 If you accidentally commit to `main`, do NOT force-push. Ask the user how to proceed.
 
+## Core Engineering Principles
+
+These three principles govern every proposal, implementation, and review decision. They are non-negotiable.
+
+### 1. Evidence-Based Only
+
+**No guessing.** Every proposed fix, optimization, or feature must be backed by observed evidence:
+- Quote the specific file and line that shows the problem
+- If performance is claimed, provide a benchmark or profiling result — not intuition
+- If a bug is suspected, write a failing test that reproduces it before proposing a fix
+- "This might be slow" or "this could cause issues" without evidence → do not report it
+
+When in doubt: write a test or benchmark first, then let the result drive the proposal.
+
+### 2. Rust-First
+
+**Prefer Rust over TypeScript/React for any logic that can reasonably live there:**
+- File I/O, path manipulation, text processing, data validation → Rust
+- Performance-sensitive computations (search indexing, anchor matching, hash computation) → Rust
+- Anything called repeatedly on large inputs → Rust, exposed via a typed Tauri command
+- React/TypeScript layer: UI rendering, state management, user interaction only
+
+When adding a feature, ask: "Can the heavy lifting live in Rust and just expose a result over IPC?" If yes, build it there. Tauri IPC is fast and typed; use it.
+
+### 3. Zero Bug Policy
+
+**Every known bug must be fixed, and every fix must be covered by a test:**
+- No "won't fix" for confirmed bugs — they go into the backlog and get fixed
+- A bug fix without a regression test is not done — the test is part of the fix
+- Tests must cover the exact failure mode: if the bug was a race condition, the test must reproduce the race
+- Bugs found by experts must include a failing test in their report, not just a description
+
 ## What This Is
 
 A slim and fast desktop app written in Rust and React for browsing, viewing and reviewing markdown, code and other text files on Windows and macOS. Users open folders of `.md`/`.mdx` files, read and navigate them, and attach inline review comments. The app is a **viewer/reviewer, not an editor**.
