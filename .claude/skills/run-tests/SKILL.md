@@ -10,6 +10,20 @@ Run the correct test suite for mdownreview based on what changed:
 - **Native E2E** (`src-tauri/`, watcher, file I/O — needs built binary): `npm run test:e2e:native:build`
 
 If unsure, run `npm test` first (fastest), then `npm run test:e2e` if UI-facing.
-Never run `test:e2e:native` without building first — the binary must exist at `src-tauri/target/debug/mdownreview[.exe]`. Build it with `cd src-tauri && cargo build`.
+
+## Native E2E — local only
+
+Native E2E tests require a real desktop environment with WebView2 and CDP. **They cannot run in GitHub Actions** (CDP port never becomes ready on headless runners).
+
+Run them locally on Windows before any release:
+
+```bash
+cd src-tauri && cargo build   # build debug binary
+cd .. && npm run test:e2e:native
+```
+
+Or use the combined command: `npm run test:e2e:native:build`
+
+The `publish-release` skill enforces this as a local gate before pushing.
 
 Report: pass count, fail count, full output of any failures.

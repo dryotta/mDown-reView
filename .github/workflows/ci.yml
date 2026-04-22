@@ -30,6 +30,10 @@ on:
       - 'eslint.config.*'
       - '.github/workflows/ci.yml'
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── Tests (Linux) ────────────────────────────────────────────────────────
   # Runs in parallel with the build matrix — no "needs" dependency.
