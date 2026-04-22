@@ -1,3 +1,25 @@
+## v0.3.2 — 2026-04-22
+
+### Features
+- Add expert review agents and self-improvement loop
+- Wire CDP launch via WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS for native E2E on Windows
+
+### Fixes
+- Native E2E test infrastructure and file watcher integration — mount useFileWatcher() in App.tsx
+- Prevent empty .review.yaml sidecars from being created
+- Per-file save guard — stop dropping unrelated file-changed events
+- Sync watched dirs immediately on update_watched_files, not after 500ms poll
+- ESM hooks, collapse CLAUDE.md to AGENTS.md import
+- Windows path matching for file deletion events in watcher
+
+### Other
+- Add native E2E tests to release-gate CI
+- Cache apt packages, gate builds on tests, add arm64 to release-gate
+- Add release-gate workflow for cross-platform CI on release branches
+- Fill e2e native and unit test gaps with real assertions
+- Move browser e2e tests into e2e/browser/ and rename playwright config
+- Overhaul test strategy documentation
+
 ## v0.3.1 — 2026-04-21
 
 ### Features
