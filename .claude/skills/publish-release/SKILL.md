@@ -119,32 +119,64 @@ Run each command separately (do not chain with `&&`):
 4. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md`
 5. `git commit -m "chore: release v{version}"`
 
-## Step 9: Push Branch and Create Pull Request
+## Step 9: Push Branch, Create Pull Request, and Wait for CI
 
 Push the release branch and open a PR against `main`:
 
 1. `git push origin release/v{version}`
-2. Create PR via `gh pr create --base main --head release/v{version} --title "chore: release v{version}" --body "Version bump to v{version}. Merge this PR, then the release tag will be created automatically."`
+2. Create PR via `gh pr create --base main --head release/v{version} --title "chore: release v{version}" --body "Version bump to v{version}. Merge this PR after CI passes, then the release tag will be created."`
 
 Print the PR URL and tell the user:
 
 ```
 PR created: {pr_url}
-Please merge the PR on GitHub, then come back and confirm so I can tag the release.
+Waiting for release-gate CI checks to complete...
 ```
 
-**Wait for the user to confirm the PR is merged** using the ask_user tool with choices:
-- `Merged — create the tag`
-- `Cancel release`
+### Wait for CI checks
 
-If the user cancels, clean up: `git checkout main && git branch -D release/v{version} && git push origin --delete release/v{version}` (each command separately), then stop.
+Wait 30 seconds for GitHub to register the workflow run, then poll CI:
 
-## Step 10: Tag the Merged Commit and Push
+Run `gh pr checks {pr_url} --watch` using async mode (this blocks until all checks resolve, which may take 20+ minutes for cross-platform builds).
+
+**Read the exit code and output:**
+
+- **Exit code 0 (all checks passed):**
+
+  Print to the user:
+
+  ```
+  ✅ All release-gate checks passed!
+  Please merge the PR on GitHub, then come back and confirm.
+  ```
+
+  Then ask the user to confirm using the ask_user tool with choices:
+  - `Merged — create the tag`
+  - `Cancel release`
+
+- **Non-zero exit code (some checks failed):**
+
+  Print the `gh pr checks` output so the user can see which checks failed. Then ask using the ask_user tool with choices:
+  - `I pushed a fix — re-check`
+  - `Cancel release`
+
+  If the user chose to re-check, wait 10 seconds then run `gh pr checks {pr_url} --watch` again (loop back to the polling step).
+
+  If the user cancels, clean up: run each command separately:
+  1. `git checkout main`
+  2. `git branch -D release/v{version}`
+  3. `git push origin --delete release/v{version}`
+  Then stop.
+
+## Step 10: Verify CI and Tag the Merged Commit
 
 After the user confirms the PR is merged:
 
 1. `git checkout main`
 2. `git pull origin main`
+
+**Verify checks one final time** by running `gh pr checks {pr_url}`. If any check is not passing, warn the user and ask for confirmation before proceeding.
+
 3. `git tag -a v{version} -m "Release v{version}"`
 4. `git push origin v{version}`
 
