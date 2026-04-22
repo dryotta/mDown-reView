@@ -2,6 +2,24 @@
 
 Context for AI agents working on this codebase.
 
+## Git workflow — ALWAYS follow this
+
+**Never commit directly to `main`.** Every change goes through a feature branch and PR.
+
+```bash
+git checkout main && git pull
+git checkout -b feature/short-description   # or fix/ or chore/
+# ... make changes ...
+git add <specific files>
+git commit -m "type: description"
+git push -u origin HEAD
+gh pr create --title "..." --body "..."
+```
+
+Branch naming: `feature/` new functionality · `fix/` bug fixes · `chore/` tooling/config/docs · `auto-improve/` self-improvement loop
+
+If you accidentally commit to `main`, do NOT force-push. Ask the user how to proceed.
+
 ## What This Is
 
 A slim and fast desktop app written in Rust and React for browsing, viewing and reviewing markdown, code and other text files on Windows and macOS. Users open folders of `.md`/`.mdx` files, read and navigate them, and attach inline review comments. The app is a **viewer/reviewer, not an editor**.
