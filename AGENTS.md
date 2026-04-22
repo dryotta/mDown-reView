@@ -20,8 +20,6 @@ Do not implement these — they are explicitly out of scope:
 - Log viewer UI inside the app
 - Linux `.desktop` file association
 - File type associations other than `.md`/`.mdx`
-- Visual regression/snapshot tests
-- 100% line coverage (focus on high-value scenarios)
 
 ## Constraints
 
@@ -29,7 +27,7 @@ Do not implement these — they are explicitly out of scope:
 - Fully offline — no network calls except system browser links
 - Comments persist locally alongside reviewed files (no database)
 - File associations registered per-user (no UAC elevation on Windows)
-- All tests must run headlessly in CI
+- Tests should run headlessly in CI; non-headless tests are acceptable when needed for manual failure capture
 
 ## Architecture
 
@@ -38,8 +36,8 @@ Two runtime layers bridged by Tauri v2:
 **Rust layer** (`src-tauri/src/`)
 - File I/O via custom commands — `read_text_file`, `read_dir` — that bypass `tauri-plugin-fs` scope restrictions (intentional for local-only viewer). Guarded by 10 MB size limit and null-byte binary detection. `read_dir` filters out `.review.yaml` and `.review.json` sidecars.
 - Comment persistence: `save_review_comments` / `load_review_comments` write MRSF v1.0 YAML sidecar files alongside each reviewed document. Loads YAML first, falls back to JSON for backward compatibility.
-- File watcher: `watcher.rs` uses `notify-debouncer-mini` (300ms) to watch directories containing open files. Emits `file-changed` events with `content | review | deleted` kinds.
-- Orphan scanner: `scan_review_files` walks a directory tree to find `.review.json` sidecars, used for ghost entry detection (capped at 10K results).
+- File watcher: `watcher.rs` uses `notify-debouncer-mini` (300ms) to watch the open files and their review sidecars (`.review.yaml` / `.review.json`). Emits `file-changed` events with `content | review | deleted` kinds.
+- Orphan scanner: `scan_review_files` walks a directory tree to find `.review.yaml` and `.review.json` sidecars, used for ghost entry detection (capped at 10K results).
 - CLI arg handling: parsed in `setup` hook, stored in `Arc<Mutex<Option<LaunchArgs>>>`, consumed via `get_launch_args` command (poll on mount, not event push — eliminates the race where events fire before React's first `useEffect`).
 - Logging: `tauri-plugin-log` routes both Rust `tracing` macros and WebView `console.*` calls to a single rotating log file.
 
@@ -239,7 +237,7 @@ Flat `reply_to` model — replies are top-level comments with `reply_to` referen
 ## File Watcher
 
 Rust-side watcher (`src-tauri/src/watcher.rs`) using `notify-debouncer-mini`:
-- Watches directories containing open files (not individual files)
+- Watches the open files and their review sidecars (`.review.yaml` / `.review.json`)
 - Emits `file-changed` Tauri events with `{path, kind}` where kind is `content | review | deleted`
 - Frontend `useFileWatcher` hook syncs open tabs to watcher, dispatches DOM `CustomEvent`s
 - `useFileContent` hook re-reads file on content changes

@@ -33,4 +33,4 @@ __pycache__/
 .superpowers/
 .claude/settings.local.json
 .e2e-native.pid
-.review.yaml
+*.review.yaml
