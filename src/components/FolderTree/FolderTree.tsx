@@ -12,6 +12,8 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   const { root, expandedFolders, setFolderExpanded, activeTabPath, commentsByFile, ghostEntries } = useStore();
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
   const childrenCacheRef = useRef(childrenCache);
+  // Sync ref after each render — needed by the stable loadChildren callback
+  // eslint-disable-next-line react-hooks/refs -- sync ref is the documented pattern for stable callbacks
   childrenCacheRef.current = childrenCache;
   const [filter, setFilter] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
@@ -34,15 +36,12 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
         return [];
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
   // Reset cache when root changes
-  useEffect(() => {
-    setChildrenCache({});
-    childrenCacheRef.current = {};
-  }, [root]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on prop change
+  useEffect(() => { setChildrenCache({}); }, [root]);
 
   useEffect(() => {
     if (root) loadChildren(root);
@@ -276,8 +275,10 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                 role={isDir ? "treeitem" : "option"}
                 aria-selected={isActive}
                 aria-expanded={isDir ? expandedFolders[path] : undefined}
-                onClick={() => isGhost ? onFileOpen(path) : handleToggle(path, isDir)}
-                onKeyDown={(e) => handleKeyDown(e, path, isDir)}
+                // eslint-disable-next-line react-hooks/refs -- event handlers only run on user interaction
+                onClick={() => { if (isGhost) onFileOpen(path); else handleToggle(path, isDir); }}
+                // eslint-disable-next-line react-hooks/refs -- event handlers only run on user interaction
+                onKeyDown={(e) => { handleKeyDown(e, path, isDir); }}
               >
                 {Array.from({ length: depth }, (_, i) => (
                   <span key={i} className="tree-indent" />

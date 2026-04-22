@@ -28,9 +28,9 @@ describe("Comments slice (MRSF)", () => {
     expect(c.resolved).toBe(false);
     expect(c.line).toBe(10);
     // v3 fields should NOT exist
-    expect((c as any).anchorType).toBeUndefined();
-    expect((c as any).lineHash).toBeUndefined();
-    expect((c as any).createdAt).toBeUndefined();
+    expect((c as unknown as Record<string, unknown>).anchorType).toBeUndefined();
+    expect((c as unknown as Record<string, unknown>).lineHash).toBeUndefined();
+    expect((c as unknown as Record<string, unknown>).createdAt).toBeUndefined();
   });
 
   it("addComment with selection fields", () => {

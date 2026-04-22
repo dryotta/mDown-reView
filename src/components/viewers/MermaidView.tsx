@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useId } from "react";
 
 
 interface Props {
@@ -10,7 +10,8 @@ export function MermaidView({ content }: Props) {
   const [error, setError] = useState<string>("");
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
-  const idRef = useRef(`mermaid-${Date.now()}`);
+  const reactId = useId();
+  const mermaidId = `mermaid-${reactId.replace(/:/g, "")}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -18,7 +19,7 @@ export function MermaidView({ content }: Props) {
       try {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({ startOnLoad: false, theme: "default" });
-        const { svg: renderedSvg } = await mermaid.render(idRef.current, content);
+        const { svg: renderedSvg } = await mermaid.render(mermaidId, content);
         if (!cancelled) {
           setSvg(renderedSvg);
           setError("");
@@ -34,7 +35,7 @@ export function MermaidView({ content }: Props) {
       renderDiagram();
     }
     return () => { cancelled = true; };
-  }, [content]);
+  }, [content, mermaidId]);
 
   const handleExportSvg = useCallback(() => {
     if (!svg) return;

@@ -30,12 +30,14 @@ import { truncateSelectedText } from "@/lib/comment-utils";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { useStore } from "@/store";
 import type { CommentWithOrphan } from "@/store";
-import { loadReviewComments } from "@/lib/tauri-commands";
+import { loadReviewComments, type MrsfComment } from "@/lib/tauri-commands";
 import { useAutoSaveComments } from "@/hooks/useAutoSaveComments";
 import { dirname } from "@/lib/path-utils";
 import "@/styles/markdown.css";
 
 const SIZE_WARN_THRESHOLD = 500 * 1024;
+
+type CommentAnchor = Partial<Pick<MrsfComment, "line" | "end_line" | "start_column" | "end_column" | "selected_text" | "selected_text_hash" | "commit" | "type" | "severity">>;
 
 interface Props {
   content: string;
@@ -123,7 +125,7 @@ const MdCommentContext = createContext<MdCommentContextValue>({
 
 // Inline gutter component for commentable markdown blocks
 function makeCommentableBlock(Tag: string) {
-  return function CommentableBlock({ children, node, ...props }: ComponentPropsWithoutRef<any> & ExtraProps) {
+  return function CommentableBlock({ children, node, ...props }: ComponentPropsWithoutRef<"div"> & ExtraProps) {
     const line = node?.position?.start.line ?? 0;
     const { commentCountByLine } = useContext(MdCommentContext);
     const count = commentCountByLine.get(line) ?? 0;
@@ -200,6 +202,96 @@ const MD_COMPONENTS: Record<string, unknown> = {
   li: CommentableLi,
 };
 
+// Extracted to avoid reading refs during render in the parent component
+function MdCommentPopover({
+  expandedLine,
+  commentingLine,
+  bodyRef,
+  commentsByLine,
+  filePath,
+  lines,
+  pendingSelectionAnchor,
+  addComment,
+  setCommentingLine,
+  setExpandedLine,
+  setPendingSelectionAnchor,
+}: {
+  expandedLine: number | null;
+  commentingLine: number | null;
+  bodyRef: React.RefObject<HTMLDivElement | null>;
+  commentsByLine: Map<number, CommentWithOrphan[]>;
+  filePath: string;
+  lines: string[];
+  pendingSelectionAnchor: CommentAnchor | null;
+  addComment: (filePath: string, anchor: CommentAnchor, text: string) => void;
+  setCommentingLine: (v: number | null) => void;
+  setExpandedLine: (v: number | null) => void;
+  setPendingSelectionAnchor: (v: CommentAnchor | null) => void;
+}) {
+  const activeLine = expandedLine ?? commentingLine;
+  const [position, setPosition] = useState<{ top: number } | null>(null);
+
+  useEffect(() => {
+    if (!activeLine || !bodyRef.current) {
+      setPosition(null);
+      return;
+    }
+    const el = bodyRef.current.querySelector(`[data-source-line="${activeLine}"]`);
+    if (!el) {
+      setPosition(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const containerRect = bodyRef.current.getBoundingClientRect();
+    setPosition({ top: rect.top - containerRect.top + rect.height });
+  }, [activeLine, bodyRef]);
+
+  if (!activeLine || !position) return null;
+
+  const lineComments = commentsByLine.get(activeLine) ?? [];
+  return (
+    <div className="md-comment-popover" style={{
+      position: "absolute",
+      top: position.top,
+      left: 24,
+      zIndex: 20,
+    }}>
+      {lineComments.length > 0 && (
+        <div className="md-comment-threads">
+          {groupCommentsIntoThreads(lineComments).map(t => <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />)}
+        </div>
+      )}
+
+      {commentingLine === activeLine ? (
+        <LineCommentMargin
+          filePath={filePath}
+          lineNumber={activeLine}
+          lineText={lines[activeLine - 1] ?? ""}
+          matchedComments={[]}
+          showInput={true}
+          onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); setPendingSelectionAnchor(null); }}
+          onSaveComment={
+            pendingSelectionAnchor
+              ? (text: string) => {
+                  addComment(filePath, pendingSelectionAnchor, text);
+                  setPendingSelectionAnchor(null);
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <button
+          className="comment-btn comment-btn-primary"
+          style={{ marginTop: 8 }}
+          onClick={() => setCommentingLine(activeLine)}
+        >
+          Add comment
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const { body, data } = useMemo(() => parseFrontmatter(content), [content]);
   const headings = useMemo(() => extractHeadings(body), [body]);
@@ -211,7 +303,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     lineNumber: number;
     selectedText: string;
   } | null>(null);
-  const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<Record<string, unknown> | null>(null);
+  const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<CommentAnchor | null>(null);
 
   const lines = useMemo(() => body.split("\n"), [body]);
 
@@ -437,57 +529,21 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
           </ReactMarkdown>
 
           {/* Comment popover for expanded/commenting line */}
-          {(expandedLine !== null || commentingLine !== null) && (() => {
-            const activeLine = expandedLine ?? commentingLine;
-            if (!activeLine) return null;
-            const el = bodyRef.current?.querySelector(`[data-source-line="${activeLine}"]`);
-            if (!el) return null;
-            const rect = el.getBoundingClientRect();
-            const containerRect = bodyRef.current!.getBoundingClientRect();
-            const lineComments = commentsByLine.get(activeLine) ?? [];
-
-            return (
-              <div className="md-comment-popover" style={{
-                position: "absolute",
-                top: rect.top - containerRect.top + rect.height,
-                left: 24,
-                zIndex: 20,
-              }}>
-                {lineComments.length > 0 && (
-                  <div className="md-comment-threads">
-                    {groupCommentsIntoThreads(lineComments).map(t => <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />)}
-                  </div>
-                )}
-
-                {commentingLine === activeLine ? (
-                  <LineCommentMargin
-                    filePath={filePath}
-                    lineNumber={activeLine}
-                    lineText={lines[activeLine - 1] ?? ""}
-                    matchedComments={[]}
-                    showInput={true}
-                    onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); setPendingSelectionAnchor(null); }}
-                    onSaveComment={
-                      pendingSelectionAnchor
-                        ? (text: string) => {
-                            addComment(filePath, pendingSelectionAnchor as any, text);
-                            setPendingSelectionAnchor(null);
-                          }
-                        : undefined
-                    }
-                  />
-                ) : (
-                  <button
-                    className="comment-btn comment-btn-primary"
-                    style={{ marginTop: 8 }}
-                    onClick={() => setCommentingLine(activeLine)}
-                  >
-                    Add comment
-                  </button>
-                )}
-              </div>
-            );
-          })()}
+          {(expandedLine !== null || commentingLine !== null) && (
+            <MdCommentPopover
+              expandedLine={expandedLine}
+              commentingLine={commentingLine}
+              bodyRef={bodyRef}
+              commentsByLine={commentsByLine}
+              filePath={filePath}
+              lines={lines}
+              pendingSelectionAnchor={pendingSelectionAnchor}
+              addComment={addComment}
+              setCommentingLine={setCommentingLine}
+              setExpandedLine={setExpandedLine}
+              setPendingSelectionAnchor={setPendingSelectionAnchor}
+            />
+          )}
         </div>
       </MdCommentContext.Provider>
       {selectionToolbar && (

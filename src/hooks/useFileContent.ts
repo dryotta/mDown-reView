@@ -29,7 +29,7 @@ export function useFileContent(path: string): FileContent {
   useEffect(() => {
     // Don't show loading spinner on reload — keep stale content visible
     if (reloadKey === 0) {
-      setState({ status: "loading" });
+      setState({ status: "loading" }); // eslint-disable-line react-hooks/set-state-in-effect
     }
 
     if (getFileCategory(path) === "image") {

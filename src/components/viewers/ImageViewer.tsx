@@ -28,7 +28,7 @@ export function ImageViewer({ path }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    setDataUrl(null);
+    setDataUrl(null); // eslint-disable-line react-hooks/set-state-in-effect
     setError(null);
     setDimensions(null);
     readBinaryFile(path)

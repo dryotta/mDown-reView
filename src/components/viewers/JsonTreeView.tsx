@@ -103,7 +103,7 @@ function JsonNode({ value, keyName, depth }: JsonNodeProps) {
     }
 
     if (typeof value === "string") {
-      return <span className="json-string">"{value}"</span>;
+      return <span className="json-string">&quot;{value}&quot;</span>;
     }
 
     if (typeof value === "number") {

@@ -92,5 +92,5 @@ export function useAutoSaveComments(
     return () => {
       doSaveRef.current();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 }

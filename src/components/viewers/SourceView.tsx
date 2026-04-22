@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { createHighlighter, type Highlighter } from "shiki";
+import { createHighlighter, type Highlighter, type BundledLanguage } from "shiki";
 import { extname } from "@/lib/path-utils";
 import { matchComments } from "@/lib/comment-matching";
 import { computeSelectedTextHash } from "@/lib/comment-anchors";
@@ -92,9 +92,9 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const [commentReloadKey, setCommentReloadKey] = useState(0);
   const [commentLoadKey, setCommentLoadKey] = useState(0);
 
-  const lines = content.split("\n");
+  const lines = useMemo(() => content.split("\n"), [content]);
 
-  const foldRegions = useMemo(() => computeFoldRegions(lines), [content]);
+  const foldRegions = useMemo(() => computeFoldRegions(lines), [lines]);
 
   const foldStartMap = useMemo(() => {
     const m = new Map<number, FoldRegion>();
@@ -163,6 +163,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   }, [commentReloadKey, filePath, setFileComments]);
 
   // Reset folds when file changes
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset when filePath prop changes
   useEffect(() => { setCollapsedLines(new Set()); setPendingSelectionAnchor(null); }, [filePath]);
 
   // Auto-save comments to sidecar (shared hook with flush-on-unmount)
@@ -275,7 +276,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
               ...kqlGrammar,
             }).catch(() => {});
           } else {
-            await hl.loadLanguage(lang as any).catch(() => {});
+            await hl.loadLanguage(lang as BundledLanguage).catch(() => {});
           }
         }
         const htmlLines = lines.map((line) => {
@@ -288,7 +289,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
         setHighlightedLines(htmlLines);
       })
       .catch(() => setHighlightedLines([]));
-  }, [content, path, currentTheme]);
+  }, [lines, path, currentTheme]);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 

@@ -75,6 +75,7 @@ export function SourceViewer({ content, path, fileSize }: Props) {
 
   useEffect(() => {
     if (plainMode) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear highlighted HTML when switching to plain mode
       setHtml("");
       return;
     }

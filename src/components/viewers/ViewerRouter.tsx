@@ -19,18 +19,20 @@ export function ViewerRouter({ path }: Props) {
   const ghostEntries = useStore((s) => s.ghostEntries);
   const isGhost = ghostEntries.some((g) => g.sourcePath === path);
 
+  const savedScrollTop = tab?.scrollTop ?? 0;
+
   // Restore scroll position after content renders.
   // Uses a rAF retry loop because async syntax highlighting (Shiki) and
   // images can change layout after the initial React render.
   useEffect(() => {
-    if (!scrollRef.current || !tab || status !== "ready" || tab.scrollTop <= 0) return;
+    if (!scrollRef.current || status !== "ready" || savedScrollTop <= 0) return;
 
     let cancelled = false;
     let retries = 10;
 
     const tryRestore = () => {
       if (cancelled || !scrollRef.current || retries <= 0) return;
-      scrollRef.current.scrollTop = tab.scrollTop;
+      scrollRef.current.scrollTop = savedScrollTop;
       if (scrollRef.current.scrollTop > 0) return; // Scroll applied successfully
       retries--;
       requestAnimationFrame(tryRestore);
@@ -38,7 +40,7 @@ export function ViewerRouter({ path }: Props) {
 
     requestAnimationFrame(tryRestore);
     return () => { cancelled = true; };
-  }, [path, status, content]);
+  }, [path, status, content, savedScrollTop]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(path, (e.target as HTMLDivElement).scrollTop);

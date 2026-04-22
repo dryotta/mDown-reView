@@ -14,7 +14,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
 
   useEffect(() => {
     if (!filePath) {
-      setResolvedContent(content);
+      setResolvedContent(content); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
     let cancelled = false;
