@@ -91,8 +91,8 @@ interface WatcherSlice {
   setGhostEntries: (entries: GhostEntry[]) => void;
   autoReveal: boolean;
   toggleAutoReveal: () => void;
-  lastSaveTimestamp: number;
-  setLastSaveTimestamp: (ts: number) => void;
+  lastSaveByPath: Record<string, number>;
+  recordSave: (path: string) => void;
 }
 
 // ── Update slice ──────────────────────────────────────────────────────
@@ -297,8 +297,11 @@ export const useStore = create<Store>()(
       setGhostEntries: (entries) => set({ ghostEntries: entries }),
       autoReveal: true,
       toggleAutoReveal: () => set((s) => ({ autoReveal: !s.autoReveal })),
-      lastSaveTimestamp: 0,
-      setLastSaveTimestamp: (ts) => set({ lastSaveTimestamp: ts }),
+      lastSaveByPath: {},
+      recordSave: (path) =>
+        set((s) => ({
+          lastSaveByPath: { ...s.lastSaveByPath, [path]: Date.now() },
+        })),
 
       // Update
       updateStatus: "idle",

@@ -9,13 +9,13 @@ const SAVE_DEBOUNCE_MS = 1500;
 export function useFileWatcher() {
   const tabs = useStore((s) => s.tabs);
   const root = useStore((s) => s.root);
-  const lastSaveTimestamp = useStore((s) => s.lastSaveTimestamp);
+  const lastSaveByPath = useStore((s) => s.lastSaveByPath);
   const setGhostEntries = useStore((s) => s.setGhostEntries);
-  const lastSaveRef = useRef(lastSaveTimestamp);
+  const lastSaveByPathRef = useRef(lastSaveByPath);
 
   useEffect(() => {
-    lastSaveRef.current = lastSaveTimestamp;
-  }, [lastSaveTimestamp]);
+    lastSaveByPathRef.current = lastSaveByPath;
+  }, [lastSaveByPath]);
 
   // Sync open tabs to Rust watcher
   useEffect(() => {
@@ -30,14 +30,14 @@ export function useFileWatcher() {
     const unlisten = listen<FileChangeEvent>("file-changed", (event) => {
       const { path, kind } = event.payload;
       const now = Date.now();
+      const lastSave = lastSaveByPathRef.current[path] ?? 0;
 
-      if (now - lastSaveRef.current < SAVE_DEBOUNCE_MS) {
+      if (now - lastSave < SAVE_DEBOUNCE_MS) {
         console.debug("[useFileWatcher] ignoring event within save debounce window:", path);
         return;
       }
 
       console.debug(`[useFileWatcher] file changed: ${path} (${kind})`);
-
       window.dispatchEvent(
         new CustomEvent("mdownreview:file-changed", {
           detail: { path, kind },
@@ -56,15 +56,12 @@ export function useFileWatcher() {
       setGhostEntries([]);
       return;
     }
-
     scanReviewFiles(root)
-      .then((pairs) => {
-        const ghosts = pairs.map(([sidecarPath, sourcePath]) => ({
-          sidecarPath,
-          sourcePath,
-        }));
-        setGhostEntries(ghosts);
-      })
+      .then((pairs) =>
+        setGhostEntries(
+          pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
+        )
+      )
       .catch((err) =>
         console.warn("[useFileWatcher] failed to scan review files:", err)
       );

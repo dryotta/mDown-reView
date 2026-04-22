@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.mocked(commands.saveReviewComments).mockResolvedValue(undefined);
   vi.mocked(enricher.enrichCommentsWithCommit).mockImplementation(async (c) => c);
-  useStore.setState({ root: null, lastSaveTimestamp: 0 });
+  useStore.setState({ root: null, lastSaveByPath: {} });
 });
 
 afterEach(() => {
@@ -125,7 +125,7 @@ describe("useAutoSaveComments", () => {
     expect(commands.saveReviewComments).not.toHaveBeenCalled();
   });
 
-  it("updates lastSaveTimestamp after successful save", async () => {
+  it("records save timestamp per-path after successful save", async () => {
     const { rerender } = renderHook(
       ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
       { initialProps: { comments: [comment1], loadKey: 1 } }
@@ -137,10 +137,10 @@ describe("useAutoSaveComments", () => {
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
 
-    expect(useStore.getState().lastSaveTimestamp).toBeGreaterThan(0);
+    expect(useStore.getState().lastSaveByPath["/path/file.md"]).toBeGreaterThan(0);
   });
 
-  it("does not update lastSaveTimestamp on save failure", async () => {
+  it("does not record save timestamp on save failure", async () => {
     vi.mocked(commands.saveReviewComments).mockRejectedValueOnce(new Error("disk full"));
     const { rerender } = renderHook(
       ({ comments, loadKey }) => useAutoSaveComments("/path/file.md", comments, loadKey),
@@ -153,6 +153,6 @@ describe("useAutoSaveComments", () => {
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { await vi.runAllTimersAsync(); });
 
-    expect(useStore.getState().lastSaveTimestamp).toBe(0);
+    expect(useStore.getState().lastSaveByPath["/path/file.md"]).toBeUndefined();
   });
 });

@@ -26,7 +26,7 @@ export function useAutoSaveComments(
   loadKey: number
 ) {
   const root = useStore((s) => s.root);
-  const setLastSaveTimestamp = useStore((s) => s.setLastSaveTimestamp);
+  const recordSave = useStore((s) => s.recordSave);
 
   // Track load state as ref (not state) to avoid triggering saves on load completion
   const loadedRef = useRef(false);
@@ -63,9 +63,9 @@ export function useAutoSaveComments(
 
     enrichCommentsWithCommit(commentsToSave, filePath)
       .then((enriched) => saveReviewComments(filePath, document, enriched))
-      .then(() => setLastSaveTimestamp(Date.now()))
+      .then(() => recordSave(filePath))
       .catch((err) => logError(`Failed to save review comments for ${filePath}: ${err}`));
-  }, [comments, filePath, root, setLastSaveTimestamp]);
+  }, [comments, filePath, root, recordSave]);
 
   // Store latest doSave in a ref for the unmount effect
   const doSaveRef = useRef(doSave);

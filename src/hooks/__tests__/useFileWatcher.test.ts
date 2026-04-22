@@ -6,7 +6,7 @@ describe("WatcherSlice", () => {
     useStore.setState({
       ghostEntries: [],
       autoReveal: true,
-      lastSaveTimestamp: 0,
+      lastSaveByPath: {},
     });
   });
 
@@ -34,12 +34,16 @@ describe("WatcherSlice", () => {
     expect(useStore.getState().autoReveal).toBe(true);
   });
 
-  it("lastSaveTimestamp defaults to 0", () => {
-    expect(useStore.getState().lastSaveTimestamp).toBe(0);
+  it("lastSaveByPath defaults to empty object", () => {
+    expect(useStore.getState().lastSaveByPath).toEqual({});
   });
 
-  it("setLastSaveTimestamp updates value", () => {
-    useStore.getState().setLastSaveTimestamp(12345);
-    expect(useStore.getState().lastSaveTimestamp).toBe(12345);
+  it("recordSave records timestamp for the given path", () => {
+    const before = Date.now();
+    useStore.getState().recordSave("/some/file.md");
+    const after = Date.now();
+    const ts = useStore.getState().lastSaveByPath["/some/file.md"];
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(after);
   });
 });
