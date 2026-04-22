@@ -151,9 +151,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # NOTE: Native E2E tests require a real desktop environment (WebView2 + CDP)
-  # which is not available on GitHub Actions runners. Run them locally before
-  # publishing a release — the publish-release skill enforces this gate.
+  # Native E2E tests run in release-gate.yml before merge.
+  # They require WebView2 + CDP on a Windows runner (debug binary).
 
   publish-update-manifest:
     needs: [create-release, build]
