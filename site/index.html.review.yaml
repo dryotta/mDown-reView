@@ -1,9 +1,0 @@
-mrsf_version: '1.0'
-document: index.html
-comments:
-- id: r74xjenf
-  author: Anonymous
-  timestamp: 2026-04-21T04:54:18.355Z
-  text: We lack a good way to click the link - use the style similar to https://github.com/dryotta/mdownreview
-  resolved: false
-  line: 53
