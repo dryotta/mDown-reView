@@ -13,7 +13,7 @@ const test = base.extend<{ nativePage: Page }>({
     const [context] = browser.contexts();
     const [page] = context.pages();
     await use(page);
-    await browser.close();
+    await browser.disconnect();
   },
 });
 
