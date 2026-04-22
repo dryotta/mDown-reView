@@ -3,6 +3,7 @@ import { useStore, openFilesFromArgs } from "@/store";
 import { getLaunchArgs } from "@/lib/tauri-commands";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useFileWatcher } from "@/hooks/useFileWatcher";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
@@ -120,6 +121,9 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Connect Rust file watcher to frontend event pipeline
+  useFileWatcher();
 
   // Apply theme class to <html> and listen for OS theme changes
   useEffect(() => {

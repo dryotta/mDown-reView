@@ -77,8 +77,9 @@ pub fn start_watcher(app: &AppHandle) {
                         let path = &event.path;
                         let canonical = std::fs::canonicalize(path)
                             .unwrap_or_else(|_| path.clone());
-                        if current_watched.contains(&canonical)
-                            || current_watched.contains(path)
+                        let is_watched = current_watched.contains(&canonical)
+                            || current_watched.contains(path);
+                        if is_watched
                         {
                             let path_str = path.to_string_lossy().to_string();
                             let is_review = path_str.ends_with(".review.yaml")
@@ -93,7 +94,7 @@ pub fn start_watcher(app: &AppHandle) {
                             let _ = app_handle.emit(
                                 "file-changed",
                                 FileChangeEvent {
-                                    path: path_str,
+                                    path: path_str.clone(),
                                     kind: kind.to_string(),
                                 },
                             );
@@ -181,17 +182,17 @@ pub fn update_watched_files(
         let path = PathBuf::from(path_str);
         if let Ok(canonical) = std::fs::canonicalize(&path) {
             watched.insert(canonical);
-        } else {
-            watched.insert(path.clone());
         }
+        // Always store the raw path too — on deletion, canonicalize fails
+        // and the notify crate may report the non-canonical form.
+        watched.insert(path.clone());
         // Also watch sidecars
         for ext in &[".review.yaml", ".review.json"] {
             let sidecar = PathBuf::from(format!("{}{}", path_str, ext));
             if let Ok(canonical) = std::fs::canonicalize(&sidecar) {
                 watched.insert(canonical);
-            } else {
-                watched.insert(sidecar);
             }
+            watched.insert(sidecar);
         }
     }
 
