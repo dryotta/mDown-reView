@@ -1,3 +1,40 @@
+## v0.3.1 — 2026-04-21
+
+### Features
+- feat: regenerate rasterized icons from updated gradient SVG
+- feat: redesign site — scroll snap, sticky nav, indigo palette, remove releases tab
+- feat: rebrand with indigo gradient identity and clean up icon folder
+- feat: sticky frosted nav, scroll-padding-top, and reveal transition delay
+- feat: add CSS scroll snap proximity for slide-style page sections
+- feat: add scroll reveal animation to page sections
+- feat: remove GitHub Releases tab from download section
+- feat: simplify site palette to single indigo brand color
+- feat: update favicon with gradient and adaptive dark/light background
+- feat: update app icon with indigo gradient
+- feat: replace install section with platform-aware tabs
+- feat: simplify How It Works to single-column with app mock on step 2 only
+- feat: remove screenshot section and replace Copilot references with agent
+- feat: replace app icon with brand identity icon
+- feat: apply indigo brand identity to site nav and app welcome screen
+
+### Fixes
+- fix: transparent background on app icon SVG
+- fix: reveal animation fires after snap via scrollend, no opacity hide
+- fix: remove unused afterEach import causing TS6133 build error
+- fix: make hero full viewport height to push sections below fold
+- fix: scroll restore, sidecar reload bugs, and comprehensive test coverage
+- fix: skip reveal animation for sections already in viewport on load
+- fix: add trailing newline to icon.svg
+- fix: use currentColor for SVG brand color, simplify icon font family
+- fix: use CSS variable for brand color, clean up welcome-logo font-size
+
+### Other
+- chore: remove site review sidecar
+- chore: remove unused icon variants
+- docs: overhaul site and README, add branding and redesign specs
+- style: remove dead terminal CSS and orphaned responsive rules
+- copy: reframe how-it-works steps to user perspective
+
 ## v0.3.0 — 2026-04-20
 
 ### Features
