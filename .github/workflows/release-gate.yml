@@ -10,6 +10,7 @@ concurrency:
 
 jobs:
   # ── Cross-platform tests (Linux, Windows, macOS) ─────────────────────────
+  # All jobs run in parallel — no needs dependencies.
   test:
     name: Test (${{ matrix.name }})
     if: startsWith(github.head_ref, 'release/')
@@ -59,8 +60,25 @@ jobs:
       - name: Vitest unit tests
         run: npm test
 
+      - name: Get Playwright version
+        id: pw-version
+        shell: bash
+        run: echo "version=$(npx playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/ms-playwright' || '~/.cache/ms-playwright' }}
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
       - name: Install Playwright (Chromium only)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Playwright E2E tests (browser mode)
         run: npm run test:e2e
@@ -75,31 +93,13 @@ jobs:
             test-results/
           retention-days: 7
 
-  # ── Installer builds (Windows + macOS) ───────────────────────────────────
-  build:
-    name: Build (${{ matrix.name }})
-    needs: test
+  # ── Windows ARM64 build ─────────────────────────────────────────────────
+  # Only built in release-gate (cross-compilation is ~8m).
+  # x64 and macOS builds are already validated in CI.
+  build-arm64:
+    name: Build (windows-arm64)
     if: startsWith(github.head_ref, 'release/')
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: windows-x64
-            rust_target: x86_64-pc-windows-msvc
-            target_dir: src-tauri/target/release
-            tauri_args: ""
-          - os: windows-latest
-            name: windows-arm64
-            rust_target: aarch64-pc-windows-msvc
-            target_dir: src-tauri/target/aarch64-pc-windows-msvc/release
-            tauri_args: "--target aarch64-pc-windows-msvc"
-          - os: macos-latest
-            name: macos-arm64
-            rust_target: aarch64-apple-darwin
-            target_dir: src-tauri/target/release
-            tauri_args: ""
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -107,7 +107,7 @@ jobs:
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_target }}
+          targets: aarch64-pc-windows-msvc
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -125,23 +125,13 @@ jobs:
 
       - name: Clean stale bundles from cache
         shell: bash
-        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
+        run: rm -rf src-tauri/target/*/release/bundle 2>/dev/null || true
 
       - name: Build Tauri app
-        shell: bash
-        run: |
-          if [ -n "${{ matrix.tauri_args }}" ]; then
-            npm run tauri:build -- ${{ matrix.tauri_args }}
-          else
-            npm run tauri:build
-          fi
+        run: npm run tauri:build -- --target aarch64-pc-windows-msvc
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-  # NOTE: Native E2E tests require a real desktop environment (WebView2 + CDP)
-  # which is not available on GitHub Actions runners. Run them locally before
-  # publishing a release — the publish-release skill enforces this gate.
 
   # ── Native E2E tests (Windows, WebView2 + CDP) ──────────────────────────
   # Builds the debug binary and runs Playwright tests against a real Tauri
@@ -149,7 +139,6 @@ jobs:
   # a desktop session, so this works without extra setup.
   native-e2e:
     name: Native E2E (Windows)
-    needs: test
     if: startsWith(github.head_ref, 'release/')
     runs-on: windows-latest
 
@@ -177,8 +166,25 @@ jobs:
         working-directory: src-tauri
         run: cargo build
 
+      - name: Get Playwright version
+        id: pw-version
+        shell: bash
+        run: echo "version=$(npx playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: playwright-Windows-${{ steps.pw-version.outputs.version }}
+
       - name: Install Playwright (Chromium only)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Native E2E tests
         run: npm run test:e2e:native

@@ -1,20 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'src-tauri/**'
-      - 'e2e/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'vite.config.*'
-      - 'tsconfig*'
-      - 'vitest.config.*'
-      - 'playwright.config.*'
-      - 'eslint.config.*'
-      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
     paths:
@@ -90,11 +76,11 @@ jobs:
             test-results/
           retention-days: 7
 
-  # ── Installer builds (Windows + macOS) ───────────────────────────────────
-  # Runs after tests pass to avoid wasting build minutes on test failures.
+  # ── Installer builds (Windows x64 + macOS) ──────────────────────────────
+  # Runs in parallel with tests. Windows ARM64 build is in release-gate only
+  # (cross-compilation takes ~8m; not needed for every PR).
   build:
     name: Build (${{ matrix.name }})
-    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -105,13 +91,6 @@ jobs:
             rust_target: x86_64-pc-windows-msvc
             target_dir: src-tauri/target/release
             tauri_args: ""
-            artifact_ext: zip
-
-          - os: windows-latest
-            name: windows-arm64
-            rust_target: aarch64-pc-windows-msvc
-            target_dir: src-tauri/target/aarch64-pc-windows-msvc/release
-            tauri_args: "--target aarch64-pc-windows-msvc"
             artifact_ext: zip
 
           - os: macos-latest
