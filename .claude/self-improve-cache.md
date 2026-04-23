@@ -19,7 +19,7 @@ branch: main
 | perf-scan-sidecar-only | Scope scanReviewFiles to sidecar deletion events only | P2 | feature | yes | performance | src/hooks/useFileWatcher.ts | low | yes | done |
 | perf-comment-mutation-targeted | Fix comment mutations to target only affected file | P2 | feature | yes | performance, architect | src/store/index.ts | low | no | done |
 | arch-extract-comment-hook | Extract useCommentSystem hook from SourceView and MarkdownViewer | P2 | feature | no | architect | src/components/viewers/SourceView.tsx, src/components/viewers/MarkdownViewer.tsx | medium | no | open |
-| arch-delete-source-viewer | Delete dead code SourceViewer.tsx | P3 | feature | yes | architect, product | src/components/viewers/SourceViewer.tsx | low | no | open |
+| arch-delete-source-viewer | Delete dead code SourceViewer.tsx | P3 | feature | yes | architect, product | src/components/viewers/SourceViewer.tsx | low | no | done |
 | arch-shiki-singleton | Consolidate three Shiki highlighter singletons into one | P3 | feature | no | architect | src/components/viewers/SourceView.tsx, src/components/viewers/MarkdownViewer.tsx, src/lib/highlighter.ts | medium | no | open |
 | security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | bug | no | react-tauri | src-tauri/tauri.conf.json | medium | no | open |
 | security-narrow-capabilities | Narrow Tauri capability permissions to least privilege | P3 | feature | yes | react-tauri | src-tauri/capabilities/default.json | low | no | open |
@@ -439,3 +439,9 @@ it('should scan on sidecar file deletion', async () => {
 - **New tasks added**: none
 - **Tasks re-prioritized**: none
 - **Process improvement**: Always cfg-gate platform-specific Rust tests
+
+### 2026-04-22  arch-delete-source-viewer  DONE
+- **Lesson**: Dead code deletion is low-risk, skip expert review.
+- **New tasks added**: none
+- **Tasks re-prioritized**: none
+- **Process improvement**: none

@@ -99,3 +99,14 @@
 - **Validation**: All checks passed (455 tests, 29 Rust tests, lint clean)
 - **Tests written**: 8 Rust integration tests (relative path, no root, not-under-root, nested, root-equals-file, forward slashes, trailing separator, empty root)
 - **Expert review**: 5 approved; perf expert objected to IPC overhead for trivial computation (AGENTS.md mandates Rust-first for path ops); 3 experts flagged Promise.all fix - applied
+
+## arch-delete-source-viewer  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-arch-delete-source-viewer
+- **Type**: feature (dead code removal)
+- **Task**: Delete dead code SourceViewer.tsx
+- **Expert**: architect, product
+- **Commit**: 71dd518
+- **Validation**: All checks passed (449 tests, lint clean)
+- **Tests written**: None (deletion only, 6 dead tests removed)
+- **Expert review**: Skipped (trivial dead code deletion)
