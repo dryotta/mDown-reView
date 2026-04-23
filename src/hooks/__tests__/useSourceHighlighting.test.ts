@@ -4,7 +4,11 @@ import { useSourceHighlighting, escapeHtml } from "../useSourceHighlighting";
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
-    codeToHtml: vi.fn().mockReturnValue("<pre><code>highlighted</code></pre>"),
+    codeToHtml: vi.fn().mockImplementation((code: string) => {
+      const lines = code.split("\n");
+      const lineSpans = lines.map(() => '<span class="line">highlighted</span>').join("\n");
+      return `<pre class="shiki"><code>${lineSpans}</code></pre>`;
+    }),
     getLoadedLanguages: vi.fn().mockReturnValue([]),
     loadLanguage: vi.fn().mockResolvedValue(undefined),
   }),
@@ -83,7 +87,7 @@ describe("useSourceHighlighting", () => {
           setTimeout(
             () =>
               resolve({
-                codeToHtml: vi.fn().mockReturnValue("<pre><code>STALE_A_TS</code></pre>"),
+                codeToHtml: vi.fn().mockReturnValue('<pre class="shiki"><code><span class="line">STALE_A_TS</span></code></pre>'),
                 getLoadedLanguages: vi.fn().mockReturnValue(["typescript"]),
                 loadLanguage: vi.fn().mockResolvedValue(undefined),
               } as unknown as Awaited<ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>>),
@@ -93,7 +97,7 @@ describe("useSourceHighlighting", () => {
       }
       // Second call: fast highlighter — resolves immediately
       return Promise.resolve({
-        codeToHtml: vi.fn().mockReturnValue("<pre><code>FRESH_B_PY</code></pre>"),
+        codeToHtml: vi.fn().mockReturnValue('<pre class="shiki"><code><span class="line">FRESH_B_PY</span></code></pre>'),
         getLoadedLanguages: vi.fn().mockReturnValue(["python"]),
         loadLanguage: vi.fn().mockResolvedValue(undefined),
       } as unknown as Awaited<ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>>);
