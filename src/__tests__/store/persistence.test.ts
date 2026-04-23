@@ -43,7 +43,9 @@ describe("persistence partialize contract", () => {
       resolved: false,
       line: 1,
     };
-    useStore.getState().setFileComments("/docs/file.md", [comment]);
+    useStore.setState({
+      commentsByFile: { "/docs/file.md": [comment] },
+    });
 
     const snapshot = getPersistedSnapshot();
     expect(snapshot).not.toHaveProperty("commentsByFile");

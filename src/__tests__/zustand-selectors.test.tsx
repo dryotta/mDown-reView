@@ -81,33 +81,6 @@ describe("Zustand fine-grained selectors", () => {
     expect(getByTestId("render-count").textContent).toBe("1");
   });
 
-  it("action selectors are referentially stable and do not cause re-renders", () => {
-    function TestAction() {
-      const count = useRef(0);
-      count.current++;
-      const addComment = useStore((s) => s.addComment);
-      void addComment;
-      return <div data-testid="render-count">{count.current}</div>;
-    }
-
-    const { getByTestId } = render(<TestAction />);
-    expect(getByTestId("render-count").textContent).toBe("1");
-
-    // Change unrelated state
-    act(() => {
-      useStore.setState({ theme: "light" });
-    });
-
-    expect(getByTestId("render-count").textContent).toBe("1");
-
-    // Change another unrelated field
-    act(() => {
-      useStore.setState({ root: "/some/path" });
-    });
-
-    expect(getByTestId("render-count").textContent).toBe("1");
-  });
-
   it("useShallow selector only re-renders when selected state values change", () => {
     function TestShallowSelector() {
       const count = useRef(0);
