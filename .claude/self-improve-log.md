@@ -5,6 +5,16 @@
 <!-- Archived (2026-04-23 cycle 1): bug-rust-emit-comments-changed, bug-listen-cleanup-race, bug-unicode-truncation, test-vm-hooks, fix-stale-persistence-test, perf-comments-panel-memo, remove-dead-collapse-all, dedup-welcome-path-helpers, simplify-search-hook, security-enable-csp, migrate-viewers-to-vm-hooks, delete-ts-comment-pipeline, hollow-out-comments-slice, dead-ipc-wrappers, refactor-sourceview-god-component -->
 <!-- Previously skipped: simplify-custom-event-bus, security-path-validation, arch-replace-dom-events, perf-shiki-whole-doc, rust-html-asset-resolution, rust-fold-regions, security-sidecar-file-lock, feat-approval-workflow, feat-comment-export -->
 
+## delete-comment-threads-ts — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-delete-comment-threads-ts
+- **Type**: dead-code+rust-first
+- **Task**: Delete TS comment-threads.ts, use Rust threads directly in viewers
+- **Expert**: architect, product, perf, bug-hunter, react-tauri
+- **Commit**: d3cc938
+- **Validation**: 473 tests pass, lint clean
+- **Files deleted**: comment-threads.ts, comment-threads.test.ts (-129 lines net)
+
 ## bug-file-comments-swallow-error — DONE
 - **Date**: 2026-04-23
 - **Branch**: auto-improve/20260423-p3-quick-wins
