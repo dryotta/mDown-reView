@@ -158,3 +158,15 @@
 - **Validation**: All checks passed (497 Vitest, lint clean)
 - **Tests written**: "does not apply stale highlight results after rapid path changes"
 - **Expert review**: Skipped (minimal 2-file bug fix with regression test)
+
+## rust-unresolved-counts  DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-rust-unresolved-counts
+- **Type**: feature
+- **Task**: Batch unresolved comment counts via Rust IPC for FolderTree and TabBar badges
+- **Expert**: architect-expert, product-improvement-expert
+- **Directive**: none
+- **Commit**: 60874f3
+- **Validation**: All checks passed (473 Vitest, 30 cargo, lint clean)
+- **Tests written**: Updated FolderTree and TabBar test mocks for useUnresolvedCounts
+- **Expert review**: Skipped (straightforward feature wiring)

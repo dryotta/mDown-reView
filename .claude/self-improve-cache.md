@@ -11,7 +11,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 
 | ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Directive-Aligned | Status |
 |----|------|----------|------|-----------|--------|-------|------|------------------|-------------------|--------|
-| bug-dead-comments-by-file | Fix commentsByFile never populated → badges always 0, then remove dead slice | P1 | bug+dead-code | no | all 6 | store/index.ts, FolderTree.tsx, TabBar.tsx | medium | yes | yes | open |
+| bug-dead-comments-by-file | Fix commentsByFile never populated → badges always 0, then remove dead slice | P1 | bug+dead-code | no | all 6 | store/index.ts, FolderTree.tsx, TabBar.tsx | medium | yes | yes | done |
 | bug-highlight-race | Fix useSourceHighlighting async race (stale results overwrite) | P1 | bug | yes | react-tauri, bug-hunter | hooks/useSourceHighlighting.ts | low | yes | no | done |
 | delete-comment-threads-ts | Delete TS comment-threads.ts, pass Rust threads by line | P1 | dead-code | yes | architect, product, perf, bug-hunter, react-tauri | lib/comment-threads.ts, LineCommentMargin.tsx, MarkdownViewer.tsx | medium | no | yes | done |
 | delete-comment-anchors-ts | Delete TS comment-anchors.ts, wire Rust compute_anchor_hash | P1 | dead-code+rust-first | yes | architect, product, perf, bug-hunter, react-tauri | lib/comment-anchors.ts, useSelectionToolbar.ts, LineCommentMargin.tsx, MarkdownViewer.tsx | low | no | yes | done |
@@ -19,13 +19,13 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | dead-rust-commands | Remove 7 unused Rust IPC commands from lib.rs and commands.rs | P1 | dead-code+security | yes | bug-hunter, security, product, react-tauri | src-tauri/src/lib.rs, commands.rs | low | no | yes | done |
 | delete-comments-slice | Remove CommentsSlice entirely, move authorName to UISlice | P1 | refactor | yes | architect, product, react-tauri | store/index.ts | low | no | yes | done |
 | standardize-matched-comment | Replace CommentWithOrphan with MatchedComment everywhere | P1 | refactor | yes | architect, product, react-tauri | store/index.ts, CommentThread.tsx, LineCommentMargin.tsx | low | no | yes | done |
-| rust-unresolved-counts | Add batch Rust command for badge unresolved counts | P1 | rust-first | no | architect, product, perf, react-tauri | src-tauri/src/commands.rs, FolderTree.tsx, TabBar.tsx | medium | yes | yes | open |
+| rust-unresolved-counts | Add batch Rust command for badge unresolved counts | P1 | rust-first | no | architect, product, perf, react-tauri | src-tauri/src/commands.rs, FolderTree.tsx, TabBar.tsx | medium | yes | yes | done |
 | refactor-markdownviewer-hooks | Extract shared hooks from MarkdownViewer (selection, comments-by-line, scroll) | P1 | refactor | no | architect, product | MarkdownViewer.tsx, useSelectionToolbar.ts | medium | no | yes | open |
 | perf-memo-usecomments-flatmap | Add useMemo to useComments flatMap of threads | P2 | perf | yes | perf | lib/vm/use-comments.ts | low | no | yes | done |
 | perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | hooks/useSourceHighlighting.ts | medium | yes | no | open |
 | extract-use-theme | Extract shared useTheme hook from duplicate MutationObserver pattern | P2 | refactor | yes | product | useSourceHighlighting.ts, MarkdownViewer.tsx | low | no | yes | done |
 | dedup-size-warn-threshold | Extract shared SIZE_WARN_THRESHOLD constant | P2 | dead-code | yes | product | SourceView.tsx, MarkdownViewer.tsx | low | no | yes | done |
-| standardize-listen-cleanup | Standardize Tauri listen() cleanup pattern across all hooks | P2 | bug | no | react-tauri, bug-hunter | useFileWatcher.ts, App.tsx, use-comments.ts | medium | yes | yes | open |
+| standardize-listen-cleanup | Standardize Tauri listen() cleanup pattern across all hooks | P2 | bug | no | react-tauri, bug-hunter | useFileWatcher.ts, App.tsx, use-comments.ts | medium | yes | yes | skipped |
 | refactor-rust-mutation-boilerplate | Extract with_sidecar_mut helper for 5 Rust mutation commands | P2 | refactor | yes | react-tauri | src-tauri/src/commands.rs | low | no | yes | done |
 | dedup-lib-rs-handlers | Deduplicate invoke_handler debug/release blocks in lib.rs | P2 | refactor | yes | react-tauri | src-tauri/src/lib.rs | low | no | yes | done |
 | test-line-comment-margin | Add tests for LineCommentMargin (zero coverage) | P2 | test | no | bug-hunter | components/comments/LineCommentMargin.tsx | low | yes | yes | open |
