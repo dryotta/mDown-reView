@@ -5,6 +5,19 @@
 <!-- Archived (2026-04-23 cycle 1): bug-rust-emit-comments-changed, bug-listen-cleanup-race, bug-unicode-truncation, test-vm-hooks, fix-stale-persistence-test, perf-comments-panel-memo, remove-dead-collapse-all, dedup-welcome-path-helpers, simplify-search-hook, security-enable-csp, migrate-viewers-to-vm-hooks, delete-ts-comment-pipeline, hollow-out-comments-slice, dead-ipc-wrappers, refactor-sourceview-god-component -->
 <!-- Previously skipped: simplify-custom-event-bus, security-path-validation, arch-replace-dom-events, perf-shiki-whole-doc, rust-html-asset-resolution, rust-fold-regions, security-sidecar-file-lock, feat-approval-workflow, feat-comment-export -->
 
+## bug-file-comments-swallow-error — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-p3-quick-wins
+- **Type**: bug-fix
+- **Task**: Log file-read errors in get_file_comments instead of swallowing
+- **Expert**: bug-hunter
+- **Commit**: 324b03b
+- **Validation**: 30 cargo tests, 481 vitest pass
+
+## simplify-usecomments-dual-load — SKIPPED
+- **Date**: 2026-04-23
+- **Reason**: Dual load/effect is intentional — effect needs cancellation for stale responses, callback is for event handlers. Not actually duplicated.
+
 ## extract-use-theme+dedup-size-warn+extract-app-icons — DONE
 - **Date**: 2026-04-23
 - **Branch**: auto-improve/20260423-extract-use-theme
