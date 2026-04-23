@@ -5,6 +5,7 @@ description = "A desktop markdown reviewer for developers"
 license = "MIT"
 authors = ["davidzh"]
 edition = "2021"
+default-run = "mdownreview"
 autobenches = false
 
 [lib]

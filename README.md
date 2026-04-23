@@ -18,6 +18,8 @@
 
 Download the latest release for your platform from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest).
 
+### Desktop App (GUI)
+
 | Platform | Architecture | Artifact |
 |----------|-------------|----------|
 | Windows  | x64 (Intel/AMD) | `mdownreview-x.x.x-windows-x64.zip` |
@@ -37,6 +39,34 @@ powershell -ExecutionPolicy ByPass -c "irm https://dryotta.github.io/mdownreview
 ```
 
 > ⚠️ Pipes remote code into your shell — use direct download if blocked by security policy.
+
+### CLI Tool
+
+The `mdownreview-cli` is a standalone command-line tool for working with review sidecars without the GUI. Ideal for CI pipelines and automation.
+
+**Install via Cargo:**
+```bash
+cargo install --git https://github.com/dryotta/mdownreview.git --bin mdownreview-cli
+```
+
+**Or download prebuilt binaries** from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest):
+
+| Platform | Artifact |
+|----------|----------|
+| Windows x64 | `mdownreview-cli-x.x.x-windows-x64.exe` |
+| Windows ARM64 | `mdownreview-cli-x.x.x-windows-arm64.exe` |
+| macOS ARM64 | `mdownreview-cli-x.x.x-macos-arm64` |
+
+**CLI subcommands:**
+```bash
+mdownreview-cli read --folder .             # Show unresolved comments
+mdownreview-cli read --folder . --all       # Show all comments (incl. resolved)
+mdownreview-cli read --folder . --format json  # JSON output for scripting
+mdownreview-cli cleanup --folder . --dry-run   # Preview which sidecars would be deleted
+mdownreview-cli cleanup --folder .          # Delete fully-resolved sidecars
+mdownreview-cli resolve path/to/file.md.review.yaml <comment-id>  # Mark resolved
+mdownreview-cli respond path/to/file.md.review.yaml <comment-id> --response "Fixed"
+```
 
 ## Agent Skills
 

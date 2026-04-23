@@ -22,12 +22,20 @@ npm run tauri          # dev server with hot reload
 ## Testing
 
 ```bash
+npm run lint           # ESLint
 npm test               # unit tests (Vitest)
-npm run test:e2e       # E2E tests (Playwright)
-cargo test             # Rust integration tests (run from src-tauri/)
+npm run test:e2e       # E2E tests (Playwright browser mode)
+cargo test             # Rust unit + integration tests (run from src-tauri/)
 ```
 
+> **Note:** `cargo test` requires the CLI binary to be built first for integration tests:
+> ```bash
+> cd src-tauri && cargo build --bin mdownreview-cli && cargo test
+> ```
+
 ## Production Build
+
+### Desktop App (GUI)
 
 ```bash
 npm run tauri:build    # builds platform installer
@@ -36,6 +44,21 @@ npm run tauri:build    # builds platform installer
 Output locations:
 - **Windows:** `src-tauri/target/release/bundle/nsis/`
 - **macOS:** `src-tauri/target/release/bundle/dmg/`
+
+### CLI Tool
+
+```bash
+cd src-tauri && cargo build --release --bin mdownreview-cli
+```
+
+Output: `src-tauri/target/release/mdownreview-cli[.exe]`
+
+### Benchmarks
+
+```bash
+npm run bench:cli           # run criterion benchmarks (from src-tauri/)
+npm run bench:cli:script    # run CLI subprocess timing script
+```
 
 ---
 

@@ -109,6 +109,21 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Build CLI binary
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.tauri_args }}" ]; then
+            # Extract target from tauri_args (e.g. "--target aarch64-pc-windows-msvc")
+            TARGET=$(echo "${{ matrix.tauri_args }}" | grep -oP '(?<=--target\s)\S+' || true)
+            if [ -n "$TARGET" ]; then
+              cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml --target "$TARGET"
+            else
+              cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml
+            fi
+          else
+            cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml
+          fi
+
       - name: Rename and upload artifacts
         shell: bash
         run: |
@@ -123,6 +138,13 @@ jobs:
             cp "$nsis_zip" "${NAME}.zip"
             gh release upload "$TAG" "${NAME}.zip" --clobber
 
+            # Upload CLI binary
+            cli_bin=$(find ${{ matrix.target_dir }} -maxdepth 1 -name "mdownreview-cli.exe" 2>/dev/null | head -1)
+            if [ -n "$cli_bin" ]; then
+              cp "$cli_bin" "mdownreview-cli-${VERSION}-${{ matrix.name }}.exe"
+              gh release upload "$TAG" "mdownreview-cli-${VERSION}-${{ matrix.name }}.exe" --clobber
+            fi
+
             # Upload the signature file with matching name
             sig="${nsis_zip}.sig"
             if [ -f "$sig" ]; then
@@ -135,6 +157,13 @@ jobs:
             [ -z "$dmg" ] && { echo "::error::DMG not found"; exit 1; }
             cp "$dmg" "${NAME}.dmg"
             gh release upload "$TAG" "${NAME}.dmg" --clobber
+
+            # Upload CLI binary
+            cli_bin=$(find ${{ matrix.target_dir }} -maxdepth 1 -name "mdownreview-cli" 2>/dev/null | head -1)
+            if [ -n "$cli_bin" ]; then
+              cp "$cli_bin" "mdownreview-cli-${VERSION}-${{ matrix.name }}"
+              gh release upload "$TAG" "mdownreview-cli-${VERSION}-${{ matrix.name }}" --clobber
+            fi
 
             # Rename the .app.tar.gz updater bundle
             app_tar=$(ls -t ${{ matrix.target_dir }}/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
