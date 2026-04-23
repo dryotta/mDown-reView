@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useDeferredValue } from "react";
-import { createHighlighter, type Highlighter, type BundledLanguage } from "shiki";
+import { type BundledLanguage } from "shiki";
+import { getSharedHighlighter } from "@/lib/shiki";
 import { extname } from "@/lib/path-utils";
 import { matchComments } from "@/lib/comment-matching";
 import { computeSelectedTextHash } from "@/lib/comment-anchors";
@@ -25,17 +26,7 @@ interface Props {
   wordWrap?: boolean;
 }
 
-let highlighterInstance: Highlighter | null = null;
-
-async function getHighlighter(): Promise<Highlighter> {
-  if (!highlighterInstance) {
-    highlighterInstance = await createHighlighter({
-      themes: ["github-light", "github-dark"],
-      langs: [],
-    });
-  }
-  return highlighterInstance;
-}
+// Use shared highlighter singleton
 
 function langFromPath(path: string): string {
   const ext = extname(path).slice(1);
@@ -268,7 +259,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   useEffect(() => {
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";
     const lang = langFromPath(path);
-    getHighlighter()
+    getSharedHighlighter()
       .then(async (hl) => {
         const loaded = hl.getLoadedLanguages();
         if (!loaded.includes(lang) && lang !== "text") {

@@ -13,9 +13,9 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 
 vi.mock("@/logger");
 
-// Mock heavy async deps
-vi.mock("shiki", () => ({
-  createHighlighter: vi.fn().mockResolvedValue({
+// Mock shared Shiki module
+vi.mock("@/lib/shiki", () => ({
+  getSharedHighlighter: vi.fn().mockResolvedValue({
     codeToHtml: vi.fn().mockReturnValue("<pre><code>mock</code></pre>"),
   }),
 }));

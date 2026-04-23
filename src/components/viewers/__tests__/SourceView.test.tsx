@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { SourceView } from "../SourceView";
 
-vi.mock("shiki", () => ({
-  createHighlighter: vi.fn().mockResolvedValue({
+vi.mock("@/lib/shiki", () => ({
+  getSharedHighlighter: vi.fn().mockResolvedValue({
     codeToHtml: vi.fn().mockReturnValue("<pre><code>highlighted</code></pre>"),
     getLoadedLanguages: vi.fn().mockReturnValue([]),
     loadLanguage: vi.fn().mockResolvedValue(undefined),

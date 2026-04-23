@@ -1,0 +1,118 @@
+import { useState, useEffect, useCallback } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import {
+  getFileComments,
+  type CommentThread,
+  type MatchedComment,
+} from "@/lib/tauri-commands";
+import { info, error } from "@/logger";
+
+export interface UseCommentsResult {
+  threads: CommentThread[];
+  comments: MatchedComment[];
+  loading: boolean;
+  reload: () => void;
+}
+
+/**
+ * Hook that loads matched and threaded comments for a file path.
+ * Uses the combined `get_file_comments` command (single IPC call).
+ * Subscribes to 'comments-changed' Tauri event for mutation-triggered updates.
+ * Subscribes to 'file-changed' (kind: "review") for external sidecar changes.
+ */
+export function useComments(filePath: string | null): UseCommentsResult {
+  const [threads, setThreads] = useState<CommentThread[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!filePath) {
+      setThreads([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await getFileComments(filePath);
+      setThreads(result);
+    } catch (e) {
+      error(`[vm] Failed to load comments for ${filePath}: ${e}`);
+      setThreads([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filePath]);
+
+  // Initial load + reload on filePath change
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!filePath) {
+        setThreads([]);
+        return;
+      }
+      setLoading(true);
+      try {
+        const result = await getFileComments(filePath);
+        if (!cancelled) setThreads(result);
+      } catch (e) {
+        error(`[vm] Failed to load comments for ${filePath}: ${e}`);
+        if (!cancelled) setThreads([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [filePath]);
+
+  // Listen for comments-changed (from Rust mutation commands)
+  useEffect(() => {
+    if (!filePath) return;
+    let unlisten: UnlistenFn | null = null;
+
+    listen<{ file_path: string }>("comments-changed", (event) => {
+      if (event.payload.file_path === filePath) {
+        info(`[vm] comments-changed for ${filePath}, reloading`);
+        load();
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [filePath, load]);
+
+  // Listen for file-changed (from watcher, for external sidecar changes)
+  useEffect(() => {
+    if (!filePath) return;
+    let unlisten: UnlistenFn | null = null;
+
+    listen<{ path: string; kind: string }>("file-changed", (event) => {
+      if (event.payload.kind === "review") {
+        // Check if this is the sidecar for our file
+        const sidecarPath = event.payload.path;
+        if (
+          sidecarPath === `${filePath}.review.yaml` ||
+          sidecarPath === `${filePath}.review.json`
+        ) {
+          info(`[vm] External sidecar change for ${filePath}, reloading`);
+          load();
+        }
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [filePath, load]);
+
+  // Flatten all comments from threads for convenience
+  const comments: MatchedComment[] = threads.flatMap((t) => [
+    t.root,
+    ...t.replies,
+  ]);
+
+  return { threads, comments, loading, reload: load };
+}

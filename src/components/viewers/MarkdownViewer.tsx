@@ -2,7 +2,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
-import { createHighlighter } from "shiki";
+import { getSharedHighlighter } from "@/lib/shiki";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl as shellOpen } from "@tauri-apps/plugin-opener";
 import {
@@ -65,17 +65,7 @@ function parseFrontmatter(content: string): {
   return { body, data };
 }
 
-let highlighterPromise: ReturnType<typeof createHighlighter> | null = null;
-
-function getHighlighter() {
-  if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: ["github-light", "github-dark"],
-      langs: [],
-    });
-  }
-  return highlighterPromise;
-}
+// Shiki highlighter is shared via @/lib/shiki
 
 function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
@@ -95,7 +85,7 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   useEffect(() => {
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";
 
-    getHighlighter()
+    getSharedHighlighter()
       .then(async (h) => {
         const result = await h.codeToHtml(code, { lang, theme, defaultColor: false });
         setHtml(result);
