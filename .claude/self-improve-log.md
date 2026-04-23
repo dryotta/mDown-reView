@@ -121,3 +121,14 @@
 - **Validation**: All checks passed (458 tests, cargo check, lint clean)
 - **Tests written**: 9 guard tests for capability regression
 - **Expert review**: Security reviewer approved; also removed core:webview:default per security finding
+
+## perf-fold-regions-string-concat  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-fold-regions-string-concat
+- **Type**: feature (performance)
+- **Task**: Fix O(n squared) string concatenation in computeFoldRegions
+- **Expert**: performance
+- **Commit**: 7a85165
+- **Validation**: All checks passed (465 tests, lint clean)
+- **Tests written**: 7 new tests (empty input, single line, braces, strings, comments, escapes, large input)
+- **Expert review**: Skipped (localized algorithm change in single function)
