@@ -100,9 +100,12 @@ Reports pass count, fail count, and full output for any failures.
 
 ---
 
-#### `/write-missing-tests`
+#### `/validate-ci`
 
-Writes unit tests for high-value untested source files following the project's Vitest + React Testing Library conventions. Targets files in `src/lib/` and `src/components/` that have no corresponding `__tests__/` file.
+Triggers both CI and Release Gate workflows for full validation. Use before releases or for significant changes that need cross-platform testing.
+
+- **On a branch**: pushes and creates a draft PR. If the branch isn't `release/*`, offers to create one (Release Gate requires `release/*` prefix).
+- **On main**: creates a temporary `release/validate-<sha>` branch with an empty commit and a draft PR, triggering all workflows.
 
 ---
 
