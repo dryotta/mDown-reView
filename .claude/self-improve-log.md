@@ -77,3 +77,14 @@
 - **Validation**: All checks passed (442 tests, 40 e2e, lint clean)
 - **Tests written**: 5 tests (source file scan, sidecar yaml scan, sidecar json scan, no scan on non-delete, coalesce rapid deletions)
 - **Expert review**: 5 approved, architect caught regression in sidecar-only approach → revised to debounced all-deletion scan
+
+## perf-comment-mutation-targeted — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-comment-mutation-targeted
+- **Type**: feature (performance)
+- **Task**: Fix comment mutations to target only affected file
+- **Expert**: performance, architect
+- **Commit**: 39ed647
+- **Validation**: All checks passed (455 tests, lint clean)
+- **Tests written**: 13 tests (referential identity + correctness for editComment, deleteComment, resolveComment, unresolveComment)
+- **Expert review**: Session crashed during review; validator passed, skipped re-review

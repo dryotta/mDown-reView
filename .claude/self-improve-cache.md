@@ -17,7 +17,7 @@ branch: main
 | perf-zustand-selectors | Replace bare useStore() with fine-grained selectors | P2 | feature | yes | performance, architect, react-tauri | src/App.tsx, src/components/FolderTree/FolderTree.tsx, src/components/comments/CommentsPanel.tsx, src/components/comments/CommentThread.tsx, src/components/TabBar/TabBar.tsx, src/components/comments/LineCommentMargin.tsx | low | no | done |
 | perf-throttle-scroll-top | Throttle setScrollTop with requestAnimationFrame | P2 | feature | yes | performance | src/components/viewers/ViewerRouter.tsx | low | no | done |
 | perf-scan-sidecar-only | Scope scanReviewFiles to sidecar deletion events only | P2 | feature | yes | performance | src/hooks/useFileWatcher.ts | low | yes | done |
-| perf-comment-mutation-targeted | Fix comment mutations to target only affected file | P2 | feature | yes | performance, architect | src/store/index.ts | low | no | open |
+| perf-comment-mutation-targeted | Fix comment mutations to target only affected file | P2 | feature | yes | performance, architect | src/store/index.ts | low | no | done |
 | arch-extract-comment-hook | Extract useCommentSystem hook from SourceView and MarkdownViewer | P2 | feature | no | architect | src/components/viewers/SourceView.tsx, src/components/viewers/MarkdownViewer.tsx | medium | no | open |
 | arch-delete-source-viewer | Delete dead code SourceViewer.tsx | P3 | feature | yes | architect, product | src/components/viewers/SourceViewer.tsx | low | no | open |
 | arch-shiki-singleton | Consolidate three Shiki highlighter singletons into one | P3 | feature | no | architect | src/components/viewers/SourceView.tsx, src/components/viewers/MarkdownViewer.tsx, src/lib/highlighter.ts | medium | no | open |
@@ -427,3 +427,9 @@ it('should scan on sidecar file deletion', async () => {
 - **New tasks added**: none
 - **Tasks re-prioritized**: none
 - **Process improvement**: When a perf task narrows a code path, verify all semantic cases the original broad path covered
+
+### 2026-04-22  perf-comment-mutation-targeted  DONE
+- **Lesson**: Straightforward pattern replacement. findFileForComment linear scan is fine for typical usage.
+- **New tasks added**: none
+- **Tasks re-prioritized**: none
+- **Process improvement**: none
