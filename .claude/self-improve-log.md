@@ -5,6 +5,15 @@
 <!-- Archived (2026-04-23 cycle 1): bug-rust-emit-comments-changed, bug-listen-cleanup-race, bug-unicode-truncation, test-vm-hooks, fix-stale-persistence-test, perf-comments-panel-memo, remove-dead-collapse-all, dedup-welcome-path-helpers, simplify-search-hook, security-enable-csp, migrate-viewers-to-vm-hooks, delete-ts-comment-pipeline, hollow-out-comments-slice, dead-ipc-wrappers, refactor-sourceview-god-component -->
 <!-- Previously skipped: simplify-custom-event-bus, security-path-validation, arch-replace-dom-events, perf-shiki-whole-doc, rust-html-asset-resolution, rust-fold-regions, security-sidecar-file-lock, feat-approval-workflow, feat-comment-export -->
 
+## perf-memo-usecomments-flatmap — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-perf-memo-flatmap
+- **Type**: perf
+- **Task**: Memoize useComments flatMap to avoid re-allocation on render
+- **Expert**: perf
+- **Commit**: 9bf1b5c
+- **Validation**: All checks passed
+
 ## dead-vite-css — DONE
 - **Date**: 2026-04-23
 - **Branch**: auto-improve/20260423-dead-vite-css
