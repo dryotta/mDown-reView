@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CommentThread } from "../CommentThread";
-import type { CommentWithOrphan } from "@/store";
+import type { MatchedComment } from "@/lib/tauri-commands";
 
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function makeComment(overrides: Partial<CommentWithOrphan> = {}): CommentWithOrphan {
+function makeComment(overrides: Partial<MatchedComment> = {}): MatchedComment {
   return {
     id: "comment-1",
     author: "Test User (human)",

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import type { CommentWithOrphan } from "@/store";
+import type { MatchedComment } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
 // --- Type/severity badge maps ---
@@ -22,7 +22,7 @@ const SEVERITY_BADGE_CLASSES: Record<string, string> = {
 
 // --- Single comment item (shared between root and reply rendering) ---
 function CommentItem({ comment, variant, filePath, onStartReply }: {
-  comment: CommentWithOrphan;
+  comment: MatchedComment;
   variant: "root" | "reply";
   filePath: string;
   onStartReply?: () => void;
@@ -104,8 +104,8 @@ function CommentItem({ comment, variant, filePath, onStartReply }: {
 
 // --- Thread container (root + replies + reply composer) ---
 interface CommentThreadProps {
-  rootComment: CommentWithOrphan;
-  replies?: CommentWithOrphan[];
+  rootComment: MatchedComment;
+  replies?: MatchedComment[];
   filePath: string;
 }
 

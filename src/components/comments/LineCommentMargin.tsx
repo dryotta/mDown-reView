@@ -5,14 +5,14 @@ import { CommentThread } from "./CommentThread";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
-import type { CommentWithOrphan } from "@/store";
+import type { MatchedComment } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
 interface Props {
   filePath: string;
   lineNumber: number;
   lineText: string;
-  matchedComments: CommentWithOrphan[];
+  matchedComments: MatchedComment[];
   showInput?: boolean;
   onCloseInput?: () => void;
   onSaveComment?: (text: string) => void;

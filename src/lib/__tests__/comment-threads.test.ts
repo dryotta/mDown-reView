@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
-import type { CommentWithOrphan } from "@/store";
+import type { MatchedComment } from "@/lib/tauri-commands";
 
-function makeComment(id: string, overrides: Partial<CommentWithOrphan> = {}): CommentWithOrphan {
+function makeComment(id: string, overrides: Partial<MatchedComment> = {}): MatchedComment {
   return {
     id,
     author: "Tester (test)",

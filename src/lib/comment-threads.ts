@@ -1,8 +1,8 @@
-import type { CommentWithOrphan } from "@/store";
+import type { MatchedComment } from "@/lib/tauri-commands";
 
 export interface CommentThreadGroup {
-  root: CommentWithOrphan;
-  replies: CommentWithOrphan[];
+  root: MatchedComment;
+  replies: MatchedComment[];
 }
 
 /**
@@ -10,10 +10,10 @@ export interface CommentThreadGroup {
  * Replies to non-existent parents are promoted to root threads.
  * Replies are sorted by timestamp ascending.
  */
-export function groupCommentsIntoThreads(comments: CommentWithOrphan[]): CommentThreadGroup[] {
+export function groupCommentsIntoThreads(comments: MatchedComment[]): CommentThreadGroup[] {
   const rootIds = new Set(comments.filter(c => !c.reply_to).map(c => c.id));
-  const repliesByParent = new Map<string, CommentWithOrphan[]>();
-  const orphanedReplies: CommentWithOrphan[] = [];
+  const repliesByParent = new Map<string, MatchedComment[]>();
+  const orphanedReplies: MatchedComment[] = [];
 
   for (const c of comments) {
     if (c.reply_to) {

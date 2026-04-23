@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
-import type { MrsfComment } from "@/lib/tauri-commands";
 
 // ── Recent items ──────────────────────────────────────────────────────────
 
@@ -41,13 +40,6 @@ interface TabsSlice {
   setActiveTab: (path: string) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
   setViewMode: (path: string, mode: "source" | "visual") => void;
-}
-
-// ── Comments types (shared, not a store slice) ────────────────────────────
-
-export interface CommentWithOrphan extends MrsfComment {
-  isOrphaned?: boolean;
-  matchedLineNumber?: number;
 }
 
 // ── UI slice ──────────────────────────────────────────────────────────────
