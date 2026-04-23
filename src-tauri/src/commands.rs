@@ -54,6 +54,26 @@ fn is_sidecar_file(name: &str) -> bool {
     name.ends_with(".review.yaml") || name.ends_with(".review.json")
 }
 
+/// Load a sidecar, apply a mutation, save, and emit `comments-changed`.
+fn with_sidecar_mut(
+    app: &tauri::AppHandle,
+    file_path: &str,
+    mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+        .map_err(|e| e.to_string())?
+        .ok_or("sidecar not found")?;
+    mutate(&mut sidecar)?;
+    crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit_to(
+        "main",
+        "comments-changed",
+        CommentsChangedEvent { file_path: file_path.to_string() },
+    );
+    Ok(())
+}
+
 // ── Commands ───────────────────────────────────────────────────────────────
 
 /// Read directory entries, rejecting path traversal.
@@ -298,27 +318,17 @@ pub fn add_reply(
     author: String,
     text: String,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(&file_path)
-        .map_err(|e| e.to_string())?
-        .ok_or("sidecar not found")?;
-
-    let parent = sidecar
-        .comments
-        .iter()
-        .find(|c| c.id == parent_id)
-        .ok_or_else(|| format!("parent comment {} not found", parent_id))?
-        .clone();
-
-    let reply = crate::core::comments::create_reply(&author, &text, &parent);
-    sidecar.comments.push(reply);
-    crate::core::sidecar::save_sidecar(
-        &file_path,
-        &sidecar.document,
-        &sidecar.comments,
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
-    Ok(())
+    with_sidecar_mut(&app, &file_path, |sidecar| {
+        let parent = sidecar
+            .comments
+            .iter()
+            .find(|c| c.id == parent_id)
+            .ok_or_else(|| format!("parent comment {} not found", parent_id))?
+            .clone();
+        let reply = crate::core::comments::create_reply(&author, &text, &parent);
+        sidecar.comments.push(reply);
+        Ok(())
+    })
 }
 
 /// Edit a comment's text, save to sidecar.
@@ -329,25 +339,15 @@ pub fn edit_comment(
     comment_id: String,
     text: String,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(&file_path)
-        .map_err(|e| e.to_string())?
-        .ok_or("sidecar not found")?;
-
-    let comment = sidecar
-        .comments
-        .iter_mut()
-        .find(|c| c.id == comment_id)
-        .ok_or_else(|| format!("comment {} not found", comment_id))?;
-    comment.text = text;
-
-    crate::core::sidecar::save_sidecar(
-        &file_path,
-        &sidecar.document,
-        &sidecar.comments,
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
-    Ok(())
+    with_sidecar_mut(&app, &file_path, |sidecar| {
+        let comment = sidecar
+            .comments
+            .iter_mut()
+            .find(|c| c.id == comment_id)
+            .ok_or_else(|| format!("comment {} not found", comment_id))?;
+        comment.text = text;
+        Ok(())
+    })
 }
 
 /// Delete a comment (with reply reparenting per MRSF §9.1), save to sidecar.
@@ -357,19 +357,10 @@ pub fn delete_comment(
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
-    let sidecar = crate::core::sidecar::load_sidecar(&file_path)
-        .map_err(|e| e.to_string())?
-        .ok_or("sidecar not found")?;
-
-    let updated = crate::core::comments::delete_comment(&sidecar.comments, &comment_id);
-    crate::core::sidecar::save_sidecar(
-        &file_path,
-        &sidecar.document,
-        &updated,
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
-    Ok(())
+    with_sidecar_mut(&app, &file_path, |sidecar| {
+        sidecar.comments = crate::core::comments::delete_comment(&sidecar.comments, &comment_id);
+        Ok(())
+    })
 }
 
 /// Resolve or unresolve a comment, save to sidecar.
@@ -380,25 +371,15 @@ pub fn set_comment_resolved(
     comment_id: String,
     resolved: bool,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(&file_path)
-        .map_err(|e| e.to_string())?
-        .ok_or("sidecar not found")?;
-
-    let comment = sidecar
-        .comments
-        .iter_mut()
-        .find(|c| c.id == comment_id)
-        .ok_or_else(|| format!("comment {} not found", comment_id))?;
-    comment.resolved = resolved;
-
-    crate::core::sidecar::save_sidecar(
-        &file_path,
-        &sidecar.document,
-        &sidecar.comments,
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
-    Ok(())
+    with_sidecar_mut(&app, &file_path, |sidecar| {
+        let comment = sidecar
+            .comments
+            .iter_mut()
+            .find(|c| c.id == comment_id)
+            .ok_or_else(|| format!("comment {} not found", comment_id))?;
+        comment.resolved = resolved;
+        Ok(())
+    })
 }
 
 /// Compute SHA-256 hash for selected text anchor.
