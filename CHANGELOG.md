@@ -1,3 +1,11 @@
+## v0.3.4 — 2026-04-23
+
+### Fixes
+- break scroll feedback loop in ViewerRouter (#37)
+
+### Other
+- update and add skills (validate-ci, groom-issues, implement-issues) (#38)
+
 ## v0.3.3 — 2026-04-23
 
 ### Features
