@@ -26,7 +26,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | refactor-sourceview-god-component | Break up SourceView.tsx into focused hooks | P2 | refactor | no | architect | src/components/viewers/SourceView.tsx | medium | no | yes | open |
 | perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | src/components/viewers/SourceView.tsx | medium | no | no | open |
 | dead-ipc-wrappers | Remove unused IPC wrappers from tauri-commands.ts | P2 | dead-code | yes | perf | src/lib/tauri-commands.ts | low | no | yes | open |
-| bug-unicode-truncation | Fix Unicode truncation mismatch between TS and Rust | P2 | bug | yes | security | src/lib/comment-utils.ts, src-tauri/src/core/anchors.rs | low | yes | yes | open |
+| bug-unicode-truncation | Fix Unicode truncation mismatch between TS and Rust | P2 | bug | yes | security | src/lib/comment-utils.ts, src-tauri/src/core/anchors.rs | low | yes | yes | done |
 | dedup-welcome-path-helpers | Replace inline path helpers in WelcomeView with path-utils | P3 | dead-code | yes | perf | src/components/WelcomeView.tsx | low | no | yes | open |
 | remove-dead-collapse-all | Remove unused collapseAll store action | P3 | dead-code | yes | perf | src/store/index.ts | low | no | yes | open |
 | remove-dead-reset-commit-cache | Remove unused resetCommitCache export | P3 | dead-code | yes | security | src/hooks/useCommitEnricher.ts | low | no | yes | open |

@@ -26,3 +26,15 @@
 - **Validation**: All checks passed (500 Vitest, lint clean)
 - **Tests written**: 4 tests (rapid unmount comments-changed, rapid unmount file-changed, normal cleanup, null filePath guard)
 - **Expert review**: Skipped (small hook fix with comprehensive tests)
+
+## bug-unicode-truncation — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-bug-unicode-truncation
+- **Type**: bug-fix
+- **Task**: Fix Unicode truncation mismatch between TS and Rust
+- **Expert**: security
+- **Directive**: MVVM migration cleanup
+- **Commit**: aa831a5
+- **Validation**: All checks passed (503 Vitest, lint clean)
+- **Tests written**: 3 tests (emoji truncation, combining characters, mixed ASCII/emoji)
+- **Expert review**: Skipped (minimal 2-file change with comprehensive tests)
