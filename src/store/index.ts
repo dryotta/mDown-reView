@@ -128,6 +128,22 @@ interface RecentSlice {
   addRecentItem: (path: string, type: "file" | "folder") => void;
 }
 
+// ── Tab persistence helpers ────────────────────────────────────────────────
+
+export function filterStaleTabs(
+  tabs: Tab[],
+  activeTabPath: string | null,
+  existsMap: Map<string, boolean>
+): { tabs: Tab[]; activeTabPath: string | null } {
+  const validTabs = tabs.filter((t) => existsMap.get(t.path) !== false);
+  const validPaths = new Set(validTabs.map((t) => t.path));
+  let newActiveTabPath = activeTabPath;
+  if (activeTabPath && !validPaths.has(activeTabPath)) {
+    newActiveTabPath = validTabs.length > 0 ? validTabs[0].path : null;
+  }
+  return { tabs: validTabs, activeTabPath: newActiveTabPath };
+}
+
 // ── Combined store ─────────────────────────────────────────────────────────
 
 type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice;
@@ -363,10 +379,38 @@ export const useStore = create<Store>()(
         autoReveal: state.autoReveal,
         authorName: state.authorName,
         recentItems: state.recentItems,
+        tabs: state.tabs,
+        activeTabPath: state.activeTabPath,
       }),
+      onRehydrateStorage: () => () => {
+        queueMicrotask(() => {
+          const { tabs } = useStore.getState();
+          if (tabs.length === 0) return;
+          import("@/lib/tauri-commands").then(
+            ({ checkPathExists }) => validatePersistedTabs(checkPathExists),
+            () => {}
+          );
+        });
+      },
     }
   )
 );
+
+export async function validatePersistedTabs(
+  checkPath: (path: string) => Promise<"file" | "dir" | "missing">
+): Promise<void> {
+  const { tabs, activeTabPath } = useStore.getState();
+  if (tabs.length === 0) return;
+  const existsMap = new Map<string, boolean>();
+  await Promise.all(
+    tabs.map(async (tab) => {
+      const status = await checkPath(tab.path);
+      existsMap.set(tab.path, status !== "missing");
+    })
+  );
+  const result = filterStaleTabs(tabs, activeTabPath, existsMap);
+  useStore.setState(result);
+}
 
 // Convenience selector for unresolved comment count per file
 export function useUnresolvedCount(filePath: string): number {
