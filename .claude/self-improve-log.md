@@ -110,3 +110,14 @@
 - **Validation**: All checks passed (449 tests, lint clean)
 - **Tests written**: None (deletion only, 6 dead tests removed)
 - **Expert review**: Skipped (trivial dead code deletion)
+
+## security-narrow-capabilities  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-security-narrow-capabilities
+- **Type**: feature (security)
+- **Task**: Narrow Tauri capability permissions to least privilege
+- **Expert**: react-tauri, security
+- **Commit**: fbcb485
+- **Validation**: All checks passed (458 tests, cargo check, lint clean)
+- **Tests written**: 9 guard tests for capability regression
+- **Expert review**: Security reviewer approved; also removed core:webview:default per security finding

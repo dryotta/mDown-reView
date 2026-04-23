@@ -22,7 +22,7 @@ branch: main
 | arch-delete-source-viewer | Delete dead code SourceViewer.tsx | P3 | feature | yes | architect, product | src/components/viewers/SourceViewer.tsx | low | no | done |
 | arch-shiki-singleton | Consolidate three Shiki highlighter singletons into one | P3 | feature | no | architect | src/components/viewers/SourceView.tsx, src/components/viewers/MarkdownViewer.tsx, src/lib/highlighter.ts | medium | no | open |
 | security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | bug | no | react-tauri | src-tauri/tauri.conf.json | medium | no | open |
-| security-narrow-capabilities | Narrow Tauri capability permissions to least privilege | P3 | feature | yes | react-tauri | src-tauri/capabilities/default.json | low | no | open |
+| security-narrow-capabilities | Narrow Tauri capability permissions to least privilege | P3 | feature | yes | react-tauri | src-tauri/capabilities/default.json | low | no | done |
 | perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | feature | no | performance | src/components/viewers/SourceView.tsx | medium | no | open |
 | rust-levenshtein-migration | Move Levenshtein fuzzy matching to Rust command | P2 | rust-migration | no | performance, architect | src/lib/comment-matching.ts, src-tauri/src/commands.rs | medium | no | open |
 | rust-html-asset-resolution | Move HTML asset resolution to single Rust command | P3 | rust-migration | no | react-tauri | src/lib/resolve-html-assets.ts, src-tauri/src/commands.rs | medium | no | open |
@@ -445,3 +445,9 @@ it('should scan on sidecar file deletion', async () => {
 - **New tasks added**: none
 - **Tasks re-prioritized**: none
 - **Process improvement**: none
+
+### 2026-04-22  security-narrow-capabilities  DONE
+- **Lesson**: Security review found core:webview:default was also unnecessary. Also found pre-existing bug: process plugin not set up for restart.
+- **New tasks added**: none (process plugin bug is pre-existing)
+- **Tasks re-prioritized**: none
+- **Process improvement**: Always run security reviewer for capability changes
