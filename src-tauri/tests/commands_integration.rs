@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
-    get_git_head, load_review_comments, read_binary_file, read_dir, read_text_file,
-    save_review_comments, LaunchArgs, LaunchArgsState, MrsfComment, MrsfSidecar,
+    compute_document_path, get_git_head, load_review_comments, read_binary_file, read_dir,
+    read_text_file, save_review_comments, LaunchArgs, LaunchArgsState, MrsfComment, MrsfSidecar,
 };
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -317,4 +317,58 @@ fn get_git_head_returns_error_on_command_failure() {
     };
     let result = get_git_head(bad_path);
     assert!(result.is_err(), "command execution failure should return Err, not Ok(None)");
+}
+
+// ── compute_document_path ─────────────────────────────────────────────────
+
+#[test]
+fn compute_document_path_returns_relative_with_root() {
+    let result = compute_document_path("/workspace/project/src/file.md".into(), Some("/workspace/project".into()));
+    assert_eq!(result, "src/file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_without_root() {
+    let result = compute_document_path("/some/path/file.md".into(), None);
+    assert_eq!(result, "file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_when_not_under_root() {
+    let result = compute_document_path("/other/path/file.md".into(), Some("/workspace/project".into()));
+    assert_eq!(result, "file.md");
+}
+
+#[test]
+fn compute_document_path_handles_nested_deeply() {
+    let result = compute_document_path("/root/a/b/c/d/file.md".into(), Some("/root".into()));
+    assert_eq!(result, "a/b/c/d/file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_when_root_equals_file() {
+    // When file_path == root, strip_prefix yields empty string; fallback to filename
+    let result = compute_document_path("/workspace/project".into(), Some("/workspace/project".into()));
+    assert_eq!(result, "project");
+}
+
+#[test]
+#[cfg(windows)]
+fn compute_document_path_uses_forward_slashes() {
+    let result = compute_document_path(r"C:\Users\dev\project\src\file.md".into(), Some(r"C:\Users\dev\project".into()));
+    assert_eq!(result, "src/file.md");
+}
+
+#[test]
+fn compute_document_path_root_with_trailing_separator() {
+    // Root with trailing slash should still work
+    let result = compute_document_path("/workspace/project/file.md".into(), Some("/workspace/project/".into()));
+    assert_eq!(result, "file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_with_empty_root() {
+    // Empty root string should fallback to filename, not return absolute path
+    let result = compute_document_path("/workspace/project/file.md".into(), Some("".into()));
+    assert_eq!(result, "file.md");
 }

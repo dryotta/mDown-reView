@@ -13,6 +13,32 @@ pub fn check_path_exists(path: String) -> String {
     }
 }
 
+/// Compute the document path of a file relative to a workspace root.
+/// Returns a forward-slash-separated relative path when the file is under root,
+/// or just the filename as a fallback. Used for the MRSF sidecar `document` field.
+#[tauri::command]
+pub fn compute_document_path(file_path: String, root: Option<String>) -> String {
+    use std::path::Path;
+
+    if let Some(ref root_str) = root {
+        if !root_str.is_empty() {
+            let file = Path::new(&file_path);
+            let root_path = Path::new(root_str);
+            if let Ok(relative) = file.strip_prefix(root_path) {
+                let rel_str = relative.to_string_lossy();
+                if !rel_str.is_empty() {
+                    return rel_str.replace('\\', "/");
+                }
+            }
+        }
+    }
+    // Fallback: return just the filename
+    Path::new(&file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or(file_path)
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

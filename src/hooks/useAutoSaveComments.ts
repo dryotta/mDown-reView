@@ -1,20 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
-import { saveReviewComments } from "@/lib/tauri-commands";
+import { saveReviewComments, computeDocumentPath } from "@/lib/tauri-commands";
 import type { MrsfComment } from "@/lib/tauri-commands";
 import { enrichCommentsWithCommit } from "./useCommitEnricher";
 import { useStore } from "@/store";
 import { error as logError } from "@/logger";
-
-function computeDocumentPath(filePath: string, root: string | null): string {
-  if (root) {
-    const normalizedFile = filePath.replace(/\\/g, "/");
-    const normalizedRoot = root.replace(/\\/g, "/").replace(/\/$/, "") + "/";
-    if (normalizedFile.startsWith(normalizedRoot)) {
-      return normalizedFile.slice(normalizedRoot.length);
-    }
-  }
-  return filePath.split(/[/\\]/).pop() ?? filePath;
-}
 
 /**
  * Auto-save comments to MRSF sidecar file with 500ms debounce.
@@ -58,11 +47,13 @@ export function useAutoSaveComments(
   // Stable save function
   const doSave = useCallback(() => {
     if (!loadedRef.current || !dirtyRef.current) return;
-    const document = computeDocumentPath(filePath, root);
     const commentsToSave = comments ?? [];
 
-    enrichCommentsWithCommit(commentsToSave, filePath)
-      .then((enriched) => saveReviewComments(filePath, document, enriched))
+    Promise.all([
+      computeDocumentPath(filePath, root),
+      enrichCommentsWithCommit(commentsToSave, filePath),
+    ])
+      .then(([document, enriched]) => saveReviewComments(filePath, document, enriched))
       .then(() => {
         recordSave(filePath);
         recordSave(`${filePath}.review.yaml`);

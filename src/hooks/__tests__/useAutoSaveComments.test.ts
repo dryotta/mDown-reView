@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
   vi.mocked(commands.saveReviewComments).mockResolvedValue(undefined);
+  vi.mocked(commands.computeDocumentPath).mockResolvedValue("file.md");
   vi.mocked(enricher.enrichCommentsWithCommit).mockImplementation(async (c) => c);
   useStore.setState({ root: null, lastSaveByPath: {} });
 });
@@ -70,6 +71,7 @@ describe("useAutoSaveComments", () => {
 
   it("uses relative path when workspace root is set", async () => {
     useStore.setState({ root: "/path" });
+    vi.mocked(commands.computeDocumentPath).mockResolvedValue("sub/file.md");
     const { rerender } = renderHook(
       ({ comments, loadKey }) => useAutoSaveComments("/path/sub/file.md", comments, loadKey),
       { initialProps: { comments: [comment1], loadKey: 1 } }
