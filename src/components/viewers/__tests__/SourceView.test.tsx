@@ -35,4 +35,34 @@ describe("SourceView", () => {
     // Button is always rendered, CSS controls visibility
     expect(screen.getByLabelText("Add comment")).toBeInTheDocument();
   });
+
+  it("renders syntax-highlighted content from shiki", async () => {
+    render(<SourceView content={"const x = 1;"} path="/test.ts" filePath="/test.ts" />);
+    await waitFor(() => {
+      const lineContent = document.querySelector(".source-line-content");
+      expect(lineContent).not.toBeNull();
+      expect(lineContent!.innerHTML).toBe("highlighted");
+    });
+  });
+
+  it("renders highlighted content after content prop update", async () => {
+    const { rerender } = render(
+      <SourceView content={"line1"} path="/test.ts" filePath="/test.ts" />
+    );
+    await waitFor(() => {
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
+    rerender(
+      <SourceView content={"lineA\nlineB"} path="/test.ts" filePath="/test.ts" />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("2")).toBeInTheDocument();
+      const lineContents = document.querySelectorAll(".source-line-content");
+      expect(lineContents.length).toBe(2);
+      expect(lineContents[0].innerHTML).toBe("highlighted");
+      expect(lineContents[1].innerHTML).toBe("highlighted");
+    });
+  });
 });
