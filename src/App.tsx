@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useStore, openFilesFromArgs } from "@/store";
+import { useShallow } from "zustand/shallow";
 import { getLaunchArgs } from "@/lib/tauri-commands";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -106,17 +107,25 @@ const THEME_LABELS: Record<Theme, string> = {
 export default function App() {
   const {
     theme,
-    setTheme,
     root,
     folderPaneWidth,
-    setFolderPaneWidth,
     commentsPaneVisible,
-    toggleCommentsPane,
     activeTabPath,
-    openFile,
-    setRoot,
-    addRecentItem,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      theme: s.theme,
+      root: s.root,
+      folderPaneWidth: s.folderPaneWidth,
+      commentsPaneVisible: s.commentsPaneVisible,
+      activeTabPath: s.activeTabPath,
+    }))
+  );
+  const setTheme = useStore((s) => s.setTheme);
+  const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
+  const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
+  const openFile = useStore((s) => s.openFile);
+  const setRoot = useStore((s) => s.setRoot);
+  const addRecentItem = useStore((s) => s.addRecentItem);
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useStore } from "@/store";
+import { useShallow } from "zustand/shallow";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
 import "@/styles/folder-tree.css";
 
@@ -9,7 +10,16 @@ interface FolderTreeProps {
 }
 
 export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
-  const { root, expandedFolders, setFolderExpanded, activeTabPath, commentsByFile, ghostEntries } = useStore();
+  const { root, expandedFolders, activeTabPath, commentsByFile, ghostEntries } = useStore(
+    useShallow((s) => ({
+      root: s.root,
+      expandedFolders: s.expandedFolders,
+      activeTabPath: s.activeTabPath,
+      commentsByFile: s.commentsByFile,
+      ghostEntries: s.ghostEntries,
+    }))
+  );
+  const setFolderExpanded = useStore((s) => s.setFolderExpanded);
   const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
   const childrenCacheRef = useRef(childrenCache);
   // Sync ref after each render — needed by the stable loadChildren callback

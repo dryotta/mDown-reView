@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function CommentsPanel({ filePath, onScrollToLine }: Props) {
-  const { commentsByFile } = useStore();
+  const commentsByFile = useStore((s) => s.commentsByFile);
   const [showResolved, setShowResolved] = useState(false);
 
   const allComments = commentsByFile[filePath] ?? [];

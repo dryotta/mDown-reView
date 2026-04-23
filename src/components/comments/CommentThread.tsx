@@ -25,7 +25,10 @@ function CommentItem({ comment, variant, onStartReply }: {
   variant: "root" | "reply";
   onStartReply?: () => void;
 }) {
-  const { editComment, deleteComment, resolveComment, unresolveComment } = useStore();
+  const editComment = useStore((s) => s.editComment);
+  const deleteComment = useStore((s) => s.deleteComment);
+  const resolveComment = useStore((s) => s.resolveComment);
+  const unresolveComment = useStore((s) => s.unresolveComment);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
 
@@ -108,7 +111,7 @@ interface CommentThreadProps {
 }
 
 export function CommentThread({ rootComment, replies = [], filePath }: CommentThreadProps) {
-  const { addReply } = useStore();
+  const addReply = useStore((s) => s.addReply);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
