@@ -41,10 +41,12 @@ export function useSourceHighlighting(content: string, path: string) {
 
   // Syntax highlighting per line (uses deferred lines to avoid blocking during rapid updates)
   useEffect(() => {
+    let cancelled = false;
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";
     const lang = langFromPath(path);
     getSharedHighlighter()
       .then(async (hl) => {
+        if (cancelled) return;
         const loaded = hl.getLoadedLanguages();
         if (!loaded.includes(lang) && lang !== "text") {
           if (lang === "kql") {
@@ -56,6 +58,7 @@ export function useSourceHighlighting(content: string, path: string) {
             await hl.loadLanguage(lang as BundledLanguage).catch(() => {});
           }
         }
+        if (cancelled) return;
         const htmlLines = deferredLines.map((line) => {
           try {
             return hl.codeToHtml(line || " ", { lang, theme });
@@ -65,7 +68,8 @@ export function useSourceHighlighting(content: string, path: string) {
         });
         setHighlightedLines(htmlLines);
       })
-      .catch(() => setHighlightedLines([]));
+      .catch(() => { if (!cancelled) setHighlightedLines([]); });
+    return () => { cancelled = true; };
   }, [deferredLines, path, currentTheme]);
 
   return { highlightedLines };
