@@ -59,7 +59,7 @@ pub fn load_review_file(sidecar_path: &str) -> Result<MrsfSidecar, String> {
     if sidecar_path.ends_with(".review.json") {
         serde_json::from_str(&content).map_err(|e| e.to_string())
     } else {
-        serde_yaml::from_str(&content).map_err(|e| e.to_string())
+        serde_yaml_ng::from_str(&content).map_err(|e| e.to_string())
     }
 }
 

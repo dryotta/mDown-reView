@@ -181,7 +181,7 @@ fn resolve_marks_comment_resolved() {
     // Verify the comment is now resolved
     let content = std::fs::read_to_string(&sidecar).unwrap();
     // Parse and check
-    let sidecar_data: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
+    let sidecar_data: serde_yaml_ng::Value = serde_yaml_ng::from_str(&content).unwrap();
     let comments = sidecar_data["comments"].as_sequence().unwrap();
     let m1 = comments.iter().find(|c| c["id"].as_str() == Some("m1")).unwrap();
     assert_eq!(m1["resolved"].as_bool(), Some(true));
@@ -248,7 +248,7 @@ fn respond_adds_response_without_resolving() {
     // Verify response added but NOT resolved
     let content = std::fs::read_to_string(&sidecar).unwrap();
     assert!(content.contains("Working on it"));
-    let sidecar_data: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
+    let sidecar_data: serde_yaml_ng::Value = serde_yaml_ng::from_str(&content).unwrap();
     let comments = sidecar_data["comments"].as_sequence().unwrap();
     let m1 = comments.iter().find(|c| c["id"].as_str() == Some("m1")).unwrap();
     assert_eq!(m1["resolved"].as_bool(), Some(false));

@@ -72,8 +72,8 @@ fn mrsf_sidecar_yaml_roundtrip() {
         document: "docs/test.md".to_string(),
         comments: vec![make_mrsf_comment("abc-123")],
     };
-    let yaml = serde_yaml::to_string(&sidecar).unwrap();
-    let parsed: MrsfSidecar = serde_yaml::from_str(&yaml).unwrap();
+    let yaml = serde_yaml_ng::to_string(&sidecar).unwrap();
+    let parsed: MrsfSidecar = serde_yaml_ng::from_str(&yaml).unwrap();
     assert_eq!(parsed.mrsf_version, "1.0");
     assert_eq!(parsed.comments.len(), 1);
     assert_eq!(parsed.comments[0].line, Some(10));
@@ -96,7 +96,7 @@ fn mrsf_sidecar_json_roundtrip() {
 #[test]
 fn mrsf_comment_type_field_serializes_as_type() {
     let comment = make_mrsf_comment("c1");
-    let yaml = serde_yaml::to_string(&comment).unwrap();
+    let yaml = serde_yaml_ng::to_string(&comment).unwrap();
     assert!(yaml.contains("type: suggestion"), "should serialize as 'type' not 'comment_type'");
 }
 
@@ -107,7 +107,7 @@ fn mrsf_optional_fields_omitted_when_none() {
     comment.selected_text = None;
     comment.comment_type = None;
     comment.severity = None;
-    let yaml = serde_yaml::to_string(&comment).unwrap();
+    let yaml = serde_yaml_ng::to_string(&comment).unwrap();
     assert!(!yaml.contains("line:"), "None fields should be omitted");
     assert!(!yaml.contains("selected_text:"), "None fields should be omitted");
 }

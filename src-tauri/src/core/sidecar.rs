@@ -5,7 +5,7 @@ use std::path::Path;
 #[derive(Debug)]
 pub enum SidecarError {
     Io(std::io::Error),
-    YamlParse(serde_yaml::Error),
+    YamlParse(serde_yaml_ng::Error),
     JsonParse(serde_json::Error),
     NotFound,
     CommentNotFound(String),
@@ -42,7 +42,7 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
     match std::fs::read_to_string(&yaml_path) {
         Ok(content) => {
             let sidecar: MrsfSidecar =
-                serde_yaml::from_str(&content).map_err(SidecarError::YamlParse)?;
+                serde_yaml_ng::from_str(&content).map_err(SidecarError::YamlParse)?;
             return Ok(Some(sidecar));
         }
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -83,7 +83,7 @@ pub fn save_sidecar(
         document: document.to_string(),
         comments: comments.to_vec(),
     };
-    let yaml = serde_yaml::to_string(&payload).map_err(SidecarError::YamlParse)?;
+    let yaml = serde_yaml_ng::to_string(&payload).map_err(SidecarError::YamlParse)?;
 
     let dir = sidecar_path
         .parent()
@@ -104,7 +104,7 @@ pub fn save_sidecar(
 }
 
 /// Surgically modify a comment in a sidecar file.
-/// Loads as serde_yaml::Value, finds comment by ID, applies mutations,
+/// Loads as serde_yaml_ng::Value, finds comment by ID, applies mutations,
 /// writes back preserving all unknown fields and structure.
 pub fn patch_comment(
     file_path: &str,
@@ -124,7 +124,7 @@ pub fn patch_comment(
                     let json_val: serde_json::Value =
                         serde_json::from_str(&c).map_err(SidecarError::JsonParse)?;
                     let yaml_str =
-                        serde_yaml::to_string(&json_val).map_err(SidecarError::YamlParse)?;
+                        serde_yaml_ng::to_string(&json_val).map_err(SidecarError::YamlParse)?;
                     (yaml_str, yaml_path.clone()) // Write as YAML
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -136,8 +136,8 @@ pub fn patch_comment(
         Err(e) => return Err(SidecarError::Io(e)),
     };
 
-    let mut doc: serde_yaml::Value =
-        serde_yaml::from_str(&content).map_err(SidecarError::YamlParse)?;
+    let mut doc: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&content).map_err(SidecarError::YamlParse)?;
 
     let comments = doc
         .get_mut("comments")
@@ -157,7 +157,7 @@ pub fn patch_comment(
     for mutation in mutations {
         match mutation {
             CommentMutation::SetResolved(resolved) => {
-                comment["resolved"] = serde_yaml::Value::Bool(*resolved);
+                comment["resolved"] = serde_yaml_ng::Value::Bool(*resolved);
             }
             CommentMutation::AddResponse {
                 author,
@@ -167,19 +167,19 @@ pub fn patch_comment(
                 let responses = comment
                     .get_mut("responses")
                     .and_then(|v| v.as_sequence_mut());
-                let new_response = serde_yaml::Value::Mapping({
-                    let mut m = serde_yaml::Mapping::new();
+                let new_response = serde_yaml_ng::Value::Mapping({
+                    let mut m = serde_yaml_ng::Mapping::new();
                     m.insert(
-                        serde_yaml::Value::String("author".to_string()),
-                        serde_yaml::Value::String(author.clone()),
+                        serde_yaml_ng::Value::String("author".to_string()),
+                        serde_yaml_ng::Value::String(author.clone()),
                     );
                     m.insert(
-                        serde_yaml::Value::String("text".to_string()),
-                        serde_yaml::Value::String(text.clone()),
+                        serde_yaml_ng::Value::String("text".to_string()),
+                        serde_yaml_ng::Value::String(text.clone()),
                     );
                     m.insert(
-                        serde_yaml::Value::String("timestamp".to_string()),
-                        serde_yaml::Value::String(timestamp.clone()),
+                        serde_yaml_ng::Value::String("timestamp".to_string()),
+                        serde_yaml_ng::Value::String(timestamp.clone()),
                     );
                     m
                 });
@@ -187,14 +187,14 @@ pub fn patch_comment(
                     Some(seq) => seq.push(new_response),
                     None => {
                         comment["responses"] =
-                            serde_yaml::Value::Sequence(vec![new_response]);
+                            serde_yaml_ng::Value::Sequence(vec![new_response]);
                     }
                 }
             }
         }
     }
 
-    let yaml_out = serde_yaml::to_string(&doc).map_err(SidecarError::YamlParse)?;
+    let yaml_out = serde_yaml_ng::to_string(&doc).map_err(SidecarError::YamlParse)?;
 
     // Atomic write
     let dest = Path::new(&source_path);
