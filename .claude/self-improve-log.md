@@ -154,3 +154,14 @@
 - **Validation**: All checks passed (470 tests, lint clean)
 - **Tests written**: 3 tests (isPending flag, transition deferral, clear behavior)
 - **Expert review**: Skipped (simple React hook addition)
+
+## tauri-emit-to-window  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-tauri-emit-to-window
+- **Type**: feature (Rust/Tauri v2)
+- **Task**: Use emit_to() instead of emit() for file-changed events
+- **Expert**: react-tauri
+- **Commit**: dc1620a
+- **Validation**: All checks passed (31 Rust tests, 470 Vitest tests, lint clean)
+- **Tests written**: 2 Rust tests (FileChangeEvent serialization)
+- **Expert review**: Skipped (1-line Rust API change)

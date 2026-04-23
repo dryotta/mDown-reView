@@ -35,7 +35,7 @@ branch: main
 | perf-fold-regions-string-concat | Fix O(n²) string concatenation in computeFoldRegions | P3 | feature | yes | performance | src/lib/fold-regions.ts | low | no | done |
 | react-use-deferred-value-shiki | Add useDeferredValue for Shiki highlighting | P3 | feature | yes | react-tauri | src/components/viewers/SourceView.tsx | low | no | done |
 | react-use-transition-search | Add useTransition for search input | P3 | feature | yes | react-tauri | src/hooks/useSearch.ts | low | no | done |
-| tauri-emit-to-window | Use emit_to() instead of emit() for file-changed events | P3 | feature | yes | react-tauri | src-tauri/src/watcher.rs | low | no | open |
+| tauri-emit-to-window | Use emit_to() instead of emit() for file-changed events | P3 | feature | yes | react-tauri | src-tauri/src/watcher.rs | low | no | done |
 | feat-comment-markdown-render | Render comment text as markdown instead of plain text | P3 | feature | yes | product | src/components/comments/CommentThread.tsx | low | no | open |
 
 <!-- Status values: open, done, failed, skipped -->
@@ -466,6 +466,12 @@ it('should scan on sidecar file deletion', async () => {
 
 ### 2026-04-22  react-use-transition-search  DONE
 - **Lesson**: useTransition pairs well with useMemo for deferring expensive computations.
+- **New tasks added**: none
+- **Tasks re-prioritized**: none
+- **Process improvement**: none
+
+### 2026-04-22  tauri-emit-to-window  DONE
+- **Lesson**: emit_to with window label is the correct Tauri v2 pattern for scoped events.
 - **New tasks added**: none
 - **Tasks re-prioritized**: none
 - **Process improvement**: none
