@@ -256,3 +256,81 @@ describe("ViewerRouter scroll throttle", () => {
     spy.mockRestore();
   });
 });
+
+describe("ViewerRouter scroll feedback loop prevention", () => {
+  let rafCallbacks: Array<() => void>;
+  let rafIdCounter: number;
+  let cancelledIds: Set<number>;
+
+  beforeEach(() => {
+    rafCallbacks = [];
+    rafIdCounter = 0;
+    cancelledIds = new Set();
+
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+      const id = ++rafIdCounter;
+      rafCallbacks.push(() => {
+        if (!cancelledIds.has(id)) cb(performance.now());
+      });
+      return id;
+    });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((id) => {
+      cancelledIds.add(id);
+    });
+  });
+
+  function flushRaf() {
+    const batch = rafCallbacks.splice(0);
+    batch.forEach((cb) => cb());
+  }
+
+  it("scroll-save does not trigger scroll-restore (no feedback loop)", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "text" });
+    useStore.setState({ tabs: [{ path: "/loop.txt", scrollTop: 0 }] });
+
+    render(<ViewerRouter path="/loop.txt" />);
+
+    const container = screen.getByTestId("enhanced-viewer").parentElement!;
+
+    // Simulate user scrolling repeatedly
+    for (let i = 1; i <= 10; i++) {
+      fireEvent.scroll(container, { target: { scrollTop: i * 50 } });
+      act(() => flushRaf());
+    }
+
+    // Store should have the final scroll position
+    const tab = useStore.getState().tabs.find((t) => t.path === "/loop.txt");
+    expect(tab?.scrollTop).toBe(500);
+  });
+
+  it("setScrollTop is a no-op when value is unchanged", () => {
+    useStore.setState({ tabs: [{ path: "/noop.txt", scrollTop: 200 }] });
+
+    const stateBefore = useStore.getState();
+    useStore.getState().setScrollTop("/noop.txt", 200);
+    const stateAfter = useStore.getState();
+
+    // Should be the exact same reference (no unnecessary re-renders)
+    expect(stateAfter.tabs).toBe(stateBefore.tabs);
+  });
+
+  it("setScrollTop updates when value changes", () => {
+    useStore.setState({ tabs: [{ path: "/change.txt", scrollTop: 100 }] });
+
+    useStore.getState().setScrollTop("/change.txt", 300);
+
+    const tab = useStore.getState().tabs.find((t) => t.path === "/change.txt");
+    expect(tab?.scrollTop).toBe(300);
+  });
+
+  it("setScrollTop is a no-op for non-existent tab", () => {
+    useStore.setState({ tabs: [{ path: "/exists.txt", scrollTop: 0 }] });
+
+    const stateBefore = useStore.getState();
+    useStore.getState().setScrollTop("/missing.txt", 100);
+    const stateAfter = useStore.getState();
+
+    // Should not create a new state
+    expect(stateAfter.tabs).toBe(stateBefore.tabs);
+  });
+});
