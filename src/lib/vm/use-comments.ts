@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getFileComments,
@@ -96,11 +96,10 @@ export function useComments(filePath: string | null): UseCommentsResult {
     return () => { listenerPromise.then((fn) => fn()); };
   }, [filePath, load]);
 
-  // Flatten all comments from threads for convenience
-  const comments: MatchedComment[] = threads.flatMap((t) => [
-    t.root,
-    ...t.replies,
-  ]);
+  const comments: MatchedComment[] = useMemo(
+    () => threads.flatMap((t) => [t.root, ...t.replies]),
+    [threads]
+  );
 
   return { threads, comments, loading, reload: load };
 }
