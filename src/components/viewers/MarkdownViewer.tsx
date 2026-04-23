@@ -27,10 +27,9 @@ import { CommentThread } from "@/components/comments/CommentThread";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
-import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import type { MatchedComment, CommentAnchor } from "@/lib/tauri-commands";
+import type { CommentThread as CommentThreadType, CommentAnchor } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import "@/styles/markdown.css";
@@ -187,7 +186,7 @@ function MdCommentPopover({
   expandedLine,
   commentingLine,
   bodyRef,
-  commentsByLine,
+  threadsByLine,
   filePath,
   lines,
   pendingSelectionAnchor,
@@ -199,7 +198,7 @@ function MdCommentPopover({
   expandedLine: number | null;
   commentingLine: number | null;
   bodyRef: React.RefObject<HTMLDivElement | null>;
-  commentsByLine: Map<number, MatchedComment[]>;
+  threadsByLine: Map<number, CommentThreadType[]>;
   filePath: string;
   lines: string[];
   pendingSelectionAnchor: CommentAnchor | null;
@@ -228,7 +227,7 @@ function MdCommentPopover({
 
   if (!activeLine || !position) return null;
 
-  const lineComments = commentsByLine.get(activeLine) ?? [];
+  const lineThreads = threadsByLine.get(activeLine) ?? [];
   return (
     <div className="md-comment-popover" style={{
       position: "absolute",
@@ -236,9 +235,9 @@ function MdCommentPopover({
       left: 24,
       zIndex: 20,
     }}>
-      {lineComments.length > 0 && (
+      {lineThreads.length > 0 && (
         <div className="md-comment-threads">
-          {groupCommentsIntoThreads(lineComments).map(t => <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />)}
+          {lineThreads.map(t => <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />)}
         </div>
       )}
 
@@ -247,7 +246,7 @@ function MdCommentPopover({
           filePath={filePath}
           lineNumber={activeLine}
           lineText={lines[activeLine - 1] ?? ""}
-          matchedComments={[]}
+          threads={[]}
           showInput={true}
           onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); setPendingSelectionAnchor(null); }}
           onSaveComment={
@@ -287,19 +286,19 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   const lines = useMemo(() => body.split("\n"), [body]);
 
-  const { comments } = useComments(filePath);
+  const { threads } = useComments(filePath);
   const { addComment } = useCommentActions();
 
-  const commentsByLine = useMemo(() => {
-    const map = new Map<number, MatchedComment[]>();
-    for (const c of comments) {
-      const ln = c.matchedLineNumber ?? c.line ?? 1;
+  const threadsByLine = useMemo(() => {
+    const map = new Map<number, CommentThreadType[]>();
+    for (const t of threads) {
+      const ln = t.root.matchedLineNumber ?? t.root.line ?? 1;
       const arr = map.get(ln) ?? [];
-      arr.push(c);
+      arr.push(t);
       map.set(ln, arr);
     }
     return map;
-  }, [comments]);
+  }, [threads]);
 
   // Build components with img resolver (only img depends on filePath)
   const components = useMemo(() => ({
@@ -338,22 +337,27 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   const commentCountByLine = useMemo(() => {
     const map = new Map<number, number>();
-    for (const [ln, cmts] of commentsByLine) {
-      map.set(ln, cmts.filter(c => !c.resolved).length);
+    for (const [ln, lineThreads] of threadsByLine) {
+      let count = 0;
+      for (const t of lineThreads) {
+        if (!t.root.resolved) count++;
+        count += t.replies.filter(r => !r.resolved).length;
+      }
+      map.set(ln, count);
     }
     return map;
-  }, [commentsByLine]);
+  }, [threadsByLine]);
 
   const handleLineClick = useCallback((line: number) => {
-    const lineComments = commentsByLine.get(line) ?? [];
-    if (lineComments.length > 0) {
+    const lineThreads = threadsByLine.get(line) ?? [];
+    if (lineThreads.length > 0) {
       setExpandedLine(expandedLine === line ? null : line);
       setCommentingLine(null);
     } else {
       setCommentingLine(commentingLine === line ? null : line);
       setExpandedLine(null);
     }
-  }, [commentsByLine, expandedLine, commentingLine]);
+  }, [threadsByLine, expandedLine, commentingLine]);
 
   const contextValue = useMemo(() => ({
     commentCountByLine,
@@ -455,7 +459,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               expandedLine={expandedLine}
               commentingLine={commentingLine}
               bodyRef={bodyRef}
-              commentsByLine={commentsByLine}
+              threadsByLine={threadsByLine}
               filePath={filePath}
               lines={lines}
               pendingSelectionAnchor={pendingSelectionAnchor}
