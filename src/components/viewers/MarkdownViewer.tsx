@@ -24,7 +24,7 @@ import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import { CommentThread } from "@/components/comments/CommentThread";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
-import { computeSelectedTextHash } from "@/lib/comment-anchors";
+import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { useComments } from "@/lib/vm/use-comments";
@@ -417,7 +417,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     const { lineNumber, selectedText } = selectionToolbar;
 
     const truncated = truncateSelectedText(selectedText);
-    const hash = await computeSelectedTextHash(truncated);
+    const hash = await computeAnchorHash(truncated);
 
     setPendingSelectionAnchor({
       line: lineNumber,

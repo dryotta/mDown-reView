@@ -3,7 +3,7 @@ import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentInput } from "./CommentInput";
 import { CommentThread } from "./CommentThread";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
-import { computeSelectedTextHash } from "@/lib/comment-anchors";
+import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
 import type { CommentWithOrphan } from "@/store";
 import "@/styles/comments.css";
@@ -34,7 +34,7 @@ export function LineCommentMargin({
     } else {
       // MRSF §6.2: line-only comments SHOULD include full line as selected_text
       const selectedText = truncateSelectedText(lineText);
-      const hash = await computeSelectedTextHash(selectedText);
+      const hash = await computeAnchorHash(selectedText);
       addComment(filePath, text, { line: lineNumber, selected_text: selectedText, selected_text_hash: hash }).catch(() => {});
     }
     onCloseInput?.();

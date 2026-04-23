@@ -147,4 +147,6 @@ export const setCommentResolved = (
 ): Promise<void> =>
   invoke<void>("set_comment_resolved", { filePath, commentId, resolved });
 
+export const computeAnchorHash = (text: string): Promise<string> =>
+  invoke<string>("compute_anchor_hash", { text });
 

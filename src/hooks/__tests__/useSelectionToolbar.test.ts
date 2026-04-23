@@ -2,9 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSelectionToolbar } from "../useSelectionToolbar";
 
-vi.mock("@/lib/comment-anchors", () => ({
-  computeSelectedTextHash: vi.fn().mockResolvedValue("abc123hash"),
-}));
+vi.mock("@/lib/tauri-commands", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-commands")>();
+  return {
+    ...actual,
+    computeAnchorHash: vi.fn().mockResolvedValue("abc123hash"),
+  };
+});
 
 vi.mock("@/lib/comment-utils", () => ({
   truncateSelectedText: vi.fn((t: string) => t),

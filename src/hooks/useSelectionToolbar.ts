@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { computeSelectedTextHash } from "@/lib/comment-anchors";
+import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
 
 interface SelectionState {
@@ -72,7 +72,7 @@ export function useSelectionToolbar() {
     const { lineNumber, selectedText, startOffset, endLine, endOffset } = selectionToolbar;
 
     const truncated = truncateSelectedText(selectedText);
-    const hash = await computeSelectedTextHash(truncated);
+    const hash = await computeAnchorHash(truncated);
 
     setPendingSelectionAnchor({
       line: lineNumber,
