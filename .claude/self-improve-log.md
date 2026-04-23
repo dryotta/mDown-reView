@@ -74,3 +74,27 @@
 - **Validation**: All checks passed (57 comment tests, lint clean)
 - **Tests written**: None (perf optimization, existing tests pass)
 - **Expert review**: Skipped (single-file memoization addition)
+
+## remove-dead-collapse-all — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-remove-dead-code-p3
+- **Type**: dead-code
+- **Task**: Remove unused collapseAll store action
+- **Expert**: perf
+- **Commit**: fbc324e
+
+## dedup-welcome-path-helpers — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-remove-dead-code-p3
+- **Type**: dead-code
+- **Task**: Replace inline path helpers in WelcomeView with path-utils imports
+- **Expert**: perf
+- **Commit**: fbc324e
+
+## simplify-search-hook — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-remove-dead-code-p3
+- **Type**: refactor
+- **Task**: Replace useTransition+deferredQuery state with useDeferredValue
+- **Expert**: react-tauri
+- **Commit**: fbc324e

@@ -27,10 +27,10 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | src/components/viewers/SourceView.tsx | medium | no | no | open |
 | dead-ipc-wrappers | Remove unused IPC wrappers from tauri-commands.ts | P2 | dead-code | yes | perf | src/lib/tauri-commands.ts | low | no | yes | open |
 | bug-unicode-truncation | Fix Unicode truncation mismatch between TS and Rust | P2 | bug | yes | security | src/lib/comment-utils.ts, src-tauri/src/core/anchors.rs | low | yes | yes | done |
-| dedup-welcome-path-helpers | Replace inline path helpers in WelcomeView with path-utils | P3 | dead-code | yes | perf | src/components/WelcomeView.tsx | low | no | yes | open |
-| remove-dead-collapse-all | Remove unused collapseAll store action | P3 | dead-code | yes | perf | src/store/index.ts | low | no | yes | open |
+| dedup-welcome-path-helpers | Replace inline path helpers in WelcomeView with path-utils | P3 | dead-code | yes | perf | src/components/WelcomeView.tsx | low | no | yes | done |
+| remove-dead-collapse-all | Remove unused collapseAll store action | P3 | dead-code | yes | perf | src/store/index.ts | low | no | yes | done |
 | remove-dead-reset-commit-cache | Remove unused resetCommitCache export | P3 | dead-code | yes | security | src/hooks/useCommitEnricher.ts | low | no | yes | open |
-| simplify-search-hook | Replace useTransition+deferredQuery with useDeferredValue | P3 | refactor | yes | react-tauri | src/hooks/useSearch.ts | low | no | yes | open |
+| simplify-search-hook | Replace useTransition+deferredQuery with useDeferredValue | P3 | refactor | yes | react-tauri | src/hooks/useSearch.ts | low | no | yes | done |
 | rust-html-asset-resolution | Move HTML asset resolution to single Rust command | P3 | rust-migration | no | react-tauri | src/lib/resolve-html-assets.ts | medium | no | no | open |
 | rust-fold-regions | Port fold region computation to Rust | P3 | rust-migration | no | architect | src/lib/fold-regions.ts | medium | no | no | open |
 | security-sidecar-file-lock | Add per-file mutex for concurrent sidecar writes | P3 | security | no | security | src-tauri/src/core/sidecar.rs | medium | yes | no | open |
