@@ -98,3 +98,11 @@
 - **Task**: Replace useTransition+deferredQuery state with useDeferredValue
 - **Expert**: react-tauri
 - **Commit**: fbc324e
+
+## security-enable-csp — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-security-enable-csp
+- **Type**: security
+- **Task**: Enable Content Security Policy in tauri.conf.json
+- **Expert**: security
+- **Commit**: f057953

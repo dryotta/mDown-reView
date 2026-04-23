@@ -21,7 +21,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | fix-stale-persistence-test | Fix stale persistence test contradicting tab persistence | P2 | test | yes | test-gap | src/__tests__/store/persistence.test.ts | low | no | yes | done |
 | perf-comments-panel-memo | Add useMemo to CommentsPanel grouping/sorting/filtering | P2 | perf | yes | perf | src/components/comments/CommentsPanel.tsx | low | no | no | done |
 | simplify-custom-event-bus | Replace DOM CustomEvent bridge with direct Tauri event subs | P2 | refactor | no | react-tauri, architect | src/hooks/useFileWatcher.ts, viewers | medium | no | yes | open |
-| security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | security | yes | security | src-tauri/tauri.conf.json | medium | no | no | open |
+| security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | security | yes | security | src-tauri/tauri.conf.json | medium | no | no | done |
 | security-path-validation | Add path validation to all file-accepting Rust commands | P2 | security | no | security | src-tauri/src/commands.rs | medium | yes | no | open |
 | refactor-sourceview-god-component | Break up SourceView.tsx into focused hooks | P2 | refactor | no | architect | src/components/viewers/SourceView.tsx | medium | no | yes | open |
 | perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | src/components/viewers/SourceView.tsx | medium | no | no | open |
