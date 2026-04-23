@@ -5,6 +5,7 @@ import rehypeSlug from "rehype-slug";
 import { getSharedHighlighter } from "@/lib/shiki";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl as shellOpen } from "@tauri-apps/plugin-opener";
+import { useTheme } from "@/hooks/useTheme";
 import {
   useState,
   useEffect,
@@ -31,9 +32,8 @@ import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import type { MatchedComment, CommentAnchor } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
+import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import "@/styles/markdown.css";
-
-const SIZE_WARN_THRESHOLD = 500 * 1024;
 
 interface Props {
   content: string;
@@ -67,16 +67,7 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
 
   // Track data-theme for reactive re-highlighting
-  const [currentTheme, setCurrentTheme] = useState(
-    () => document.documentElement.getAttribute("data-theme") ?? "light"
-  );
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setCurrentTheme(document.documentElement.getAttribute("data-theme") ?? "light");
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  }, []);
+  const currentTheme = useTheme();
 
   useEffect(() => {
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";

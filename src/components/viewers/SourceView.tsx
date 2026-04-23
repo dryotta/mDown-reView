@@ -8,9 +8,8 @@ import { useSourceHighlighting, escapeHtml } from "@/hooks/useSourceHighlighting
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
 import { useFolding } from "@/hooks/useFolding";
 import { SearchBar } from "./SearchBar";
+import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import "@/styles/source-viewer.css";
-
-const SIZE_WARN_THRESHOLD = 500 * 1024;
 
 interface Props {
   content: string;

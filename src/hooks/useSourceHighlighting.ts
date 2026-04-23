@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import { type BundledLanguage } from "shiki";
 import { getSharedHighlighter } from "@/lib/shiki";
 import { extname } from "@/lib/path-utils";
+import { useTheme } from "@/hooks/useTheme";
 import kqlGrammar from "@/lib/kql.tmLanguage.json";
 
 export function escapeHtml(s: string): string {
@@ -27,17 +28,7 @@ export function useSourceHighlighting(content: string, path: string) {
   const deferredContent = useDeferredValue(content);
   const deferredLines = useMemo(() => deferredContent.split("\n"), [deferredContent]);
 
-  // Theme tracking
-  const [currentTheme, setCurrentTheme] = useState(
-    () => document.documentElement.getAttribute("data-theme") ?? "light"
-  );
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setCurrentTheme(document.documentElement.getAttribute("data-theme") ?? "light");
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  }, []);
+  const currentTheme = useTheme();
 
   // Syntax highlighting per line (uses deferred lines to avoid blocking during rapid updates)
   useEffect(() => {
