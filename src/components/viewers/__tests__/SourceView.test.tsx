@@ -4,7 +4,11 @@ import { SourceView } from "../SourceView";
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
-    codeToHtml: vi.fn().mockReturnValue("<pre><code>highlighted</code></pre>"),
+    codeToHtml: vi.fn().mockImplementation((code: string) => {
+      const lines = code.split("\n");
+      const lineSpans = lines.map(() => '<span class="line">highlighted</span>').join("\n");
+      return `<pre class="shiki"><code>${lineSpans}</code></pre>`;
+    }),
     getLoadedLanguages: vi.fn().mockReturnValue([]),
     loadLanguage: vi.fn().mockResolvedValue(undefined),
   }),

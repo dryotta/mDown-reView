@@ -30,7 +30,7 @@ export function useSourceHighlighting(content: string, path: string) {
 
   const currentTheme = useTheme();
 
-  // Syntax highlighting per line (uses deferred lines to avoid blocking during rapid updates)
+  // Syntax highlighting: single call for the whole document, then split by line
   useEffect(() => {
     let cancelled = false;
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";
@@ -50,18 +50,30 @@ export function useSourceHighlighting(content: string, path: string) {
           }
         }
         if (cancelled) return;
-        const htmlLines = deferredLines.map((line) => {
-          try {
-            return hl.codeToHtml(line || " ", { lang, theme });
-          } catch {
-            return `<pre><code>${escapeHtml(line)}</code></pre>`;
+        try {
+          const fullHtml = hl.codeToHtml(deferredContent || " ", { lang, theme });
+          // Shiki wraps each line in <span class="line">...</span>
+          // Extract the inner HTML of each line span
+          const lineRegex = /<span class="line">(.*?)<\/span>/gs;
+          const htmlLines: string[] = [];
+          let match;
+          while ((match = lineRegex.exec(fullHtml)) !== null) {
+            htmlLines.push(match[1]);
           }
-        });
-        setHighlightedLines(htmlLines);
+          // Fallback: if regex didn't match (unexpected format), use plain escape
+          if (htmlLines.length === 0) {
+            for (const line of deferredLines) {
+              htmlLines.push(escapeHtml(line));
+            }
+          }
+          setHighlightedLines(htmlLines);
+        } catch {
+          setHighlightedLines(deferredLines.map(l => escapeHtml(l)));
+        }
       })
       .catch(() => { if (!cancelled) setHighlightedLines([]); });
     return () => { cancelled = true; };
-  }, [deferredLines, path, currentTheme]);
+  }, [deferredContent, deferredLines, path, currentTheme]);
 
   return { highlightedLines };
 }
