@@ -14,3 +14,15 @@
 - **Validation**: All checks passed (110 Rust tests, 496 Vitest, lint clean)
 - **Tests written**: comments_changed_event_serializes_with_file_path, comments_changed_event_payload_matches_frontend_listener
 - **Expert review**: Skipped (small, well-scoped Rust-only change)
+
+## bug-listen-cleanup-race — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-bug-listen-cleanup-race
+- **Type**: bug-fix
+- **Task**: Fix listen() cleanup race in use-comments.ts
+- **Expert**: react-tauri
+- **Directive**: MVVM migration cleanup
+- **Commit**: 195b378
+- **Validation**: All checks passed (500 Vitest, lint clean)
+- **Tests written**: 4 tests (rapid unmount comments-changed, rapid unmount file-changed, normal cleanup, null filePath guard)
+- **Expert review**: Skipped (small hook fix with comprehensive tests)
