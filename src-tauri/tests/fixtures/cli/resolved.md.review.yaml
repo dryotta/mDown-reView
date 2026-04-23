@@ -1,0 +1,13 @@
+mrsf_version: "1.0"
+document: "resolved.md"
+comments:
+  - id: "r1"
+    author: "reviewer"
+    timestamp: "2025-01-01T00:00:00Z"
+    text: "All good here"
+    resolved: true
+  - id: "r2"
+    author: "reviewer"
+    timestamp: "2025-01-01T01:00:00Z"
+    text: "This is fine too"
+    resolved: true

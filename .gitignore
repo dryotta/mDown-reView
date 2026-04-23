@@ -34,3 +34,8 @@ __pycache__/
 .claude/settings.local.json
 .e2e-native.pid
 *.review.yaml
+
+# Keep test and bench fixture sidecar files
+!src-tauri/tests/fixtures/**/*.review.yaml
+!src-tauri/benches/fixtures/**/*.review.yaml
+!src/__tests__/fixtures/**/*.review.yaml

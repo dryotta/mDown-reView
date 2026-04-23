@@ -1,0 +1,353 @@
+mrsf_version: "1.0"
+document: "file_100_lines.md"
+comments:
+  - id: "bench-1"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:01Z"
+    text: "Benchmark comment number 1 for performance testing"
+    resolved: false
+    line: 1
+    selected_text: "Line 1 of the source file with some content for benchmarking purposes"
+  - id: "bench-2"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:02Z"
+    text: "Benchmark comment number 2 for performance testing"
+    resolved: false
+    line: 3
+    selected_text: "Line 3 of the source file with some content for benchmarking purposes"
+  - id: "bench-3"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:03Z"
+    text: "Benchmark comment number 3 for performance testing"
+    resolved: false
+    line: 5
+    selected_text: "Line 5 of the source file with some content for benchmarking purposes"
+  - id: "bench-4"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:04Z"
+    text: "Benchmark comment number 4 for performance testing"
+    resolved: false
+    line: 7
+    selected_text: "Line 7 of the source file with some content for benchmarking purposes"
+  - id: "bench-5"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:05Z"
+    text: "Benchmark comment number 5 for performance testing"
+    resolved: false
+    line: 9
+    selected_text: "Line 9 of the source file with some content for benchmarking purposes"
+  - id: "bench-6"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:06Z"
+    text: "Benchmark comment number 6 for performance testing"
+    resolved: false
+    line: 11
+    selected_text: "Line 11 of the source file with some content for benchmarking purposes"
+  - id: "bench-7"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:07Z"
+    text: "Benchmark comment number 7 for performance testing"
+    resolved: false
+    line: 13
+    selected_text: "Line 13 of the source file with some content for benchmarking purposes"
+  - id: "bench-8"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:08Z"
+    text: "Benchmark comment number 8 for performance testing"
+    resolved: false
+    line: 15
+    selected_text: "Line 15 of the source file with some content for benchmarking purposes"
+  - id: "bench-9"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:09Z"
+    text: "Benchmark comment number 9 for performance testing"
+    resolved: false
+    line: 17
+    selected_text: "Line 17 of the source file with some content for benchmarking purposes"
+  - id: "bench-10"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:10Z"
+    text: "Benchmark comment number 10 for performance testing"
+    resolved: false
+    line: 19
+    selected_text: "Line 19 of the source file with some content for benchmarking purposes"
+  - id: "bench-11"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:11Z"
+    text: "Benchmark comment number 11 for performance testing"
+    resolved: false
+    line: 21
+    selected_text: "Line 21 of the source file with some content for benchmarking purposes"
+  - id: "bench-12"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:12Z"
+    text: "Benchmark comment number 12 for performance testing"
+    resolved: false
+    line: 23
+    selected_text: "Line 23 of the source file with some content for benchmarking purposes"
+  - id: "bench-13"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:13Z"
+    text: "Benchmark comment number 13 for performance testing"
+    resolved: false
+    line: 25
+    selected_text: "Line 25 of the source file with some content for benchmarking purposes"
+  - id: "bench-14"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:14Z"
+    text: "Benchmark comment number 14 for performance testing"
+    resolved: false
+    line: 27
+    selected_text: "Line 27 of the source file with some content for benchmarking purposes"
+  - id: "bench-15"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:15Z"
+    text: "Benchmark comment number 15 for performance testing"
+    resolved: false
+    line: 29
+    selected_text: "Line 29 of the source file with some content for benchmarking purposes"
+  - id: "bench-16"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:16Z"
+    text: "Benchmark comment number 16 for performance testing"
+    resolved: false
+    line: 31
+    selected_text: "Line 31 of the source file with some content for benchmarking purposes"
+  - id: "bench-17"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:17Z"
+    text: "Benchmark comment number 17 for performance testing"
+    resolved: false
+    line: 33
+    selected_text: "Line 33 of the source file with some content for benchmarking purposes"
+  - id: "bench-18"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:18Z"
+    text: "Benchmark comment number 18 for performance testing"
+    resolved: false
+    line: 35
+    selected_text: "Line 35 of the source file with some content for benchmarking purposes"
+  - id: "bench-19"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:19Z"
+    text: "Benchmark comment number 19 for performance testing"
+    resolved: false
+    line: 37
+    selected_text: "Line 37 of the source file with some content for benchmarking purposes"
+  - id: "bench-20"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:20Z"
+    text: "Benchmark comment number 20 for performance testing"
+    resolved: false
+    line: 39
+    selected_text: "Line 39 of the source file with some content for benchmarking purposes"
+  - id: "bench-21"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:21Z"
+    text: "Benchmark comment number 21 for performance testing"
+    resolved: false
+    line: 41
+    selected_text: "Line 41 of the source file with some content for benchmarking purposes"
+  - id: "bench-22"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:22Z"
+    text: "Benchmark comment number 22 for performance testing"
+    resolved: false
+    line: 43
+    selected_text: "Line 43 of the source file with some content for benchmarking purposes"
+  - id: "bench-23"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:23Z"
+    text: "Benchmark comment number 23 for performance testing"
+    resolved: false
+    line: 45
+    selected_text: "Line 45 of the source file with some content for benchmarking purposes"
+  - id: "bench-24"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:24Z"
+    text: "Benchmark comment number 24 for performance testing"
+    resolved: false
+    line: 47
+    selected_text: "Line 47 of the source file with some content for benchmarking purposes"
+  - id: "bench-25"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:25Z"
+    text: "Benchmark comment number 25 for performance testing"
+    resolved: false
+    line: 49
+    selected_text: "Line 49 of the source file with some content for benchmarking purposes"
+  - id: "bench-26"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:26Z"
+    text: "Benchmark comment number 26 for performance testing"
+    resolved: false
+    line: 51
+    selected_text: "Line 51 of the source file with some content for benchmarking purposes"
+  - id: "bench-27"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:27Z"
+    text: "Benchmark comment number 27 for performance testing"
+    resolved: false
+    line: 53
+    selected_text: "Line 53 of the source file with some content for benchmarking purposes"
+  - id: "bench-28"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:28Z"
+    text: "Benchmark comment number 28 for performance testing"
+    resolved: false
+    line: 55
+    selected_text: "Line 55 of the source file with some content for benchmarking purposes"
+  - id: "bench-29"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:29Z"
+    text: "Benchmark comment number 29 for performance testing"
+    resolved: false
+    line: 57
+    selected_text: "Line 57 of the source file with some content for benchmarking purposes"
+  - id: "bench-30"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:30Z"
+    text: "Benchmark comment number 30 for performance testing"
+    resolved: false
+    line: 59
+    selected_text: "Line 59 of the source file with some content for benchmarking purposes"
+  - id: "bench-31"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:31Z"
+    text: "Benchmark comment number 31 for performance testing"
+    resolved: false
+    line: 61
+    selected_text: "Line 61 of the source file with some content for benchmarking purposes"
+  - id: "bench-32"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:32Z"
+    text: "Benchmark comment number 32 for performance testing"
+    resolved: false
+    line: 63
+    selected_text: "Line 63 of the source file with some content for benchmarking purposes"
+  - id: "bench-33"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:33Z"
+    text: "Benchmark comment number 33 for performance testing"
+    resolved: false
+    line: 65
+    selected_text: "Line 65 of the source file with some content for benchmarking purposes"
+  - id: "bench-34"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:34Z"
+    text: "Benchmark comment number 34 for performance testing"
+    resolved: false
+    line: 67
+    selected_text: "Line 67 of the source file with some content for benchmarking purposes"
+  - id: "bench-35"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:35Z"
+    text: "Benchmark comment number 35 for performance testing"
+    resolved: false
+    line: 69
+    selected_text: "Line 69 of the source file with some content for benchmarking purposes"
+  - id: "bench-36"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:36Z"
+    text: "Benchmark comment number 36 for performance testing"
+    resolved: false
+    line: 71
+    selected_text: "Line 71 of the source file with some content for benchmarking purposes"
+  - id: "bench-37"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:37Z"
+    text: "Benchmark comment number 37 for performance testing"
+    resolved: false
+    line: 73
+    selected_text: "Line 73 of the source file with some content for benchmarking purposes"
+  - id: "bench-38"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:38Z"
+    text: "Benchmark comment number 38 for performance testing"
+    resolved: false
+    line: 75
+    selected_text: "Line 75 of the source file with some content for benchmarking purposes"
+  - id: "bench-39"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:39Z"
+    text: "Benchmark comment number 39 for performance testing"
+    resolved: false
+    line: 77
+    selected_text: "Line 77 of the source file with some content for benchmarking purposes"
+  - id: "bench-40"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:40Z"
+    text: "Benchmark comment number 40 for performance testing"
+    resolved: false
+    line: 79
+    selected_text: "Line 79 of the source file with some content for benchmarking purposes"
+  - id: "bench-41"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:41Z"
+    text: "Benchmark comment number 41 for performance testing"
+    resolved: false
+    line: 81
+    selected_text: "Line 81 of the source file with some content for benchmarking purposes"
+  - id: "bench-42"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:42Z"
+    text: "Benchmark comment number 42 for performance testing"
+    resolved: false
+    line: 83
+    selected_text: "Line 83 of the source file with some content for benchmarking purposes"
+  - id: "bench-43"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:43Z"
+    text: "Benchmark comment number 43 for performance testing"
+    resolved: false
+    line: 85
+    selected_text: "Line 85 of the source file with some content for benchmarking purposes"
+  - id: "bench-44"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:44Z"
+    text: "Benchmark comment number 44 for performance testing"
+    resolved: false
+    line: 87
+    selected_text: "Line 87 of the source file with some content for benchmarking purposes"
+  - id: "bench-45"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:45Z"
+    text: "Benchmark comment number 45 for performance testing"
+    resolved: false
+    line: 89
+    selected_text: "Line 89 of the source file with some content for benchmarking purposes"
+  - id: "bench-46"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:46Z"
+    text: "Benchmark comment number 46 for performance testing"
+    resolved: false
+    line: 91
+    selected_text: "Line 91 of the source file with some content for benchmarking purposes"
+  - id: "bench-47"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:47Z"
+    text: "Benchmark comment number 47 for performance testing"
+    resolved: false
+    line: 93
+    selected_text: "Line 93 of the source file with some content for benchmarking purposes"
+  - id: "bench-48"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:48Z"
+    text: "Benchmark comment number 48 for performance testing"
+    resolved: false
+    line: 95
+    selected_text: "Line 95 of the source file with some content for benchmarking purposes"
+  - id: "bench-49"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:49Z"
+    text: "Benchmark comment number 49 for performance testing"
+    resolved: false
+    line: 97
+    selected_text: "Line 97 of the source file with some content for benchmarking purposes"
+  - id: "bench-50"
+    author: "benchmarker"
+    timestamp: "2025-01-01T00:00:50Z"
+    text: "Benchmark comment number 50 for performance testing"
+    resolved: false
+    line: 99
+    selected_text: "Line 99 of the source file with some content for benchmarking purposes"
