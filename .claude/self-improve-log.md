@@ -115,3 +115,21 @@
 - **Expert**: all
 - **Commit**: bd9cd0a
 - **Notes**: Migrated SourceView, MarkdownViewer, DeletedFileViewer, CommentsPanel, CommentThread, LineCommentMargin from old Zustand pipeline to VM hooks. Added serde(rename_all=camelCase) to Rust MatchedComment. Updated all E2E mocks to return CommentThread[] format. 539 unit tests + 40 E2E tests passing.
+
+## delete-ts-comment-pipeline — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-delete-ts-comment-pipeline
+- **Type**: dead-code
+- **Task**: Delete comment-matching.ts, useAutoSaveComments.ts, useCommitEnricher.ts, dead anchor exports
+- **Expert**: perf, architect, security, test-gap
+- **Commit**: 39712dd
+- **Notes**: -768 lines. Also covers delete-auto-save-hook and remove-dead-reset-commit-cache tasks.
+
+## hollow-out-comments-slice — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-hollow-out-comments-slice
+- **Type**: refactor
+- **Task**: Remove 7 dead comment CRUD methods from Zustand store
+- **Expert**: react-tauri, architect, security
+- **Commit**: bae107a
+- **Notes**: -649 lines. Kept commentsByFile (read-only), authorName, setAuthorName.

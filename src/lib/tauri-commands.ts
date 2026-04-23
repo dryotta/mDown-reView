@@ -56,18 +56,6 @@ export const getLaunchArgs = (): Promise<LaunchArgs> =>
 export const getLogPath = (): Promise<string> =>
   invoke<string>("get_log_path");
 
-export const saveReviewComments = (
-  filePath: string,
-  document: string,
-  comments: MrsfComment[]
-): Promise<void> =>
-  invoke<void>("save_review_comments", { filePath, document, comments });
-
-export const loadReviewComments = (filePath: string): Promise<MrsfSidecar | null> =>
-  invoke<MrsfSidecar | null>("load_review_comments", { filePath });
-
-export const getGitHead = (path: string): Promise<string | null> =>
-  invoke<string | null>("get_git_head", { path });
 
 export interface FileChangeEvent {
   path: string;
@@ -83,11 +71,6 @@ export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
 export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
   invoke<"file" | "dir" | "missing">("check_path_exists", { path });
 
-export const computeDocumentPath = (
-  filePath: string,
-  root: string | null
-): Promise<string> =>
-  invoke<string>("compute_document_path", { filePath, root });
 
 export const getAppVersion = (): Promise<string> => getVersion();
 
@@ -116,16 +99,6 @@ export interface CommentAnchor {
 export const getFileComments = (filePath: string): Promise<CommentThread[]> =>
   invoke<CommentThread[]>("get_file_comments", { filePath });
 
-export const matchCommentsToFile = (
-  filePath: string,
-  comments: MrsfComment[]
-): Promise<MatchedComment[]> =>
-  invoke<MatchedComment[]>("match_comments_to_file", { filePath, comments });
-
-export const buildCommentThreads = (
-  comments: MatchedComment[]
-): Promise<CommentThread[]> =>
-  invoke<CommentThread[]>("build_comment_threads", { comments });
 
 export const addComment = (
   filePath: string,
@@ -174,5 +147,4 @@ export const setCommentResolved = (
 ): Promise<void> =>
   invoke<void>("set_comment_resolved", { filePath, commentId, resolved });
 
-export const computeAnchorHash = (text: string): Promise<string> =>
-  invoke<string>("compute_anchor_hash", { text });
+
