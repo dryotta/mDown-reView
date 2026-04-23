@@ -254,8 +254,15 @@ pub fn get_file_comments(file_path: String) -> Result<Vec<CommentThread>, String
         return Ok(vec![]);
     }
 
-    // Read file content for matching
-    let content = std::fs::read_to_string(&file_path).unwrap_or_default();
+    // Read file content for matching (empty string for deleted/unreadable files → comments become orphans)
+    let content = match std::fs::read_to_string(&file_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            tracing::warn!("Could not read {file_path} for comment matching: {e}");
+            String::new()
+        }
+    };
     let lines: Vec<&str> = content.lines().collect();
 
     // Match comments to lines
