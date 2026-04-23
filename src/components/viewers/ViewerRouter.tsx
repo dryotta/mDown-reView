@@ -16,11 +16,11 @@ export function ViewerRouter({ path }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const setScrollTop = useStore((s) => s.setScrollTop);
-  const tab = useStore((s) => s.tabs.find((t) => t.path === path));
   const ghostEntries = useStore((s) => s.ghostEntries);
   const isGhost = ghostEntries.some((g) => g.sourcePath === path);
 
-  const savedScrollTop = tab?.scrollTop ?? 0;
+  // Guard flag: suppresses scroll-save during programmatic scroll restore
+  const restoringRef = useRef(false);
 
   const fileSize = useMemo(
     () => content ? new TextEncoder().encode(content).length : undefined,
@@ -30,23 +30,47 @@ export function ViewerRouter({ path }: Props) {
   // Restore scroll position after content renders.
   // Uses a rAF retry loop because async syntax highlighting (Shiki) and
   // images can change layout after the initial React render.
+  //
+  // IMPORTANT: reads the restore target from the store at effect time via
+  // useStore.getState() instead of depending on a derived `savedScrollTop`.
+  // This breaks the save→re-render→restore→save feedback loop that caused
+  // infinite scroll oscillation.
   useEffect(() => {
-    if (!scrollRef.current || status !== "ready" || savedScrollTop <= 0) return;
+    if (!scrollRef.current || status !== "ready") return;
+
+    const target = useStore.getState().tabs.find((t) => t.path === path)?.scrollTop ?? 0;
+
+    // Explicitly restore to 0 on tab switch when target is 0
+    if (target <= 0) {
+      scrollRef.current.scrollTop = 0;
+      return;
+    }
 
     let cancelled = false;
-    let retries = 10;
+    let retries = 20; // More retries for async Shiki highlighting
 
     const tryRestore = () => {
-      if (cancelled || !scrollRef.current || retries <= 0) return;
-      scrollRef.current.scrollTop = savedScrollTop;
-      if (scrollRef.current.scrollTop > 0) return; // Scroll applied successfully
+      if (cancelled || !scrollRef.current || retries <= 0) {
+        restoringRef.current = false;
+        return;
+      }
+      restoringRef.current = true;
+      scrollRef.current.scrollTop = target;
+      // Check if scroll was applied (content tall enough)
+      if (scrollRef.current.scrollTop > 0) {
+        restoringRef.current = false;
+        return;
+      }
       retries--;
       requestAnimationFrame(tryRestore);
     };
 
     requestAnimationFrame(tryRestore);
-    return () => { cancelled = true; };
-  }, [path, status, content, savedScrollTop]);
+    return () => {
+      cancelled = true;
+      restoringRef.current = false;
+    };
+  }, [path, status, content]);
 
   useEffect(() => {
     return () => {
@@ -55,6 +79,9 @@ export function ViewerRouter({ path }: Props) {
   }, [path]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    // Skip saves during programmatic scroll restore to prevent feedback loop
+    if (restoringRef.current) return;
+
     const top = (e.target as HTMLDivElement).scrollTop;
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {

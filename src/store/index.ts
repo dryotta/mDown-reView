@@ -191,10 +191,13 @@ export const useStore = create<Store>()(
       },
       closeAllTabs: () => set({ tabs: [], activeTabPath: null, viewModeByTab: {}, lastSaveByPath: {} }),
       setActiveTab: (path) => set({ activeTabPath: path }),
-      setScrollTop: (path, scrollTop) =>
+      setScrollTop: (path, scrollTop) => {
+        const tab = get().tabs.find((t) => t.path === path);
+        if (!tab || tab.scrollTop === scrollTop) return;
         set((s) => ({
           tabs: s.tabs.map((t) => (t.path === path ? { ...t, scrollTop } : t)),
-        })),
+        }));
+      },
       viewModeByTab: {},
       setViewMode: (path, mode) =>
         set((s) => ({
