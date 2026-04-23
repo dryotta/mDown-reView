@@ -206,3 +206,15 @@
 - **Validation**: All checks passed (523 Vitest, lint clean)
 - **Tests written**: 16 new hook tests (6 useThreadsByLine, 7 useScrollToLine, 3 useSelectionToolbar parameterization)
 - **Expert review**: Skipped (shared-hook extraction, all existing tests pass)
+
+## perf-shiki-whole-doc  DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-perf-shiki-whole-doc
+- **Type**: perf
+- **Task**: Switch Shiki from per-line to whole-document highlighting
+- **Expert**: perf
+- **Directive**: none
+- **Commit**: b3b84f2
+- **Validation**: All checks passed (523 Vitest, lint clean)
+- **Tests written**: Updated existing mocks to match whole-document output format
+- **Expert review**: Skipped (focused perf improvement with clear correctness)
