@@ -236,3 +236,13 @@
 - **Tests written**: None (existing 107 Rust tests are the regression suite)
 - **Expert review**: Skipped (mechanical dependency swap, all tests pass)
 - **Note**: Chose serde_yaml_ng over serde_yml due to RUSTSEC-2025-0068 (serde_yml archived, possible segfault)
+
+## security-path-validation  SKIPPED
+- **Date**: 2026-04-23
+- **Task**: Add workspace root path validation to all Rust commands
+- **Reason**: High risk (changes all IPC commands, could break file access). Needs manual review and careful design of the validation strategy (what constitutes a valid workspace boundary for a local viewer app).
+
+## perf-virtualize-sourceview  SKIPPED
+- **Date**: 2026-04-23
+- **Task**: Add windowing/virtualization to SourceView for large files
+- **Reason**: High risk (fundamental rendering architecture change). Requires replacing DOM-based line rendering with a virtual scrolling library, affecting comments, selection, folding, and search highlighting. Manual implementation recommended.

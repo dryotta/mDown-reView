@@ -38,9 +38,9 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | security-csp-extend | Add object-src, base-uri, frame-src to CSP | P2 | security | yes | security | src-tauri/tauri.conf.json | low | no | no | done |
 | simplify-usecomments-dual-load | Merge duplicate load/effect in useComments into single mechanism | P3 | refactor | yes | react-tauri, product | lib/vm/use-comments.ts | low | no | yes | skipped |
 | bug-file-comments-swallow-error | Handle file-read errors in get_file_comments instead of unwrap_or_default | P3 | bug | yes | bug-hunter | src-tauri/src/commands.rs | low | yes | no | done |
-| security-path-validation | Add workspace root path validation to all Rust commands | P3 | security | no | security | src-tauri/src/commands.rs | high | yes | no | open |
+| security-path-validation | Add workspace root path validation to all Rust commands | P3 | security | no | security | src-tauri/src/commands.rs | high | yes | no | skipped |
 | test-app-tsx | Add tests for App.tsx keyboard shortcuts and event listeners | P3 | test | no | bug-hunter | App.tsx | low | no | yes | done |
-| perf-virtualize-sourceview | Add windowing/virtualization to SourceView for large files | P3 | perf | no | perf | SourceView.tsx | high | no | no | open |
+| perf-virtualize-sourceview | Add windowing/virtualization to SourceView for large files | P3 | perf | no | perf | SourceView.tsx | high | no | no | skipped |
 | security-serde-yaml-deprecation | Migrate from deprecated serde_yaml to maintained fork | P3 | security | no | security | src-tauri/Cargo.toml | medium | no | no | done |
 
 <!-- Status values: open, done, failed, skipped -->
