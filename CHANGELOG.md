@@ -1,3 +1,15 @@
+## v0.3.3 — 2026-04-23
+
+### Features
+- Rich CLI support + MVVM core extraction + performance benchmarks
+
+### Other
+- 18 self-improvement iterations (bugs, perf, features, security)
+- Add user input directives to expert-review and self-improve skills; remove GitHub issue creation
+- Make expert-review and self-improve skills compatible
+- Add ESLint to CI and fix all lint errors
+- Optimize CI/CD workflows for speed and cost
+
 ## v0.3.2 — 2026-04-22
 
 ### Features
