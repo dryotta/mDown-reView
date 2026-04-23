@@ -28,7 +28,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | standardize-listen-cleanup | Standardize Tauri listen() cleanup pattern across all hooks | P2 | bug | no | react-tauri, bug-hunter | useFileWatcher.ts, App.tsx, use-comments.ts | medium | yes | yes | skipped |
 | refactor-rust-mutation-boilerplate | Extract with_sidecar_mut helper for 5 Rust mutation commands | P2 | refactor | yes | react-tauri | src-tauri/src/commands.rs | low | no | yes | done |
 | dedup-lib-rs-handlers | Deduplicate invoke_handler debug/release blocks in lib.rs | P2 | refactor | yes | react-tauri | src-tauri/src/lib.rs | low | no | yes | done |
-| test-line-comment-margin | Add tests for LineCommentMargin (zero coverage) | P2 | test | no | bug-hunter | components/comments/LineCommentMargin.tsx | low | yes | yes | open |
+| test-line-comment-margin | Add tests for LineCommentMargin (zero coverage) | P2 | test | no | bug-hunter | components/comments/LineCommentMargin.tsx | low | yes | yes | done |
 | dead-vite-css | Remove Vite boilerplate CSS selectors from App.css | P2 | dead-code | yes | bug-hunter | src/App.css | low | no | yes | done |
 | extract-app-icons | Extract inline SVG icons from App.tsx to shared module | P2 | refactor | yes | architect | App.tsx | low | no | yes | done |
 | simplify-customevent-bridge | Replace DOM CustomEvent bridges with direct Tauri/Zustand signals | P2 | refactor | no | react-tauri, architect | useFileWatcher.ts, useFileContent.ts, CommentsPanel.tsx | medium | no | yes | open |
