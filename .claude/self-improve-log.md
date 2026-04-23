@@ -106,3 +106,12 @@
 - **Task**: Enable Content Security Policy in tauri.conf.json
 - **Expert**: security
 - **Commit**: f057953
+
+## migrate-viewers-to-vm-hooks — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-migrate-viewers-to-vm-hooks
+- **Type**: refactor
+- **Task**: Wire useComments + useCommentActions into all 6 viewer/comment components
+- **Expert**: all
+- **Commit**: bd9cd0a
+- **Notes**: Migrated SourceView, MarkdownViewer, DeletedFileViewer, CommentsPanel, CommentThread, LineCommentMargin from old Zustand pipeline to VM hooks. Added serde(rename_all=camelCase) to Rust MatchedComment. Updated all E2E mocks to return CommentThread[] format. 539 unit tests + 40 E2E tests passing.
