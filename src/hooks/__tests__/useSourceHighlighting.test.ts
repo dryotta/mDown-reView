@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { useSourceHighlighting, escapeHtml } from "../useSourceHighlighting";
 
 vi.mock("@/lib/shiki", () => ({
@@ -66,6 +66,64 @@ describe("useSourceHighlighting", () => {
     await waitFor(() => {
       expect(result.current.highlightedLines).toHaveLength(1);
     });
+  });
+
+  it("does not apply stale highlight results after rapid path changes", async () => {
+    const { getSharedHighlighter } = await import("@/lib/shiki");
+    const mockedGet = vi.mocked(getSharedHighlighter);
+
+    // Track call order: first call (a.ts) resolves slowly, second (b.py) resolves fast
+    let callCount = 0;
+    mockedGet.mockImplementation(() => {
+      callCount++;
+      const thisCall = callCount;
+      if (thisCall === 1) {
+        // First call: slow highlighter — resolves after 150ms
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                codeToHtml: vi.fn().mockReturnValue("<pre><code>STALE_A_TS</code></pre>"),
+                getLoadedLanguages: vi.fn().mockReturnValue(["typescript"]),
+                loadLanguage: vi.fn().mockResolvedValue(undefined),
+              } as unknown as Awaited<ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>>),
+            150
+          )
+        );
+      }
+      // Second call: fast highlighter — resolves immediately
+      return Promise.resolve({
+        codeToHtml: vi.fn().mockReturnValue("<pre><code>FRESH_B_PY</code></pre>"),
+        getLoadedLanguages: vi.fn().mockReturnValue(["python"]),
+        loadLanguage: vi.fn().mockResolvedValue(undefined),
+      } as unknown as Awaited<ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>>);
+    });
+
+    const { result, rerender } = renderHook(
+      ({ content, path }: { content: string; path: string }) =>
+        useSourceHighlighting(content, path),
+      { initialProps: { content: "const x = 1;", path: "a.ts" } }
+    );
+
+    // Rapidly switch to a different file before the first resolves
+    rerender({ content: "print('hello')", path: "b.py" });
+
+    // Wait for fast (b.py) result to appear
+    await waitFor(
+      () => {
+        expect(result.current.highlightedLines.length).toBeGreaterThan(0);
+      },
+      { timeout: 500 }
+    );
+
+    // Now wait for the slow (a.ts) promise to also resolve — it fires at 150ms
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+
+    // Result should STILL be for b.py (FRESH), not overwritten by stale a.ts
+    expect(result.current.highlightedLines[0]).toContain("FRESH_B_PY");
+    expect(result.current.highlightedLines[0]).not.toContain("STALE_A_TS");
   });
 });
 
