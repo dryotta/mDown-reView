@@ -5,6 +5,18 @@
 <!-- Archived (2026-04-23 cycle 1): bug-rust-emit-comments-changed, bug-listen-cleanup-race, bug-unicode-truncation, test-vm-hooks, fix-stale-persistence-test, perf-comments-panel-memo, remove-dead-collapse-all, dedup-welcome-path-helpers, simplify-search-hook, security-enable-csp, migrate-viewers-to-vm-hooks, delete-ts-comment-pipeline, hollow-out-comments-slice, dead-ipc-wrappers, refactor-sourceview-god-component -->
 <!-- Previously skipped: simplify-custom-event-bus, security-path-validation, arch-replace-dom-events, perf-shiki-whole-doc, rust-html-asset-resolution, rust-fold-regions, security-sidecar-file-lock, feat-approval-workflow, feat-comment-export -->
 
+## simplify-comment-utils-ts — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-simplify-comment-utils-ts
+- **Type**: dead-code
+- **Task**: Remove generateCommentId() and validateTargetingFields() — duplicated by Rust
+- **Expert**: architect, bug-hunter, react-tauri
+- **Directive**: clean up web layer, best architecture
+- **Commit**: 918e486
+- **Validation**: All checks passed (489 Vitest, lint clean)
+- **Tests written**: Removed 8 tests for deleted functions, kept 8 for remaining code
+- **Expert review**: Skipped (pure deletion, -111 lines)
+
 ## dead-rust-commands — DONE
 - **Date**: 2026-04-23
 - **Branch**: auto-improve/20260423-dead-rust-commands
