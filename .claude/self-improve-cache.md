@@ -13,9 +13,9 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 |----|------|----------|------|-----------|--------|-------|------|------------------|-------------------|--------|
 | bug-rust-emit-comments-changed | Fix Rust mutation commands to emit comments-changed event | P1 | bug | yes | product, react-tauri, architect, security | src-tauri/src/commands.rs | low | yes | yes | done |
 | migrate-viewers-to-vm-hooks | Wire useComments + useCommentActions into all viewers | P1 | refactor | no | all | SourceView.tsx, MarkdownViewer.tsx, DeletedFileViewer.tsx, CommentsPanel.tsx, CommentThread.tsx, LineCommentMargin.tsx | high | no | yes | done |
-| delete-ts-comment-pipeline | Delete comment-matching.ts, comment-threads.ts, dead anchor exports | P1 | dead-code | yes | perf, architect, security, test-gap | src/lib/comment-matching.ts, src/lib/comment-threads.ts, src/lib/comment-anchors.ts | medium | no | yes | open |
+| delete-ts-comment-pipeline | Delete comment-matching.ts, comment-threads.ts, dead anchor exports | P1 | dead-code | yes | perf, architect, security, test-gap | src/lib/comment-matching.ts, src/lib/comment-threads.ts, src/lib/comment-anchors.ts | medium | no | yes | done |
 | hollow-out-comments-slice | Remove comment CRUD from Zustand store, keep only authorName | P1 | refactor | no | react-tauri, architect, security | src/store/index.ts | high | no | yes | open |
-| delete-auto-save-hook | Delete useAutoSaveComments and useCommitEnricher hooks | P1 | dead-code | yes | product, react-tauri, architect | src/hooks/useAutoSaveComments.ts, src/hooks/useCommitEnricher.ts | medium | no | yes | open |
+| delete-auto-save-hook | Delete useAutoSaveComments and useCommitEnricher hooks | P1 | dead-code | yes | product, react-tauri, architect | src/hooks/useAutoSaveComments.ts, src/hooks/useCommitEnricher.ts | medium | no | yes | done |
 | test-vm-hooks | Write comprehensive tests for useComments and useCommentActions | P1 | test | no | test-gap, product | src/lib/vm/use-comments.ts, src/lib/vm/use-comment-actions.ts | low | yes | yes | done |
 | bug-listen-cleanup-race | Fix listen() cleanup race in use-comments.ts | P2 | bug | yes | react-tauri | src/lib/vm/use-comments.ts | low | yes | yes | done |
 | fix-stale-persistence-test | Fix stale persistence test contradicting tab persistence | P2 | test | yes | test-gap | src/__tests__/store/persistence.test.ts | low | no | yes | done |
@@ -29,7 +29,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | bug-unicode-truncation | Fix Unicode truncation mismatch between TS and Rust | P2 | bug | yes | security | src/lib/comment-utils.ts, src-tauri/src/core/anchors.rs | low | yes | yes | done |
 | dedup-welcome-path-helpers | Replace inline path helpers in WelcomeView with path-utils | P3 | dead-code | yes | perf | src/components/WelcomeView.tsx | low | no | yes | done |
 | remove-dead-collapse-all | Remove unused collapseAll store action | P3 | dead-code | yes | perf | src/store/index.ts | low | no | yes | done |
-| remove-dead-reset-commit-cache | Remove unused resetCommitCache export | P3 | dead-code | yes | security | src/hooks/useCommitEnricher.ts | low | no | yes | open |
+| remove-dead-reset-commit-cache | Remove unused resetCommitCache export | P3 | dead-code | yes | security | src/hooks/useCommitEnricher.ts | low | no | yes | done |
 | simplify-search-hook | Replace useTransition+deferredQuery with useDeferredValue | P3 | refactor | yes | react-tauri | src/hooks/useSearch.ts | low | no | yes | done |
 | rust-html-asset-resolution | Move HTML asset resolution to single Rust command | P3 | rust-migration | no | react-tauri | src/lib/resolve-html-assets.ts | medium | no | no | open |
 | rust-fold-regions | Port fold region computation to Rust | P3 | rust-migration | no | architect | src/lib/fold-regions.ts | medium | no | no | open |

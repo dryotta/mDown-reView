@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
 import type { MrsfComment } from "@/lib/tauri-commands";
-import { generateCommentId } from "@/lib/comment-utils";
 
 // ── Recent items ──────────────────────────────────────────────────────────
 
@@ -55,24 +54,6 @@ interface CommentsSlice {
   commentsByFile: Record<string, CommentWithOrphan[]>;
   authorName: string;
   setAuthorName: (name: string) => void;
-  setFileComments: (filePath: string, comments: CommentWithOrphan[]) => void;
-  addComment: (filePath: string, anchor: Partial<Pick<MrsfComment, "line" | "end_line" | "start_column" | "end_column" | "selected_text" | "selected_text_hash" | "commit" | "type" | "severity">>, text: string) => void;
-  addReply: (filePath: string, parentId: string, text: string) => void;
-  editComment: (id: string, text: string) => void;
-  deleteComment: (id: string) => void;
-  resolveComment: (id: string) => void;
-  unresolveComment: (id: string) => void;
-}
-
-/** Find which file path contains a comment with the given ID. */
-function findFileForComment(
-  commentsByFile: Record<string, CommentWithOrphan[]>,
-  id: string
-): string | undefined {
-  for (const [fp, comments] of Object.entries(commentsByFile)) {
-    if (comments.some((c) => c.id === id)) return fp;
-  }
-  return undefined;
 }
 
 // ── UI slice ──────────────────────────────────────────────────────────────
@@ -206,122 +187,6 @@ export const useStore = create<Store>()(
       commentsByFile: {},
       authorName: "",
       setAuthorName: (name) => set({ authorName: name }),
-      setFileComments: (filePath, comments) =>
-        set((s) => ({ commentsByFile: { ...s.commentsByFile, [filePath]: comments } })),
-      addComment: (filePath, anchor, text) => {
-        const state = get();
-        const comment: CommentWithOrphan = {
-          id: generateCommentId(),
-          author: state.authorName || "Anonymous",
-          timestamp: new Date().toISOString(),
-          text,
-          resolved: false,
-          ...anchor,
-        };
-        set((s) => ({
-          commentsByFile: {
-            ...s.commentsByFile,
-            [filePath]: [...(s.commentsByFile[filePath] ?? []), comment],
-          },
-        }));
-      },
-      addReply: (filePath, parentId, text) => {
-        const state = get();
-        const parent = Object.values(state.commentsByFile)
-          .flat()
-          .find((c) => c.id === parentId);
-        const reply: CommentWithOrphan = {
-          id: generateCommentId(),
-          author: state.authorName || "Anonymous",
-          timestamp: new Date().toISOString(),
-          text,
-          resolved: false,
-          reply_to: parentId,
-          line: parent?.line,
-        };
-        set((s) => ({
-          commentsByFile: {
-            ...s.commentsByFile,
-            [filePath]: [...(s.commentsByFile[filePath] ?? []), reply],
-          },
-        }));
-      },
-      editComment: (id, text) =>
-        set((s) => {
-          const fp = findFileForComment(s.commentsByFile, id);
-          if (!fp) return s;
-          return {
-            commentsByFile: {
-              ...s.commentsByFile,
-              [fp]: s.commentsByFile[fp].map((c) => (c.id === id ? { ...c, text } : c)),
-            },
-          };
-        }),
-      deleteComment: (id) =>
-        set((s) => {
-          const fp = findFileForComment(s.commentsByFile, id);
-          if (!fp) return s;
-          const comments = s.commentsByFile[fp];
-          const parent = comments.find((c) => c.id === id);
-          if (!parent) return s;
-
-          // MRSF §9.1: Promote direct replies before removing parent
-          const promoted = comments.map((c) => {
-            if (c.reply_to !== id) return c;
-            const updated = { ...c };
-
-            // Copy targeting fields from parent if reply omits them
-            if (updated.line === undefined && parent.line !== undefined)
-              updated.line = parent.line;
-            if (updated.end_line === undefined && parent.end_line !== undefined)
-              updated.end_line = parent.end_line;
-            if (updated.start_column === undefined && parent.start_column !== undefined)
-              updated.start_column = parent.start_column;
-            if (updated.end_column === undefined && parent.end_column !== undefined)
-              updated.end_column = parent.end_column;
-            // Only copy selected_text + hash together to avoid mismatched pairs
-            if (updated.selected_text === undefined && parent.selected_text !== undefined) {
-              updated.selected_text = parent.selected_text;
-              if (parent.selected_text_hash !== undefined)
-                updated.selected_text_hash = parent.selected_text_hash;
-            }
-
-            // Reparent to grandparent (or remove reply_to if parent was root)
-            updated.reply_to = parent.reply_to;
-            if (!updated.reply_to) delete updated.reply_to;
-
-            return updated;
-          });
-
-          return {
-            commentsByFile: {
-              ...s.commentsByFile,
-              [fp]: promoted.filter((c) => c.id !== id),
-            },
-          };
-        }),
-      resolveComment: (id) =>
-        set((s) => {
-          const fp = findFileForComment(s.commentsByFile, id);
-          if (!fp) return s;
-          return {
-            commentsByFile: {
-              ...s.commentsByFile,
-              [fp]: s.commentsByFile[fp].map((c) => (c.id === id ? { ...c, resolved: true } : c)),
-            },
-          };
-        }),
-      unresolveComment: (id) =>
-        set((s) => {
-          const fp = findFileForComment(s.commentsByFile, id);
-          if (!fp) return s;
-          return {
-            commentsByFile: {
-              ...s.commentsByFile,
-              [fp]: s.commentsByFile[fp].map((c) => (c.id === id ? { ...c, resolved: false } : c)),
-            },
-          };
-        }),
 
       // UI
       theme: "system",
