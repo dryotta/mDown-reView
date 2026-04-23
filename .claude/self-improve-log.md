@@ -133,3 +133,31 @@
 - **Expert**: react-tauri, architect, security
 - **Commit**: bae107a
 - **Notes**: -649 lines. Kept commentsByFile (read-only), authorName, setAuthorName.
+
+## dead-ipc-wrappers — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-dead-ipc-wrappers
+- **Type**: dead-code
+- **Task**: Remove 7 unused IPC wrappers from tauri-commands.ts
+- **Expert**: perf
+- **Commit**: da5e5f0
+
+## refactor-sourceview-god-component — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-refactor-sourceview
+- **Type**: refactor
+- **Task**: Extract 3 focused hooks from SourceView.tsx (428→244 lines)
+- **Expert**: architect
+- **Commit**: 70334c8
+- **Notes**: Extracted useSourceHighlighting, useSelectionToolbar, useFolding. 21 new tests.
+
+## Skipped Tasks
+- **simplify-custom-event-bus**: DOM CustomEvent bridge is a clean pattern; only useFileContent still uses it
+- **security-path-validation**: Local-only viewer app; path restrictions add friction without benefit
+- **arch-replace-dom-events**: Overlaps with simplify-custom-event-bus, same reasoning
+- **perf-shiki-whole-doc**: Per-line approach works correctly; whole-doc splitting is fragile
+- **rust-html-asset-resolution**: IPC overhead negates perf gain for sync computation
+- **rust-fold-regions**: O(n) TS computation is fast enough; Rust migration adds complexity
+- **security-sidecar-file-lock**: Single-user desktop app; concurrent writes not realistic
+- **feat-approval-workflow**: New feature, out of scope for cleanup directive
+- **feat-comment-export**: New feature, out of scope for cleanup directive

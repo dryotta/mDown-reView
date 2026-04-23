@@ -23,19 +23,19 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | simplify-custom-event-bus | Replace DOM CustomEvent bridge with direct Tauri event subs | P2 | refactor | no | react-tauri, architect | src/hooks/useFileWatcher.ts, viewers | medium | no | yes | skipped |
 | security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | security | yes | security | src-tauri/tauri.conf.json | medium | no | no | done |
 | security-path-validation | Add path validation to all file-accepting Rust commands | P2 | security | no | security | src-tauri/src/commands.rs | medium | yes | no | skipped |
-| refactor-sourceview-god-component | Break up SourceView.tsx into focused hooks | P2 | refactor | no | architect | src/components/viewers/SourceView.tsx | medium | no | yes | open |
-| perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | src/components/viewers/SourceView.tsx | medium | no | no | open |
+| refactor-sourceview-god-component | Break up SourceView.tsx into focused hooks | P2 | refactor | no | architect | src/components/viewers/SourceView.tsx | medium | no | yes | done |
+| perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | src/components/viewers/SourceView.tsx | medium | no | no | skipped |
 | dead-ipc-wrappers | Remove unused IPC wrappers from tauri-commands.ts | P2 | dead-code | yes | perf | src/lib/tauri-commands.ts | low | no | yes | done |
 | bug-unicode-truncation | Fix Unicode truncation mismatch between TS and Rust | P2 | bug | yes | security | src/lib/comment-utils.ts, src-tauri/src/core/anchors.rs | low | yes | yes | done |
 | dedup-welcome-path-helpers | Replace inline path helpers in WelcomeView with path-utils | P3 | dead-code | yes | perf | src/components/WelcomeView.tsx | low | no | yes | done |
 | remove-dead-collapse-all | Remove unused collapseAll store action | P3 | dead-code | yes | perf | src/store/index.ts | low | no | yes | done |
 | remove-dead-reset-commit-cache | Remove unused resetCommitCache export | P3 | dead-code | yes | security | src/hooks/useCommitEnricher.ts | low | no | yes | done |
 | simplify-search-hook | Replace useTransition+deferredQuery with useDeferredValue | P3 | refactor | yes | react-tauri | src/hooks/useSearch.ts | low | no | yes | done |
-| rust-html-asset-resolution | Move HTML asset resolution to single Rust command | P3 | rust-migration | no | react-tauri | src/lib/resolve-html-assets.ts | medium | no | no | open |
-| rust-fold-regions | Port fold region computation to Rust | P3 | rust-migration | no | architect | src/lib/fold-regions.ts | medium | no | no | open |
-| security-sidecar-file-lock | Add per-file mutex for concurrent sidecar writes | P3 | security | no | security | src-tauri/src/core/sidecar.rs | medium | yes | no | open |
-| feat-approval-workflow | Add file/session review approval workflow | P3 | feature | no | product | src/store/index.ts, src-tauri/src/commands.rs | medium | no | no | open |
-| feat-comment-export | Add comment export for agent consumption | P3 | feature | no | product | src-tauri/src/commands.rs | medium | no | no | open |
+| rust-html-asset-resolution | Move HTML asset resolution to single Rust command | P3 | rust-migration | no | react-tauri | src/lib/resolve-html-assets.ts | medium | no | no | skipped |
+| rust-fold-regions | Port fold region computation to Rust | P3 | rust-migration | no | architect | src/lib/fold-regions.ts | medium | no | no | skipped |
+| security-sidecar-file-lock | Add per-file mutex for concurrent sidecar writes | P3 | security | no | security | src-tauri/src/core/sidecar.rs | medium | yes | no | skipped |
+| feat-approval-workflow | Add file/session review approval workflow | P3 | feature | no | product | src/store/index.ts, src-tauri/src/commands.rs | medium | no | no | skipped |
+| feat-comment-export | Add comment export for agent consumption | P3 | feature | no | product | src-tauri/src/commands.rs | medium | no | no | skipped |
 | arch-replace-dom-events | Replace DOM CustomEvent bridge with Zustand store signals | P3 | refactor | no | react-tauri, architect | src/hooks/useFileWatcher.ts | medium | no | yes | skipped |
 
 <!-- Status values: open, done, failed, skipped -->
