@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import {
   getFileComments,
   type CommentThread,
@@ -66,28 +66,20 @@ export function useComments(filePath: string | null): UseCommentsResult {
   // Listen for comments-changed (from Rust mutation commands)
   useEffect(() => {
     if (!filePath) return;
-    let unlisten: UnlistenFn | null = null;
-
-    listen<{ file_path: string }>("comments-changed", (event) => {
+    const listenerPromise = listen<{ file_path: string }>("comments-changed", (event) => {
       if (event.payload.file_path === filePath) {
         info(`[vm] comments-changed for ${filePath}, reloading`);
         load();
       }
-    }).then((fn) => {
-      unlisten = fn;
     });
 
-    return () => {
-      unlisten?.();
-    };
+    return () => { listenerPromise.then((fn) => fn()); };
   }, [filePath, load]);
 
   // Listen for file-changed (from watcher, for external sidecar changes)
   useEffect(() => {
     if (!filePath) return;
-    let unlisten: UnlistenFn | null = null;
-
-    listen<{ path: string; kind: string }>("file-changed", (event) => {
+    const listenerPromise = listen<{ path: string; kind: string }>("file-changed", (event) => {
       if (event.payload.kind === "review") {
         // Check if this is the sidecar for our file
         const sidecarPath = event.payload.path;
@@ -99,13 +91,9 @@ export function useComments(filePath: string | null): UseCommentsResult {
           load();
         }
       }
-    }).then((fn) => {
-      unlisten = fn;
     });
 
-    return () => {
-      unlisten?.();
-    };
+    return () => { listenerPromise.then((fn) => fn()); };
   }, [filePath, load]);
 
   // Flatten all comments from threads for convenience
