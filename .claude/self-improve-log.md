@@ -170,3 +170,15 @@
 - **Validation**: All checks passed (473 Vitest, 30 cargo, lint clean)
 - **Tests written**: Updated FolderTree and TabBar test mocks for useUnresolvedCounts
 - **Expert review**: Skipped (straightforward feature wiring)
+
+## test-line-comment-margin  DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-test-line-comment-margin
+- **Type**: test
+- **Task**: Add tests for LineCommentMargin component (10 tests)
+- **Expert**: bug-hunter
+- **Directive**: none
+- **Commit**: 8861c2f
+- **Validation**: All checks passed (483 Vitest, lint clean)
+- **Tests written**: 10 tests covering all component paths
+- **Expert review**: Skipped (test-only change)
