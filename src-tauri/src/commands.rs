@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 // Re-export core types so existing code (lib.rs, tests) still compiles
 pub use crate::core::types::{CommentAnchor, CommentThread, DirEntry, LaunchArgs, MatchedComment, MrsfComment, MrsfSidecar};
@@ -44,6 +44,12 @@ pub fn compute_document_path(file_path: String, root: Option<String>) -> String 
 // Types are re-exported from core::types above
 
 pub type LaunchArgsState = Arc<Mutex<Option<LaunchArgs>>>;
+
+/// Payload emitted to the frontend after a mutation command modifies a sidecar.
+#[derive(Clone, serde::Serialize)]
+pub struct CommentsChangedEvent {
+    pub file_path: String,
+}
 
 fn is_sidecar_file(name: &str) -> bool {
     name.ends_with(".review.yaml") || name.ends_with(".review.json")
@@ -306,6 +312,7 @@ pub fn build_comment_threads(
 /// Create a new comment, save to sidecar.
 #[tauri::command]
 pub fn add_comment(
+    app: tauri::AppHandle,
     file_path: String,
     author: String,
     text: String,
@@ -341,12 +348,15 @@ pub fn add_comment(
         &sidecar.document,
         &sidecar.comments,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
+    Ok(())
 }
 
 /// Create a reply to an existing comment, save to sidecar.
 #[tauri::command]
 pub fn add_reply(
+    app: tauri::AppHandle,
     file_path: String,
     parent_id: String,
     author: String,
@@ -370,12 +380,15 @@ pub fn add_reply(
         &sidecar.document,
         &sidecar.comments,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
+    Ok(())
 }
 
 /// Edit a comment's text, save to sidecar.
 #[tauri::command]
 pub fn edit_comment(
+    app: tauri::AppHandle,
     file_path: String,
     comment_id: String,
     text: String,
@@ -396,12 +409,15 @@ pub fn edit_comment(
         &sidecar.document,
         &sidecar.comments,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
+    Ok(())
 }
 
 /// Delete a comment (with reply reparenting per MRSF §9.1), save to sidecar.
 #[tauri::command]
 pub fn delete_comment(
+    app: tauri::AppHandle,
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
@@ -415,12 +431,15 @@ pub fn delete_comment(
         &sidecar.document,
         &updated,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
+    Ok(())
 }
 
 /// Resolve or unresolve a comment, save to sidecar.
 #[tauri::command]
 pub fn set_comment_resolved(
+    app: tauri::AppHandle,
     file_path: String,
     comment_id: String,
     resolved: bool,
@@ -441,7 +460,9 @@ pub fn set_comment_resolved(
         &sidecar.document,
         &sidecar.comments,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
+    Ok(())
 }
 
 /// Compute SHA-256 hash for selected text anchor.
