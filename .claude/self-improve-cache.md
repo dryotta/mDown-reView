@@ -19,7 +19,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | test-vm-hooks | Write comprehensive tests for useComments and useCommentActions | P1 | test | no | test-gap, product | src/lib/vm/use-comments.ts, src/lib/vm/use-comment-actions.ts | low | yes | yes | done |
 | bug-listen-cleanup-race | Fix listen() cleanup race in use-comments.ts | P2 | bug | yes | react-tauri | src/lib/vm/use-comments.ts | low | yes | yes | done |
 | fix-stale-persistence-test | Fix stale persistence test contradicting tab persistence | P2 | test | yes | test-gap | src/__tests__/store/persistence.test.ts | low | no | yes | done |
-| perf-comments-panel-memo | Add useMemo to CommentsPanel grouping/sorting/filtering | P2 | perf | yes | perf | src/components/comments/CommentsPanel.tsx | low | no | no | open |
+| perf-comments-panel-memo | Add useMemo to CommentsPanel grouping/sorting/filtering | P2 | perf | yes | perf | src/components/comments/CommentsPanel.tsx | low | no | no | done |
 | simplify-custom-event-bus | Replace DOM CustomEvent bridge with direct Tauri event subs | P2 | refactor | no | react-tauri, architect | src/hooks/useFileWatcher.ts, viewers | medium | no | yes | open |
 | security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | security | yes | security | src-tauri/tauri.conf.json | medium | no | no | open |
 | security-path-validation | Add path validation to all file-accepting Rust commands | P2 | security | no | security | src-tauri/src/commands.rs | medium | yes | no | open |

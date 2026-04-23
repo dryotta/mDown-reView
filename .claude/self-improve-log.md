@@ -62,3 +62,15 @@
 - **Validation**: All checks passed (533 Vitest, lint clean)
 - **Tests written**: Updated 3 existing assertions (tabs, activeTabPath, expected keys)
 - **Expert review**: Skipped (trivial test assertion update)
+
+## perf-comments-panel-memo — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-perf-comments-panel-memo
+- **Type**: perf
+- **Task**: Add useMemo to CommentsPanel grouping/sorting/filtering
+- **Expert**: perf
+- **Directive**: simplify code
+- **Commit**: 5cbb4db
+- **Validation**: All checks passed (57 comment tests, lint clean)
+- **Tests written**: None (perf optimization, existing tests pass)
+- **Expert review**: Skipped (single-file memoization addition)
