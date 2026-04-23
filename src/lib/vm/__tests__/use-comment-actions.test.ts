@@ -1,0 +1,337 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, act } from "@testing-library/react";
+import { useCommentActions } from "../use-comment-actions";
+import {
+  addComment as addCommentCmd,
+  addReply as addReplyCmd,
+  editComment as editCommentCmd,
+  deleteComment as deleteCommentCmd,
+  setCommentResolved,
+} from "@/lib/tauri-commands";
+import { useStore } from "@/store";
+import { error as logError } from "@/logger";
+
+vi.mock("@/store", () => ({
+  useStore: vi.fn(((selector: (state: { authorName: string }) => string) => {
+    const state = { authorName: "Test Author" };
+    return selector ? selector(state) : state;
+  }) as typeof useStore),
+}));
+
+vi.mock("@/lib/tauri-commands", () => ({
+  addComment: vi.fn().mockResolvedValue(undefined),
+  addReply: vi.fn().mockResolvedValue(undefined),
+  editComment: vi.fn().mockResolvedValue(undefined),
+  deleteComment: vi.fn().mockResolvedValue(undefined),
+  setCommentResolved: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/logger", () => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+  trace: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+
+  // Reset store mock to default author
+  vi.mocked(useStore).mockImplementation(
+    ((selector: (state: { authorName: string }) => string) => {
+      const state = { authorName: "Test Author" };
+      return selector ? selector(state) : state;
+    }) as typeof useStore,
+  );
+});
+
+describe("useCommentActions", () => {
+  // ── addComment ───────────────────────────────────────────────────────────
+
+  describe("addComment", () => {
+    it("calls addComment command with author from store", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addComment("/test.md", "hello world");
+      });
+
+      expect(addCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "Test Author",
+        "hello world",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+
+    it('uses "Anonymous" when authorName is empty', async () => {
+      vi.mocked(useStore).mockImplementation(
+        ((selector: (state: { authorName: string }) => string) => {
+          const state = { authorName: "" };
+          return selector ? selector(state) : state;
+        }) as typeof useStore,
+      );
+
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addComment("/test.md", "hello");
+      });
+
+      expect(addCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "Anonymous",
+        "hello",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+
+    it("passes anchor, commentType, severity, document when provided", async () => {
+      const { result } = renderHook(() => useCommentActions());
+      const anchor = { line: 5, selected_text: "code" };
+
+      await act(async () => {
+        await result.current.addComment(
+          "/test.md",
+          "issue here",
+          anchor,
+          "issue",
+          "high",
+          "README.md",
+        );
+      });
+
+      expect(addCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "Test Author",
+        "issue here",
+        anchor,
+        "issue",
+        "high",
+        "README.md",
+      );
+    });
+
+    it("throws and logs error when command fails", async () => {
+      const err = new Error("add failed");
+      vi.mocked(addCommentCmd).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.addComment("/test.md", "hello");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── addReply ─────────────────────────────────────────────────────────────
+
+  describe("addReply", () => {
+    it("calls addReply command with correct args", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addReply("/test.md", "parent-1", "reply text");
+      });
+
+      expect(addReplyCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "parent-1",
+        "Test Author",
+        "reply text",
+      );
+    });
+
+    it('uses "Anonymous" for empty author', async () => {
+      vi.mocked(useStore).mockImplementation(
+        ((selector: (state: { authorName: string }) => string) => {
+          const state = { authorName: "" };
+          return selector ? selector(state) : state;
+        }) as typeof useStore,
+      );
+
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addReply("/test.md", "parent-1", "reply");
+      });
+
+      expect(addReplyCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "parent-1",
+        "Anonymous",
+        "reply",
+      );
+    });
+
+    it("throws and logs error on failure", async () => {
+      const err = new Error("reply failed");
+      vi.mocked(addReplyCmd).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.addReply("/test.md", "p1", "text");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── editComment ──────────────────────────────────────────────────────────
+
+  describe("editComment", () => {
+    it("calls editComment command with filePath, commentId, text", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.editComment("/test.md", "c1", "updated text");
+      });
+
+      expect(editCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "c1",
+        "updated text",
+      );
+    });
+
+    it("throws on failure", async () => {
+      const err = new Error("edit failed");
+      vi.mocked(editCommentCmd).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.editComment("/test.md", "c1", "text");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── deleteComment ────────────────────────────────────────────────────────
+
+  describe("deleteComment", () => {
+    it("calls deleteComment command", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.deleteComment("/test.md", "c1");
+      });
+
+      expect(deleteCommentCmd).toHaveBeenCalledWith("/test.md", "c1");
+    });
+
+    it("throws on failure", async () => {
+      const err = new Error("delete failed");
+      vi.mocked(deleteCommentCmd).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.deleteComment("/test.md", "c1");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── resolveComment ───────────────────────────────────────────────────────
+
+  describe("resolveComment", () => {
+    it("calls setCommentResolved with resolved=true", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.resolveComment("/test.md", "c1");
+      });
+
+      expect(setCommentResolved).toHaveBeenCalledWith("/test.md", "c1", true);
+    });
+
+    it("throws on failure", async () => {
+      const err = new Error("resolve failed");
+      vi.mocked(setCommentResolved).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.resolveComment("/test.md", "c1");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── unresolveComment ─────────────────────────────────────────────────────
+
+  describe("unresolveComment", () => {
+    it("calls setCommentResolved with resolved=false", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.unresolveComment("/test.md", "c1");
+      });
+
+      expect(setCommentResolved).toHaveBeenCalledWith("/test.md", "c1", false);
+    });
+
+    it("throws on failure", async () => {
+      const err = new Error("unresolve failed");
+      vi.mocked(setCommentResolved).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.unresolveComment("/test.md", "c1");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+});
