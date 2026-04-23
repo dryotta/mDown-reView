@@ -119,3 +119,45 @@ describe("useSelectionToolbar", () => {
     expect(result.current.pendingSelectionAnchor).toBeNull();
   });
 });
+
+describe("useSelectionToolbar with custom lineAttribute and lineOffset", () => {
+  it("defaults to data-line-idx with offset 1", () => {
+    const { result } = renderHook(() => useSelectionToolbar());
+    expect(result.current.selectionToolbar).toBeNull();
+  });
+
+  it("accepts data-source-line with offset 0", () => {
+    const { result } = renderHook(() => useSelectionToolbar("data-source-line", 0));
+    expect(result.current.selectionToolbar).toBeNull();
+  });
+
+  it("handleAddSelectionComment works with custom params", async () => {
+    const { result } = renderHook(() => useSelectionToolbar("data-source-line", 0));
+
+    act(() => {
+      result.current.setSelectionToolbar({
+        position: { top: 50, left: 50 },
+        lineNumber: 7,
+        selectedText: "some text",
+        startOffset: 0,
+        endLine: 7,
+        endOffset: 9,
+      });
+    });
+
+    const setCommentingLine = vi.fn();
+    await act(async () => {
+      await result.current.handleAddSelectionComment(setCommentingLine);
+    });
+
+    expect(result.current.pendingSelectionAnchor).toEqual({
+      line: 7,
+      end_line: 7,
+      start_column: 0,
+      end_column: 9,
+      selected_text: "some text",
+      selected_text_hash: "abc123hash",
+    });
+    expect(setCommentingLine).toHaveBeenCalledWith(7);
+  });
+});

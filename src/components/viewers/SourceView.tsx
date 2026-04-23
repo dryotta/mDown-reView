@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
@@ -7,6 +7,8 @@ import { useSearch } from "@/hooks/useSearch";
 import { useSourceHighlighting, escapeHtml } from "@/hooks/useSourceHighlighting";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
 import { useFolding } from "@/hooks/useFolding";
+import { useThreadsByLine } from "@/hooks/useThreadsByLine";
+import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { SearchBar } from "./SearchBar";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import "@/styles/source-viewer.css";
@@ -29,6 +31,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const { query, setQuery, matches, currentIndex, next, prev } = useSearch(content);
+  const sourceLinesRef = useRef<HTMLDivElement>(null);
 
   const { threads } = useComments(filePath);
   const { addComment } = useCommentActions();
@@ -73,16 +76,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     return map;
   }, [matches, currentIndex]);
 
-  const threadsByLine = useMemo(() => {
-    const map = new Map<number, import("@/lib/tauri-commands").CommentThread[]>();
-    for (const t of threads) {
-      const ln = t.root.matchedLineNumber ?? t.root.line ?? 1;
-      const arr = map.get(ln) ?? [];
-      arr.push(t);
-      map.set(ln, arr);
-    }
-    return map;
-  }, [threads]);
+  const threadsByLine = useThreadsByLine(threads);
 
   // Auto-scroll to current match
   useEffect(() => {
@@ -93,22 +87,12 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   }, [currentIndex, matches]);
 
   // Scroll-to-line from CommentsPanel click
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const line = (e as CustomEvent).detail.line;
-      const lineIdx = line - 1;
-      const el = document.querySelector(`[data-line-idx="${lineIdx}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("comment-flash");
-        setTimeout(() => el.classList.remove("comment-flash"), 1500);
-      }
-      setExpandedLine(line);
-      setCommentingLine(null);
-    };
-    window.addEventListener("scroll-to-line", handler);
-    return () => window.removeEventListener("scroll-to-line", handler);
+  const scrollToLineTransform = useCallback((line: number) => line - 1, []);
+  const handleScrollTo = useCallback((line: number) => {
+    setExpandedLine(line);
+    setCommentingLine(null);
   }, []);
+  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo);
 
   function highlightSearchInLine(lineIdx: number): string {
     const lineMatches = matchesByLine.get(lineIdx);
@@ -146,7 +130,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
         </div>
       )}
-      <div className="source-lines" onMouseUp={handleMouseUp}>
+      <div className="source-lines" ref={sourceLinesRef} onMouseUp={handleMouseUp}>
         {(() => {
           const elements: React.ReactNode[] = [];
           let idx = 0;

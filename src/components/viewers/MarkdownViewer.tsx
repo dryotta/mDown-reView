@@ -25,13 +25,14 @@ import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import { CommentThread } from "@/components/comments/CommentThread";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
-import { computeAnchorHash } from "@/lib/tauri-commands";
-import { truncateSelectedText } from "@/lib/comment-utils";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import type { CommentThread as CommentThreadType, CommentAnchor } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
+import { useThreadsByLine } from "@/hooks/useThreadsByLine";
+import { useScrollToLine } from "@/hooks/useScrollToLine";
+import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
 import "@/styles/markdown.css";
 
 interface Props {
@@ -193,7 +194,7 @@ function MdCommentPopover({
   addComment,
   setCommentingLine,
   setExpandedLine,
-  setPendingSelectionAnchor,
+  clearSelection,
 }: {
   expandedLine: number | null;
   commentingLine: number | null;
@@ -205,7 +206,7 @@ function MdCommentPopover({
   addComment: (filePath: string, text: string, anchor?: CommentAnchor) => Promise<void>;
   setCommentingLine: (v: number | null) => void;
   setExpandedLine: (v: number | null) => void;
-  setPendingSelectionAnchor: (v: CommentAnchor | null) => void;
+  clearSelection: () => void;
 }) {
   const activeLine = expandedLine ?? commentingLine;
   const [position, setPosition] = useState<{ top: number } | null>(null);
@@ -248,12 +249,12 @@ function MdCommentPopover({
           lineText={lines[activeLine - 1] ?? ""}
           threads={[]}
           showInput={true}
-          onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); setPendingSelectionAnchor(null); }}
+          onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); clearSelection(); }}
           onSaveComment={
             pendingSelectionAnchor
               ? (text: string) => {
                   addComment(filePath, text, pendingSelectionAnchor).catch(() => {});
-                  setPendingSelectionAnchor(null);
+                  clearSelection();
                 }
               : undefined
           }
@@ -277,28 +278,22 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
-  const [selectionToolbar, setSelectionToolbar] = useState<{
-    position: { top: number; left: number };
-    lineNumber: number;
-    selectedText: string;
-  } | null>(null);
-  const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<CommentAnchor | null>(null);
 
   const lines = useMemo(() => body.split("\n"), [body]);
 
   const { threads } = useComments(filePath);
   const { addComment } = useCommentActions();
 
-  const threadsByLine = useMemo(() => {
-    const map = new Map<number, CommentThreadType[]>();
-    for (const t of threads) {
-      const ln = t.root.matchedLineNumber ?? t.root.line ?? 1;
-      const arr = map.get(ln) ?? [];
-      arr.push(t);
-      map.set(ln, arr);
-    }
-    return map;
-  }, [threads]);
+  const threadsByLine = useThreadsByLine(threads);
+
+  const {
+    selectionToolbar,
+    setSelectionToolbar,
+    pendingSelectionAnchor,
+    handleMouseUp,
+    handleAddSelectionComment,
+    clearSelection,
+  } = useSelectionToolbar("data-source-line", 0);
 
   // Build components with img resolver (only img depends on filePath)
   const components = useMemo(() => ({
@@ -317,21 +312,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   }), [filePath]);
 
   // Scroll-to-line from CommentsPanel click
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const line = (e as CustomEvent).detail.line;
-      const el = bodyRef.current?.querySelector(`[data-source-line="${line}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("comment-flash");
-        setTimeout(() => el.classList.remove("comment-flash"), 1500);
-      }
-      setExpandedLine(line);
-      setCommentingLine(null);
-    };
-    window.addEventListener("scroll-to-line", handler);
-    return () => window.removeEventListener("scroll-to-line", handler);
+  const handleScrollTo = useCallback((line: number) => {
+    setExpandedLine(line);
+    setCommentingLine(null);
   }, []);
+  useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
@@ -381,53 +366,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     handleLineClick(line);
   }, [handleLineClick]);
 
-  const handleMouseUp = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) { setSelectionToolbar(null); return; }
-    const range = sel.getRangeAt(0);
-    const selectedText = sel.toString().trim();
-    if (!selectedText) { setSelectionToolbar(null); return; }
-
-    const startNode = range.startContainer;
-    const startElement = startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode as HTMLElement;
-    const lineElement = startElement?.closest("[data-source-line]");
-    if (!lineElement) { setSelectionToolbar(null); return; }
-
-    const lineNumber = Number(lineElement.getAttribute("data-source-line"));
-    if (!lineNumber) { setSelectionToolbar(null); return; }
-
-    const rects = range.getClientRects();
-    const lastRect = rects[rects.length - 1] || range.getBoundingClientRect();
-
-    const toolbarHeight = 36;
-    const toolbarWidth = 120;
-    let top = lastRect.top - toolbarHeight - 4;
-    let left = lastRect.left + (lastRect.width / 2) - (toolbarWidth / 2);
-
-    if (top < 4) top = lastRect.bottom + 4;
-    left = Math.max(4, Math.min(left, window.innerWidth - toolbarWidth - 4));
-
-    setSelectionToolbar({ position: { top, left }, lineNumber, selectedText });
-  }, []);
-
-  const handleAddSelectionComment = useCallback(async () => {
-    if (!selectionToolbar) return;
-    const { lineNumber, selectedText } = selectionToolbar;
-
-    const truncated = truncateSelectedText(selectedText);
-    const hash = await computeAnchorHash(truncated);
-
-    setPendingSelectionAnchor({
-      line: lineNumber,
-      selected_text: truncated,
-      selected_text_hash: hash,
-    });
-
-    setSelectionToolbar(null);
-    setCommentingLine(lineNumber);
-    setExpandedLine(null);
-  }, [selectionToolbar]);
-
   return (
     <div className="markdown-viewer">
       {showSizeWarning && (
@@ -466,7 +404,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               addComment={addComment}
               setCommentingLine={setCommentingLine}
               setExpandedLine={setExpandedLine}
-              setPendingSelectionAnchor={setPendingSelectionAnchor}
+              clearSelection={clearSelection}
             />
           )}
         </div>
@@ -474,7 +412,10 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       {selectionToolbar && (
         <SelectionToolbar
           position={selectionToolbar.position}
-          onAddComment={handleAddSelectionComment}
+          onAddComment={() => handleAddSelectionComment((line) => {
+            setCommentingLine(line);
+            setExpandedLine(null);
+          })}
           onDismiss={() => setSelectionToolbar(null)}
         />
       )}

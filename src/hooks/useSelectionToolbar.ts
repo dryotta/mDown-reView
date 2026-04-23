@@ -20,7 +20,7 @@ interface PendingAnchor {
   selected_text_hash?: string;
 }
 
-export function useSelectionToolbar() {
+export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset = 1) {
   const [selectionToolbar, setSelectionToolbar] = useState<SelectionState | null>(null);
   const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<PendingAnchor | null>(null);
   const [highlightedSelectionLines, setHighlightedSelectionLines] = useState<Set<number>>(new Set());
@@ -32,12 +32,12 @@ export function useSelectionToolbar() {
     const selectedText = sel.toString();
     if (!selectedText.trim()) { setSelectionToolbar(null); return; }
 
-    const startEl = range.startContainer.parentElement?.closest("[data-line-idx]");
-    const endEl = range.endContainer.parentElement?.closest("[data-line-idx]");
+    const startEl = range.startContainer.parentElement?.closest(`[${lineAttribute}]`);
+    const endEl = range.endContainer.parentElement?.closest(`[${lineAttribute}]`);
     if (!startEl || !endEl) { setSelectionToolbar(null); return; }
 
-    const startIdx = Number(startEl.getAttribute("data-line-idx"));
-    const endIdx = Number(endEl.getAttribute("data-line-idx"));
+    const startIdx = Number(startEl.getAttribute(lineAttribute));
+    const endIdx = Number(endEl.getAttribute(lineAttribute));
 
     // Use last client rect for positioning near selection end
     const rects = range.getClientRects();
@@ -59,10 +59,10 @@ export function useSelectionToolbar() {
 
     setSelectionToolbar({
       position: { top, left },
-      lineNumber: startIdx + 1,
+      lineNumber: startIdx + lineOffset,
       selectedText,
       startOffset: range.startOffset,
-      endLine: endIdx + 1,
+      endLine: endIdx + lineOffset,
       endOffset: range.endOffset,
     });
   };
