@@ -5,6 +5,16 @@
 <!-- Archived (2026-04-23 cycle 1): bug-rust-emit-comments-changed, bug-listen-cleanup-race, bug-unicode-truncation, test-vm-hooks, fix-stale-persistence-test, perf-comments-panel-memo, remove-dead-collapse-all, dedup-welcome-path-helpers, simplify-search-hook, security-enable-csp, migrate-viewers-to-vm-hooks, delete-ts-comment-pipeline, hollow-out-comments-slice, dead-ipc-wrappers, refactor-sourceview-god-component -->
 <!-- Previously skipped: simplify-custom-event-bus, security-path-validation, arch-replace-dom-events, perf-shiki-whole-doc, rust-html-asset-resolution, rust-fold-regions, security-sidecar-file-lock, feat-approval-workflow, feat-comment-export -->
 
+## extract-use-theme+dedup-size-warn+extract-app-icons — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-extract-use-theme
+- **Type**: refactor
+- **Task**: Extract useTheme hook, shared SIZE_WARN_THRESHOLD, Icons module
+- **Expert**: product, architect
+- **Commit**: fa4f5b7
+- **Validation**: 481 tests pass, lint clean
+- **Task IDs**: extract-use-theme, dedup-size-warn-threshold, extract-app-icons
+
 ## security-quick-wins — DONE
 - **Date**: 2026-04-23
 - **Branch**: auto-improve/20260423-security-quick-wins
