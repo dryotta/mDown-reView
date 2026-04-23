@@ -1,6 +1,6 @@
 ---
 name: expert-review
-description: Orchestrates all mdownreview expert agents in parallel to review the codebase, synthesizes findings into a prioritized improvement plan, and writes the backlog for self-improve to consume.
+description: Orchestrates all mdownreview expert agents in parallel to review the codebase, synthesizes findings into a prioritized improvement plan, and writes the backlog for self-improve to consume. Accepts optional user input to focus the review on specific goals, areas, or expected outcomes.
 ---
 
 # Expert Review Skill
@@ -8,6 +8,36 @@ description: Orchestrates all mdownreview expert agents in parallel to review th
 You are orchestrating a multi-expert review of the mdownreview codebase. Run all experts in parallel, collect their findings, synthesize a single prioritized improvement plan, and write a canonical backlog file that the `self-improve` skill can consume.
 
 **This skill is RIGID. Follow each step exactly.**
+
+## Accepting User Input
+
+This skill accepts optional free-form input from the user that shapes the review's focus, goal, and expected outcome. The input is whatever the user typed after the skill invocation (e.g., `/expert-review focus on performance and memory usage`).
+
+### How to detect user input
+
+- The user's message that triggered this skill may contain additional text beyond the skill invocation.
+- If the user provided text such as a goal, focus area, specific concern, or expected outcome, capture it as the **Review Directive**.
+- If the user provided no additional text (bare `/expert-review`), the Review Directive is **empty** and the skill runs as a full, unfocused review (default behavior).
+
+### How the Review Directive affects the skill
+
+When a Review Directive is present, it modifies the skill at every stage:
+
+1. **Expert prompts (Step 2)**: Each expert receives the directive as an additional instruction:
+   > "**Review Directive from the user**: [directive text]. Prioritize findings that are relevant to this directive. Still report other issues you find, but clearly mark which findings directly address the directive."
+2. **Synthesis (Step 5)**: The improvement plan includes a **"Directive Alignment"** section at the top showing which findings directly address the user's stated goal.
+3. **Backlog prioritization (Step 6)**: Tasks that directly address the directive are **elevated by one priority level** (e.g., P3 → P2) and tagged with `directive: true` in their detail block.
+4. **Summary (Done)**: The final summary states the directive and how many findings addressed it.
+
+### Examples of valid directives
+
+- `focus on performance and memory usage` → experts prioritize perf findings, synthesis highlights perf items
+- `find bugs in the comment system` → experts focus on comment-related code, bugs in comments elevated
+- `review the file watcher for reliability issues` → experts focus on watcher.rs and useFileWatcher
+- `prepare the codebase for adding image viewer support` → experts assess readiness, architecture gaps for this feature
+- `only look at the Rust layer` → experts focus on src-tauri/src/, skip React-only issues
+
+---
 
 ## Engineering principles all experts must apply
 
@@ -51,6 +81,14 @@ Send all 6 Agent tool calls in the same message. Each agent already knows what f
 
 Provide each agent with the **context from Step 1** (git log, GitHub issues, HEAD SHA). Do NOT tell agents which files to read — they know their domain.
 
+**If a Review Directive is present**, append the directive block (shown below) to every agent's prompt. If no directive, omit it.
+
+Directive block to append when present:
+```
+Review Directive from the user: "[INSERT DIRECTIVE TEXT]"
+Prioritize findings that are relevant to this directive. Still report other issues you find, but clearly mark which findings DIRECTLY ADDRESS the directive vs. general findings. Tag directive-relevant findings with [DIRECTIVE] at the start of each finding title.
+```
+
 ### Agent 1: Product Improvement Expert
 ```
 subagent_type: product-improvement-expert
@@ -60,7 +98,9 @@ Context from recent work:
 [INSERT GIT LOG OUTPUT]
 
 Open GitHub issues:
-[INSERT GH ISSUES OUTPUT OR "none"]"
+[INSERT GH ISSUES OUTPUT OR "none"]
+
+[INSERT DIRECTIVE BLOCK IF PRESENT]"
 ```
 
 ### Agent 2: Performance Expert
@@ -69,7 +109,9 @@ subagent_type: performance-expert
 prompt: "Review the mdownreview codebase for performance issues. Produce your Performance Analysis Report.
 
 Context from recent work:
-[INSERT GIT LOG OUTPUT]"
+[INSERT GIT LOG OUTPUT]
+
+[INSERT DIRECTIVE BLOCK IF PRESENT]"
 ```
 
 ### Agent 3: Architect Expert
@@ -78,7 +120,9 @@ subagent_type: architect-expert
 prompt: "Review the mdownreview architecture. Produce your Architecture Review.
 
 Context from recent work:
-[INSERT GIT LOG OUTPUT]"
+[INSERT GIT LOG OUTPUT]
+
+[INSERT DIRECTIVE BLOCK IF PRESENT]"
 ```
 
 ### Agent 4: React + Tauri Expert
@@ -87,7 +131,9 @@ subagent_type: react-tauri-expert
 prompt: "Review mdownreview for React and Tauri API usage issues. Produce your React + Tauri Expert Review.
 
 Context from recent work:
-[INSERT GIT LOG OUTPUT]"
+[INSERT GIT LOG OUTPUT]
+
+[INSERT DIRECTIVE BLOCK IF PRESENT]"
 ```
 
 ### Agent 5: UX Expert
@@ -99,7 +145,9 @@ Context from recent work:
 [INSERT GIT LOG OUTPUT]
 
 Open GitHub issues:
-[INSERT GH ISSUES OUTPUT OR "none"]"
+[INSERT GH ISSUES OUTPUT OR "none"]
+
+[INSERT DIRECTIVE BLOCK IF PRESENT]"
 ```
 
 ### Agent 6: Bug Hunter
@@ -108,7 +156,9 @@ subagent_type: bug-hunter
 prompt: "Hunt for bugs in the mdownreview codebase. Produce your Bug Hunt Report.
 
 Context from recent work:
-[INSERT GIT LOG OUTPUT]"
+[INSERT GIT LOG OUTPUT]
+
+[INSERT DIRECTIVE BLOCK IF PRESENT]"
 ```
 
 ---
@@ -132,6 +182,18 @@ Write a consolidated **report for the user** structured as:
 ```markdown
 # mdownreview Improvement Plan
 Generated: [date]
+
+## Review Directive
+[If a directive was provided, state it here verbatim. If no directive: "Full review — no specific focus requested."]
+
+## Directive Alignment
+[If a directive was provided, list findings that DIRECTLY address it. Include the finding title, expert, and location. This section helps the user quickly see how the review addressed their specific concern.]
+
+| Finding | Expert | Location | Priority |
+|---------|--------|----------|----------|
+| [finding tagged [DIRECTIVE] by experts] | [expert] | [file:line] | [P1/P2/P3] |
+
+[If no directive: omit this section entirely.]
 
 ## Engineering Principles Applied
 This review enforces:
@@ -208,17 +270,18 @@ Use **stable, content-derived IDs** so IDs survive across review runs without re
 generated_at: [ISO 8601 datetime]
 head_sha: [full HEAD SHA from Step 1]
 branch: [current branch name]
+directive: "[Review Directive text, or empty string if none]"
 ---
 
 # Expert Review Backlog
 
 ## Summary Table
 
-| ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Status |
-|----|------|----------|------|-----------|--------|-------|------|------------------|--------|
-| bug-unlisten-cleanup | Fix missing unlisten in useFileWatcher | P1 | bug | yes | bug-hunter | src/hooks/useFileWatcher.ts | low | yes | open |
-| rust-levenshtein | Move Levenshtein to Rust command | P2 | rust-migration | yes | performance | src/lib/comment-matching.ts | low | no | open |
-| feat-keyboard-nav | Add keyboard nav to CommentsPanel | P3 | feature | yes | ux | src/components/comments/CommentsPanel.tsx | low | no | open |
+| ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Directive | Status |
+|----|------|----------|------|-----------|--------|-------|------|------------------|-----------|--------|
+| bug-unlisten-cleanup | Fix missing unlisten in useFileWatcher | P1 | bug | yes | bug-hunter | src/hooks/useFileWatcher.ts | low | yes | no | open |
+| rust-levenshtein | Move Levenshtein to Rust command | P2 | rust-migration | yes | performance | src/lib/comment-matching.ts | low | no | yes | open |
+| feat-keyboard-nav | Add keyboard nav to CommentsPanel | P3 | feature | yes | ux | src/components/comments/CommentsPanel.tsx | low | no | no | open |
 ...
 
 <!-- Status values: open, done, failed, skipped -->
@@ -257,6 +320,7 @@ it('should unlisten on unmount', () => {
 - **Evidence**: Levenshtein distance (O(m×n) per pair) runs in React render path via useMemo. For files with many comments and large content, this blocks the main thread.
 - **Fix**: Move to a Rust Tauri command: `pub fn fuzzy_match_comments(content: &str, comments: Vec<CommentAnchor>) -> Vec<MatchResult>`
 - **Rust-first**: yes — proposed command signature above
+- **Directive**: yes — directly addresses user's performance review directive
 
 ### feat-keyboard-nav
 ...
@@ -271,6 +335,7 @@ it('should unlisten on unmount', () => {
 3. **Do not remove** previously-done tasks — keep them with their status for continuity
 4. **One canonical record per finding** — a task has one priority, one type, and a quick_win flag. Do not duplicate across sections.
 5. **Preserve IDs from prior cache** — if `.claude/self-improve-cache.md` already exists and a finding maps to an existing ID, reuse that ID
+6. **Directive elevation** — if a Review Directive was provided, tasks tagged `[DIRECTIVE]` by experts are elevated by one priority level (P3 → P2, P2 → P1; P1 stays P1). Add `directive: true` to their detail block. This ensures the user's stated goal gets prioritized in the self-improve loop.
 
 ---
 
@@ -298,10 +363,14 @@ Print which issues were created/skipped.
 Print a summary:
 ```
 [expert-review] ✓ Review complete.
+  Directive: [directive text, or "Full review — no specific focus"]
   Tasks found: [N total] ([N] P1 bugs, [N] P2, [N] P3)
+  Directive-aligned tasks: [N tasks tagged as addressing the directive, or "N/A"]
   Quick wins: [N] ([N] eligible for auto-improve)
   Backlog written to: .claude/self-improve-cache.md
   GitHub issues: [N created / N skipped / not available]
 
   Next: run /self-improve to implement the top task automatically.
+  [If directive present]: To focus self-improve on directive tasks, run:
+    /self-improve [directive text]
 ```
