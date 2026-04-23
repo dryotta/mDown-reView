@@ -1,6 +1,7 @@
 use mdown_review_lib::commands::{
     compute_document_path, get_git_head, load_review_comments, read_binary_file, read_dir,
-    read_text_file, save_review_comments, LaunchArgs, LaunchArgsState, MrsfComment, MrsfSidecar,
+    read_text_file, save_review_comments, CommentsChangedEvent, LaunchArgs, LaunchArgsState,
+    MrsfComment, MrsfSidecar,
 };
 use mdown_review_lib::watcher::FileChangeEvent;
 use std::io::Write;
@@ -400,4 +401,41 @@ fn file_change_event_serializes_all_kinds() {
         let json: serde_json::Value = serde_json::to_value(&event).unwrap();
         assert_eq!(json["kind"].as_str().unwrap(), *kind);
     }
+}
+
+// ── CommentsChangedEvent ──────────────────────────────────────────────────
+
+#[test]
+fn comments_changed_event_serializes_with_file_path() {
+    let event = CommentsChangedEvent {
+        file_path: "/project/docs/readme.md".to_string(),
+    };
+    let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+    assert_eq!(json["file_path"], "/project/docs/readme.md");
+    let obj = json.as_object().unwrap();
+    assert_eq!(
+        obj.len(),
+        1,
+        "CommentsChangedEvent should have exactly 1 field: file_path"
+    );
+}
+
+#[test]
+fn comments_changed_event_payload_matches_frontend_listener() {
+    // The frontend listener in use-comments.ts:71 expects:
+    //   listen<{ file_path: string }>("comments-changed", (event) => {
+    //     if (event.payload.file_path === filePath) { ... }
+    // This test ensures the Rust payload shape matches that contract.
+    let event = CommentsChangedEvent {
+        file_path: "src/main.rs".to_string(),
+    };
+    let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+    assert!(
+        json.get("file_path").is_some(),
+        "payload must have 'file_path' key to match frontend listener"
+    );
+    assert!(
+        json.get("file_path").unwrap().is_string(),
+        "file_path must be a string"
+    );
 }
