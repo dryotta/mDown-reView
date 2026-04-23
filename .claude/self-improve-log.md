@@ -5,6 +5,18 @@
 <!-- Archived (2026-04-23 cycle 1): bug-rust-emit-comments-changed, bug-listen-cleanup-race, bug-unicode-truncation, test-vm-hooks, fix-stale-persistence-test, perf-comments-panel-memo, remove-dead-collapse-all, dedup-welcome-path-helpers, simplify-search-hook, security-enable-csp, migrate-viewers-to-vm-hooks, delete-ts-comment-pipeline, hollow-out-comments-slice, dead-ipc-wrappers, refactor-sourceview-god-component -->
 <!-- Previously skipped: simplify-custom-event-bus, security-path-validation, arch-replace-dom-events, perf-shiki-whole-doc, rust-html-asset-resolution, rust-fold-regions, security-sidecar-file-lock, feat-approval-workflow, feat-comment-export -->
 
+## delete-comments-slice — DONE
+- **Date**: 2026-04-23
+- **Branch**: auto-improve/20260423-delete-comments-slice
+- **Type**: refactor
+- **Task**: Remove dead CommentsSlice, move authorName to UISlice, remove broken badges
+- **Expert**: architect, product, react-tauri
+- **Directive**: clean up web layer, best architecture
+- **Commit**: 28acf02
+- **Validation**: All checks passed (481 Vitest, lint clean)
+- **Tests written**: Removed 4 dead tests (commentsByFile persistence, badge tests)
+- **Expert review**: Skipped (dead code removal, -136 lines)
+
 ## delete-comment-anchors-ts — DONE
 - **Date**: 2026-04-23
 - **Branch**: auto-improve/20260423-delete-comment-anchors-ts
