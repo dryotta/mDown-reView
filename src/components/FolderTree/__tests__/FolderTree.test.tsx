@@ -8,6 +8,11 @@ import type { DirEntry } from "@/lib/tauri-commands";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
+// Mock the hook to avoid IPC / event listener setup in tests
+vi.mock("@/hooks/useUnresolvedCounts", () => ({
+  useUnresolvedCounts: () => ({}),
+}));
+
 // Mock tauri-commands readDir so we can control what it returns
 vi.mock("@/lib/tauri-commands", () => ({
   readDir: vi.fn(),

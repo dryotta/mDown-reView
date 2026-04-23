@@ -234,6 +234,7 @@ pub fn run() {
                 commands::delete_comment,
                 commands::set_comment_resolved,
                 commands::compute_anchor_hash,
+                commands::get_unresolved_counts,
                 watcher::update_watched_files,
                 $($extra),*
             ]

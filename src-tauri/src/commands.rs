@@ -394,3 +394,25 @@ pub fn set_comment_resolved(
 pub fn compute_anchor_hash(text: String) -> String {
     crate::core::anchors::compute_selected_text_hash(&text)
 }
+
+/// Batch: count unresolved comments for each file path.
+/// Returns a map of file_path → unresolved count. Skips files without sidecars.
+#[tauri::command]
+pub fn get_unresolved_counts(file_paths: Vec<String>) -> Result<std::collections::HashMap<String, u32>, String> {
+    let mut counts = std::collections::HashMap::new();
+    for file_path in file_paths {
+        match crate::core::sidecar::load_sidecar(&file_path) {
+            Ok(Some(sidecar)) => {
+                let unresolved = sidecar.comments.iter().filter(|c| !c.resolved).count() as u32;
+                if unresolved > 0 {
+                    counts.insert(file_path, unresolved);
+                }
+            }
+            Ok(None) => {} // No sidecar
+            Err(e) => {
+                tracing::warn!("Could not load sidecar for {file_path}: {e}");
+            }
+        }
+    }
+    Ok(counts)
+}

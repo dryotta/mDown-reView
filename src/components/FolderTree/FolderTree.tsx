@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useStore } from "@/store";
 import { useShallow } from "zustand/shallow";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
+import { useUnresolvedCounts } from "@/hooks/useUnresolvedCounts";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -142,6 +143,13 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
       });
     }
   }
+
+  // Collect visible file paths for badge counts
+  const filePaths = useMemo(
+    () => mergedList.filter(n => !n.isDir).map(n => n.path),
+    [mergedList]
+  );
+  const unresolvedCounts = useUnresolvedCounts(filePaths);
 
   const autoReveal = useStore((s) => s.autoReveal);
   const toggleAutoReveal = useStore((s) => s.toggleAutoReveal);
@@ -296,6 +304,9 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                   {isDir ? (expandedFolders[path] ? "▾" : "▸") : "·"}
                 </span>
                 <span className="tree-name" title={path}>{name}</span>
+                {!isDir && unresolvedCounts[path] > 0 && (
+                  <span className="tree-comment-badge">{unresolvedCounts[path]}</span>
+                )}
               </div>
             );
           })

@@ -150,3 +150,6 @@ export const setCommentResolved = (
 export const computeAnchorHash = (text: string): Promise<string> =>
   invoke<string>("compute_anchor_hash", { text });
 
+export const getUnresolvedCounts = (filePaths: string[]): Promise<Record<string, number>> =>
+  invoke<Record<string, number>>("get_unresolved_counts", { filePaths });
+

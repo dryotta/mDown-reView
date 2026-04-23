@@ -6,6 +6,11 @@ import { useStore } from "@/store";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
+// Mock the hook to avoid IPC / event listener setup in tests
+vi.mock("@/hooks/useUnresolvedCounts", () => ({
+  useUnresolvedCounts: () => ({}),
+}));
+
 const initialState = useStore.getState();
 
 beforeEach(() => {
