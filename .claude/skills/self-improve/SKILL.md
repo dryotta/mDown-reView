@@ -1,13 +1,13 @@
 ---
 name: self-improve
-description: One cycle of the mdownreview self-improvement loop. Reviews the codebase (or uses a cached review), picks the top unimplemented quick win, implements it on a feature branch, validates with tests, and commits if clean. Run via /loop to make the app self-improving.
+description: One cycle of the mdownreview self-improvement loop. Reads the expert-review backlog, picks the top unimplemented task, implements it on a feature branch, validates with tests, and commits if clean. Run /expert-review first to generate the backlog.
 ---
 
 # Self-Improve — One Development Cycle
 
 **This skill is RIGID. Follow every step exactly. Do not skip or reorder.**
 
-This skill runs one complete improvement cycle: review → pick task → branch → implement → validate → commit. Pair with `/loop 2h /self-improve` for continuous autonomous improvement.
+This skill runs one complete improvement cycle: load backlog → pick task → branch → implement → validate → commit. The backlog is produced by the `expert-review` skill. Run `/expert-review` first if you haven't recently.
 
 ## Engineering principles this loop enforces
 
@@ -37,7 +37,7 @@ Then exit the skill.
 
 ---
 
-## Step 2 — Load the improvement backlog
+## Step 2 — Load the improvement log
 
 Read `.claude/self-improve-log.md`. If it does not exist, treat it as empty.
 
@@ -50,139 +50,81 @@ Extract the list of task IDs already attempted (any status).
 
 ---
 
-## Step 3 — Get the task list (use cache if fresh)
+## Step 3 — Load the backlog cache
 
-Check if `.claude/self-improve-cache.md` exists and read its `generated_at` frontmatter field.
+Read `.claude/self-improve-cache.md`.
 
-**Cache is FRESH** if generated within the last 24 hours (compare to current date/time).
+### If the file does not exist:
+
+Print:
+```
+[self-improve] No backlog found. Running expert-review to generate one...
+```
+
+Invoke the `expert-review` skill (call `skill("expert-review")`). After it completes, re-read `.claude/self-improve-cache.md`. If it still doesn't exist, print an error and exit.
+
+### If the file exists, check freshness:
+
+Read the frontmatter fields `generated_at`, `head_sha`, and `branch`.
+
+**Cache is FRESH if BOTH conditions are met:**
+1. `head_sha` matches the current `git rev-parse HEAD`
+2. `generated_at` is within the last 48 hours
+
+**If cache is STALE (either condition fails):**
+
+Print:
+```
+[self-improve] Backlog is stale (generated at [date], HEAD was [old_sha], current HEAD is [new_sha]).
+Running expert-review to refresh...
+```
+
+Invoke the `expert-review` skill (call `skill("expert-review")`). After it completes, re-read `.claude/self-improve-cache.md`.
 
 ### If cache is FRESH:
-Read `.claude/self-improve-cache.md` and extract the Quick Wins list and Priority 1 list. Skip to Step 4.
 
-### If cache is STALE or missing:
-Run a fresh expert review. Spawn ALL 6 agents in parallel (single message, 6 Agent tool calls):
-
-**Agent 1 — product-improvement-expert:**
-```
-subagent_type: product-improvement-expert
-prompt: "Review mdownreview for product improvement opportunities. Read src/App.tsx, src/store/index.ts, src/components/viewers/ViewerRouter.tsx, src/components/comments/CommentsPanel.tsx, src/hooks/useFileContent.ts. Produce your Product Improvement Report. Evidence-based only — cite file:line. Flag Rust-first candidates. Bugs get failing test outlines. Focus especially on Quick Wins implementable in under an hour."
-```
-
-**Agent 2 — performance-expert:**
-```
-subagent_type: performance-expert
-prompt: "Review mdownreview for performance issues. Read src-tauri/src/watcher.rs, src-tauri/src/commands.rs, src/hooks/useFileContent.ts, src/hooks/useFileWatcher.ts, src/store/index.ts. Produce your Performance Analysis Report. Evidence-based only — no finding without measurement or code proof. Include benchmark stubs. Flag Rust migration candidates. Mark issues fixable in under 1 hour as Quick Wins."
-```
-
-**Agent 3 — architect-expert:**
-```
-subagent_type: architect-expert
-prompt: "Review mdownreview architecture. Read src/store/index.ts, src/lib/tauri-commands.ts, src-tauri/src/commands.rs, src/App.tsx, and all files in src/hooks/. Produce your Architecture Review. Evidence-based only — cite file:line. Flag TypeScript logic that belongs in Rust with proposed command signatures. Bugs = Priority 1 with test outline. Flag Quick Wins (safe, self-contained, under 1 hour)."
-```
-
-**Agent 4 — react-tauri-expert:**
-```
-subagent_type: react-tauri-expert
-prompt: "Review mdownreview for React 19 and Tauri v2 API issues. Read all files in src/hooks/, src/lib/tauri-commands.ts, src-tauri/src/commands.rs, src-tauri/src/lib.rs. Also grep for invoke( and listen( in src/. Evidence-based only. Confirmed bugs get failing test outlines. Flag Rust-first migration candidates with proposed signatures. Mark Quick Wins clearly."
-```
-
-**Agent 5 — ux-expert:**
-```
-subagent_type: ux-expert
-prompt: "Review mdownreview UX. Read src/App.tsx, src/components/comments/CommentsPanel.tsx, src/components/comments/CommentInput.tsx, src/components/comments/SelectionToolbar.tsx, src/components/WelcomeView.tsx. Grep for tabIndex and aria- across src/. Evidence-based only — cite file:line. UX bugs get test outlines. Slow UX = flag for Rust-first fix. Produce your UX Review with Top 3 Quick Wins."
-```
-
-**Agent 6 — bug-hunter:**
-```
-subagent_type: bug-hunter
-prompt: "Hunt for bugs in mdownreview. Read all files in src/hooks/, src/lib/comment-anchors.ts, src/lib/comment-matching.ts, src/lib/tauri-commands.ts, src-tauri/src/commands.rs. Grep for listen( in src/ and check for missing unlisten() cleanup. Evidence-based only. Every confirmed bug must include a failing test outline. Flag Rust-first opportunities where moving logic to Rust eliminates the bug class. Produce your Bug Hunt Report."
-```
-
-After all 6 return, synthesize the consolidated task list and write `.claude/self-improve-cache.md`:
-
-```markdown
----
-generated_at: [ISO 8601 datetime]
----
-
-# Expert Review Cache
-
-## Quick Wins (auto-implementable, < 1 hour each)
-<!-- Format: QW-001, QW-002, etc. -->
-<!-- Priority ordering: bugs first, then Rust migrations, then feature improvements -->
-
-| ID | Task | Type | Expert | Files | Risk | Has test outline? |
-|----|------|------|--------|-------|------|-------------------|
-| QW-001 | [one-sentence task] | bug/rust-migration/feature | [expert name] | [file1, file2] | low/medium | yes/no |
-...
-
-## Priority 1 — Bugs & Critical Gaps
-| ID | Task | Type | Expert | Files | Risk | Has test outline? |
-...
-
-## Priority 2 — Friction & Design
-| ID | Task | Type | Expert | Files | Risk | Has test outline? |
-...
-
-## Rust-First Migration Candidates
-| ID | Current TypeScript | Proposed Rust command | Expert | Risk |
-...
-
-## Expert Consensus (flagged by 2+ experts)
-[List of IDs]
-```
-
-**Auto-mode task priority order:**
-1. Bugs with test outlines (zero bug policy — bugs always first)
-2. Rust-first migrations (performance and reliability wins)
-3. Feature quick wins
-
-**Auto-mode scope rules** — only Quick Wins with risk=`low` are eligible. Never auto-implement:
-- Anything touching `src-tauri/tauri.conf.json` or capability/permissions config
-- Anything touching `.claude/` directory
-- Anything described as "refactor" without a clear atomic change
-- Any task requiring new dependencies (`npm install`, `cargo add`)
-- Any task touching auth, file deletion, or process execution
-- Any bug fix task that has `Has test outline? = no` (violates zero bug policy — needs manual attention)
+Parse the Summary Table and Task Details sections. Skip to Step 4.
 
 ---
 
 ## Step 4 — Select the next task
 
 From the cache, find the first eligible task following this priority:
-1. Quick Wins with `type=bug` and `risk=low` and `Has test outline? = yes`
-2. Quick Wins with `type=rust-migration` and `risk=low`
-3. Quick Wins with `type=feature` and `risk=low`
-4. Priority 1 items with `risk=low`
 
-ID must NOT be in the attempted list from the log (Step 2).
+1. Tasks with `type=bug`, `quick_win=yes`, `risk=low`, `has_test_outline=yes`, `status=open`
+2. Tasks with `type=rust-migration`, `quick_win=yes`, `risk=low`, `status=open`
+3. Tasks with `type=feature`, `quick_win=yes`, `risk=low`, `status=open`
+4. Tasks with `priority=P1`, `risk=low`, `status=open`
+
+Task ID must NOT be in the attempted list from the log (Step 2), and must have `status=open` in the cache.
 
 If no eligible tasks remain, print:
 ```
 [self-improve] No eligible auto-implementable tasks remain.
-All quick wins have been attempted. Run /expert-review to get a fresh plan,
-or promote a Priority 2 task manually.
+All quick wins have been attempted. Run /expert-review to get a fresh assessment,
+or promote a higher-risk task manually.
 ```
 Then exit.
 
 Record the selected task:
-- **Task ID**: e.g., `QW-003`
+- **Task ID**: the stable content-derived ID (e.g., `bug-unlisten-cleanup`)
 - **Task**: one-sentence description
 - **Type**: bug / rust-migration / feature
 - **Expert**: which expert recommended it
 - **Files**: which files to read/modify
+- **Evidence**: the full evidence from the detail block
 - **Test outline**: (if type=bug, include it in the implementer prompt)
+- **Fix recommendation**: the specific fix from the detail block
 
 ---
 
 ## Step 5 — Create a feature branch
 
 ```bash
-git checkout -b auto-improve/[YYYYMMDD]-[short-slug]
+git checkout -b auto-improve/[YYYYMMDD]-[task-id]
 ```
 
-Where `short-slug` is 3-4 words from the task, hyphenated, lowercase. Example:
-`auto-improve/20260422-fix-unlisten-cleanup`
+Example: `auto-improve/20260422-bug-unlisten-cleanup`
 
 ---
 
@@ -197,11 +139,12 @@ prompt: "Implement this task for mdownreview:
 **Task ID**: [ID]
 **Task type**: [bug/rust-migration/feature]
 **Task**: [one-sentence description]
-**Expert context**: [the expert's original finding — why this matters, with file:line evidence]
+**Expert context**: [the full evidence from the detail block — why this matters, with file:line citations]
+**Fix recommendation**: [the specific fix recommendation from the detail block]
 **Files to read**: [comma-separated file list]
 
 [IF type=bug]: **Failing test outline to implement first**:
-[INSERT TEST OUTLINE FROM CACHE]
+[INSERT FULL TEST OUTLINE FROM CACHE DETAIL BLOCK]
 Write this failing test first. Verify it fails. Then fix the bug. Test must be committed with the fix.
 
 [IF type=rust-migration]: The goal is to move [description] from TypeScript to Rust. Implement in src-tauri/src/commands.rs and expose via src/lib/tauri-commands.ts. Minimize the TypeScript surface.
@@ -229,13 +172,57 @@ Run the full validation sequence (TypeScript, Rust tests if applicable, unit tes
 IMPORTANT: For type=bug, verify a failing test was written for the bug before the fix. If no test file was modified, verdict is DO NOT COMMIT."
 ```
 
-Wait for the result.
+Wait for the result. **If verdict is DO NOT COMMIT, skip to Step 10 (abort path).**
 
 ---
 
-## Step 8 — Commit or abort
+## Step 8 — Expert review of changes
 
-### If Validation Report says COMMIT:
+Before committing, get independent expert review of the implementation. Spawn ALL 6 experts IN PARALLEL to review the diff:
+
+First, capture the diff:
+```bash
+git diff main --stat
+git diff main
+```
+
+Then spawn all 6 agents in a single message. Each agent already knows their domain — just provide the diff context:
+
+```
+For each of the 6 agents (product-improvement-expert, performance-expert, architect-expert,
+react-tauri-expert, ux-expert, bug-hunter):
+
+subagent_type: [agent-type]
+prompt: "Review this change to mdownreview. This is an auto-improvement implementing task [ID]: [task description].
+
+Type: [bug-fix/rust-migration/feature]
+Original expert: [expert name]
+
+Diff:
+[INSERT FULL DIFF OUTPUT]
+
+Files changed:
+[INSERT DIFF STAT OUTPUT]
+
+Review this change from your area of expertise. Report:
+1. Does this change introduce any new issues in your domain?
+2. Are there any regressions or side effects?
+3. Is the implementation sound from your perspective?
+
+Be concise. Only flag real issues with evidence. If the change looks good from your perspective, say so in one line."
+```
+
+Wait for all 6 to return.
+
+### Evaluating expert feedback
+
+- **If any expert flags a blocking issue** (bug introduced, regression, security concern): treat as DO NOT COMMIT. Skip to Step 10.
+- **If experts only flag minor suggestions**: note them but proceed to commit. Record suggestions in the retrospective.
+- **If all experts approve**: proceed to commit.
+
+---
+
+## Step 9 — Commit
 
 ```bash
 git add [changed files from implementer summary — specific files only, never git add -A]
@@ -245,7 +232,7 @@ Type: [bug-fix/rust-migration/feature]
 Expert: [expert name]
 Task ID: [ID]
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
 Then update `.claude/self-improve-log.md` by appending:
@@ -260,7 +247,10 @@ Then update `.claude/self-improve-log.md` by appending:
 - **Commit**: [git commit hash]
 - **Validation**: All checks passed
 - **Tests written**: [list of test names]
+- **Expert review**: [summary — e.g., "All 6 approved" or "5 approved, architect noted minor suggestion X"]
 ```
+
+Also update `.claude/self-improve-cache.md`: find the task's row in the Summary Table and change its Status from `open` to `done`.
 
 Print:
 ```
@@ -274,7 +264,11 @@ Print:
   To discard: git checkout main && git branch -D [branch]
 ```
 
-### If Validation Report says DO NOT COMMIT:
+Proceed to Step 11 (retrospective).
+
+---
+
+## Step 10 — Abort (validation or expert review failed)
 
 Do NOT commit. Run:
 ```bash
@@ -288,18 +282,59 @@ Update `.claude/self-improve-log.md` by appending:
 ## [ID] — FAILED
 - **Date**: [ISO date]
 - **Task**: [task description]
-- **Failure reason**: [from Validation Report]
+- **Failure reason**: [from Validation Report or expert review]
+- **Expert review findings**: [summary of blocking issues found]
 - **Note**: Branch discarded. Fix manually or skip.
 ```
+
+Also update `.claude/self-improve-cache.md`: find the task's row in the Summary Table and change its Status from `open` to `failed`.
 
 Print:
 ```
 [self-improve] ✗ Cycle ended without commit.
   Task: [ID] — [task description]
-  Reason: [validation failure reason]
+  Reason: [validation/expert review failure reason]
   
   The branch was discarded. To implement manually, pick up task [ID] from the cache.
 ```
+
+Proceed to Step 11 (retrospective).
+
+---
+
+## Step 11 — Retrospective
+
+After every cycle (pass or fail), run a retrospective to improve the self-improve process and update the backlog.
+
+### 11a — Assess this cycle
+
+Reflect on:
+1. **Was the task well-scoped?** Did the implementer finish cleanly, or was the task too vague / too large?
+2. **Was the evidence accurate?** Did the expert's original finding match reality, or was it stale/wrong?
+3. **Were the tests adequate?** Did the validator and expert reviewers find gaps?
+4. **What would make the next cycle better?** (e.g., task needed more context, file list was wrong, risk was underestimated)
+
+### 11b — Update the backlog
+
+Read `.claude/self-improve-cache.md` and make these updates:
+
+1. **Promote or demote tasks** based on what was learned:
+   - If this fix revealed a related task is now higher priority, update its priority
+   - If this fix resolved a task that was listed separately, mark it `done`
+   - If an expert reviewer flagged a new issue during Step 8, **add it as a new task** to the cache with a proper detail block
+
+2. **Adjust risk ratings** if this cycle revealed that a "low" risk task was actually harder than expected, update similar tasks
+
+3. **Record cycle learnings** — append to a `## Retrospective Notes` section at the bottom of the cache:
+   ```markdown
+   ## Retrospective Notes
+   
+   ### [date] — [task ID] — [DONE/FAILED]
+   - **Lesson**: [one-sentence takeaway]
+   - **New tasks added**: [IDs or "none"]
+   - **Tasks re-prioritized**: [IDs or "none"]
+   - **Process improvement**: [suggestion or "none"]
+   ```
 
 ---
 
@@ -312,7 +347,9 @@ At the end of every cycle (pass or fail), print a one-line status table:
 │ SELF-IMPROVE CYCLE COMPLETE                                     │
 │ Task: [ID] [task]                        Status: DONE/FAILED   │
 │ Type: [bug-fix/rust-migration/feature]   Cache age: [Xh]       │
+│ Expert review: [N approved / N flagged]                         │
 │ Bugs remaining in cache: [N]             Rust migrations: [N]  │
+│ Retro: [one-sentence lesson learned]                            │
 │ Next cycle: run /self-improve again or /loop Xh /self-improve  │
 └─────────────────────────────────────────────────────────────────┘
 ```
