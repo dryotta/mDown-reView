@@ -99,6 +99,22 @@ Interactively grooms GitHub issues by brainstorming requirements and attaching a
 
 ---
 
+#### `/implement-issues`
+
+Autonomously implements groomed GitHub issues end-to-end without user interaction.
+
+- **Default**: fetches all open issues labeled `groomed`, processes oldest first
+- **With issue numbers** (`/implement-issues #36 #42`): implements those specific issues
+- Reads the spec from the issue comment, consults expert agents for architecture guidance
+- Creates a feature branch per issue, plans with subagents, implements, validates, code-reviews
+- On success: commits and creates a PR that closes the issue
+- On failure: posts a failure comment on the issue, discards the branch, continues to next issue
+- One retry allowed per issue if validation/review fails
+
+**Pipeline**: read spec → consult experts → write plan → implement (subagents) → validate → code review → PR
+
+---
+
 #### `/run-tests`
 
 Selects and runs the right test suite based on what changed.
