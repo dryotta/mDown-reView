@@ -145,7 +145,7 @@ Parse the Summary Table and Task Details sections. Skip to Step 4.
 **Mode 2 — Focus area / goal**: Search all `open` tasks in the cache for matches. A task matches if the directive keywords appear in its Task description, Files, Evidence, or Fix recommendation fields. Rank matches by:
 1. Number of keyword matches (more = better)
 2. Standard priority ordering (P1 > P2 > P3, bug > rust-migration > feature)
-3. Tasks with `directive: true` in their detail block are preferred (these were flagged by expert-review as aligned with a prior directive)
+3. Tasks with `directive: true` in their detail block are preferred (these were flagged by expert-review as aligned with the Review Directive)
 
 If matches are found, select the top-ranked match. Print:
 ```
@@ -237,7 +237,7 @@ prompt: "Implement this task for mdownreview:
 
 [IF Improvement Directive is present]:
 **User directive**: "[directive text]"
-The user specifically requested this improvement. Ensure the implementation addresses their stated goal. If the directive provides additional context beyond what's in the task detail, use it to guide implementation decisions.
+The user specifically requested this improvement. Ensure the implementation addresses their stated goal. If the directive provides additional context beyond what's in the task detail, use it to guide implementation decisions. When the directive conflicts with the Fix recommendation, prefer the user's directive but note any concerns in the Implementation Summary.
 
 [IF type=bug]: **Failing test outline to implement first**:
 [INSERT FULL TEST OUTLINE FROM CACHE DETAIL BLOCK]

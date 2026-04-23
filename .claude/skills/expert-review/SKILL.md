@@ -270,15 +270,15 @@ Use **stable, content-derived IDs** so IDs survive across review runs without re
 generated_at: [ISO 8601 datetime]
 head_sha: [full HEAD SHA from Step 1]
 branch: [current branch name]
-directive: "[Review Directive text, or empty string if none]"
+directive: "[Review Directive text, or omit this field entirely if no directive was provided]"
 ---
 
 # Expert Review Backlog
 
 ## Summary Table
 
-| ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Directive | Status |
-|----|------|----------|------|-----------|--------|-------|------|------------------|-----------|--------|
+| ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Directive-Aligned | Status |
+|----|------|----------|------|-----------|--------|-------|------|------------------|-------------------|--------|
 | bug-unlisten-cleanup | Fix missing unlisten in useFileWatcher | P1 | bug | yes | bug-hunter | src/hooks/useFileWatcher.ts | low | yes | no | open |
 | rust-levenshtein | Move Levenshtein to Rust command | P2 | rust-migration | yes | performance | src/lib/comment-matching.ts | low | no | yes | open |
 | feat-keyboard-nav | Add keyboard nav to CommentsPanel | P3 | feature | yes | ux | src/components/comments/CommentsPanel.tsx | low | no | no | open |
