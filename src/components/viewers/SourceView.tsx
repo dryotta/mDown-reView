@@ -30,7 +30,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const [searchOpen, setSearchOpen] = useState(false);
   const { query, setQuery, matches, currentIndex, next, prev } = useSearch(content);
 
-  const { comments } = useComments(filePath);
+  const { threads } = useComments(filePath);
   const { addComment } = useCommentActions();
 
   const lines = useMemo(() => content.split("\n"), [content]);
@@ -73,16 +73,16 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     return map;
   }, [matches, currentIndex]);
 
-  const commentsByLine = useMemo(() => {
-    const map = new Map<number, typeof comments>();
-    for (const c of comments) {
-      const ln = c.matchedLineNumber ?? c.line ?? 1;
+  const threadsByLine = useMemo(() => {
+    const map = new Map<number, import("@/lib/tauri-commands").CommentThread[]>();
+    for (const t of threads) {
+      const ln = t.root.matchedLineNumber ?? t.root.line ?? 1;
       const arr = map.get(ln) ?? [];
-      arr.push(c);
+      arr.push(t);
       map.set(ln, arr);
     }
     return map;
-  }, [comments]);
+  }, [threads]);
 
   // Auto-scroll to current match
   useEffect(() => {
@@ -153,7 +153,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           while (idx < lines.length) {
             const lineNum = idx + 1;
             const line = lines[idx];
-            const lineComments = commentsByLine.get(lineNum) ?? [];
+            const lineThreads = threadsByLine.get(lineNum) ?? [];
             const foldRegion = foldStartMap.get(lineNum);
             const isCollapsed = foldRegion !== undefined && collapsedLines.has(lineNum);
 
@@ -166,8 +166,8 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
                         className="comment-plus-btn"
                         aria-label="Add comment"
                         onClick={() => {
-                          const lineComments = commentsByLine.get(lineNum) ?? [];
-                          if (lineComments.length > 0 && expandedLine !== lineNum) {
+                          const lt = threadsByLine.get(lineNum) ?? [];
+                          if (lt.length > 0 && expandedLine !== lineNum) {
                             setExpandedLine(lineNum);
                             setCommentingLine(null);
                             clearSelection();
@@ -206,12 +206,12 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
                     }}
                   />
                 </div>
-                {(commentingLine === lineNum || expandedLine === lineNum || lineComments.length > 0) && (
+                {(commentingLine === lineNum || expandedLine === lineNum || lineThreads.length > 0) && (
                   <LineCommentMargin
                     filePath={filePath}
                     lineNumber={lineNum}
                     lineText={line}
-                    matchedComments={lineComments}
+                    threads={lineThreads}
                     showInput={commentingLine === lineNum}
                     forceExpanded={expandedLine === lineNum}
                     onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); clearSelection(); }}

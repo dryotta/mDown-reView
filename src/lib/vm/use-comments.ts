@@ -41,7 +41,7 @@ export function useComments(filePath: string | null): UseCommentsResult {
     }
   }, [filePath]);
 
-  // Initial load + reload on filePath change
+  // Initial load + reload on filePath change (with cancellation for stale responses)
   useEffect(() => {
     let cancelled = false;
     (async () => {

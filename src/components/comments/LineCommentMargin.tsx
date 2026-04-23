@@ -2,17 +2,16 @@ import { useState } from "react";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentInput } from "./CommentInput";
 import { CommentThread } from "./CommentThread";
-import { groupCommentsIntoThreads } from "@/lib/comment-threads";
 import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
-import type { MatchedComment } from "@/lib/tauri-commands";
+import type { CommentThread as CommentThreadType } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
 interface Props {
   filePath: string;
   lineNumber: number;
   lineText: string;
-  matchedComments: MatchedComment[];
+  threads: CommentThreadType[];
   showInput?: boolean;
   onCloseInput?: () => void;
   onSaveComment?: (text: string) => void;
@@ -21,12 +20,16 @@ interface Props {
 }
 
 export function LineCommentMargin({
-  filePath, lineNumber, lineText, matchedComments, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput,
+  filePath, lineNumber, lineText, threads, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput,
 }: Props) {
   const { addComment } = useCommentActions();
   const [expanded, setExpanded] = useState(false);
 
-  const unresolved = matchedComments.filter((c) => !c.resolved);
+  const unresolvedCount = threads.reduce((acc, t) => {
+    let count = t.root.resolved ? 0 : 1;
+    count += t.replies.filter(r => !r.resolved).length;
+    return acc + count;
+  }, 0);
 
   const handleSave = async (text: string) => {
     if (onSaveComment) {
@@ -43,22 +46,22 @@ export function LineCommentMargin({
 
   const shouldExpand = expanded || forceExpanded;
 
-  if (!showInput && matchedComments.length === 0) return null;
+  if (!showInput && threads.length === 0) return null;
 
   return (
     <div className="line-comment-section">
       {showInput && (
         <CommentInput onSave={handleSave} onClose={() => onCloseInput?.()} />
       )}
-      {shouldExpand && groupCommentsIntoThreads(matchedComments).map((t) => (
+      {shouldExpand && threads.map((t) => (
         <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />
       ))}
-      {!shouldExpand && unresolved.length > 0 && (
+      {!shouldExpand && unresolvedCount > 0 && (
         <button className="line-comment-count" onClick={() => setExpanded(true)}>
-          {unresolved.length} comment{unresolved.length > 1 ? "s" : ""}
+          {unresolvedCount} comment{unresolvedCount > 1 ? "s" : ""}
         </button>
       )}
-      {shouldExpand && !showInput && matchedComments.length > 0 && onRequestInput && (
+      {shouldExpand && !showInput && threads.length > 0 && onRequestInput && (
         <button className="comment-btn" onClick={onRequestInput} style={{ marginTop: 4 }}>
           Add comment
         </button>
