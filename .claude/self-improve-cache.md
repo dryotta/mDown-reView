@@ -22,7 +22,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 | rust-unresolved-counts | Add batch Rust command for badge unresolved counts | P1 | rust-first | no | architect, product, perf, react-tauri | src-tauri/src/commands.rs, FolderTree.tsx, TabBar.tsx | medium | yes | yes | done |
 | refactor-markdownviewer-hooks | Extract shared hooks from MarkdownViewer (selection, comments-by-line, scroll) | P1 | refactor | no | architect, product | MarkdownViewer.tsx, useSelectionToolbar.ts | medium | no | yes | done |
 | perf-memo-usecomments-flatmap | Add useMemo to useComments flatMap of threads | P2 | perf | yes | perf | lib/vm/use-comments.ts | low | no | yes | done |
-| perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | hooks/useSourceHighlighting.ts | medium | yes | no | open |
+| perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | hooks/useSourceHighlighting.ts | medium | yes | no | done |
 | extract-use-theme | Extract shared useTheme hook from duplicate MutationObserver pattern | P2 | refactor | yes | product | useSourceHighlighting.ts, MarkdownViewer.tsx | low | no | yes | done |
 | dedup-size-warn-threshold | Extract shared SIZE_WARN_THRESHOLD constant | P2 | dead-code | yes | product | SourceView.tsx, MarkdownViewer.tsx | low | no | yes | done |
 | standardize-listen-cleanup | Standardize Tauri listen() cleanup pattern across all hooks | P2 | bug | no | react-tauri, bug-hunter | useFileWatcher.ts, App.tsx, use-comments.ts | medium | yes | yes | skipped |
