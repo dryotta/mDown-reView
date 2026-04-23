@@ -11,7 +11,7 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 
 | ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Directive-Aligned | Status |
 |----|------|----------|------|-----------|--------|-------|------|------------------|-------------------|--------|
-| bug-rust-emit-comments-changed | Fix Rust mutation commands to emit comments-changed event | P1 | bug | yes | product, react-tauri, architect, security | src-tauri/src/commands.rs | low | yes | yes | open |
+| bug-rust-emit-comments-changed | Fix Rust mutation commands to emit comments-changed event | P1 | bug | yes | product, react-tauri, architect, security | src-tauri/src/commands.rs | low | yes | yes | done |
 | migrate-viewers-to-vm-hooks | Wire useComments + useCommentActions into all viewers | P1 | refactor | no | all | SourceView.tsx, MarkdownViewer.tsx, DeletedFileViewer.tsx, CommentsPanel.tsx, CommentThread.tsx, LineCommentMargin.tsx | high | no | yes | open |
 | delete-ts-comment-pipeline | Delete comment-matching.ts, comment-threads.ts, dead anchor exports | P1 | dead-code | yes | perf, architect, security, test-gap | src/lib/comment-matching.ts, src/lib/comment-threads.ts, src/lib/comment-anchors.ts | medium | no | yes | open |
 | hollow-out-comments-slice | Remove comment CRUD from Zustand store, keep only authorName | P1 | refactor | no | react-tauri, architect, security | src/store/index.ts | high | no | yes | open |
