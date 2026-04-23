@@ -43,17 +43,11 @@ interface TabsSlice {
   setViewMode: (path: string, mode: "source" | "visual") => void;
 }
 
-// ── Comments slice ─────────────────────────────────────────────────────────
+// ── Comments types (shared, not a store slice) ────────────────────────────
 
 export interface CommentWithOrphan extends MrsfComment {
   isOrphaned?: boolean;
   matchedLineNumber?: number;
-}
-
-interface CommentsSlice {
-  commentsByFile: Record<string, CommentWithOrphan[]>;
-  authorName: string;
-  setAuthorName: (name: string) => void;
 }
 
 // ── UI slice ──────────────────────────────────────────────────────────────
@@ -64,9 +58,11 @@ interface UISlice {
   theme: Theme;
   folderPaneWidth: number;
   commentsPaneVisible: boolean;
+  authorName: string;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
   toggleCommentsPane: () => void;
+  setAuthorName: (name: string) => void;
 }
 
 // ── Watcher slice ──────────────────────────────────────────────────────────
@@ -126,7 +122,7 @@ export function filterStaleTabs(
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-type Store = WorkspaceSlice & TabsSlice & CommentsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice;
+type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice;
 
 
 export const useStore = create<Store>()(
@@ -183,18 +179,15 @@ export const useStore = create<Store>()(
           viewModeByTab: { ...s.viewModeByTab, [path]: mode },
         })),
 
-      // Comments
-      commentsByFile: {},
-      authorName: "",
-      setAuthorName: (name) => set({ authorName: name }),
-
       // UI
       theme: "system",
       folderPaneWidth: 240,
       commentsPaneVisible: true,
+      authorName: "",
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
+      setAuthorName: (name) => set({ authorName: name }),
 
       // Watcher
       ghostEntries: [],
@@ -276,13 +269,6 @@ export async function validatePersistedTabs(
   );
   const result = filterStaleTabs(tabs, activeTabPath, existsMap);
   useStore.setState(result);
-}
-
-// Convenience selector for unresolved comment count per file
-export function useUnresolvedCount(filePath: string): number {
-  return useStore((s) =>
-    (s.commentsByFile[filePath] ?? []).filter((c) => !c.resolved).length
-  );
 }
 
 // Convenience selector for update state

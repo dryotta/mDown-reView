@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useStore } from "@/store/index";
-import type { CommentWithOrphan } from "@/store/index";
 
 const initialState = useStore.getState();
 
@@ -33,24 +32,6 @@ function getPersistedSnapshot() {
 }
 
 describe("persistence partialize contract", () => {
-  it("does not include commentsByFile in the persisted snapshot", () => {
-    // Add a comment so commentsByFile is non-empty
-    const comment: CommentWithOrphan = {
-      id: "c1",
-      author: "Test User (human)",
-      timestamp: new Date().toISOString(),
-      text: "test comment",
-      resolved: false,
-      line: 1,
-    };
-    useStore.setState({
-      commentsByFile: { "/docs/file.md": [comment] },
-    });
-
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).not.toHaveProperty("commentsByFile");
-  });
-
   it("includes tabs in the persisted snapshot", () => {
     useStore.getState().openFile("/some/file.md");
     const snapshot = getPersistedSnapshot();

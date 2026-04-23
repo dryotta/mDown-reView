@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { TabBar } from "../TabBar";
 import { useStore } from "@/store";
-import type { CommentWithOrphan } from "@/store";
 
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
@@ -17,7 +16,6 @@ function setup(tabs: { path: string; scrollTop?: number }[], activeTabPath: stri
   useStore.setState({
     tabs: tabs.map((t) => ({ path: t.path, scrollTop: t.scrollTop ?? 0 })),
     activeTabPath,
-    commentsByFile: {},
   });
   return render(<TabBar />);
 }
@@ -83,60 +81,5 @@ describe("8.2 – tab interactions and unresolved comment badge", () => {
 
     const paths = useStore.getState().tabs.map((t) => t.path);
     expect(paths).not.toContain("/docs/README.md");
-  });
-
-  it("tab shows numeric badge when there are unresolved comments", () => {
-    useStore.setState({
-      tabs: [{ path: "/docs/README.md", scrollTop: 0 }],
-      activeTabPath: "/docs/README.md",
-      commentsByFile: {
-        "/docs/README.md": [
-          {
-            id: "c1",
-            author: "Test User (human)",
-            timestamp: new Date().toISOString(),
-            text: "comment 1",
-            resolved: false,
-            line: 1,
-          } as CommentWithOrphan,
-          {
-            id: "c2",
-            author: "Test User (human)",
-            timestamp: new Date().toISOString(),
-            text: "comment 2",
-            resolved: false,
-            line: 2,
-          } as CommentWithOrphan,
-        ],
-      },
-    });
-
-    render(<TabBar />);
-
-    const badge = screen.getByTestId("comment-badge");
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("2");
-  });
-
-  it("badge absent when unresolved count is zero", () => {
-    useStore.setState({
-      tabs: [{ path: "/docs/README.md", scrollTop: 0 }],
-      activeTabPath: "/docs/README.md",
-      commentsByFile: {
-        "/docs/README.md": [
-          {
-            id: "c1",
-            author: "Test User (human)",
-            timestamp: new Date().toISOString(),
-            text: "resolved",
-            resolved: true,
-            line: 1,
-          } as CommentWithOrphan,
-        ],
-      },
-    });
-
-    render(<TabBar />);
-    expect(screen.queryByTestId("comment-badge")).not.toBeInTheDocument();
   });
 });

@@ -62,25 +62,6 @@ describe("Zustand fine-grained selectors", () => {
     expect(getByTestId("render-count").textContent).toBe("2");
   });
 
-  it("CommentsPanel (commentsByFile selector) does not re-render when tabs change", () => {
-    function TestCommentsPanel() {
-      const count = useRef(0);
-      count.current++;
-      const commentsByFile = useStore((s) => s.commentsByFile);
-      void commentsByFile;
-      return <div data-testid="render-count">{count.current}</div>;
-    }
-
-    const { getByTestId } = render(<TestCommentsPanel />);
-    expect(getByTestId("render-count").textContent).toBe("1");
-
-    act(() => {
-      useStore.setState({ tabs: [{ path: "/test.md", scrollTop: 0 }] });
-    });
-
-    expect(getByTestId("render-count").textContent).toBe("1");
-  });
-
   it("useShallow selector only re-renders when selected state values change", () => {
     function TestShallowSelector() {
       const count = useRef(0);

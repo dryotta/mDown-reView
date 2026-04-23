@@ -21,12 +21,6 @@ describe("tab persistence — partialize", () => {
     expect(stored.state.tabs).toEqual(tabs);
     expect(stored.state.activeTabPath).toBe("/b.md");
   });
-
-  it("does not persist commentsByFile", () => {
-    useStore.setState({ commentsByFile: { "/x.md": [] } });
-    const stored = JSON.parse(localStorage.getItem("mdownreview-ui") || "{}");
-    expect(stored.state.commentsByFile).toBeUndefined();
-  });
 });
 
 // ── filterStaleTabs (pure) ─────────────────────────────────────────────────

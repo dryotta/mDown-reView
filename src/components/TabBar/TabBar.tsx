@@ -1,4 +1,4 @@
-import { useStore, useUnresolvedCount } from "@/store";
+import { useStore } from "@/store";
 import "@/styles/tab-bar.css";
 import { basename } from "@/lib/path-utils";
 
@@ -6,7 +6,6 @@ function TabItem({ path }: { path: string }) {
   const activeTabPath = useStore((s) => s.activeTabPath);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const closeTab = useStore((s) => s.closeTab);
-  const unresolvedCount = useUnresolvedCount(path);
   const isActive = activeTabPath === path;
   const name = basename(path);
 
@@ -19,9 +18,6 @@ function TabItem({ path }: { path: string }) {
       aria-selected={isActive}
     >
       <span className="tab-name">{name}</span>
-      {unresolvedCount > 0 && (
-        <span className="tab-badge" data-testid="comment-badge">{unresolvedCount}</span>
-      )}
       <button
         className="tab-close"
         aria-label={`Close ${name}`}

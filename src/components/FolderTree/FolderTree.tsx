@@ -10,12 +10,11 @@ interface FolderTreeProps {
 }
 
 export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
-  const { root, expandedFolders, activeTabPath, commentsByFile, ghostEntries } = useStore(
+  const { root, expandedFolders, activeTabPath, ghostEntries } = useStore(
     useShallow((s) => ({
       root: s.root,
       expandedFolders: s.expandedFolders,
       activeTabPath: s.activeTabPath,
-      commentsByFile: s.commentsByFile,
       ghostEntries: s.ghostEntries,
     }))
   );
@@ -297,14 +296,6 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                   {isDir ? (expandedFolders[path] ? "▾" : "▸") : "·"}
                 </span>
                 <span className="tree-name" title={path}>{name}</span>
-                {!isDir && (() => {
-                  const unresolvedCount = (commentsByFile[path] ?? []).filter((c) => !c.resolved).length;
-                  return unresolvedCount > 0 ? (
-                    <span className="tree-comment-badge" title={`${unresolvedCount} open comment${unresolvedCount > 1 ? "s" : ""}`}>
-                      {unresolvedCount}
-                    </span>
-                  ) : null;
-                })()}
               </div>
             );
           })
