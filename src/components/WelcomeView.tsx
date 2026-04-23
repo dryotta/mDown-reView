@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "@/store";
 import type { RecentItem } from "@/store";
 import { checkPathExists } from "@/lib/tauri-commands";
+import { basename, dirname } from "@/lib/path-utils";
 import "@/styles/welcome-view.css";
 
 interface WelcomeViewProps {
@@ -54,17 +55,6 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
     }
   };
 
-  function getFileName(path: string): string {
-    const parts = path.split(/[/\\]/);
-    return parts[parts.length - 1] || path;
-  }
-
-  function getParentPath(path: string): string {
-    const parts = path.split(/[/\\]/);
-    parts.pop();
-    return parts.join(path.includes("/") ? "/" : "\\");
-  }
-
   return (
     <div className="welcome-view">
       <div className="welcome-content">
@@ -110,9 +100,9 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
                         {item.type === "folder" ? "📁" : "📄"}
                       </span>
                       <span className="welcome-recent-path">
-                        <strong>{getFileName(item.path)}</strong>
+                        <strong>{basename(item.path)}</strong>
                         <span className="welcome-recent-parent">
-                          {getParentPath(item.path)}
+                          {dirname(item.path)}
                         </span>
                       </span>
                     </button>

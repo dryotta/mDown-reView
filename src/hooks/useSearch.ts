@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useTransition } from "react";
+import { useState, useMemo, useCallback, useDeferredValue } from "react";
 
 export interface SearchMatch {
   lineIndex: number;
@@ -8,9 +8,9 @@ export interface SearchMatch {
 
 export function useSearch(content: string) {
   const [query, setQueryRaw] = useState("");
-  const [deferredQuery, setDeferredQuery] = useState("");
   const [currentIndex, setCurrentIndex] = useState(-1);
-  const [isPending, startTransition] = useTransition();
+  const deferredQuery = useDeferredValue(query);
+  const isPending = query !== deferredQuery;
 
   const matches = useMemo(() => {
     if (!deferredQuery) return [];
@@ -33,10 +33,7 @@ export function useSearch(content: string) {
   const setQuery = useCallback((q: string) => {
     setQueryRaw(q);
     setCurrentIndex(q ? 0 : -1);
-    startTransition(() => {
-      setDeferredQuery(q);
-    });
-  }, [startTransition]);
+  }, []);
 
   const next = useCallback(() => {
     if (matches.length === 0) return;

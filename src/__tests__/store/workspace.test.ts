@@ -44,7 +44,7 @@ describe("workspace slice – setRoot", () => {
   });
 });
 
-describe("workspace slice – toggleFolder / setFolderExpanded / collapseAll", () => {
+describe("workspace slice – toggleFolder / setFolderExpanded", () => {
   it("toggleFolder expands a collapsed folder", () => {
     useStore.getState().toggleFolder("/a/folder");
     expect(useStore.getState().expandedFolders["/a/folder"]).toBe(true);
@@ -61,12 +61,5 @@ describe("workspace slice – toggleFolder / setFolderExpanded / collapseAll", (
     expect(useStore.getState().expandedFolders["/a/folder"]).toBe(true);
     useStore.getState().setFolderExpanded("/a/folder", false);
     expect(useStore.getState().expandedFolders["/a/folder"]).toBe(false);
-  });
-
-  it("collapseAll clears all expanded folders", () => {
-    useStore.getState().setFolderExpanded("/a", true);
-    useStore.getState().setFolderExpanded("/b", true);
-    useStore.getState().collapseAll();
-    expect(useStore.getState().expandedFolders).toEqual({});
   });
 });

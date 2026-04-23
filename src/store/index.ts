@@ -22,7 +22,6 @@ interface WorkspaceSlice {
   setRoot: (root: string | null) => void;
   toggleFolder: (path: string) => void;
   setFolderExpanded: (path: string, expanded: boolean) => void;
-  collapseAll: () => void;
   closeFolder: () => void;
 }
 
@@ -162,7 +161,6 @@ export const useStore = create<Store>()(
         })),
       setFolderExpanded: (path, expanded) =>
         set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
-      collapseAll: () => set({ expandedFolders: {} }),
       closeFolder: () => set({ root: null, expandedFolders: {} }),
 
       // Tabs
