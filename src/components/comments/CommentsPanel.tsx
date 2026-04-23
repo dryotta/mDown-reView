@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useStore } from "@/store";
 import { CommentThread } from "./CommentThread";
 import { groupCommentsIntoThreads } from "@/lib/comment-threads";
@@ -14,30 +14,35 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   const commentsByFile = useStore((s) => s.commentsByFile);
   const [showResolved, setShowResolved] = useState(false);
 
-  const allComments = commentsByFile[filePath] ?? [];
-  const threads = groupCommentsIntoThreads(allComments);
+  const allComments = commentsByFile[filePath];
 
-  // Sort threads by root line number
-  const sorted = [...threads].sort(
-    (a, b) => (a.root.matchedLineNumber ?? a.root.line ?? 0) - (b.root.matchedLineNumber ?? b.root.line ?? 0)
-  );
+  const { sorted, unresolved, resolved } = useMemo(() => {
+    const comments = allComments ?? [];
+    const threads = groupCommentsIntoThreads(comments);
 
-  const unresolved = sorted.filter(t => !t.root.resolved);
-  const resolved = sorted.filter(t => t.root.resolved);
+    const sorted = [...threads].sort(
+      (a, b) => (a.root.matchedLineNumber ?? a.root.line ?? 0) - (b.root.matchedLineNumber ?? b.root.line ?? 0)
+    );
+
+    const unresolved = sorted.filter(t => !t.root.resolved);
+    const resolved = sorted.filter(t => t.root.resolved);
+    return { sorted, unresolved, resolved };
+  }, [allComments]);
+
   const displayed = showResolved ? sorted : unresolved;
 
-  const handleClick = (comment: CommentWithOrphan) => {
+  const handleClick = useCallback((comment: CommentWithOrphan) => {
     const line = comment.matchedLineNumber ?? comment.line ?? 1;
     onScrollToLine?.(line);
     window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
-  };
+  }, [onScrollToLine]);
 
-  const handleKeyDown = (e: React.KeyboardEvent, comment: CommentWithOrphan) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, comment: CommentWithOrphan) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handleClick(comment);
     }
-  };
+  }, [handleClick]);
 
   return (
     <div className="comments-panel">
