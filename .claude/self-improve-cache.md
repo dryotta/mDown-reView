@@ -1,8 +1,8 @@
 ---
-generated_at: 2026-04-23T13:30:00-07:00
-head_sha: 9d9040cdd63c3e2f6fe3991ff7ae260f9c8899dc
+generated_at: 2026-04-23T15:19:00-07:00
+head_sha: aee160498371c274fc3ca9c4d1cdec2e228e7993
 branch: main
-directive: "clean up web layer code and fully embrace model and viewmodel from native; simplify code; remove duplicate and dead code; test coverage and validate"
+directive: "clean up web layer code and fully embrace model and viewmodel from native; simplify code; remove duplicate and dead code; test coverage and validate; bigger changes welcome; goal is best possible client architecture"
 ---
 
 # Expert Review Backlog
@@ -11,32 +11,37 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 
 | ID | Task | Priority | Type | Quick Win | Expert | Files | Risk | Has Test Outline | Directive-Aligned | Status |
 |----|------|----------|------|-----------|--------|-------|------|------------------|-------------------|--------|
-| bug-rust-emit-comments-changed | Fix Rust mutation commands to emit comments-changed event | P1 | bug | yes | product, react-tauri, architect, security | src-tauri/src/commands.rs | low | yes | yes | done |
-| migrate-viewers-to-vm-hooks | Wire useComments + useCommentActions into all viewers | P1 | refactor | no | all | SourceView.tsx, MarkdownViewer.tsx, DeletedFileViewer.tsx, CommentsPanel.tsx, CommentThread.tsx, LineCommentMargin.tsx | high | no | yes | done |
-| delete-ts-comment-pipeline | Delete comment-matching.ts, comment-threads.ts, dead anchor exports | P1 | dead-code | yes | perf, architect, security, test-gap | src/lib/comment-matching.ts, src/lib/comment-threads.ts, src/lib/comment-anchors.ts | medium | no | yes | done |
-| hollow-out-comments-slice | Remove comment CRUD from Zustand store, keep only authorName | P1 | refactor | no | react-tauri, architect, security | src/store/index.ts | high | no | yes | done |
-| delete-auto-save-hook | Delete useAutoSaveComments and useCommitEnricher hooks | P1 | dead-code | yes | product, react-tauri, architect | src/hooks/useAutoSaveComments.ts, src/hooks/useCommitEnricher.ts | medium | no | yes | done |
-| test-vm-hooks | Write comprehensive tests for useComments and useCommentActions | P1 | test | no | test-gap, product | src/lib/vm/use-comments.ts, src/lib/vm/use-comment-actions.ts | low | yes | yes | done |
-| bug-listen-cleanup-race | Fix listen() cleanup race in use-comments.ts | P2 | bug | yes | react-tauri | src/lib/vm/use-comments.ts | low | yes | yes | done |
-| fix-stale-persistence-test | Fix stale persistence test contradicting tab persistence | P2 | test | yes | test-gap | src/__tests__/store/persistence.test.ts | low | no | yes | done |
-| perf-comments-panel-memo | Add useMemo to CommentsPanel grouping/sorting/filtering | P2 | perf | yes | perf | src/components/comments/CommentsPanel.tsx | low | no | no | done |
-| simplify-custom-event-bus | Replace DOM CustomEvent bridge with direct Tauri event subs | P2 | refactor | no | react-tauri, architect | src/hooks/useFileWatcher.ts, viewers | medium | no | yes | skipped |
-| security-enable-csp | Enable Content Security Policy in tauri.conf.json | P2 | security | yes | security | src-tauri/tauri.conf.json | medium | no | no | done |
-| security-path-validation | Add path validation to all file-accepting Rust commands | P2 | security | no | security | src-tauri/src/commands.rs | medium | yes | no | skipped |
-| refactor-sourceview-god-component | Break up SourceView.tsx into focused hooks | P2 | refactor | no | architect | src/components/viewers/SourceView.tsx | medium | no | yes | done |
-| perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | src/components/viewers/SourceView.tsx | medium | no | no | skipped |
-| dead-ipc-wrappers | Remove unused IPC wrappers from tauri-commands.ts | P2 | dead-code | yes | perf | src/lib/tauri-commands.ts | low | no | yes | done |
-| bug-unicode-truncation | Fix Unicode truncation mismatch between TS and Rust | P2 | bug | yes | security | src/lib/comment-utils.ts, src-tauri/src/core/anchors.rs | low | yes | yes | done |
-| dedup-welcome-path-helpers | Replace inline path helpers in WelcomeView with path-utils | P3 | dead-code | yes | perf | src/components/WelcomeView.tsx | low | no | yes | done |
-| remove-dead-collapse-all | Remove unused collapseAll store action | P3 | dead-code | yes | perf | src/store/index.ts | low | no | yes | done |
-| remove-dead-reset-commit-cache | Remove unused resetCommitCache export | P3 | dead-code | yes | security | src/hooks/useCommitEnricher.ts | low | no | yes | done |
-| simplify-search-hook | Replace useTransition+deferredQuery with useDeferredValue | P3 | refactor | yes | react-tauri | src/hooks/useSearch.ts | low | no | yes | done |
-| rust-html-asset-resolution | Move HTML asset resolution to single Rust command | P3 | rust-migration | no | react-tauri | src/lib/resolve-html-assets.ts | medium | no | no | skipped |
-| rust-fold-regions | Port fold region computation to Rust | P3 | rust-migration | no | architect | src/lib/fold-regions.ts | medium | no | no | skipped |
-| security-sidecar-file-lock | Add per-file mutex for concurrent sidecar writes | P3 | security | no | security | src-tauri/src/core/sidecar.rs | medium | yes | no | skipped |
-| feat-approval-workflow | Add file/session review approval workflow | P3 | feature | no | product | src/store/index.ts, src-tauri/src/commands.rs | medium | no | no | skipped |
-| feat-comment-export | Add comment export for agent consumption | P3 | feature | no | product | src-tauri/src/commands.rs | medium | no | no | skipped |
-| arch-replace-dom-events | Replace DOM CustomEvent bridge with Zustand store signals | P3 | refactor | no | react-tauri, architect | src/hooks/useFileWatcher.ts | medium | no | yes | skipped |
+| bug-dead-comments-by-file | Fix commentsByFile never populated → badges always 0, then remove dead slice | P1 | bug+dead-code | no | all 6 | store/index.ts, FolderTree.tsx, TabBar.tsx | medium | yes | yes | open |
+| bug-highlight-race | Fix useSourceHighlighting async race (stale results overwrite) | P1 | bug | yes | react-tauri, bug-hunter | hooks/useSourceHighlighting.ts | low | yes | no | open |
+| delete-comment-threads-ts | Delete TS comment-threads.ts, pass Rust threads by line | P1 | dead-code | yes | architect, product, perf, bug-hunter, react-tauri | lib/comment-threads.ts, LineCommentMargin.tsx, MarkdownViewer.tsx | medium | no | yes | open |
+| delete-comment-anchors-ts | Delete TS comment-anchors.ts, wire Rust compute_anchor_hash | P1 | dead-code+rust-first | yes | architect, product, perf, bug-hunter, react-tauri | lib/comment-anchors.ts, useSelectionToolbar.ts, LineCommentMargin.tsx, MarkdownViewer.tsx | low | no | yes | open |
+| simplify-comment-utils-ts | Remove Rust-duplicated functions from comment-utils.ts | P1 | dead-code | yes | architect, bug-hunter, react-tauri | lib/comment-utils.ts | low | no | yes | open |
+| dead-rust-commands | Remove 7 unused Rust IPC commands from lib.rs and commands.rs | P1 | dead-code+security | yes | bug-hunter, security, product, react-tauri | src-tauri/src/lib.rs, commands.rs | low | no | yes | open |
+| delete-comments-slice | Remove CommentsSlice entirely, move authorName to UISlice | P1 | refactor | yes | architect, product, react-tauri | store/index.ts | low | no | yes | open |
+| standardize-matched-comment | Replace CommentWithOrphan with MatchedComment everywhere | P1 | refactor | yes | architect, product, react-tauri | store/index.ts, CommentThread.tsx, LineCommentMargin.tsx | low | no | yes | open |
+| rust-unresolved-counts | Add batch Rust command for badge unresolved counts | P1 | rust-first | no | architect, product, perf, react-tauri | src-tauri/src/commands.rs, FolderTree.tsx, TabBar.tsx | medium | yes | yes | open |
+| refactor-markdownviewer-hooks | Extract shared hooks from MarkdownViewer (selection, comments-by-line, scroll) | P1 | refactor | no | architect, product | MarkdownViewer.tsx, useSelectionToolbar.ts | medium | no | yes | open |
+| perf-memo-usecomments-flatmap | Add useMemo to useComments flatMap of threads | P2 | perf | yes | perf | lib/vm/use-comments.ts | low | no | yes | open |
+| perf-shiki-whole-doc | Switch Shiki from per-line to whole-document highlighting | P2 | perf | no | perf | hooks/useSourceHighlighting.ts | medium | yes | no | open |
+| extract-use-theme | Extract shared useTheme hook from duplicate MutationObserver pattern | P2 | refactor | yes | product | useSourceHighlighting.ts, MarkdownViewer.tsx | low | no | yes | open |
+| dedup-size-warn-threshold | Extract shared SIZE_WARN_THRESHOLD constant | P2 | dead-code | yes | product | SourceView.tsx, MarkdownViewer.tsx | low | no | yes | open |
+| standardize-listen-cleanup | Standardize Tauri listen() cleanup pattern across all hooks | P2 | bug | no | react-tauri, bug-hunter | useFileWatcher.ts, App.tsx, use-comments.ts | medium | yes | yes | open |
+| refactor-rust-mutation-boilerplate | Extract with_sidecar_mut helper for 5 Rust mutation commands | P2 | refactor | yes | react-tauri | src-tauri/src/commands.rs | low | no | yes | open |
+| dedup-lib-rs-handlers | Deduplicate invoke_handler debug/release blocks in lib.rs | P2 | refactor | yes | react-tauri | src-tauri/src/lib.rs | low | no | yes | open |
+| test-line-comment-margin | Add tests for LineCommentMargin (zero coverage) | P2 | test | no | bug-hunter | components/comments/LineCommentMargin.tsx | low | yes | yes | open |
+| dead-vite-css | Remove Vite boilerplate CSS selectors from App.css | P2 | dead-code | yes | bug-hunter | src/App.css | low | no | yes | open |
+| extract-app-icons | Extract inline SVG icons from App.tsx to shared module | P2 | refactor | yes | architect | App.tsx | low | no | yes | open |
+| simplify-customevent-bridge | Replace DOM CustomEvent bridges with direct Tauri/Zustand signals | P2 | refactor | no | react-tauri, architect | useFileWatcher.ts, useFileContent.ts, CommentsPanel.tsx | medium | no | yes | open |
+| security-shellopen-scheme | Validate URL scheme before shellOpen in MarkdownViewer | P2 | security | yes | security | MarkdownViewer.tsx | low | no | no | open |
+| security-mermaid-strict | Add securityLevel: strict to Mermaid init | P2 | security | yes | security | MermaidView.tsx | low | no | no | open |
+| security-iframe-sandbox | Fix iframe sandbox allow-same-origin + allow-scripts combo | P2 | security | yes | security | HtmlPreviewView.tsx | low | no | no | open |
+| security-csp-extend | Add object-src, base-uri, frame-src to CSP | P2 | security | yes | security | src-tauri/tauri.conf.json | low | no | no | open |
+| simplify-usecomments-dual-load | Merge duplicate load/effect in useComments into single mechanism | P3 | refactor | yes | react-tauri, product | lib/vm/use-comments.ts | low | no | yes | open |
+| bug-file-comments-swallow-error | Handle file-read errors in get_file_comments instead of unwrap_or_default | P3 | bug | yes | bug-hunter | src-tauri/src/commands.rs | low | yes | no | open |
+| security-path-validation | Add workspace root path validation to all Rust commands | P3 | security | no | security | src-tauri/src/commands.rs | high | yes | no | open |
+| test-app-tsx | Add tests for App.tsx keyboard shortcuts and event listeners | P3 | test | no | bug-hunter | App.tsx | low | no | yes | open |
+| perf-virtualize-sourceview | Add windowing/virtualization to SourceView for large files | P3 | perf | no | perf | SourceView.tsx | high | no | no | open |
+| security-serde-yaml-deprecation | Migrate from deprecated serde_yaml to maintained fork | P3 | security | no | security | src-tauri/Cargo.toml | medium | no | no | open |
 
 <!-- Status values: open, done, failed, skipped -->
 
@@ -44,198 +49,167 @@ directive: "clean up web layer code and fully embrace model and viewmodel from n
 
 ## Task Details
 
-### bug-rust-emit-comments-changed
+### bug-dead-comments-by-file
 - **Priority**: P1
-- **Type**: bug
-- **Quick win**: yes
-- **Risk**: low
-- **Found by**: product, react-tauri, architect, security
-- **Location**: src-tauri/src/commands.rs:306-451
-- **Evidence**: All 5 Rust mutation commands (add_comment, add_reply, edit_comment, delete_comment, set_comment_resolved) write to sidecar but never emit a `comments-changed` Tauri event. The VM hook `use-comments.ts:71` listens for this event but nothing produces it. Grep for `comments-changed` in `src-tauri/` returns zero matches. This makes the entire VM layer non-functional.
-- **Fix**: Add `app: tauri::AppHandle` parameter to all mutation commands; emit `comments-changed` with `{ file_path }` payload after each successful sidecar write.
-- **Rust-first**: already in Rust
-- **Directive**: yes
-- **Failing test outline**:
-```rust
-#[test]
-fn add_comment_emits_comments_changed_event() {
-    // Setup: create temp file, init sidecar
-    // Act: call add_comment command with AppHandle
-    // Assert: "comments-changed" event was emitted with { file_path: ... }
-}
-```
-
-### migrate-viewers-to-vm-hooks
-- **Priority**: P1
-- **Type**: refactor
-- **Quick win**: no
-- **Risk**: high
-- **Found by**: all 6 experts
-- **Location**: SourceView.tsx:79-163, MarkdownViewer.tsx:299-387, DeletedFileViewer.tsx:14-36, CommentsPanel.tsx:14-27, CommentThread.tsx:29-32, LineCommentMargin.tsx:53
-- **Evidence**: All viewers use old Zustand `commentsByFile` + TS `matchComments()` + `groupCommentsIntoThreads()`. The VM hooks (`useComments`, `useCommentActions`) wrap the Rust `get_file_comments` single-IPC-call hot path but have zero consumers. All 6 experts independently confirmed zero component imports of the VM layer.
-- **Fix**: Replace old load/match/thread pipeline in each viewer with `useComments(filePath)`. Replace mutation calls (store.addComment, etc.) with `useCommentActions()`. Eliminates ~140 lines of duplicated effects and ~90 lines of duplicated matching/threading per viewer.
-- **Rust-first**: already done in Rust — just needs frontend wiring
-- **Directive**: yes
-- **Depends on**: bug-rust-emit-comments-changed, test-vm-hooks
-
-### delete-ts-comment-pipeline
-- **Priority**: P1
-- **Type**: dead-code
-- **Quick win**: yes
+- **Type**: bug + dead-code
+- **Quick win**: no (touches 5+ files)
 - **Risk**: medium
-- **Found by**: perf, architect, security, test-gap
-- **Location**: src/lib/comment-matching.ts (139 lines), src/lib/comment-threads.ts (41 lines), src/lib/comment-anchors.ts:13-47 (dead exports), src/lib/comment-utils.ts:12-20 (duplicate ID gen + truncation)
-- **Evidence**: Full Levenshtein matching, threading, hash, and ID generation duplicated in both TS and Rust. The TS Levenshtein uses O(m×n) 2D array vs Rust's O(min(m,n)) single-row. Unicode truncation diverges (TS UTF-16 vs Rust Unicode scalars). `createLineAnchor` and `createSelectionAnchor` have zero production consumers.
-- **Fix**: Delete `comment-matching.ts`, `comment-threads.ts`, dead anchor exports from `comment-anchors.ts`, and duplicate utils from `comment-utils.ts` after viewer migration.
-- **Rust-first**: already in Rust
-- **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
-
-### hollow-out-comments-slice
-- **Priority**: P1
-- **Type**: refactor
-- **Quick win**: no
-- **Risk**: high
-- **Found by**: react-tauri, architect, security
-- **Location**: src/store/index.ts:207-326 (~120 lines)
-- **Evidence**: Full CRUD (addComment, addReply, editComment, deleteComment with §9.1 reparenting, resolveComment, unresolveComment) operates purely in-memory on `commentsByFile`. These do not call any Rust IPC — persistence only happens via debounced `useAutoSaveComments`. Zustand mutations can clobber concurrent Rust saves. `commentsByFile` entries are never cleaned up when tabs close (memory leak).
-- **Fix**: Remove all mutation methods from CommentsSlice. Remove `commentsByFile`. Keep only `authorName` and its setter. Comments are now loaded fresh from Rust via `useComments` hook.
-- **Rust-first**: N/A (deletion)
-- **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
-
-### delete-auto-save-hook
-- **Priority**: P1
-- **Type**: dead-code
-- **Quick win**: yes
-- **Risk**: medium
-- **Found by**: product, react-tauri, architect
-- **Location**: src/hooks/useAutoSaveComments.ts (87 lines), src/hooks/useCommitEnricher.ts (52 lines)
-- **Evidence**: `useAutoSaveComments` implements debounced save with dirty tracking and unmount flush. This exists because old path mutates in-memory first. With Rust-first mutations, persistence is atomic — no debounce needed. `enrichCommentsWithCommit` can move into Rust `add_comment` command. `resetCommitCache` is a dead export.
-- **Fix**: Delete both hooks after MVVM migration. Move git HEAD enrichment into Rust `add_comment`.
-- **Rust-first**: commit enrichment should move to Rust
-- **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
-
-### test-vm-hooks
-- **Priority**: P1
-- **Type**: test
-- **Quick win**: no
-- **Risk**: low
-- **Found by**: test-gap, product
-- **Location**: src/lib/vm/use-comments.ts, src/lib/vm/use-comment-actions.ts
-- **Evidence**: 42+ test scenarios identified with zero coverage. These hooks are the new canonical comment interface and must be tested before wiring into components. Key scenarios: load→threads, filePath changes, event listener cleanup, error handling, rapid unmount, stale response discarding.
-- **Fix**: Create `src/lib/vm/__tests__/use-comments.test.ts` and `use-comment-actions.test.ts` with comprehensive coverage.
-- **Rust-first**: no
-- **Directive**: yes
-- **Depends on**: bug-rust-emit-comments-changed
-
-### bug-listen-cleanup-race
-- **Priority**: P2
-- **Type**: bug
-- **Quick win**: yes
-- **Risk**: low
-- **Found by**: react-tauri
-- **Location**: src/lib/vm/use-comments.ts:71-78, 90-103
-- **Evidence**: `listen()` async promise captures `unlisten` in closure. If component unmounts before promise resolves, `unlisten` is null and listener leaks. Same pattern at lines 86-108.
-- **Fix**: `const listenerPromise = listen(...); return () => { listenerPromise.then(fn => fn()); };`
-- **Rust-first**: no
+- **Found by**: all 6 experts (consensus)
+- **Location**: store/index.ts:54,187,282-285, FolderTree.tsx:301, TabBar.tsx:9
+- **Evidence**: `commentsByFile` initialized as `{}` and never populated after MVVM migration (commit bae107a removed mutations). `useUnresolvedCount` (store/index.ts:282-285) always returns 0. FolderTree.tsx:301 reads `commentsByFile[path]` — always `[]`. Tab badges and folder tree comment badges are permanently broken. All 6 experts independently confirmed this.
+- **Fix**: Two-phase: (1) Add `get_unresolved_counts` Rust batch command. (2) Replace `useUnresolvedCount` and FolderTree badge logic with calls to the new command. Then delete `commentsByFile`, `CommentWithOrphan`, and `useUnresolvedCount` from the store. Move `authorName`/`setAuthorName` to UISlice. Delete CommentsSlice.
+- **Rust-first**: yes — new batch command
 - **Directive**: yes
 - **Failing test outline**:
 ```typescript
-it("cleans up Tauri listener even on rapid unmount", async () => {
-  const mockUnlisten = vi.fn();
-  let resolvePromise: (fn: () => void) => void;
-  vi.mocked(listen).mockReturnValue(new Promise((r) => { resolvePromise = r; }));
-  const { unmount } = renderHook(() => useComments("/test.md"));
-  unmount();
-  resolvePromise!(mockUnlisten);
-  await flushPromises();
-  expect(mockUnlisten).toHaveBeenCalled();
+it("TabBar shows comment badge when file has unresolved comments", () => {
+  // Mock getUnresolvedCounts to return { "/test.md": 2 }
+  // Render TabBar with tab for /test.md
+  // Assert badge shows "2" — currently always 0
 });
 ```
 
-### fix-stale-persistence-test
-- **Priority**: P2
-- **Type**: test
+### bug-highlight-race
+- **Priority**: P1
+- **Type**: bug
 - **Quick win**: yes
 - **Risk**: low
-- **Found by**: test-gap
-- **Location**: src/__tests__/store/persistence.test.ts:50-60
-- **Evidence**: Asserts tabs/activeTabPath NOT persisted, but auto-improve task `feat-tab-persistence` added them to partialize. `tabPersistence.test.ts` correctly proves they ARE persisted. The old test is misleading green.
-- **Fix**: Update or delete stale assertions in persistence.test.ts.
+- **Found by**: react-tauri, bug-hunter
+- **Location**: src/hooks/useSourceHighlighting.ts:43-68
+- **Evidence**: The highlight effect calls `getSharedHighlighter()` (async) then `setHighlightedLines(...)` with no cancellation guard. On rapid content/path changes, stale promise resolution overwrites current results. Unlike useComments which has a `cancelled` flag (line 46), this effect has none.
+- **Fix**: Add `let cancelled = false` guard in the effect, check before `setHighlightedLines`.
+- **Rust-first**: no
+- **Directive**: no
+- **Failing test outline**:
+```typescript
+it("does not apply stale highlight results after rapid path changes", async () => {
+  const { rerender } = renderHook(({ content, path }) => useSourceHighlighting(content, path),
+    { initialProps: { content: "const x = 1;", path: "a.ts" } });
+  rerender({ content: "print('hello')", path: "b.py" });
+  await act(async () => { await new Promise(r => setTimeout(r, 200)); });
+  // Result should be for b.py, not stale a.ts
+});
+```
+
+### delete-comment-threads-ts
+- **Priority**: P1
+- **Type**: dead-code
+- **Quick win**: yes
+- **Risk**: medium
+- **Found by**: architect, product, perf, bug-hunter, react-tauri (5 experts)
+- **Location**: src/lib/comment-threads.ts:13-41, LineCommentMargin.tsx:5,53, MarkdownViewer.tsx:29,247
+- **Evidence**: Rust `get_file_comments` already returns `CommentThread[]`. The useComments hook flattens them (use-comments.ts:100) then LineCommentMargin and MarkdownViewer re-thread with the TS function — a flatten→re-thread antipattern. Identical algorithm to Rust `core::threads::group_into_threads()`.
+- **Fix**: Build `threadsByLine: Map<number, CommentThread[]>` directly from the already-threaded data in useComments. Pass `CommentThread[]` to LineCommentMargin and MarkdownViewer instead of flat `MatchedComment[]`. Delete `comment-threads.ts`.
+- **Rust-first**: already in Rust
+- **Directive**: yes
+
+### delete-comment-anchors-ts
+- **Priority**: P1
+- **Type**: dead-code + rust-first
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: architect, product, perf, bug-hunter, react-tauri (5 experts)
+- **Location**: src/lib/comment-anchors.ts:3-9, useSelectionToolbar.ts:75, LineCommentMargin.tsx:37, MarkdownViewer.tsx:420
+- **Evidence**: TS `computeSelectedTextHash` uses Web Crypto SHA-256. Rust already has `compute_anchor_hash` command (commands.rs:468-472) but it's never called from TS. Three TS call sites use the local version. Having two implementations risks hash divergence.
+- **Fix**: Add `computeAnchorHash` wrapper to tauri-commands.ts. Replace 3 call sites. Delete `comment-anchors.ts`.
+- **Rust-first**: yes — use existing Rust command
+- **Directive**: yes
+
+### simplify-comment-utils-ts
+- **Priority**: P1
+- **Type**: dead-code
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: architect, bug-hunter, react-tauri
+- **Location**: src/lib/comment-utils.ts:6-54
+- **Evidence**: `truncateSelectedText()` and `validateTargetingFields()` duplicate Rust `core::anchors.rs:56-81`. Since all mutations go through Rust commands, the TS-side truncation (called in LineCommentMargin:36 and useSelectionToolbar:74) is redundant — Rust already truncates before saving. `generateCommentId()` is unused in production since Phase 2. `TEXT_MAX_LENGTH` constant is unused in production.
+- **Fix**: Keep only `SELECTED_TEXT_MAX_LENGTH` and `TEXT_MAX_LENGTH` constants for UI input limits. Remove `truncateSelectedText`, `validateTargetingFields`, `generateCommentId`. Update `LineCommentMargin` and `useSelectionToolbar` to pass raw text to Rust.
+- **Rust-first**: already in Rust
+- **Directive**: yes
+
+### dead-rust-commands
+- **Priority**: P1
+- **Type**: dead-code + security
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: bug-hunter, security, product, react-tauri (4 experts)
+- **Location**: src-tauri/src/lib.rs:225-270, src-tauri/src/commands.rs
+- **Evidence**: 7 Rust commands registered in invoke_handler but with zero TS callers: `save_review_comments`, `load_review_comments`, `get_git_head`, `compute_document_path`, `match_comments_to_file`, `build_comment_threads`, `compute_anchor_hash` (TS uses own impl). Each is unnecessary attack surface. Security expert specifically flagged `save_review_comments` (arbitrary file write) and `load_review_comments` (arbitrary file read).
+- **Fix**: Remove from both debug and release `generate_handler![]` blocks. Keep `compute_anchor_hash` if wiring it to TS (see delete-comment-anchors-ts). Delete unused Rust functions.
+- **Rust-first**: N/A (deletion)
+- **Directive**: yes
+
+### delete-comments-slice
+- **Priority**: P1
+- **Type**: refactor
+- **Quick win**: yes
+- **Risk**: low (after bug-dead-comments-by-file)
+- **Found by**: architect, product, react-tauri
+- **Location**: store/index.ts:48-57,187
+- **Evidence**: After fixing badge consumers, the entire CommentsSlice is dead: `commentsByFile` removed, only `authorName`/`setAuthorName` remain. These are user preferences, belonging in UISlice.
+- **Fix**: Move `authorName`/`setAuthorName` to UISlice. Delete CommentsSlice interface and implementation. Delete `CommentWithOrphan` type.
+- **Rust-first**: no
+- **Directive**: yes
+- **Depends on**: bug-dead-comments-by-file
+
+### standardize-matched-comment
+- **Priority**: P1
+- **Type**: refactor
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: architect, product, react-tauri
+- **Location**: store/index.ts:48-51, CommentThread.tsx:4, LineCommentMargin.tsx, comment-threads.ts
+- **Evidence**: `CommentWithOrphan extends MrsfComment` has optional `isOrphaned?` and `matchedLineNumber?`. Rust-returned `MatchedComment extends MrsfComment` has non-optional versions plus `anchoredText?`. After MVVM migration, `MatchedComment` is canonical. 7 files still import `CommentWithOrphan`.
+- **Fix**: Replace all `CommentWithOrphan` usage with `MatchedComment`. Delete `CommentWithOrphan` from store.
+- **Rust-first**: no (type alignment)
+- **Directive**: yes
+- **Depends on**: delete-comments-slice
+
+### rust-unresolved-counts
+- **Priority**: P1
+- **Type**: rust-first
+- **Quick win**: no
+- **Risk**: medium
+- **Found by**: architect, product, perf, react-tauri
+- **Location**: src-tauri/src/commands.rs (new), FolderTree.tsx:301, TabBar.tsx:9
+- **Evidence**: After removing `commentsByFile`, tab/tree badges need a data source. Making N individual `get_file_comments` calls per visible node is expensive. A batch command is needed.
+- **Fix**: Add `get_unresolved_counts(file_paths: Vec<String>) -> Vec<(String, u32)>` Rust command. Load sidecar per file, count unresolved, return batch. Create `useUnresolvedCounts` hook. Wire into FolderTree and TabBar.
+- **Rust-first**: yes
+- **Directive**: yes
+- **Depends on**: bug-dead-comments-by-file
+- **Failing test outline**:
+```rust
+#[test]
+fn get_unresolved_counts_returns_correct_counts() {
+    // Create temp files with sidecars containing 2 unresolved, 1 resolved
+    // Call get_unresolved_counts with those paths
+    // Assert: returns [(path, 2)]
+}
+```
+
+### refactor-markdownviewer-hooks
+- **Priority**: P1
+- **Type**: refactor
+- **Quick win**: no
+- **Risk**: medium
+- **Found by**: architect, product
+- **Location**: MarkdownViewer.tsx:286-431
+- **Evidence**: MarkdownViewer (436 lines) reimplements: selection toolbar state/mouse handling (286-431, same as useSelectionToolbar hook), commentsByLine grouping (299-307, identical to SourceView:77-86), scroll-to-line listener (327-341, identical to SourceView:97-112), pendingSelectionAnchor management. The SourceView extraction (commit 70334c8) created shared hooks but MarkdownViewer was not migrated.
+- **Fix**: Reuse `useSelectionToolbar` in MarkdownViewer (or generalize it). Extract shared `commentsByLine` grouping. Extract shared `useScrollToLine`. Target: 436 → ~250 lines.
 - **Rust-first**: no
 - **Directive**: yes
 
-### perf-comments-panel-memo
+### perf-memo-usecomments-flatmap
 - **Priority**: P2
 - **Type**: perf
 - **Quick win**: yes
 - **Risk**: low
 - **Found by**: perf
-- **Location**: src/components/comments/CommentsPanel.tsx:17-27
-- **Evidence**: 4 array allocations (groupCommentsIntoThreads + sort + 2× filter) on every render without useMemo. handleClick and handleKeyDown callbacks recreated every render.
-- **Fix**: Wrap grouping/sorting/filtering in useMemo. Wrap handlers in useCallback.
-- **Rust-first**: no
-- **Directive**: no
-
-### simplify-custom-event-bus
-- **Priority**: P2
-- **Type**: refactor
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: react-tauri, architect
-- **Location**: src/hooks/useFileWatcher.ts:62-64, SourceView.tsx:139, MarkdownViewer.tsx:367
-- **Evidence**: `useFileWatcher` receives Tauri event and re-dispatches as DOM CustomEvent. Multiple components subscribe via addEventListener. After VM hooks, comment reloading is handled by direct Tauri event subscription in `useComments`. Only `useFileContent` still needs file-changed for content reload.
-- **Fix**: After MVVM migration, simplify to Zustand signal or direct Tauri subscription in useFileContent only.
+- **Location**: src/lib/vm/use-comments.ts:100-104
+- **Evidence**: `threads.flatMap(t => [t.root, ...t.replies])` runs on every render (no useMemo). Creates new array reference, causing downstream useMemo deps (commentsByLine in SourceView:77, MarkdownViewer:299) to fire unnecessarily.
+- **Fix**: Wrap in `useMemo(() => threads.flatMap(...), [threads])`.
 - **Rust-first**: no
 - **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
-
-### security-enable-csp
-- **Priority**: P2
-- **Type**: security
-- **Quick win**: yes
-- **Risk**: medium
-- **Found by**: security
-- **Location**: src-tauri/tauri.conf.json:22-24
-- **Evidence**: `"csp": null` disables all CSP. Combined with `dangerouslySetInnerHTML` in MermaidView, SourceView (shiki output). XSS in rendered content executes with full Tauri IPC access.
-- **Fix**: Set restrictive CSP: `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; script-src 'self'`
-- **Rust-first**: no
-- **Directive**: no
-
-### security-path-validation
-- **Priority**: P2
-- **Type**: security
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: security
-- **Location**: src-tauri/src/commands.rs:107-146
-- **Evidence**: `read_text_file` and `read_binary_file` accept any path with zero validation. HTML asset resolution accepts `../` relative paths. Combined with no path validation, enables arbitrary file reads.
-- **Fix**: Create shared `validate_path()` helper; apply to all file-accepting commands.
-- **Rust-first**: already in Rust
-- **Directive**: no
-- **Failing test outline**:
-```rust
-#[test]
-fn read_text_file_rejects_traversal() {
-    let result = read_text_file("../../etc/passwd".to_string());
-    assert!(result.is_err());
-}
-```
-
-### refactor-sourceview-god-component
-- **Priority**: P2
-- **Type**: refactor
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: architect
-- **Location**: src/components/viewers/SourceView.tsx (470+ lines, 11 useState, 8 useEffect)
-- **Evidence**: Manages highlighting, comments, search, folding, selection toolbar, keyboard shortcuts. 16 imports, 11 useState calls.
-- **Fix**: Extract `useSyntaxHighlighting(content, path, theme)` and `useSelectionToolbar()` hooks. Comment logic handled by VM migration.
-- **Rust-first**: no
-- **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
 
 ### perf-shiki-whole-doc
 - **Priority**: P2
@@ -243,162 +217,265 @@ fn read_text_file_rejects_traversal() {
 - **Quick win**: no
 - **Risk**: medium
 - **Found by**: perf
-- **Location**: src/components/viewers/SourceView.tsx:282-288
-- **Evidence**: `codeToHtml()` called per line (5000 calls for 5K file). Loses cross-line syntax context.
-- **Fix**: Call `codeToHtml` once for whole document, split resulting HTML by line.
-- **Rust-first**: no
+- **Location**: src/hooks/useSourceHighlighting.ts:59-62
+- **Evidence**: `codeToHtml()` called per line (5000 separate Shiki invocations for a 5K-line file). Each creates a HAST tree, runs tokenizer, serializes HTML. Also breaks cross-line syntax context (multi-line strings, block comments highlight incorrectly).
+- **Fix**: Call `codeToHtml` once for full content, split HTML by `<span class="line">` boundaries. Benchmark to verify improvement.
+- **Rust-first**: no (Shiki is JS/WASM)
 - **Directive**: no
+- **Failing test outline**:
+```typescript
+// Vitest bench
+bench('per-line (current)', async () => { /* 5000 codeToHtml calls */ });
+bench('whole-document (proposed)', async () => { /* 1 codeToHtml call */ });
+```
 
-### dead-ipc-wrappers
+### extract-use-theme
+- **Priority**: P2
+- **Type**: refactor
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: product
+- **Location**: useSourceHighlighting.ts:31-39, MarkdownViewer.tsx:70-79
+- **Evidence**: Both set up MutationObserver on `document.documentElement` to track `data-theme`, map "dark" → "github-dark". Identical 10+ line blocks.
+- **Fix**: Extract `useTheme()` hook returning Shiki theme name. Replace both usages. ~20 lines removed.
+- **Rust-first**: no
+- **Directive**: yes
+
+### dedup-size-warn-threshold
 - **Priority**: P2
 - **Type**: dead-code
 - **Quick win**: yes
 - **Risk**: low
-- **Found by**: perf
-- **Location**: src/lib/tauri-commands.ts
-- **Evidence**: `matchCommentsToFile` (L118), `buildCommentThreads` (L124), `computeAnchorHash` (L176) have zero callers outside their declarations. Once `getFileComments` is wired in, these are redundant.
-- **Fix**: Remove unused wrappers after migration confirms they're not needed.
-- **Rust-first**: N/A
+- **Found by**: product
+- **Location**: SourceView.tsx:13, MarkdownViewer.tsx:36
+- **Evidence**: `const SIZE_WARN_THRESHOLD = 500 * 1024;` defined identically in both files.
+- **Fix**: Extract to `lib/constants.ts` or shared viewer util.
+- **Rust-first**: no
 - **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
 
-### bug-unicode-truncation
+### standardize-listen-cleanup
 - **Priority**: P2
 - **Type**: bug
-- **Quick win**: yes
-- **Risk**: low
-- **Found by**: security
-- **Location**: src/lib/comment-utils.ts:17-20 ↔ src-tauri/src/core/anchors.rs:57-62
-- **Evidence**: TS `truncateSelectedText` uses `text.length`/`text.slice()` (UTF-16 code units). Rust uses `text.chars().count()`/`.take()` (Unicode scalar values). For emoji/surrogates, different truncation points produce different SHA-256 hashes, causing anchor-matching failures.
-- **Fix**: Move all truncation/hash to Rust via `compute_anchor_hash` command. Delete TS versions.
-- **Rust-first**: already in Rust
-- **Directive**: yes
-
-### dedup-welcome-path-helpers
-- **Priority**: P3
-- **Type**: dead-code
-- **Quick win**: yes
-- **Risk**: low
-- **Found by**: perf
-- **Location**: src/components/WelcomeView.tsx:57-66
-- **Evidence**: `getFileName()` and `getParentPath()` functionally identical to `basename()` and `dirname()` in `path-utils.ts`.
-- **Fix**: Replace inline functions with imports from `@/lib/path-utils`.
+- **Quick win**: no
+- **Risk**: medium
+- **Found by**: react-tauri, bug-hunter
+- **Location**: useFileWatcher.ts:75-76, App.tsx:167-168, App.tsx:307-308, use-comments.ts:76,96
+- **Evidence**: All Tauri `listen()` subs use `return () => { unlisten.then(fn => fn()); }`. If component unmounts before promise resolves, there's a window where events fire on stale callbacks. Commit 195b378 fixed use-comments.ts but the pattern persists in useFileWatcher and App.tsx.
+- **Fix**: Standardize pattern: `let mounted = true; listen(...).then(fn => { if (mounted) unlistenFn = fn; else fn(); }); return () => { mounted = false; unlistenFn?.(); };` Extract as `useTauriListener` utility hook.
 - **Rust-first**: no
 - **Directive**: yes
+- **Failing test outline**:
+```typescript
+it("cleans up listener even when listen resolves after unmount", async () => {
+  // Delay listen() resolution, unmount, resolve, verify unlisten called
+});
+```
 
-### remove-dead-collapse-all
-- **Priority**: P3
-- **Type**: dead-code
-- **Quick win**: yes
-- **Risk**: low
-- **Found by**: perf
-- **Location**: src/store/index.ts:165
-- **Evidence**: `collapseAll` action has zero component consumers. Only used in `workspace.test.ts:47-69`.
-- **Fix**: Remove action and its test, or wire into sidebar UI.
-- **Rust-first**: no
-- **Directive**: yes
-
-### remove-dead-reset-commit-cache
-- **Priority**: P3
-- **Type**: dead-code
-- **Quick win**: yes
-- **Risk**: low
-- **Found by**: security
-- **Location**: src/hooks/useCommitEnricher.ts:13
-- **Evidence**: `resetCommitCache()` exported but never imported anywhere.
-- **Fix**: Remove export. Entire hook slated for deletion in delete-auto-save-hook.
-- **Rust-first**: no
-- **Directive**: yes
-
-### simplify-search-hook
-- **Priority**: P3
+### refactor-rust-mutation-boilerplate
+- **Priority**: P2
 - **Type**: refactor
 - **Quick win**: yes
 - **Risk**: low
 - **Found by**: react-tauri
-- **Location**: src/hooks/useSearch.ts:11-38
-- **Evidence**: Manual `useTransition` + `deferredQuery` state reimplements what `useDeferredValue` provides in one line.
-- **Fix**: `const deferredQuery = useDeferredValue(query); const isPending = query !== deferredQuery;`
+- **Location**: src-tauri/src/commands.rs:312-466
+- **Evidence**: 5 mutation commands (add_comment, add_reply, edit_comment, delete_comment, set_comment_resolved) duplicate load-sidecar → mutate → save → emit pattern (~15 lines each).
+- **Fix**: Extract `with_sidecar_mut(app, file_path, |sidecar| { ... })` helper.
+- **Rust-first**: yes
+- **Directive**: yes
+
+### dedup-lib-rs-handlers
+- **Priority**: P2
+- **Type**: refactor
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: react-tauri
+- **Location**: src-tauri/src/lib.rs:219-274
+- **Evidence**: Debug and release `generate_handler![]` blocks repeat 20+ command registrations. Only `set_root_via_test` differs. Adding a command requires editing two blocks.
+- **Fix**: Build handler list conditionally, add `set_root_via_test` only under `#[cfg(debug_assertions)]`.
+- **Rust-first**: yes
+- **Directive**: yes
+
+### test-line-comment-margin
+- **Priority**: P2
+- **Type**: test
+- **Quick win**: no
+- **Risk**: low
+- **Found by**: bug-hunter
+- **Location**: src/components/comments/LineCommentMargin.tsx (no test file exists)
+- **Evidence**: Zero test coverage for LineCommentMargin. Untested paths: handleSave async anchor creation, expand/collapse toggle, "Add comment" button visibility, null/empty matchedComments edge case.
+- **Fix**: Create `__tests__/LineCommentMargin.test.tsx` with coverage for core interactions.
 - **Rust-first**: no
 - **Directive**: yes
 
-### rust-html-asset-resolution
-- **Priority**: P3
-- **Type**: rust-migration
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: react-tauri
-- **Location**: src/lib/resolve-html-assets.ts:1-112
-- **Evidence**: Makes N separate IPC calls per HTML view (one per img + stylesheet). Single Rust command eliminates ~2N round-trips.
-- **Fix**: `#[tauri::command] fn resolve_html_assets(html: String, html_dir: String) -> Result<String, String>`
-- **Rust-first**: yes
-- **Directive**: no
+### dead-vite-css
+- **Priority**: P2
+- **Type**: dead-code
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: bug-hunter
+- **Location**: src/App.css:1-7,24-47,94-96
+- **Evidence**: Dead selectors from Tauri starter template: `.logo.vite`, `.logo.react`, `.container`, `.logo`, `.logo.tauri`, `.row`, `#greet-input`. None of these class names exist in src/.
+- **Fix**: Delete dead selectors.
+- **Rust-first**: no
+- **Directive**: yes
 
-### rust-fold-regions
-- **Priority**: P3
-- **Type**: rust-migration
-- **Quick win**: no
-- **Risk**: medium
+### extract-app-icons
+- **Priority**: P2
+- **Type**: refactor
+- **Quick win**: yes
+- **Risk**: low
 - **Found by**: architect
-- **Location**: src/lib/fold-regions.ts (118 lines)
-- **Evidence**: Brace matching, string/comment stripping, indent fold computation — text processing that's more performant in Rust for large files.
-- **Fix**: `#[tauri::command] fn compute_fold_regions(content: String) -> Vec<FoldRegion>`
-- **Rust-first**: yes
+- **Location**: App.tsx:25-93
+- **Evidence**: ~70 lines of inline SVG component definitions (IconFile, IconFolder, IconComment, IconSun, IconMoon, IconAuto, IconInfo) with zero logic. App.tsx is 404 lines.
+- **Fix**: Move to `src/components/icons/ToolbarIcons.tsx`. App.tsx → ~330 lines.
+- **Rust-first**: no
+- **Directive**: yes
+
+### simplify-customevent-bridge
+- **Priority**: P2
+- **Type**: refactor
+- **Quick win**: no
+- **Risk**: medium
+- **Found by**: react-tauri, architect
+- **Location**: useFileWatcher.ts:62-66, useFileContent.ts:19-27, CommentsPanel.tsx:31, SourceView.tsx:97-112, MarkdownViewer.tsx:327-340
+- **Evidence**: Two DOM CustomEvent bridges: (1) useFileWatcher converts Tauri file-changed → DOM mdownreview:file-changed → useFileContent listens. Extra hop unnecessary. (2) CommentsPanel dispatches scroll-to-line → viewers listen. Untraceable data flow, no TypeScript type safety.
+- **Fix**: For (1): useFileContent listens directly to Tauri event. For (2): use Zustand store for scroll targets or callback props.
+- **Rust-first**: no
+- **Directive**: yes
+
+### security-shellopen-scheme
+- **Priority**: P2
+- **Type**: security
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: security
+- **Location**: src/components/viewers/MarkdownViewer.tsx:154
+- **Evidence**: `shellOpen(href)` passes unvalidated URLs to OS opener. Crafted markdown can contain `file:///`, `smb://`, `ms-msdt:`, or custom protocol URLs triggering OS-level behavior.
+- **Fix**: `if (/^https?:\/\//i.test(href)) shellOpen(href);`
+- **Rust-first**: no
 - **Directive**: no
 
-### security-sidecar-file-lock
+### security-mermaid-strict
+- **Priority**: P2
+- **Type**: security
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: security
+- **Location**: src/components/viewers/MermaidView.tsx:21
+- **Evidence**: `mermaid.initialize({ startOnLoad: false, theme: "default" })` — `securityLevel` not explicitly set. Relies on Mermaid v10+ default of `'strict'`. Mermaid has had historical XSS CVEs.
+- **Fix**: Add `securityLevel: "strict"` to initialize call.
+- **Rust-first**: no
+- **Directive**: no
+
+### security-iframe-sandbox
+- **Priority**: P2
+- **Type**: security
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: security
+- **Location**: src/components/viewers/HtmlPreviewView.tsx:13
+- **Evidence**: Unsafe mode sets `sandbox="allow-same-origin allow-scripts"`. This combination allows framed content to escape the sandbox entirely per MDN docs.
+- **Fix**: Change unsafe mode to `"allow-scripts"` only (without `allow-same-origin`).
+- **Rust-first**: no
+- **Directive**: no
+
+### security-csp-extend
+- **Priority**: P2
+- **Type**: security
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: security
+- **Location**: src-tauri/tauri.conf.json:23
+- **Evidence**: CSP missing `object-src 'none'`, `base-uri 'self'`, `frame-src 'none'`.
+- **Fix**: Append these directives to existing CSP string.
+- **Rust-first**: no
+- **Directive**: no
+
+### simplify-usecomments-dual-load
+- **Priority**: P3
+- **Type**: refactor
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: react-tauri, product
+- **Location**: src/lib/vm/use-comments.ts:27-64
+- **Evidence**: The `load` callback (27-42) and `useEffect` IIFE (44-64) both call `getFileComments(filePath)` and set threads. Duplicate cancellation logic. The effect should just call `load()`.
+- **Fix**: Merge into single loading mechanism. Effect calls `load()` with ref-based cancellation token.
+- **Rust-first**: no
+- **Directive**: yes
+
+### bug-file-comments-swallow-error
+- **Priority**: P3
+- **Type**: bug
+- **Quick win**: yes
+- **Risk**: low
+- **Found by**: bug-hunter
+- **Location**: src-tauri/src/commands.rs:283
+- **Evidence**: `std::fs::read_to_string(&file_path).unwrap_or_default()` — if source file can't be read (permissions, encoding), content becomes "" and all comments become orphans silently.
+- **Fix**: Return error or log warning when source file read fails.
+- **Rust-first**: yes
+- **Directive**: no
+- **Failing test outline**:
+```rust
+#[test]
+fn get_file_comments_reports_error_on_unreadable_file() {
+    // Create sidecar but make source file unreadable
+    // Assert: returns error or includes warning in response
+}
+```
+
+### security-path-validation
+- **Priority**: P3
+- **Type**: security
+- **Quick win**: no
+- **Risk**: high
+- **Found by**: security
+- **Location**: src-tauri/src/commands.rs (all file-accepting commands)
+- **Evidence**: read_text_file, read_binary_file, read_dir, scan_review_files, all sidecar commands accept arbitrary paths. A compromised WebView can read/write any file. read_dir has a traversal check that is a no-op (canonicalize called on same input twice).
+- **Fix**: Create `validate_within_workspace(path, roots)` helper. Store workspace roots in Tauri managed state. Call at top of every file-touching command.
+- **Rust-first**: yes
+- **Directive**: no
+- **Failing test outline**:
+```rust
+#[test]
+fn read_text_file_rejects_path_outside_workspace() {
+    // Set workspace root to /tmp/test
+    // Call read_text_file with /etc/passwd
+    // Assert: error "path outside workspace"
+}
+```
+
+### test-app-tsx
+- **Priority**: P3
+- **Type**: test
+- **Quick win**: no
+- **Risk**: low
+- **Found by**: bug-hunter
+- **Location**: src/App.tsx (no test file exists)
+- **Evidence**: Zero tests for App.tsx. Untested: global keyboard shortcuts (Ctrl+O, theme cycle), drag-resize folder pane, update check flow, 12 menu event listeners.
+- **Fix**: Create `__tests__/App.test.tsx` with coverage for keyboard shortcuts and core layout.
+- **Rust-first**: no
+- **Directive**: yes
+
+### perf-virtualize-sourceview
+- **Priority**: P3
+- **Type**: perf
+- **Quick win**: no
+- **Risk**: high
+- **Found by**: perf
+- **Location**: src/components/viewers/SourceView.tsx:151-251
+- **Evidence**: Renders ALL lines in DOM (10,000+ DOM nodes for large files). No windowing/virtualization. Interacts with code folding, search highlighting, and comment margins.
+- **Fix**: Add `@tanstack/virtual` or `react-window`. Only render visible lines (~50-100). Significant architectural change.
+- **Rust-first**: no
+- **Directive**: no
+
+### security-serde-yaml-deprecation
 - **Priority**: P3
 - **Type**: security
 - **Quick win**: no
 - **Risk**: medium
 - **Found by**: security
-- **Location**: src-tauri/src/core/sidecar.rs:67-104
-- **Evidence**: No per-file locking. Concurrent add_comment/save_review_comments on same file → load→modify→write race → data loss.
-- **Fix**: `DashMap<String, Mutex<()>>` wrapping load+modify+save per file.
-- **Rust-first**: already in Rust
-- **Directive**: no
-- **Failing test outline**:
-```rust
-#[tokio::test]
-async fn concurrent_saves_dont_clobber() {
-    // Spawn 10 concurrent add_comment calls on same file
-    // Assert all 10 comments present in final sidecar
-}
-```
-
-### feat-approval-workflow
-- **Priority**: P3
-- **Type**: feature
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: product
-- **Location**: src/store/index.ts (absent), src-tauri/src/commands.rs
-- **Evidence**: Zero hits for approve/approval/reject in app code. No mechanism to mark files as reviewed.
-- **Fix**: Add `status: Option<String>` to MrsfSidecar, Rust command `set_review_status`.
+- **Location**: src-tauri/Cargo.toml:43
+- **Evidence**: `serde_yaml` 0.9 is officially deprecated by its author (dtolnay). No security patches. Used to parse `.review.yaml` sidecar files — untrusted content.
+- **Fix**: Migrate to `serde_yml` (community fork) or `yaml-rust2`.
 - **Rust-first**: yes
 - **Directive**: no
-
-### feat-comment-export
-- **Priority**: P3
-- **Type**: feature
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: product
-- **Location**: src-tauri/src/commands.rs:277
-- **Evidence**: Zero hits for export. Comments only live in sidecar files. No way for AI agents to consume structured feedback.
-- **Fix**: `#[tauri::command] fn export_review_summary(root: String) -> String`
-- **Rust-first**: yes
-- **Directive**: no
-
-### arch-replace-dom-events
-- **Priority**: P3
-- **Type**: refactor
-- **Quick win**: no
-- **Risk**: medium
-- **Found by**: react-tauri, architect
-- **Location**: src/hooks/useFileWatcher.ts:41-45, SourceView.tsx:139-148, MarkdownViewer.tsx:370-379
-- **Evidence**: `mdownreview:file-changed` and `scroll-to-line` CustomEvents bypass React data flow, invisible to DevTools. After VM hooks adoption, much of this is redundant.
-- **Fix**: Use Zustand store for file-change signals and scroll targets.
-- **Rust-first**: no
-- **Directive**: yes
-- **Depends on**: migrate-viewers-to-vm-hooks
