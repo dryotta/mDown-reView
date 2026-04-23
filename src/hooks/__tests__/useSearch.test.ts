@@ -53,4 +53,28 @@ describe("useSearch", () => {
     act(() => result.current.setQuery("bar"));
     expect(result.current.currentIndex).toBe(0);
   });
+
+  it("exposes isPending as a boolean", () => {
+    const { result } = renderHook(() => useSearch("hello world"));
+    expect(typeof result.current.isPending).toBe("boolean");
+    expect(result.current.isPending).toBe(false);
+  });
+
+  it("updates query immediately while deferring matches via transition", () => {
+    const { result } = renderHook(() => useSearch("hello world"));
+    act(() => result.current.setQuery("hello"));
+    expect(result.current.query).toBe("hello");
+    expect(result.current.matches).toHaveLength(1);
+    expect(result.current.isPending).toBe(false);
+  });
+
+  it("clears matches and resets isPending when query is cleared", () => {
+    const { result } = renderHook(() => useSearch("abc def abc"));
+    act(() => result.current.setQuery("abc"));
+    expect(result.current.matches).toHaveLength(2);
+    act(() => result.current.setQuery(""));
+    expect(result.current.matches).toEqual([]);
+    expect(result.current.currentIndex).toBe(-1);
+    expect(result.current.isPending).toBe(false);
+  });
 });

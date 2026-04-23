@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useDeferredValue } from "react";
 import { createHighlighter, type Highlighter, type BundledLanguage } from "shiki";
 import { extname } from "@/lib/path-utils";
 import { matchComments } from "@/lib/comment-matching";
@@ -92,7 +92,9 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const [commentReloadKey, setCommentReloadKey] = useState(0);
   const [commentLoadKey, setCommentLoadKey] = useState(0);
 
+  const deferredContent = useDeferredValue(content);
   const lines = useMemo(() => content.split("\n"), [content]);
+  const deferredLines = useMemo(() => deferredContent.split("\n"), [deferredContent]);
 
   const foldRegions = useMemo(() => computeFoldRegions(lines), [lines]);
 
@@ -262,7 +264,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     return parts.join("");
   }
 
-  // Syntax highlighting per line
+  // Syntax highlighting per line (uses deferred lines to avoid blocking during rapid updates)
   useEffect(() => {
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";
     const lang = langFromPath(path);
@@ -279,7 +281,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
             await hl.loadLanguage(lang as BundledLanguage).catch(() => {});
           }
         }
-        const htmlLines = lines.map((line) => {
+        const htmlLines = deferredLines.map((line) => {
           try {
             return hl.codeToHtml(line || " ", { lang, theme });
           } catch {
@@ -289,7 +291,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
         setHighlightedLines(htmlLines);
       })
       .catch(() => setHighlightedLines([]));
-  }, [lines, path, currentTheme]);
+  }, [deferredLines, path, currentTheme]);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 

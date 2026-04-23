@@ -7,8 +7,9 @@ const OPENERS: Record<string, string> = { "{": "}", "[": "]" };
 const CLOSERS = new Set(["}", "]"]);
 
 function stripStringsAndComments(line: string): string {
-  let result = "";
+  const parts: string[] = [];
   let inString: string | null = null;
+  let segStart = -1;
   let i = 0;
   while (i < line.length) {
     const ch = line[i];
@@ -22,15 +23,24 @@ function stripStringsAndComments(line: string): string {
       continue;
     }
     if (ch === '"' || ch === "'" || ch === "`") {
+      if (segStart !== -1) {
+        parts.push(line.slice(segStart, i));
+        segStart = -1;
+      }
       inString = ch;
       i++;
       continue;
     }
-    if (ch === "/" && i + 1 < line.length && line[i + 1] === "/") break;
-    result += ch;
+    if (ch === "/" && i + 1 < line.length && line[i + 1] === "/") {
+      break;
+    }
+    if (segStart === -1) segStart = i;
     i++;
   }
-  return result;
+  if (segStart !== -1) {
+    parts.push(line.slice(segStart, i));
+  }
+  return parts.join("");
 }
 
 function computeBraceRegions(lines: string[]): FoldRegion[] {

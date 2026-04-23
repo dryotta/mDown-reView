@@ -83,4 +83,10 @@ export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
 export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
   invoke<"file" | "dir" | "missing">("check_path_exists", { path });
 
+export const computeDocumentPath = (
+  filePath: string,
+  root: string | null
+): Promise<string> =>
+  invoke<string>("compute_document_path", { filePath, root });
+
 export const getAppVersion = (): Promise<string> => getVersion();

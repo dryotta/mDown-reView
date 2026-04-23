@@ -1,5 +1,20 @@
+import { renderHook, act } from "@testing-library/react";
 import { useStore } from "@/store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listen } from "@tauri-apps/api/event";
+import { useFileWatcher } from "../useFileWatcher";
+import { scanReviewFiles } from "@/lib/tauri-commands";
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn((_eventName: string, _callback: unknown) =>
+    Promise.resolve(() => {})
+  ),
+}));
+
+vi.mock("@/lib/tauri-commands", () => ({
+  updateWatchedFiles: vi.fn().mockResolvedValue(undefined),
+  scanReviewFiles: vi.fn().mockResolvedValue([]),
+}));
 
 describe("WatcherSlice", () => {
   beforeEach(() => {
@@ -45,5 +60,120 @@ describe("WatcherSlice", () => {
     const ts = useStore.getState().lastSaveByPath["/some/file.md"];
     expect(ts).toBeGreaterThanOrEqual(before);
     expect(ts).toBeLessThanOrEqual(after);
+  });
+});
+
+// Helper to extract the file-changed listener callback registered by the hook
+function getFileChangedCallback() {
+  const call = vi.mocked(listen).mock.calls.find((c) => c[0] === "file-changed");
+  if (!call) throw new Error("listen('file-changed', ...) was never called");
+  return call[1] as (event: { payload: { path: string; kind: string } }) => void;
+}
+
+describe("useFileWatcher debounced deletion scan", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    useStore.setState({
+      root: "/workspace",
+      tabs: [],
+      lastSaveByPath: {},
+      ghostEntries: [],
+      autoReveal: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should scan on source file deletion (detects new ghost entries)", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(scanReviewFiles).mockClear();
+    const callback = getFileChangedCallback();
+
+    act(() => {
+      callback({ payload: { path: "/some/file.ts", kind: "deleted" } });
+    });
+
+    // Scan is debounced — not called immediately
+    expect(scanReviewFiles).not.toHaveBeenCalled();
+
+    // After debounce timer fires
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(scanReviewFiles).toHaveBeenCalledWith("/workspace");
+  });
+
+  it("should scan on .review.yaml sidecar file deletion", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(scanReviewFiles).mockClear();
+    const callback = getFileChangedCallback();
+
+    act(() => {
+      callback({ payload: { path: "/some/file.md.review.yaml", kind: "deleted" } });
+    });
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(scanReviewFiles).toHaveBeenCalledWith("/workspace");
+  });
+
+  it("should scan on .review.json sidecar file deletion", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(scanReviewFiles).mockClear();
+    const callback = getFileChangedCallback();
+
+    act(() => {
+      callback({ payload: { path: "/some/file.md.review.json", kind: "deleted" } });
+    });
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(scanReviewFiles).toHaveBeenCalledWith("/workspace");
+  });
+
+  it("should not scan on non-delete event for sidecar file", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(scanReviewFiles).mockClear();
+    const callback = getFileChangedCallback();
+
+    act(() => {
+      callback({ payload: { path: "/some/file.md.review.json", kind: "content" } });
+    });
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(scanReviewFiles).not.toHaveBeenCalled();
+  });
+
+  it("should coalesce rapid deletions into a single scan", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(scanReviewFiles).mockClear();
+    const callback = getFileChangedCallback();
+
+    // Fire 5 deletions in quick succession
+    act(() => {
+      callback({ payload: { path: "/some/a.ts", kind: "deleted" } });
+      callback({ payload: { path: "/some/b.md", kind: "deleted" } });
+      callback({ payload: { path: "/some/c.review.yaml", kind: "deleted" } });
+      callback({ payload: { path: "/some/d.ts", kind: "deleted" } });
+      callback({ payload: { path: "/some/e.review.json", kind: "deleted" } });
+    });
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    // Only one scan despite 5 deletions
+    expect(scanReviewFiles).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,8 @@
 use mdown_review_lib::commands::{
-    load_review_comments, read_binary_file, read_dir, read_text_file, save_review_comments,
-    LaunchArgs, LaunchArgsState, MrsfComment, MrsfSidecar,
+    compute_document_path, get_git_head, load_review_comments, read_binary_file, read_dir,
+    read_text_file, save_review_comments, LaunchArgs, LaunchArgsState, MrsfComment, MrsfSidecar,
 };
+use mdown_review_lib::watcher::FileChangeEvent;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -277,4 +278,126 @@ fn read_dir_hides_review_sidecars() {
     assert!(names.contains(&"config.json"));
     assert!(!names.contains(&"readme.md.review.yaml"), "YAML review sidecars should be hidden");
     assert!(!names.contains(&"main.rs.review.json"), "JSON review sidecars should be hidden");
+}
+
+// ── get_git_head ──────────────────────────────────────────────────────────
+
+#[test]
+fn get_git_head_returns_sha_in_git_repo() {
+    // The mdownreview repo itself is a git repo — use its root.
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let result = get_git_head(repo_root);
+    assert!(result.is_ok());
+    let sha = result.unwrap();
+    assert!(sha.is_some(), "should return a SHA in a git repo");
+    assert!(sha.unwrap().len() >= 40, "SHA should be at least 40 hex chars");
+}
+
+#[test]
+fn get_git_head_returns_none_for_non_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = get_git_head(dir.path().to_str().unwrap().to_string());
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none(), "non-repo directory should return Ok(None)");
+}
+
+#[test]
+fn get_git_head_returns_error_on_command_failure() {
+    // Use a non-existent directory as cwd — Command::output() will fail
+    // because the working directory doesn't exist. This simulates a
+    // command execution failure distinct from "not a git repo".
+    let bad_path = if cfg!(windows) {
+        "Z:\\nonexistent_dir_that_surely_does_not_exist_12345".to_string()
+    } else {
+        "/nonexistent_dir_that_surely_does_not_exist_12345".to_string()
+    };
+    let result = get_git_head(bad_path);
+    assert!(result.is_err(), "command execution failure should return Err, not Ok(None)");
+}
+
+// ── compute_document_path ─────────────────────────────────────────────────
+
+#[test]
+fn compute_document_path_returns_relative_with_root() {
+    let result = compute_document_path("/workspace/project/src/file.md".into(), Some("/workspace/project".into()));
+    assert_eq!(result, "src/file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_without_root() {
+    let result = compute_document_path("/some/path/file.md".into(), None);
+    assert_eq!(result, "file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_when_not_under_root() {
+    let result = compute_document_path("/other/path/file.md".into(), Some("/workspace/project".into()));
+    assert_eq!(result, "file.md");
+}
+
+#[test]
+fn compute_document_path_handles_nested_deeply() {
+    let result = compute_document_path("/root/a/b/c/d/file.md".into(), Some("/root".into()));
+    assert_eq!(result, "a/b/c/d/file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_when_root_equals_file() {
+    // When file_path == root, strip_prefix yields empty string; fallback to filename
+    let result = compute_document_path("/workspace/project".into(), Some("/workspace/project".into()));
+    assert_eq!(result, "project");
+}
+
+#[test]
+#[cfg(windows)]
+fn compute_document_path_uses_forward_slashes() {
+    let result = compute_document_path(r"C:\Users\dev\project\src\file.md".into(), Some(r"C:\Users\dev\project".into()));
+    assert_eq!(result, "src/file.md");
+}
+
+#[test]
+fn compute_document_path_root_with_trailing_separator() {
+    // Root with trailing slash should still work
+    let result = compute_document_path("/workspace/project/file.md".into(), Some("/workspace/project/".into()));
+    assert_eq!(result, "file.md");
+}
+
+#[test]
+fn compute_document_path_returns_filename_with_empty_root() {
+    // Empty root string should fallback to filename, not return absolute path
+    let result = compute_document_path("/workspace/project/file.md".into(), Some("".into()));
+    assert_eq!(result, "file.md");
+}
+
+// ── FileChangeEvent serialization ─────────────────────────────────────────
+
+#[test]
+fn file_change_event_serializes_with_correct_fields() {
+    let event = FileChangeEvent {
+        path: "/project/docs/readme.md".to_string(),
+        kind: "content".to_string(),
+    };
+    let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+    assert_eq!(json["path"], "/project/docs/readme.md");
+    assert_eq!(json["kind"], "content");
+    // Ensure no extra fields are present
+    let obj = json.as_object().unwrap();
+    assert_eq!(obj.len(), 2, "FileChangeEvent should have exactly 2 fields: path and kind");
+}
+
+#[test]
+fn file_change_event_serializes_all_kinds() {
+    for kind in &["content", "review", "deleted"] {
+        let event = FileChangeEvent {
+            path: "test.md".to_string(),
+            kind: kind.to_string(),
+        };
+        let json: serde_json::Value = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["kind"].as_str().unwrap(), *kind);
+    }
 }

@@ -3,7 +3,9 @@ import "@/styles/tab-bar.css";
 import { basename } from "@/lib/path-utils";
 
 function TabItem({ path }: { path: string }) {
-  const { activeTabPath, setActiveTab, closeTab } = useStore();
+  const activeTabPath = useStore((s) => s.activeTabPath);
+  const setActiveTab = useStore((s) => s.setActiveTab);
+  const closeTab = useStore((s) => s.closeTab);
   const unresolvedCount = useUnresolvedCount(path);
   const isActive = activeTabPath === path;
   const name = basename(path);
@@ -35,7 +37,7 @@ function TabItem({ path }: { path: string }) {
 }
 
 export function TabBar() {
-  const { tabs } = useStore();
+  const tabs = useStore((s) => s.tabs);
 
   if (tabs.length === 0) return null;
 

@@ -54,10 +54,10 @@ describe("14.3 – CommentsPanel", () => {
 
     render(<CommentsPanel filePath={FILE} />);
 
-    const comments = screen.getAllByText(/comment/i).filter((el) => el.classList.contains("comment-text"));
-    expect(comments[0]).toHaveTextContent("First comment");
-    expect(comments[1]).toHaveTextContent("Second comment");
-    expect(comments[2]).toHaveTextContent("Third comment");
+    const commentEls = document.querySelectorAll(".comment-text");
+    expect(commentEls[0]).toHaveTextContent("First comment");
+    expect(commentEls[1]).toHaveTextContent("Second comment");
+    expect(commentEls[2]).toHaveTextContent("Third comment");
   });
 
   it("shows line number prefix for each comment", () => {
@@ -192,9 +192,97 @@ describe("14.3 – CommentsPanel", () => {
 
     render(<CommentsPanel filePath={FILE} />);
 
-    const comments = screen.getAllByText(/Should be/).filter((el) => el.classList.contains("comment-text"));
-    expect(comments[0]).toHaveTextContent("Should be first");
-    expect(comments[1]).toHaveTextContent("Should be second");
+    const commentEls = document.querySelectorAll(".comment-text");
+    expect(commentEls[0]).toHaveTextContent("Should be first");
+    expect(commentEls[1]).toHaveTextContent("Should be second");
+  });
+
+  it("comment items have role='button' and tabIndex for keyboard access", () => {
+    useStore.setState({
+      commentsByFile: {
+        [FILE]: [makeComment("1", "Accessible comment", { line: 5 })],
+      },
+    });
+
+    render(<CommentsPanel filePath={FILE} />);
+
+    const item = document.querySelector(".comment-panel-item")!;
+    expect(item).toHaveAttribute("role", "button");
+    expect(item).toHaveAttribute("tabindex", "0");
+  });
+
+  it("pressing Enter on a comment item calls onScrollToLine", () => {
+    const onScrollToLine = vi.fn();
+
+    useStore.setState({
+      commentsByFile: {
+        [FILE]: [makeComment("1", "Keyboard comment", { line: 10, matchedLineNumber: 12 })],
+      },
+    });
+
+    render(<CommentsPanel filePath={FILE} onScrollToLine={onScrollToLine} />);
+
+    const item = document.querySelector(".comment-panel-item")!;
+    fireEvent.keyDown(item, { key: "Enter" });
+
+    expect(onScrollToLine).toHaveBeenCalledWith(12);
+  });
+
+  it("pressing Space on a comment item calls onScrollToLine", () => {
+    const onScrollToLine = vi.fn();
+
+    useStore.setState({
+      commentsByFile: {
+        [FILE]: [makeComment("1", "Space comment", { line: 7 })],
+      },
+    });
+
+    render(<CommentsPanel filePath={FILE} onScrollToLine={onScrollToLine} />);
+
+    const item = document.querySelector(".comment-panel-item")!;
+    fireEvent.keyDown(item, { key: " " });
+
+    expect(onScrollToLine).toHaveBeenCalledWith(7);
+  });
+
+  it("pressing Enter on a comment dispatches scroll-to-line event", () => {
+    const handler = vi.fn();
+    window.addEventListener("scroll-to-line", handler);
+
+    useStore.setState({
+      commentsByFile: {
+        [FILE]: [makeComment("1", "Event comment", { line: 20 })],
+      },
+    });
+
+    render(<CommentsPanel filePath={FILE} />);
+
+    const item = document.querySelector(".comment-panel-item")!;
+    fireEvent.keyDown(item, { key: "Enter" });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect((handler.mock.calls[0][0] as CustomEvent).detail.line).toBe(20);
+
+    window.removeEventListener("scroll-to-line", handler);
+  });
+
+  it("other keys on a comment item do not trigger navigation", () => {
+    const onScrollToLine = vi.fn();
+
+    useStore.setState({
+      commentsByFile: {
+        [FILE]: [makeComment("1", "No trigger", { line: 3 })],
+      },
+    });
+
+    render(<CommentsPanel filePath={FILE} onScrollToLine={onScrollToLine} />);
+
+    const item = document.querySelector(".comment-panel-item")!;
+    fireEvent.keyDown(item, { key: "Tab" });
+    fireEvent.keyDown(item, { key: "Escape" });
+    fireEvent.keyDown(item, { key: "a" });
+
+    expect(onScrollToLine).not.toHaveBeenCalled();
   });
 
   it("displays reply comments threaded under parent", () => {

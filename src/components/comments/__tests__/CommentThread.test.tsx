@@ -301,3 +301,56 @@ describe("CommentThread - Replies rendering", () => {
     expect(replyButtons).toHaveLength(1);
   });
 });
+
+// ─── Markdown rendering ──────────────────────────────────────────────────────
+
+describe("CommentThread - Markdown rendering", () => {
+  it("renders bold markdown as <strong>", () => {
+    render(<CommentThread rootComment={makeComment({ text: "This is **bold** text" })} filePath="/test/file.md" />);
+
+    const strong = document.querySelector(".comment-text strong");
+    expect(strong).toBeInTheDocument();
+    expect(strong?.textContent).toBe("bold");
+  });
+
+  it("renders plain text without markdown artifacts", () => {
+    render(<CommentThread rootComment={makeComment({ text: "Just plain text" })} filePath="/test/file.md" />);
+
+    expect(screen.getByText("Just plain text")).toBeInTheDocument();
+  });
+
+  it("renders links as <a> tags", () => {
+    render(<CommentThread rootComment={makeComment({ text: "See [docs](https://example.com)" })} filePath="/test/file.md" />);
+
+    const link = document.querySelector(".comment-text a") as HTMLAnchorElement;
+    expect(link).toBeInTheDocument();
+    expect(link?.href).toBe("https://example.com/");
+    expect(link?.textContent).toBe("docs");
+  });
+
+  it("renders inline code with <code> tags", () => {
+    render(<CommentThread rootComment={makeComment({ text: "Use `console.log()` here" })} filePath="/test/file.md" />);
+
+    const code = document.querySelector(".comment-text code");
+    expect(code).toBeInTheDocument();
+    expect(code?.textContent).toBe("console.log()");
+  });
+
+  it("renders bullet lists as <ul>/<li>", () => {
+    render(<CommentThread rootComment={makeComment({ text: "Items:\n- one\n- two\n- three" })} filePath="/test/file.md" />);
+
+    const listItems = document.querySelectorAll(".comment-text li");
+    expect(listItems).toHaveLength(3);
+    expect(listItems[0]?.textContent).toBe("one");
+    expect(listItems[1]?.textContent).toBe("two");
+    expect(listItems[2]?.textContent).toBe("three");
+  });
+
+  it("uses a div wrapper instead of p for comment-text", () => {
+    render(<CommentThread rootComment={makeComment({ text: "Some text" })} filePath="/test/file.md" />);
+
+    const commentText = document.querySelector(".comment-text");
+    expect(commentText).toBeInTheDocument();
+    expect(commentText?.tagName).toBe("DIV");
+  });
+});

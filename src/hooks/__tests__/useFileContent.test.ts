@@ -160,6 +160,48 @@ describe("useFileContent", () => {
     expect(result.current.content).toBe("file B content");
   });
 
+  it("shows loading when path changes after a reload (no stale content)", async () => {
+    let resolveB: (v: string) => void;
+    vi.mocked(commands.readTextFile)
+      .mockResolvedValueOnce("file A content")      // initial load of file A
+      .mockResolvedValueOnce("file A reloaded")      // reload of file A after event
+      .mockReturnValueOnce(new Promise<string>((r) => { resolveB = r; })); // file B (pending)
+
+    const { result, rerender } = renderHook(
+      ({ path }) => useFileContent(path),
+      { initialProps: { path: "/path/fileA.md" } }
+    );
+
+    // Let file A load
+    await act(async () => {});
+    expect(result.current.status).toBe("ready");
+    expect(result.current.content).toBe("file A content");
+
+    // Trigger file-changed event to bump reloadKey > 0
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:file-changed", {
+          detail: { path: "/path/fileA.md", kind: "content" },
+        })
+      );
+    });
+
+    // Let reload complete
+    await act(async () => {});
+    expect(result.current.content).toBe("file A reloaded");
+
+    // Now switch to file B — should show loading, NOT stale file A content
+    rerender({ path: "/path/fileB.md" });
+
+    expect(result.current.status).toBe("loading");
+    expect(result.current.content).toBeUndefined();
+
+    // Let file B resolve
+    await act(async () => { resolveB!("file B content"); });
+    expect(result.current.status).toBe("ready");
+    expect(result.current.content).toBe("file B content");
+  });
+
   it("does not show loading spinner on reload (keeps stale content)", async () => {
     let resolveSecond: (v: string) => void;
     vi.mocked(commands.readTextFile)

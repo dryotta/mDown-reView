@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import { useStore } from "@/store";
 import type { CommentWithOrphan } from "@/store";
 import "@/styles/comments.css";
@@ -25,7 +26,10 @@ function CommentItem({ comment, variant, onStartReply }: {
   variant: "root" | "reply";
   onStartReply?: () => void;
 }) {
-  const { editComment, deleteComment, resolveComment, unresolveComment } = useStore();
+  const editComment = useStore((s) => s.editComment);
+  const deleteComment = useStore((s) => s.deleteComment);
+  const resolveComment = useStore((s) => s.resolveComment);
+  const unresolveComment = useStore((s) => s.unresolveComment);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
 
@@ -68,7 +72,7 @@ function CommentItem({ comment, variant, onStartReply }: {
           </div>
         </div>
       ) : (
-        <p className="comment-text">{comment.text}</p>
+        <div className="comment-text"><ReactMarkdown>{comment.text}</ReactMarkdown></div>
       )}
       <div className="comment-actions" onClick={(e) => e.stopPropagation()}>
         {!editing && (
@@ -108,7 +112,7 @@ interface CommentThreadProps {
 }
 
 export function CommentThread({ rootComment, replies = [], filePath }: CommentThreadProps) {
-  const { addReply } = useStore();
+  const addReply = useStore((s) => s.addReply);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);

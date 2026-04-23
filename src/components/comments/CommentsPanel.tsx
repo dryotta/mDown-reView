@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function CommentsPanel({ filePath, onScrollToLine }: Props) {
-  const { commentsByFile } = useStore();
+  const commentsByFile = useStore((s) => s.commentsByFile);
   const [showResolved, setShowResolved] = useState(false);
 
   const allComments = commentsByFile[filePath] ?? [];
@@ -32,6 +32,13 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent, comment: CommentWithOrphan) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleClick(comment);
+    }
+  };
+
   return (
     <div className="comments-panel">
       <div className="comments-panel-header">
@@ -48,7 +55,10 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
             <div
               key={thread.root.id}
               className="comment-panel-item"
+              role="button"
+              tabIndex={0}
               onClick={() => handleClick(thread.root)}
+              onKeyDown={(e) => handleKeyDown(e, thread.root)}
             >
               <div className="comment-panel-item-line">
                 Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}

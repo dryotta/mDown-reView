@@ -93,7 +93,7 @@ Two runtime layers bridged by Tauri v2:
 
 **React/TypeScript layer** (`src/`)
 - State: Zustand with six slices — `workspaceSlice` (root folder, tree state), `tabsSlice` (open tabs, scroll positions), `commentsSlice` (comments by file path), `uiSlice` (theme, pane widths), `updateSlice` (auto-update state), `watcherSlice` (ghost entries, auto-reveal, save timestamp).
-- Viewers: `MarkdownViewer` (react-markdown + remark-gfm + @shikijs/rehype + rehype-slug), `SourceViewer` (Shiki direct API), `BinaryPlaceholder`.
+- Viewers: `MarkdownViewer` (react-markdown + remark-gfm + @shikijs/rehype + rehype-slug), `SourceView` (Shiki direct API, with comments/folding/search), `BinaryPlaceholder`.
 - All Tauri calls go through `src/lib/tauri-commands.ts` typed wrappers — never call `invoke` directly in components or hooks.
 - All logging goes through `src/logger.ts` — never import `@tauri-apps/plugin-log` directly.
 
@@ -104,7 +104,7 @@ Two runtime layers bridged by Tauri v2:
 3. **Comments as MRSF v1.0 sidecars** — `<filename>.review.yaml` (primary) or `.review.json` (legacy fallback) in the same directory. Uses the open [Sidemark/MRSF specification](https://sidemark.org/specification.html) for interoperability with VS Code's Sidemark extension. Portable alongside files; no database.
 4. **Anchor by selected text + line number** — MRSF `selected_text` with SHA-256 hash and line/column anchors. 4-step re-anchoring algorithm (exact text → line fallback → fuzzy match → orphan) survives AI refactoring.
 5. **Poll for first-instance CLI args** via `get_launch_args` command (not an event). Events can fire before React's first `useEffect`; the command is called on mount after React commits, eliminating the race. Second-instance args use `args-received` event (safe because the window is already running).
-6. **Unified Shiki** for both `MarkdownViewer` fenced blocks and `SourceViewer`. Using two different highlighters would produce inconsistent code themes.
+6. **Unified Shiki** for both `MarkdownViewer` fenced blocks and `SourceView`. Using two different highlighters would produce inconsistent code themes.
 7. **Zustand persist middleware** serializes only UI state (tab scroll positions, workspace root, theme preference) — not comment content, which lives in sidecar files.
 8. **`window.onerror` / `window.onunhandledrejection` installed at module level in `main.tsx`**, before `ReactDOM.createRoot()`, so errors during initial render and module loading are captured.
 9. **Single `src/__mocks__/@tauri-apps/api/core.ts`** for `invoke`. Mock return values are typed against interfaces from `tauri-commands.ts` — TypeScript validates them at compile time.
@@ -120,7 +120,7 @@ Two runtime layers bridged by Tauri v2:
 | Frontend | React 18, TypeScript |
 | State | Zustand (`workspaceSlice`, `tabsSlice`, `commentsSlice`, `uiSlice`, `updateSlice`, `watcherSlice`) |
 | Markdown rendering | `react-markdown` + `remark-gfm` + `@shikijs/rehype` + `rehype-slug` |
-| Syntax highlighting | Shiki (`@shikijs/rehype` in MarkdownViewer, direct API in SourceViewer) |
+| Syntax highlighting | Shiki (`@shikijs/rehype` in MarkdownViewer, direct API in SourceView) |
 | Linting | ESLint 9 (flat config) + `@typescript-eslint` + `eslint-plugin-react` + React compiler rules |
 | Unit/component tests | Vitest + React Testing Library + jsdom |
 | Browser integration tests | Playwright (Vite dev server + Tauri IPC mock) |
@@ -198,7 +198,6 @@ src/
     viewers/
       MarkdownViewer.tsx
       SourceView.tsx          ← full-featured source viewer with comments, folding, search
-      SourceViewer.tsx        ← simple source viewer (no comments)
       DeletedFileViewer.tsx   ← shows orphaned comments for deleted files
       ViewerRouter.tsx        ← routes to appropriate viewer (incl. ghost detection)
       BinaryPlaceholder.tsx

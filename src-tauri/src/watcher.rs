@@ -91,7 +91,8 @@ pub fn start_watcher(app: &AppHandle) {
                                 (false, true) => "content",
                             };
                             tracing::debug!("[watcher] file change: {} ({})", path_str, kind);
-                            let _ = app_handle.emit(
+                            let _ = app_handle.emit_to(
+                                "main",
                                 "file-changed",
                                 FileChangeEvent {
                                     path: path_str.clone(),

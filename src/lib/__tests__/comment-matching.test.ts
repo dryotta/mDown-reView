@@ -89,4 +89,37 @@ describe("matchComments (MRSF 4-step)", () => {
     expect(matched.isOrphaned).toBe(false);
     expect(matched.matchedLineNumber).toBe(2);
   });
+
+  it("should update line when selected_text matches at different line (out of bounds)", () => {
+    const c = makeComment({ line: 10, selected_text: "abc" });
+    const [result] = matchComments([c], ["xxx", "abc"]);
+    expect(result.isOrphaned).toBe(false);
+    expect(result.matchedLineNumber).toBe(2);
+    expect(result.line).toBe(2);
+  });
+
+  it("should update line when selected_text relocates within bounds", () => {
+    const c = makeComment({ line: 5, selected_text: "target text here" });
+    const [result] = matchComments([c], lines);
+    expect(result.isOrphaned).toBe(false);
+    expect(result.matchedLineNumber).toBe(2);
+    expect(result.line).toBe(2);
+  });
+
+  it("should keep line unchanged when selected_text matches at original line", () => {
+    const c = makeComment({ line: 2, selected_text: "target text here" });
+    const [result] = matchComments([c], lines);
+    expect(result.isOrphaned).toBe(false);
+    expect(result.matchedLineNumber).toBe(2);
+    expect(result.line).toBe(2);
+  });
+
+  it("should update line on fuzzy match at different position", () => {
+    const c = makeComment({ line: 1, selected_text: "target text Here" });
+    const fileLines = ["something else", "target text here"];
+    const [result] = matchComments([c], fileLines);
+    expect(result.isOrphaned).toBe(false);
+    expect(result.matchedLineNumber).toBe(2);
+    expect(result.line).toBe(2);
+  });
 });

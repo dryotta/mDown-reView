@@ -228,6 +228,7 @@ pub fn run() {
             commands::scan_review_files,
             commands::get_git_head,
             commands::check_path_exists,
+            commands::compute_document_path,
             watcher::update_watched_files,
             commands::set_root_via_test,
         ])
@@ -247,6 +248,7 @@ pub fn run() {
             commands::scan_review_files,
             commands::get_git_head,
             commands::check_path_exists,
+            commands::compute_document_path,
             watcher::update_watched_files,
         ])
         .build(tauri::generate_context!())

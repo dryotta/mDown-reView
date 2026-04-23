@@ -1,10 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "@/store";
 import { updateWatchedFiles, scanReviewFiles } from "@/lib/tauri-commands";
 import type { FileChangeEvent } from "@/lib/tauri-commands";
 
 const SAVE_DEBOUNCE_MS = 1500;
+const SCAN_DEBOUNCE_MS = 500;
 
 export function useFileWatcher() {
   const tabs = useStore((s) => s.tabs);
@@ -12,10 +13,30 @@ export function useFileWatcher() {
   const lastSaveByPath = useStore((s) => s.lastSaveByPath);
   const setGhostEntries = useStore((s) => s.setGhostEntries);
   const lastSaveByPathRef = useRef(lastSaveByPath);
+  const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     lastSaveByPathRef.current = lastSaveByPath;
   }, [lastSaveByPath]);
+
+  // Debounced scan coalesces rapid deletions into a single scanReviewFiles call
+  const debouncedScan = useCallback(() => {
+    if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+    scanTimerRef.current = setTimeout(() => {
+      const currentRoot = useStore.getState().root;
+      if (currentRoot) {
+        scanReviewFiles(currentRoot)
+          .then((pairs) =>
+            useStore.getState().setGhostEntries(
+              pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
+            )
+          )
+          .catch((err) =>
+            console.warn("[useFileWatcher] failed to re-scan after deletion:", err)
+          );
+      }
+    }, SCAN_DEBOUNCE_MS);
+  }, []);
 
   // Sync open tabs to Rust watcher
   useEffect(() => {
@@ -44,27 +65,18 @@ export function useFileWatcher() {
         })
       );
 
-      // Re-scan for ghost entries when a file is deleted so the store stays current
+      // Debounced re-scan for ghost entries on any deletion
+      // (source deletion → new ghost; sidecar deletion → ghost removed)
       if (kind === "deleted") {
-        const currentRoot = useStore.getState().root;
-        if (currentRoot) {
-          scanReviewFiles(currentRoot)
-            .then((pairs) =>
-              useStore.getState().setGhostEntries(
-                pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
-              )
-            )
-            .catch((err) =>
-              console.warn("[useFileWatcher] failed to re-scan after deletion:", err)
-            );
-        }
+        debouncedScan();
       }
     });
 
     return () => {
       unlisten.then((fn) => fn());
+      if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
     };
-  }, []);
+  }, [debouncedScan]);
 
   // Scan for ghost entries when workspace root changes
   useEffect(() => {

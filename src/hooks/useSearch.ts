@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useTransition } from "react";
 
 export interface SearchMatch {
   lineIndex: number;
@@ -8,30 +8,35 @@ export interface SearchMatch {
 
 export function useSearch(content: string) {
   const [query, setQueryRaw] = useState("");
+  const [deferredQuery, setDeferredQuery] = useState("");
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [isPending, startTransition] = useTransition();
 
   const matches = useMemo(() => {
-    if (!query) return [];
+    if (!deferredQuery) return [];
     const results: SearchMatch[] = [];
     const lines = content.split("\n");
-    const lowerQuery = query.toLowerCase();
+    const lowerQuery = deferredQuery.toLowerCase();
     for (let i = 0; i < lines.length; i++) {
       const lowerLine = lines[i].toLowerCase();
       let pos = 0;
       while (pos <= lowerLine.length - lowerQuery.length) {
         const idx = lowerLine.indexOf(lowerQuery, pos);
         if (idx === -1) break;
-        results.push({ lineIndex: i, startCol: idx, endCol: idx + query.length });
+        results.push({ lineIndex: i, startCol: idx, endCol: idx + deferredQuery.length });
         pos = idx + 1;
       }
     }
     return results;
-  }, [content, query]);
+  }, [content, deferredQuery]);
 
   const setQuery = useCallback((q: string) => {
     setQueryRaw(q);
     setCurrentIndex(q ? 0 : -1);
-  }, []);
+    startTransition(() => {
+      setDeferredQuery(q);
+    });
+  }, [startTransition]);
 
   const next = useCallback(() => {
     if (matches.length === 0) return;
@@ -43,5 +48,5 @@ export function useSearch(content: string) {
     setCurrentIndex((i) => (i - 1 + matches.length) % matches.length);
   }, [matches.length]);
 
-  return { query, setQuery, matches, currentIndex, next, prev };
+  return { query, setQuery, matches, currentIndex, next, prev, isPending };
 }

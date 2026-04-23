@@ -23,7 +23,7 @@ interface Props {
 export function LineCommentMargin({
   filePath, lineNumber, lineText, matchedComments, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput,
 }: Props) {
-  const { addComment } = useStore();
+  const addComment = useStore((s) => s.addComment);
   const [expanded, setExpanded] = useState(false);
 
   const unresolved = matchedComments.filter((c) => !c.resolved);

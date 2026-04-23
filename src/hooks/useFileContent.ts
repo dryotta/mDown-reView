@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readTextFile } from "@/lib/tauri-commands";
 import { getFileCategory } from "@/lib/file-types";
 
@@ -13,6 +13,7 @@ export interface FileContent {
 export function useFileContent(path: string): FileContent {
   const [state, setState] = useState<FileContent>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
+  const prevPathRef = useRef(path);
 
   // Listen for file-changed DOM events from useFileWatcher
   useEffect(() => {
@@ -27,13 +28,16 @@ export function useFileContent(path: string): FileContent {
   }, [path]);
 
   useEffect(() => {
-    // Don't show loading spinner on reload — keep stale content visible
-    if (reloadKey === 0) {
-      setState({ status: "loading" }); // eslint-disable-line react-hooks/set-state-in-effect
+    const pathChanged = path !== prevPathRef.current;
+    prevPathRef.current = path;
+
+    // Show loading on initial mount or path change; skip on same-file reload to keep stale content visible
+    if (reloadKey === 0 || pathChanged) {
+      setState({ status: "loading" });
     }
 
     if (getFileCategory(path) === "image") {
-      setState({ status: "image" });
+      setState({ status: "image" }); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
 

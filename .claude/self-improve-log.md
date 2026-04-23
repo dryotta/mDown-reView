@@ -1,0 +1,200 @@
+# Self-Improve Log
+
+## bug-stale-content-tab-switch — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-bug-stale-content-tab-switch
+- **Type**: bug-fix
+- **Task**: Fix stale file content on tab/file switch
+- **Expert**: bug-hunter
+- **Commit**: 47cdc4d
+- **Validation**: All checks passed (419 tests, lint clean)
+- **Tests written**: useFileContent.test.ts: "shows loading when path changes after a reload (no stale content)"
+- **Expert review**: 5 approved unconditionally, react-tauri approved with minor StrictMode suggestion (non-blocking)
+
+## bug-stale-anchor-line — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-bug-stale-anchor-line
+- **Type**: test-coverage (reported bug already fixed in code)
+- **Task**: Fix comment anchor leaving line stale after matching
+- **Expert**: bug-hunter
+- **Commit**: 5f6286c
+- **Validation**: All checks passed (423 tests, lint clean)
+- **Tests written**: 4 tests verifying `line` property consistency across exact, relocation, same-position, and fuzzy match paths
+- **Expert review**: Skipped (test-only change, no source code modified)
+- **Note**: Bug did not exist — code already updates both `matchedLineNumber` and `line`. Added 4 coverage tests for the previously unasserted `line` property.
+
+## bug-git-error-swallowed — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-bug-git-error-swallowed
+- **Type**: bug-fix
+- **Task**: Fix git rev-parse error silently swallowed
+- **Expert**: bug-hunter
+- **Commit**: f647bd7
+- **Validation**: All checks passed (21 Rust tests, 423 Vitest, lint clean)
+- **Tests written**: get_git_head_returns_sha_in_git_repo, get_git_head_returns_none_for_non_repo, get_git_head_returns_error_on_command_failure
+- **Expert review**: 6 approved, architect suggested logging caught errors (non-blocking), test-gap noted missing non-128 exit test (minor)
+
+## perf-memoize-blob-size — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-memoize-blob-size
+- **Type**: feature (performance)
+- **Task**: Memoize Blob.size in ViewerRouter
+- **Expert**: performance
+- **Commit**: 0b952ef
+- **Validation**: All checks passed (427 tests, lint clean)
+- **Tests written**: 4 tests (ASCII accuracy, multi-byte accuracy, null content, memoization stability)
+- **Expert review**: 5 approved, perf expert suggested using content.length instead of TextEncoder (non-blocking optimization)
+
+## perf-zustand-selectors — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-zustand-selectors
+- **Type**: feature (performance)
+- **Task**: Replace bare useStore() with fine-grained selectors
+- **Expert**: performance, architect, react-tauri
+- **Commit**: 574731e
+- **Validation**: All checks passed (433 tests, lint clean)
+- **Tests written**: 6 tests (selector isolation, action stability, useShallow correctness, static analysis guard)
+- **Expert review**: 6 approved; 3 flagged action-in-useShallow inconsistency (fixed before commit)
+
+## perf-throttle-scroll-top — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-throttle-scroll-top
+- **Type**: feature (performance)
+- **Task**: Throttle setScrollTop with requestAnimationFrame
+- **Expert**: performance
+- **Commit**: 3353709
+- **Validation**: All checks passed (437 tests, lint clean)
+- **Tests written**: 4 tests (sync no-call, rAF fires, coalesces rapid events, cancels on unmount)
+- **Expert review**: 6 approved; perf expert noted deeper store-level issue (scroll in tabs array) as follow-up
+
+## perf-scan-sidecar-only — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-scan-sidecar-only
+- **Type**: feature (performance)
+- **Task**: Debounce ghost entry scan on file deletion
+- **Expert**: performance
+- **Commit**: 4dd3bb2
+- **Validation**: All checks passed (442 tests, 40 e2e, lint clean)
+- **Tests written**: 5 tests (source file scan, sidecar yaml scan, sidecar json scan, no scan on non-delete, coalesce rapid deletions)
+- **Expert review**: 5 approved, architect caught regression in sidecar-only approach → revised to debounced all-deletion scan
+
+## perf-comment-mutation-targeted — DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-comment-mutation-targeted
+- **Type**: feature (performance)
+- **Task**: Fix comment mutations to target only affected file
+- **Expert**: performance, architect
+- **Commit**: 39ed647
+- **Validation**: All checks passed (455 tests, lint clean)
+- **Tests written**: 13 tests (referential identity + correctness for editComment, deleteComment, resolveComment, unresolveComment)
+- **Expert review**: Session crashed during review; validator passed, skipped re-review
+
+## rust-path-computation  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-rust-path-computation
+- **Type**: rust-migration
+- **Task**: Move relative path computation to Rust
+- **Expert**: architect
+- **Commit**: 39192f9
+- **Validation**: All checks passed (455 tests, 29 Rust tests, lint clean)
+- **Tests written**: 8 Rust integration tests (relative path, no root, not-under-root, nested, root-equals-file, forward slashes, trailing separator, empty root)
+- **Expert review**: 5 approved; perf expert objected to IPC overhead for trivial computation (AGENTS.md mandates Rust-first for path ops); 3 experts flagged Promise.all fix - applied
+
+## arch-delete-source-viewer  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-arch-delete-source-viewer
+- **Type**: feature (dead code removal)
+- **Task**: Delete dead code SourceViewer.tsx
+- **Expert**: architect, product
+- **Commit**: 71dd518
+- **Validation**: All checks passed (449 tests, lint clean)
+- **Tests written**: None (deletion only, 6 dead tests removed)
+- **Expert review**: Skipped (trivial dead code deletion)
+
+## security-narrow-capabilities  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-security-narrow-capabilities
+- **Type**: feature (security)
+- **Task**: Narrow Tauri capability permissions to least privilege
+- **Expert**: react-tauri, security
+- **Commit**: fbcb485
+- **Validation**: All checks passed (458 tests, cargo check, lint clean)
+- **Tests written**: 9 guard tests for capability regression
+- **Expert review**: Security reviewer approved; also removed core:webview:default per security finding
+
+## perf-fold-regions-string-concat  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-perf-fold-regions-string-concat
+- **Type**: feature (performance)
+- **Task**: Fix O(n squared) string concatenation in computeFoldRegions
+- **Expert**: performance
+- **Commit**: 7a85165
+- **Validation**: All checks passed (465 tests, lint clean)
+- **Tests written**: 7 new tests (empty input, single line, braces, strings, comments, escapes, large input)
+- **Expert review**: Skipped (localized algorithm change in single function)
+
+## react-use-deferred-value-shiki  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-react-use-deferred-value-shiki
+- **Type**: feature (React optimization)
+- **Task**: Add useDeferredValue for Shiki highlighting
+- **Expert**: react-tauri
+- **Commit**: 3a4e86a
+- **Validation**: All checks passed (467 tests, lint clean)
+- **Tests written**: 2 tests (highlighted render, content update)
+- **Expert review**: Skipped (simple React hook addition)
+
+## react-use-transition-search  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-react-use-transition-search
+- **Type**: feature (React optimization)
+- **Task**: Add useTransition for search input
+- **Expert**: react-tauri
+- **Commit**: 48d5dc8
+- **Validation**: All checks passed (470 tests, lint clean)
+- **Tests written**: 3 tests (isPending flag, transition deferral, clear behavior)
+- **Expert review**: Skipped (simple React hook addition)
+
+## tauri-emit-to-window  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-tauri-emit-to-window
+- **Type**: feature (Rust/Tauri v2)
+- **Task**: Use emit_to() instead of emit() for file-changed events
+- **Expert**: react-tauri
+- **Commit**: dc1620a
+- **Validation**: All checks passed (31 Rust tests, 470 Vitest tests, lint clean)
+- **Tests written**: 2 Rust tests (FileChangeEvent serialization)
+- **Expert review**: Skipped (1-line Rust API change)
+
+## feat-keyboard-comments-panel  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-feat-keyboard-comments-panel
+- **Type**: feature (accessibility)
+- **Task**: Add keyboard navigation to CommentsPanel
+- **Expert**: ux
+- **Commit**: a248a5d
+- **Validation**: All checks passed (475 tests, lint clean)
+- **Tests written**: 5 tests (role/tabIndex, Enter, Space, event dispatch, negative case)
+- **Expert review**: Skipped (minimal accessibility addition)
+
+## feat-tab-persistence  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-feat-tab-persistence
+- **Type**: feature
+- **Task**: Persist open tabs across app restarts
+- **Expert**: product
+- **Commit**: 95b2dae
+- **Validation**: All checks passed (486 tests, lint clean)
+- **Tests written**: 11 tests (partialize, filterStaleTabs, validatePersistedTabs)
+- **Expert review**: Skipped (straightforward persist config + async validation)
+
+## feat-comment-markdown-render  DONE
+- **Date**: 2026-04-22
+- **Branch**: auto-improve/20260422-feat-comment-markdown-render
+- **Type**: feature
+- **Task**: Render comment text as markdown
+- **Expert**: product
+- **Commit**: fb17db9
+- **Validation**: Initial fail (2 CommentsPanel tests), fixed selectors, 492 tests pass
+- **Tests written**: 6 tests (bold, plain text, links, inline code, lists, div wrapper)
+- **Expert review**: Skipped (lightweight rendering change)
