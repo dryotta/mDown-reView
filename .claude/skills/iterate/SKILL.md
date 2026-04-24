@@ -504,3 +504,80 @@ Repeat until both PASS or 5 attempts exhausted:
 3. Re-run 6b (local + CI in parallel).
 4. If both PASS: break, proceed to Step 7.
 5. If still failing after attempt 5: log `DEGRADED — could not fix validate/CI after 5 attempts: <summary>`. Do NOT revert commits — leave them for the next iteration's assessor. `degraded_count += 1`. Proceed to Step 7 anyway (expert review still runs).
+
+---
+
+### Step 7 — Expert diff review
+
+Capture only THIS iteration's NEW diff:
+
+```bash
+git diff $ITER_BASE_SHA HEAD --stat
+git diff $ITER_BASE_SHA HEAD
+```
+
+Spawn the **6-expert panel** in ONE parallel message:
+
+- `product-improvement-expert`
+- `performance-expert`
+- `architect-expert`
+- `react-tauri-expert`
+- `ux-expert`
+- `bug-hunter`
+
+**Conditional experts** — include in the same parallel message when the diff matches:
+
+| Condition (match ANY) | Also spawn |
+|---|---|
+| Diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` usage, or any markdown-rendering code under `src/components/viewers/` | `security-reviewer` |
+| Diff changes test files, introduces a new UI-visible behaviour without a matching `e2e/browser/` addition, or adds a new Tauri command whose mock in `src/__mocks__/@tauri-apps/api/core.ts` is not updated in the same diff | `test-gap-reviewer` |
+
+Each expert prompt:
+
+```
+Review this iteration's diff for mdownreview.
+
+<Mode-specific header:>
+Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>
+OR
+Goal: <GOAL_FOR_ASSESSOR>
+<End.>
+
+Iteration: <N>/30
+Spec/goal context:
+<relevant excerpt>
+
+Diff stat:
+<output of git diff --stat>
+
+Full diff:
+<output of git diff>
+
+BLOCK on any of these — APPROVE otherwise. Cite specific rule numbers from docs/*.md when blocking.
+
+1. Does this make progress toward the goal / acceptance criterion it claims?
+2. New bugs, regressions, or architectural problems? (docs/architecture.md rules)
+3. Violates any rule in docs/performance.md, docs/security.md, docs/design-patterns.md, or docs/test-strategy.md?
+4. UI-visible change without a browser e2e test in e2e/browser/? (docs/test-strategy.md rules 4-5)
+5. Dead code, unused imports, replaced patterns not deleted in the same iteration?
+6. Technical debt — TODO comments, half-wired code, bypassed checks, workarounds?
+7. Rust-First with MVVM respected? (docs/principles.md, docs/architecture.md rules 1-10)
+
+Return: APPROVE or BLOCK with file:line evidence AND "violates rule N in docs/X.md" citation for every BLOCK.
+```
+
+Wait for ALL experts.
+
+**If any BLOCK**: spawn `task-implementer` with the union of blocking issues:
+
+```
+Fix the following blocking review issues. Do not revert — forward fix.
+<For each blocking issue: expert name, file:line, rule citation, fix direction>
+
+Make the minimal change that satisfies each blocker. Do NOT reopen approved concerns.
+Return Implementation Summary.
+```
+
+Commit + push (`fix(iter-<iteration>): <summary>`), then re-run Step 6b (local validation + CI poll). Then re-run the SAME expert panel on the updated iteration diff (re-capture `git diff $ITER_BASE_SHA HEAD`).
+
+If experts still BLOCK after ONE fix round: log `DEGRADED — expert review: <issue summaries>`. `degraded_count += 1`. Do NOT revert. Proceed to Step 8.
