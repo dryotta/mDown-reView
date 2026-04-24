@@ -24,3 +24,12 @@ max_iterations: 50
 - Goal assessor confidence: 35%
 - Fix attempts: 1 (lint: unused rerender, stale eslint-disable, set-state-in-effect)
 - Summary: Extracted IPC from 6 components into hooks/VM (useFolderChildren, useImageData, useRecentItemStatus, useAboutInfo, useUpdateActions). Moved computeAnchorHash auto-computation into useCommentActions. Moved test-only Rust anchor functions behind #[cfg(test)]. Fixed persistence test drift (updateChannel). Closed 5 test-strategy.md gaps. Net: +647/-190 lines, 25 files.
+
+## Iteration 3 — PASSED
+- Commits: 4040bd4
+- CI: passed (Test Linux, Build macOS-arm64, Build windows-x64)
+- Local tests: all 5 suites passed (lint, tsc, cargo 110, vitest 619, e2e 40)
+- Expert review: 4/4 approved unanimously (architect, performance, react-tauri, rubber-duck), no blocks
+- Goal assessor confidence: 78%
+- Fix attempts: 0
+- Summary: Consolidated checkUpdate logic from App.tsx and AboutDialog.tsx into useUpdateActions VM hook (checkForUpdate). Extracted listen("update-progress") into useUpdateProgress hook. UpdateBanner reduced to pure view. Removed orphaned-reply doc gap (covered), updated Zustand coverage status, fixed stale architecture.md gap. Added SkeletonLoader tests. Net: +215/-92 lines, 9 files.
