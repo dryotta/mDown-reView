@@ -176,7 +176,14 @@ jobs:
           ls -la "$MOUNT"
           [ -L "$MOUNT/Applications" ] || { echo "::error::Applications symlink missing in DMG"; exit 1; }
           [ -f "$MOUNT/README.txt" ]   || { echo "::error::README.txt missing at DMG root"; exit 1; }
-          echo "✓ DMG contains Applications symlink and README.txt"
+          # Guard against stale guidance shipping in user-facing artifact (Sequoia 15+ broke right-click→Open).
+          grep -q 'xattr -d com.apple.quarantine' "$MOUNT/README.txt" \
+            || { echo "::error::DMG README.txt missing canonical xattr command"; exit 1; }
+          if grep -qi 'right-click' "$MOUNT/README.txt"; then
+            echo "::error::DMG README.txt still recommends right-click (broken on Sequoia 15+)"
+            exit 1
+          fi
+          echo "✓ DMG contains Applications symlink and README.txt with current Sequoia-safe guidance"
 
       - name: Rename and upload artifacts
         shell: bash
