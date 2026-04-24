@@ -20,37 +20,40 @@ Branch naming: `feature/` new functionality · `fix/` bug fixes · `chore/` tool
 
 If you accidentally commit to `main`, do NOT force-push. Ask the user how to proceed.
 
-## Core Engineering Principles
+## Product Charter
 
-These three principles govern every proposal, implementation, and review decision. They are non-negotiable.
+The canonical charter is [`docs/principles.md`](docs/principles.md). Read it first. Summary:
 
-### 1. Evidence-Based Only
+**Five product pillars** — every feature and trade-off is judged against these:
 
-**No guessing.** Every proposed fix, optimization, or feature must be backed by observed evidence:
-- Quote the specific file and line that shows the problem
-- If performance is claimed, provide a benchmark or profiling result — not intuition
-- If a bug is suspected, write a failing test that reproduces it before proposing a fix
-- "This might be slow" or "this could cause issues" without evidence → do not report it
+| Pillar | One-line definition |
+|---|---|
+| **Professional** | Looks and feels like a tool a developer would pay for. |
+| **Reliable** | Comments are indestructible; refactors, deletes, and crashes do not lose them. |
+| **Performant** | Fast startup, fast open, fast search, fast render — measured, not intuited. |
+| **Lean** | Minimal memory, disk, dependencies, and binary size. The app is a viewer, not a platform. |
+| **Architecturally Sound** | Clean boundaries, narrow IPC surface, single chokepoints for IPC and logging. |
 
-When in doubt: write a test or benchmark first, then let the result drive the proposal.
+**Three engineering meta-principles** — how we work, non-negotiable:
 
-### 2. Rust-First
+- **Evidence-Based Only** — every proposal cites file:line, a benchmark, or a failing test. No guessing.
+- **Rust-First** — file I/O, text processing, hot-path computation live in Rust and cross IPC once. React owns UI only.
+- **Zero Bug Policy** — every confirmed bug gets fixed. Every fix ships with a failing-then-passing regression test.
 
-**Prefer Rust over TypeScript/React for any logic that can reasonably live there:**
-- File I/O, path manipulation, text processing, data validation → Rust
-- Performance-sensitive computations (search indexing, anchor matching, hash computation) → Rust
-- Anything called repeatedly on large inputs → Rust, exposed via a typed Tauri command
-- React/TypeScript layer: UI rendering, state management, user interaction only
+## Principles & Rules (deep-dives)
 
-When adding a feature, ask: "Can the heavy lifting live in Rust and just expose a result over IPC?" If yes, build it there. Tauri IPC is fast and typed; use it.
+Every rule below is numbered and citable as "violates rule N in `docs/X.md`".
 
-### 3. Zero Bug Policy
+| Document | Governs |
+|---|---|
+| [`docs/principles.md`](docs/principles.md) | Charter — 5 pillars, 3 meta-principles, Non-Goals |
+| [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC chokepoint, Zustand boundaries, file-size budgets |
+| [`docs/performance.md`](docs/performance.md) | Startup/open/render budgets, watcher debounce, memory ceilings, benchmark requirements |
+| [`docs/security.md`](docs/security.md) | IPC surface, path canonicalization, markdown XSS posture, CSP, sidecar atomicity |
+| [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, command-vs-event choice |
+| [`docs/test-strategy.md`](docs/test-strategy.md) | Three-layer pyramid, coverage floors, IPC mock hygiene, console-error-spy contract |
 
-**Every known bug must be fixed, and every fix must be covered by a test:**
-- No "won't fix" for confirmed bugs — they go into the backlog and get fixed
-- A bug fix without a regression test is not done — the test is part of the fix
-- Tests must cover the exact failure mode: if the bug was a race condition, the test must reproduce the race
-- Bugs found by experts must include a failing test in their report, not just a description
+**When reviewing:** cite specific rule numbers ("violates rule 14 in `docs/architecture.md`"). Do not hand-wave.
 
 ## What This Is
 
@@ -117,7 +120,7 @@ Two runtime layers bridged by Tauri v2:
 | Desktop shell | Tauri v2 |
 | Rust logging | `tauri-plugin-log`, `tracing`, `tracing-subscriber` |
 | Single-instance | `tauri-plugin-single-instance` |
-| Frontend | React 18, TypeScript |
+| Frontend | React 19, TypeScript |
 | State | Zustand (`workspaceSlice`, `tabsSlice`, `commentsSlice`, `uiSlice`, `updateSlice`, `watcherSlice`) |
 | Markdown rendering | `react-markdown` + `remark-gfm` + `@shikijs/rehype` + `rehype-slug` |
 | Syntax highlighting | Shiki (`@shikijs/rehype` in MarkdownViewer, direct API in SourceView) |
@@ -127,6 +130,8 @@ Two runtime layers bridged by Tauri v2:
 | Native E2E tests | Playwright (real Tauri binary via CDP, Windows only) |
 
 ## Test Strategy
+
+Full rules: [`docs/test-strategy.md`](docs/test-strategy.md). Summary below.
 
 Three layers. Know which to use and why:
 
@@ -304,7 +309,7 @@ Rust-side watcher (`src-tauri/src/watcher.rs`) using `notify-debouncer-mini`:
 
 ## Behavioral Specs
 
-Detailed requirements and acceptance scenarios for each feature:
+Feature-level requirements (principles/rules live in [`docs/principles.md`](docs/principles.md) and the 5 deep-dives):
 
 - [App Logging](docs/specs/app-logging.md)
 - [CLI File Open & File Associations](docs/specs/cli-file-open.md)
