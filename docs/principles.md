@@ -33,7 +33,7 @@ How we work. Non-negotiable.
 
 The app is built as a strict MVVM (Model–ViewModel–View) stack. The boundaries are not suggestions.
 
-- **Model — Rust** (`src-tauri/src/core/`, `src-tauri/src/commands.rs`). Owns data and business logic: file I/O, path manipulation, MRSF parse/serialize, comment anchoring, hashing, scanning, threading, validation. Exposed only via typed Tauri commands. Never reimplemented in TypeScript.
+- **Model — Rust** (`src-tauri/src/core/`, `src-tauri/src/commands/`). Owns data and business logic: file I/O, path manipulation, MRSF parse/serialize, comment anchoring, hashing, scanning, threading, validation. Exposed only via typed Tauri commands. Never reimplemented in TypeScript.
 - **ViewModel — `src/lib/vm/` + `src/hooks/` + `src/store/`.** Bridges the Model to the View. Cancellation, loading states, debounce, derived values live here. No DOM, no JSX, no raw `invoke()` (uses `src/lib/tauri-commands.ts`).
 - **View — `src/components/`.** Renders ViewModel state and dispatches user actions. No IPC calls, no business rules, no file-path manipulation.
 

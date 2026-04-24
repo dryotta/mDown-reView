@@ -85,21 +85,7 @@ pub fn save_sidecar(
     };
     let yaml = serde_yaml_ng::to_string(&payload).map_err(SidecarError::YamlParse)?;
 
-    let dir = sidecar_path
-        .parent()
-        .unwrap_or(Path::new("."));
-    let tmp_path = dir.join(format!(
-        ".review-{}.tmp",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    std::fs::write(&tmp_path, &yaml)?;
-    if let Err(e) = std::fs::rename(&tmp_path, &sidecar_path) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(SidecarError::Io(e));
-    }
+    crate::core::atomic::write_atomic(&sidecar_path, yaml.as_bytes())?;
     Ok(())
 }
 
@@ -115,7 +101,7 @@ pub fn patch_comment(
     let json_path = format!("{}.review.json", file_path);
 
     // Determine which file exists and load as Value
-    let (content, source_path) = match std::fs::read_to_string(&yaml_path) {
+    let (content, _source_path) = match std::fs::read_to_string(&yaml_path) {
         Ok(c) => (c, yaml_path.clone()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             match std::fs::read_to_string(&json_path) {
@@ -196,23 +182,8 @@ pub fn patch_comment(
 
     let yaml_out = serde_yaml_ng::to_string(&doc).map_err(SidecarError::YamlParse)?;
 
-    // Atomic write
-    let dest = Path::new(&source_path);
-    let dir = dest.parent().unwrap_or(Path::new("."));
-    let tmp_path = dir.join(format!(
-        ".review-{}.tmp",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    std::fs::write(&tmp_path, &yaml_out)?;
-    // Always write as YAML
-    let yaml_dest = Path::new(&yaml_path);
-    if let Err(e) = std::fs::rename(&tmp_path, yaml_dest) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(SidecarError::Io(e));
-    }
+    // Atomic write — always re-target YAML regardless of the original format.
+    crate::core::atomic::write_atomic(Path::new(&yaml_path), yaml_out.as_bytes())?;
     Ok(())
 }
 

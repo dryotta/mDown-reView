@@ -36,7 +36,7 @@ Canonical: [`docs/principles.md`](docs/principles.md). Summary:
 
 **Three engineering meta-principles** — how we work, non-negotiable:
 
-- **Rust-First with MVVM** — Rust (`src-tauri/src/core/`, `commands.rs`) is the Model: data + business logic over typed Tauri commands. `src/lib/vm/` + `src/hooks/` + `src/store/` is the ViewModel. React components are the View. A component that calls `invoke()` or holds business state is a layering violation; a hook that serializes YAML or computes anchors is a Rust-First violation.
+- **Rust-First with MVVM** — Rust (`src-tauri/src/core/`, `src-tauri/src/commands/`) is the Model: data + business logic over typed Tauri commands. `src/lib/vm/` + `src/hooks/` + `src/store/` is the ViewModel. React components are the View. A component that calls `invoke()` or holds business state is a layering violation; a hook that serializes YAML or computes anchors is a Rust-First violation.
 - **Never Increase Engineering Debt** — every change holds debt flat or reduces it. Actively close Gaps from the deep-dive docs, delete dead code in the same PR, no TODOs, no workarounds, no "fix later". Drift from canonical patterns is debt.
 - **Zero Bug Policy** — every confirmed bug is fixed using the canonical architecture (`docs/architecture.md`) and design patterns (`docs/design-patterns.md`) — not workarounds. Every fix ships with a regression test that reproduces the original failure mode.
 
@@ -119,10 +119,19 @@ src/
   store/                    ← Zustand slices
 
 src-tauri/src/
-  commands.rs               ← all Tauri commands
+  commands/                 ← Tauri commands grouped by feature area:
+    fs.rs · comments.rs · search.rs · html.rs · launch.rs
+    onboarding.rs           ← onboarding state IPC (load/save/skip)
+    cli_shim.rs             ← CLI shim install/status/remove (+ macos/windows/unsupported submodules)
+    default_handler.rs      ← .md default-handler status + open System Settings (+ os submodules)
+    folder_context.rs       ← Windows folder context menu register/unregister/status (+ os submodules)
+    mod.rs                  ← flat re-exports so lib.rs/tests keep using commands::xxx paths
   watcher.rs                ← file system watcher (notify-debouncer-mini, 300 ms)
   lib.rs                    ← plugin registration, setup hook, panic hook
-  core/                     ← anchors, comments, matching, scanner, sidecar, threads, types
+  core/                     ← anchors, atomic (write_atomic helper), comments, matching,
+                              onboarding (schema-versioned state), scanner, sidecar, threads, types
+  installer/installer-hooks.nsh ← NSIS POST/PREINSTALL hooks (HKCU PATH + folder context)
+  dmg/                      ← DMG layout assets (background image, README.txt)
 
 e2e/
   browser/                  ← Playwright tests (Vite dev server + IPC mock)

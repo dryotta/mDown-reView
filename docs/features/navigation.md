@@ -18,7 +18,7 @@ Search is incremental and debounced. The query runs through `useSearch`, which c
 - **Tabs:** `src/components/TabBar/TabBar.tsx`
 - **Hooks:** `src/hooks/useSearch.ts`
 - **Store slices:** `src/store/index.ts` — `workspaceSlice`, `tabsSlice`, `uiSlice`
-- **Rust commands:** `src-tauri/src/commands.rs` — `read_dir`, `scan_review_files`, `update_watched_files`
+- **Rust commands:** `src-tauri/src/commands/fs.rs` — `read_dir`; `src-tauri/src/commands/launch.rs` — `scan_review_files`; `src-tauri/src/watcher.rs` — `update_watched_files`
 
 ## Related rules
 

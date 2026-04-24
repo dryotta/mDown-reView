@@ -13,10 +13,10 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 ## Rules
 
 ### File-read bounds
-1. Every Rust command that opens a file enforces a 10 MB hard cap. (`commands.rs:114` in `read_text_file`; `:139` in `read_binary_file`.)
-2. `read_text_file` rejects binaries by scanning the first 512 bytes for NUL, and only succeeds on valid UTF-8. (`commands.rs:120-128`.)
-3. Size and binary checks happen on already-read bytes, not on `metadata()` before a second read (no TOCTOU). (`commands.rs:108` comment.)
-4. `read_dir` canonicalizes the requested path and rejects any request whose canonical form differs from the canonicalized input. (`commands.rs:58-69`.)
+1. Every Rust command that opens a file enforces a 10 MB hard cap. (`commands/fs.rs:77-80` in `read_text_file`; `:102-105` in `read_binary_file`.)
+2. `read_text_file` rejects binaries by scanning the first 512 bytes for NUL, and only succeeds on valid UTF-8. (`commands/fs.rs:82-91`.)
+3. Size and binary checks happen on already-read bytes, not on `metadata()` before a second read (no TOCTOU). (`commands/fs.rs:71` comment.)
+4. `read_dir` canonicalizes the requested path and rejects any request whose canonical form differs from the canonicalized input. (`commands/fs.rs:19-32`.)
 
 ### Sidecar atomicity & integrity
 5. Sidecar writes are temp-file + atomic rename; a failed rename cleans up the temp file. (`core/sidecar.rs:91-101`.)
@@ -25,7 +25,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 8. Malformed YAML/JSON surfaces as a typed error (`SidecarError::YamlParse` / `JsonParse`), not a panic. (`core/sidecar.rs:45,57`.)
 
 ### Launch-args & CLI handling
-9. The `LaunchArgsState` handler uses `.take()` so launch args are consumed exactly once. (`commands.rs:150-153`.)
+9. The `LaunchArgsState` handler uses `.take()` so launch args are consumed exactly once. (`commands/launch.rs:12-17`.)
 10. Single-instance emits `args-received` only when `get_webview_window("main")` is `Some`. (`lib.rs:95-102`.)
 11. CLI argument parsing canonicalizes every path via `std::fs::canonicalize` and silently drops paths that fail. (`lib.rs:24-44`.)
 
@@ -40,7 +40,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 17. The CSP disallows inline scripts, `object`, `frame-ancestors`, and whitelists `asset:` for images only. (`tauri.conf.json:23`.)
 18. The window requests only the minimal Tauri capability set: log, dialog open, clipboard write-text, opener open-url, updater. (`capabilities/default.json:5-16`.)
 19. The updater verifies payloads via the configured minisign public key. (`tauri.conf.json:55`.)
-20. `set_root_via_test` compiles out of release via `#[cfg(debug_assertions)]`. (`commands.rs:172`.)
+20. `set_root_via_test` compiles out of release via `#[cfg(debug_assertions)]`. (`commands/launch.rs:31-33`.)
 
 ### Watcher integrity
 21. The watcher watches parent directories (not individual files) to survive atomic-rename saves, and emits only for paths on the current watch list. (`watcher.rs:146-169, 80-102`.) Debounce window: rule 4 in [`docs/performance.md`](performance.md).
@@ -61,9 +61,9 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 ## Gaps
 
 - **No path-origin restriction on mutation commands.** `add_comment`, `edit_comment`, `delete_comment`, `set_comment_resolved`, `add_reply`, `get_file_comments` accept any `file_path` string; a confused renderer call could write `<any_path>.review.yaml`. Mitigation: allowlist against open tabs/root.
-- **`check_path_exists` and `read_binary_file` lack the canonicalization guard used by `read_dir`** (`commands.rs:10-16, 133-146`). A symlink could redirect image loads outside the workspace.
+- **`check_path_exists` and `read_binary_file` lack the canonicalization guard used by `read_dir`** (`commands/fs.rs:9-15, 96-109`). A symlink could redirect image loads outside the workspace.
 - **Sidecar `selected_text` and `text` have no length limit** (`core/types.rs:17-45`); `load_sidecar` uses unbounded `fs::read_to_string`. A 50 MB comment would pass through SHA-256 + YAML ser.
-- **Full file paths are logged unredacted** (`commands.rs:237`, `watcher.rs:158`). Shared logs leak workspace structure and usernames.
+- **Full file paths are logged unredacted** (across `commands/*.rs` `tracing::error!` sites and `watcher.rs:158`). Shared logs leak workspace structure and usernames.
 - **No MRSF schema version gate.** `load_sidecar` accepts any `mrsf_version`; a future-versioned sidecar may deserialize with silently dropped fields.
 - **Mermaid SVG injected via `dangerouslySetInnerHTML`** (`MermaidView.tsx:89`) relies on upstream `securityLevel: "strict"` with no defense in depth.
 - **Supply-chain rule is not codified.** No `deny.toml` / `cargo-deny` or npm audit gate in CI.

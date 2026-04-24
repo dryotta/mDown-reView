@@ -222,26 +222,37 @@ pub fn run() {
     macro_rules! shared_commands {
         ($($extra:path),* $(,)?) => {
             tauri::generate_handler![
-                commands::read_dir,
-                commands::read_text_file,
-                commands::read_binary_file,
-                commands::resolve_html_assets,
-                commands::get_launch_args,
-                commands::get_log_path,
-                commands::scan_review_files,
-                commands::check_path_exists,
-                commands::get_file_comments,
-                commands::add_comment,
-                commands::add_reply,
-                commands::edit_comment,
-                commands::delete_comment,
-                commands::set_comment_resolved,
-                commands::compute_anchor_hash,
-                commands::get_unresolved_counts,
-                commands::search_in_document,
-                commands::compute_fold_regions,
-                commands::parse_kql,
-                commands::strip_json_comments,
+                commands::fs::read_dir,
+                commands::fs::read_text_file,
+                commands::fs::read_binary_file,
+                commands::html::resolve_html_assets,
+                commands::launch::get_launch_args,
+                commands::launch::get_log_path,
+                commands::launch::scan_review_files,
+                commands::fs::check_path_exists,
+                commands::comments::get_file_comments,
+                commands::comments::add_comment,
+                commands::comments::add_reply,
+                commands::comments::edit_comment,
+                commands::comments::delete_comment,
+                commands::comments::set_comment_resolved,
+                commands::comments::compute_anchor_hash,
+                commands::comments::get_unresolved_counts,
+                commands::search::search_in_document,
+                commands::html::compute_fold_regions,
+                commands::search::parse_kql,
+                commands::search::strip_json_comments,
+                commands::onboarding::onboarding_state,
+                commands::onboarding::onboarding_mark_welcomed,
+                commands::onboarding::onboarding_skip,
+                commands::cli_shim::cli_shim_status,
+                commands::cli_shim::install_cli_shim,
+                commands::cli_shim::remove_cli_shim,
+                commands::default_handler::default_handler_status,
+                commands::default_handler::set_default_handler,
+                commands::folder_context::folder_context_status,
+                commands::folder_context::register_folder_context,
+                commands::folder_context::unregister_folder_context,
                 watcher::update_watched_files,
                 update::check_update,
                 update::install_update,
@@ -252,7 +263,7 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     let app = app
-        .invoke_handler(shared_commands![commands::set_root_via_test])
+        .invoke_handler(shared_commands![commands::launch::set_root_via_test])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

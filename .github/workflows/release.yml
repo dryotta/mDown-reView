@@ -156,6 +156,28 @@ jobs:
           grep -q 'Signature=adhoc' codesign-cli.log || { echo "::error::Embedded CLI is not ad-hoc signed"; exit 1; }
           echo "✓ App and embedded CLI are ad-hoc signed"
 
+      - name: Verify DMG layout (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          DMG=$(ls -t ${{ matrix.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
+          [ -n "$DMG" ] || { echo "::error::No DMG found to verify"; exit 1; }
+          echo "Verifying DMG layout: $DMG"
+          MOUNT=$(hdiutil attach -nobrowse -readonly -plist "$DMG" \
+            | /usr/libexec/PlistBuddy -c "Print :system-entities:0:mount-point" /dev/stdin 2>/dev/null \
+            || true)
+          if [ -z "$MOUNT" ] || [ ! -d "$MOUNT" ]; then
+            # Fallback: parse mount point from plain hdiutil output
+            MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk '/\/Volumes\// {sub(/^[^\/]*/, ""); print; exit}')
+          fi
+          [ -n "$MOUNT" ] && [ -d "$MOUNT" ] || { echo "::error::Failed to mount DMG"; exit 1; }
+          trap 'hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true' EXIT
+          echo "Mounted at: $MOUNT"
+          ls -la "$MOUNT"
+          [ -L "$MOUNT/Applications" ] || { echo "::error::Applications symlink missing in DMG"; exit 1; }
+          [ -f "$MOUNT/README.txt" ]   || { echo "::error::README.txt missing at DMG root"; exit 1; }
+          echo "✓ DMG contains Applications symlink and README.txt"
+
       - name: Rename and upload artifacts
         shell: bash
         run: |

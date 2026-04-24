@@ -638,6 +638,17 @@ nav {
 .why-unsigned[open] summary { margin-bottom: 0.6rem; }
 .why-unsigned p + p { margin-top: 0.6rem; }
 
+/* macOS-specific blocks: visible by default (no-JS fallback shows them),
+   hidden once the platform detection script has tagged <body> as non-Mac.
+   Keeps Windows / unknown visitors from seeing DMG-quarantine content that
+   does not apply to them. */
+body.is-win .dmg-walkthrough,
+body.is-win .why-unsigned,
+body.is-other .dmg-walkthrough,
+body.is-other .why-unsigned {
+  display: none;
+}
+
 .download-block {
   background: var(--surface);
   border: 1px solid var(--border);

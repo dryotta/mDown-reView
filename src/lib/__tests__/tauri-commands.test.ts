@@ -218,3 +218,116 @@ describe("installUpdate", () => {
     await expect(installUpdate()).rejects.toThrow("bundle fetch failed");
   });
 });
+
+describe("onboarding & platform-integration wrappers", () => {
+  async function getInvoke() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    return m;
+  }
+
+  it("onboardingState calls onboarding_state with no args", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce({
+      schema_version: 1,
+      last_welcomed_version: null,
+      last_seen_sections: [],
+    });
+    const { onboardingState } = await import("../tauri-commands");
+    const r = await onboardingState();
+    expect(m).toHaveBeenCalledWith("onboarding_state");
+    expect(r.schema_version).toBe(1);
+  });
+
+  it("onboardingMarkWelcomed forwards version", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { onboardingMarkWelcomed } = await import("../tauri-commands");
+    await onboardingMarkWelcomed("0.3.4");
+    expect(m).toHaveBeenCalledWith("onboarding_mark_welcomed", { version: "0.3.4" });
+  });
+
+  it("onboardingSkip calls onboarding_skip", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { onboardingSkip } = await import("../tauri-commands");
+    await onboardingSkip();
+    expect(m).toHaveBeenCalledWith("onboarding_skip");
+  });
+
+  it("cliShimStatus returns the status string from invoke", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce("done");
+    const { cliShimStatus } = await import("../tauri-commands");
+    const r = await cliShimStatus();
+    expect(m).toHaveBeenCalledWith("cli_shim_status");
+    expect(r).toBe("done");
+  });
+
+  it("cliShimStatus propagates invoke errors", async () => {
+    const m = await getInvoke();
+    m.mockRejectedValueOnce(new Error("ipc dead"));
+    const { cliShimStatus } = await import("../tauri-commands");
+    await expect(cliShimStatus()).rejects.toThrow("ipc dead");
+  });
+
+  it("installCliShim calls install_cli_shim", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { installCliShim } = await import("../tauri-commands");
+    await installCliShim();
+    expect(m).toHaveBeenCalledWith("install_cli_shim");
+  });
+
+  it("removeCliShim calls remove_cli_shim", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { removeCliShim } = await import("../tauri-commands");
+    await removeCliShim();
+    expect(m).toHaveBeenCalledWith("remove_cli_shim");
+  });
+
+  it("defaultHandlerStatus returns status string", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce("unknown");
+    const { defaultHandlerStatus } = await import("../tauri-commands");
+    const r = await defaultHandlerStatus();
+    expect(m).toHaveBeenCalledWith("default_handler_status");
+    expect(r).toBe("unknown");
+  });
+
+  it("setDefaultHandler calls set_default_handler", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { setDefaultHandler } = await import("../tauri-commands");
+    await setDefaultHandler();
+    expect(m).toHaveBeenCalledWith("set_default_handler");
+  });
+
+  it("folderContextStatus returns status string", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce("missing");
+    const { folderContextStatus } = await import("../tauri-commands");
+    const r = await folderContextStatus();
+    expect(m).toHaveBeenCalledWith("folder_context_status");
+    expect(r).toBe("missing");
+  });
+
+  it("registerFolderContext calls register_folder_context", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { registerFolderContext } = await import("../tauri-commands");
+    await registerFolderContext();
+    expect(m).toHaveBeenCalledWith("register_folder_context");
+  });
+
+  it("unregisterFolderContext calls unregister_folder_context", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { unregisterFolderContext } = await import("../tauri-commands");
+    await unregisterFolderContext();
+    expect(m).toHaveBeenCalledWith("unregister_folder_context");
+  });
+});
+

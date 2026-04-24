@@ -32,7 +32,7 @@ flowchart TD
 - **Concrete viewers:** `src/components/viewers/{MarkdownViewer,SourceView,EnhancedViewer,MermaidView,JsonTreeView,CsvTableView,HtmlPreviewView,KqlPlanView,ImageViewer,BinaryPlaceholder,DeletedFileViewer}.tsx`
 - **Overlays:** `src/components/viewers/{TableOfContents,SearchBar,ViewerToolbar,FrontmatterBlock,SkeletonLoader}.tsx`
 - **Hooks:** `src/hooks/{useFileContent,useSourceHighlighting,useFolding,useScrollToLine,useSearch}.ts`
-- **Rust backend:** `src-tauri/src/commands.rs` (`read_text_file`, `check_path_exists`, file-type hints)
+- **Rust backend:** `src-tauri/src/commands/fs.rs` (`read_text_file`, `read_binary_file`, `check_path_exists`)
 
 ## Related rules
 

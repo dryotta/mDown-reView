@@ -238,3 +238,48 @@ export const restartApp = (): Promise<void> => {
   return import("@tauri-apps/plugin-process").then((m) => m.relaunch());
 };
 
+// ── Onboarding & platform integration commands ───────────────────────────
+
+export interface OnboardingState {
+  schema_version: number;
+  last_welcomed_version: string | null;
+  last_seen_sections: string[];
+}
+
+export type CliShimStatus = "done" | "missing" | "broken" | "unsupported";
+export type DefaultHandlerStatus = "done" | "other" | "unknown" | "unsupported";
+export type FolderContextStatus = "done" | "missing" | "unsupported";
+
+export const onboardingState = (): Promise<OnboardingState> =>
+  invoke<OnboardingState>("onboarding_state");
+
+export const onboardingMarkWelcomed = (version: string): Promise<void> =>
+  invoke<void>("onboarding_mark_welcomed", { version });
+
+export const onboardingSkip = (): Promise<void> =>
+  invoke<void>("onboarding_skip");
+
+export const cliShimStatus = (): Promise<CliShimStatus> =>
+  invoke<CliShimStatus>("cli_shim_status");
+
+export const installCliShim = (): Promise<void> =>
+  invoke<void>("install_cli_shim");
+
+export const removeCliShim = (): Promise<void> =>
+  invoke<void>("remove_cli_shim");
+
+export const defaultHandlerStatus = (): Promise<DefaultHandlerStatus> =>
+  invoke<DefaultHandlerStatus>("default_handler_status");
+
+export const setDefaultHandler = (): Promise<void> =>
+  invoke<void>("set_default_handler");
+
+export const folderContextStatus = (): Promise<FolderContextStatus> =>
+  invoke<FolderContextStatus>("folder_context_status");
+
+export const registerFolderContext = (): Promise<void> =>
+  invoke<void>("register_folder_context");
+
+export const unregisterFolderContext = (): Promise<void> =>
+  invoke<void>("unregister_folder_context");
+

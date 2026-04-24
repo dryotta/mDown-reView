@@ -38,7 +38,7 @@ flowchart LR
 - **Rust:** `src-tauri/src/lib.rs` (plugin registration, panic hook), any `tracing::*` calls throughout `src-tauri/src/`
 - **Frontend chokepoint:** `src/logger.ts`
 - **Error capture:** `src/components/ErrorBoundary.tsx`
-- **Command:** `src-tauri/src/commands.rs` — `get_log_path`
+- **Command:** `src-tauri/src/commands/launch.rs` — `get_log_path`
 - **Test contract:** `src/test-setup.ts` (console spy)
 
 ## Related rules

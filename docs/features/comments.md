@@ -37,7 +37,7 @@ sequenceDiagram
 - **Hooks:** `src/hooks/{useSelectionToolbar,useThreadsByLine,useUnresolvedCounts}.ts`
 - **Store slice:** `src/store/index.ts` — `commentsSlice`
 - **Rust core:** `src-tauri/src/core/{comments.rs,threads.rs,anchors.rs,matching.rs,sidecar.rs,types.rs}`
-- **Commands:** `src-tauri/src/commands.rs` — `load_review_comments`, `save_review_comments`, `get_unresolved_counts`, `get_file_comments`, `scan_review_files`
+- **Commands:** `src-tauri/src/commands/comments.rs` — `get_file_comments`, `add_comment`, `add_reply`, `edit_comment`, `delete_comment`, `set_comment_resolved`, `compute_anchor_hash`, `get_unresolved_counts`; `src-tauri/src/commands/launch.rs` — `scan_review_files`
 
 ## Related rules
 

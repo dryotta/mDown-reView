@@ -34,7 +34,7 @@ sequenceDiagram
 ## Key source
 
 - **Rust watcher:** `src-tauri/src/watcher.rs`
-- **Rust command:** `src-tauri/src/commands.rs` — `update_watched_files`, `scan_review_files`
+- **Rust command:** `src-tauri/src/watcher.rs` — `update_watched_files`; `src-tauri/src/commands/launch.rs` — `scan_review_files`
 - **Hook:** `src/hooks/useFileWatcher.ts`
 - **Store interactions:** `watcherSlice` in `src/store/index.ts`
 

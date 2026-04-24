@@ -48,6 +48,9 @@ uuid = { version = "1", features = ["v4"] }
 url = "2"
 regex = "1"
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
 tempfile = "3"

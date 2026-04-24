@@ -258,6 +258,15 @@
 
     const detected = detectPlatform();
 
+    // Tag <body> with platform class so CSS can show/hide platform-specific blocks
+    // (e.g. .dmg-walkthrough and .why-unsigned are macOS-only).
+    const osClass = detected === 'mac-arm64'
+      ? 'is-mac'
+      : (detected === 'win-x64' || detected === 'win-arm64')
+        ? 'is-win'
+        : 'is-other';
+    document.body.classList.add(osClass);
+
     // Set platform label in Download tab
     if (detected && PLATFORM_LABELS[detected]) {
       document.getElementById('dl-platform-label').textContent = PLATFORM_LABELS[detected].platform;
@@ -271,9 +280,9 @@
       document.getElementById('script-windows').style.display = showMac ? 'none' : '';
     }
 
-    // Default to Script tab on detected mac/win platforms (Download remains
-    // the markup default for unknown platforms / no-JS fallback).
-    if (detected === 'mac-arm64' || detected === 'win-x64' || detected === 'win-arm64') {
+    // Default to Script tab on macOS (handles quarantine + PATH automatically).
+    // Windows and unknown platforms keep the markup default (Download tab).
+    if (detected === 'mac-arm64') {
       const scriptTab = document.querySelector('.tab-btn[data-tab="script"]');
       if (scriptTab) scriptTab.click();
     }

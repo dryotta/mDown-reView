@@ -28,7 +28,7 @@ flowchart TD
 ## Key source
 
 - **Entry points:** `src-tauri/src/main.rs`, `src-tauri/src/lib.rs` (plugin registration, setup hook, panic hook)
-- **Command:** `src-tauri/src/commands.rs` — `get_launch_args`
+- **Command:** `src-tauri/src/commands/launch.rs` — `get_launch_args`
 - **Bin:** `src-tauri/src/bin/` for any helper binaries
 - **Config:** `src-tauri/tauri.conf.json` (capabilities, single-instance, file-association metadata)
 

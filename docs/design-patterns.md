@@ -21,7 +21,7 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 
 ### Tauri v2 idioms
 3. Rust state shared with the Tauri `setup` hook uses `Arc<Mutex<Option<T>>>` managed via `app.manage()`. (`lib.rs:130-131`.)
-4. Rust emits window-scoped events (`emit_to("main", …)`), not app-wide. (`commands.rs:44-48,290`; `watcher.rs:94`.)
+4. Rust emits window-scoped events (`emit_to("main", …)`), not app-wide. (`commands/comments.rs:13-33`; `watcher.rs:94`.)
 5. Every Tauri `listen()` subscription in a `useEffect` returns an unlisten cleanup. (`App.tsx:107-109`; `useFileWatcher.ts:75-78`.)
 6. Every `useEffect` subscribing to a `Promise<UnlistenFn>` adds `.catch(() => {})` on the unlisten rejection to avoid unhandled-rejection noise on hot-reload. (`App.tsx:108,248`.)
 

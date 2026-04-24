@@ -1,4 +1,5 @@
 pub mod anchors;
+pub mod atomic;
 pub mod comments;
 pub mod fold_regions;
 pub mod fuzzy;
@@ -6,6 +7,7 @@ pub mod html_assets;
 pub mod json;
 pub mod kql;
 pub mod matching;
+pub mod onboarding;
 pub mod scanner;
 pub mod sidecar;
 pub mod threads;
