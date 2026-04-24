@@ -76,3 +76,15 @@ max_iterations: 50
 - Goal assessor confidence: 85%. 5 groups identified, 4 implemented (A Rust debt: emit_to('main')+matching split+with_sidecar_or_create, B doc citations refresh + meta-test, C test hygiene + iter6 follow-ups, D SourceLine + useApplyTheme extractions). Group E (MarkdownViewer audit) deferred.
 - Fix attempts: 1 (post-review: 18 new tests for SourceLine branches, doc-citation helpers + drift self-test, mutate_sidecar_or_create error path).
 - Summary: Window-scoped update emits (rule 4). Split core/matching.rs 415->284 by extracting fuzzy.rs. Refactored add_comment to share with_sidecar_or_create + mutate_sidecar_or_create helpers (pure inner fn unit-testable without AppHandle). Refreshed 12 stale citations in docs/architecture.md + new doc-citations meta-test. Centralized vi.mock('@tauri-apps/api/core') (removed duplicate, replaced 2 inline factories with bare auto-mocks) + new ipc-mock-hygiene meta-test. Added tauri-events rejection-path test, html_assets edge tests, event-chokepoint negative self-test. Extracted SourceLine.tsx (SourceView 245->212) and useApplyTheme.ts (App.tsx 206->191).
+
+
+## Iteration 8 - PASSED
+- Commits: 75369e5, 57b0ea2
+- ITER_BASE_SHA: 9d52c60
+- CI: pending (in progress at commit 57b0ea2)
+- Local tests: all 5 suites passed (lint, tsc, cargo 174, vitest 757, e2e 40)
+- Expert review: 4/4 APPROVED unanimously (architect, react-tauri, performance, test-gap; test-gap noted 3 non-blocking gaps which were addressed in 57b0ea2).
+- Goal assessor confidence: 87%. 7 groups identified, 4 implemented in parallel (A path->language consolidation; B+C SourceLine React.memo + useSourceLineModel pure VM hook; D+E useThreadsByLine extension + useImgResolver hook; F doc-citations CITATION_RE positive self-tests).
+- Fix attempts: 1 (post-review: 4 tests for re-anchored reply count, Windows img absolute paths, Shiki+search invariant).
+- Summary: Group A consolidated path->language detection in src/lib/file-types.ts (getShikiLanguage + getFoldLanguage), removing duplicates from useSourceHighlighting and useFolding. Group B+C extracted pure VM hook src/hooks/useSourceLineModel.ts (129 lines) with module-scope EMPTY_THREADS sentinel; SourceView.tsx 212->194 (IIFE removed, useCallback'd handlers handleCommentButtonClick/handleCloseInput/handleRequestInput); SourceLine wrapped in React.memo with regression test enforcing O(changed) re-renders. Group D+E extended useThreadsByLine to return {threadsByLine, commentCountByLine} (single useMemo); created useImgResolver.tsx (stable img Component memoized on filePath); MarkdownViewer 274->245 lines, MD_COMPONENTS now memoized on [img]. Group F added 8 CITATION_RE positive self-tests. Net: large perf win on 5000-line search-typing (only matched lines re-render).
+
