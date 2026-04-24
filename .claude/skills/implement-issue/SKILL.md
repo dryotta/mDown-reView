@@ -14,7 +14,7 @@ Implements **one** GitHub issue end-to-end: spec → plan → implement → vali
 
 Every change must respect the product charter. Read the relevant doc before editing its domain:
 
-- **Charter (always):** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) + 3 meta-principles (Evidence-Based, Rust-First, Zero Bug).
+- **Charter (always):** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) + 3 meta-principles (Rust-First with MVVM, Never Increase Engineering Debt, Zero Bug Policy).
 - [`docs/architecture.md`](../../../docs/architecture.md) — IPC/logger chokepoints, Zustand boundaries, file-size budgets.
 - [`docs/performance.md`](../../../docs/performance.md) — numeric budgets, watcher rules, render-cost rules.
 - [`docs/security.md`](../../../docs/security.md) — IPC surface, CSP, atomic writes, path canonicalization.
@@ -141,13 +141,13 @@ Expert guidance:
 
 For each step include: file(s) to change · exact changes · tests to write · dependencies on other steps.
 
-Engineering principles — all are non-negotiable (see docs/principles.md and the 5 deep-dives):
-- Rust-first (principle in docs/principles.md; rules 1-10 in docs/architecture.md): logic that can live in Rust goes in src-tauri/src/commands.rs, exposed via src/lib/tauri-commands.ts typed wrappers
-- Zero bug policy (docs/principles.md; rule 9 in docs/test-strategy.md): every change gets tests; for bug fixes write the failing test before the fix
-- Full-stack completeness: UI-visible behaviour changes require a browser e2e test in e2e/browser/ in addition to unit tests (rules 4-5 in docs/test-strategy.md); new Tauri commands require the IPC mock in src/__mocks__/@tauri-apps/api/core.ts to be updated (rule 5 in docs/test-strategy.md)
-- Zero debt: the plan must include a cleanup step for any code made obsolete by this change (dead functions, replaced imports, superseded patterns). No TODOs, no half-implementations, no workarounds
-- Evidence-based (docs/principles.md meta-principle): implement exactly what the spec says — no extras
-- Charter-respecting: the plan must not violate any rule in docs/architecture.md, docs/performance.md, docs/security.md, or docs/design-patterns.md. If it must, propose a rule change as a separate step, do not silently bypass.
+Engineering meta-principles — all are non-negotiable (see docs/principles.md):
+- **Rust-First with MVVM** (docs/principles.md meta-principle; rules 1-10 in docs/architecture.md): Model = Rust (`src-tauri/src/core/`, `commands.rs`); ViewModel = `src/lib/vm/` + `src/hooks/` + `src/store/`; View = `src/components/`. A component that calls `invoke()` or holds business state is a layering violation. A hook that serializes YAML or computes anchors is a Rust-First violation. Plan accordingly.
+- **Never Increase Engineering Debt** (docs/principles.md meta-principle): the plan must hold debt flat or reduce it. Every change deletes dead code in the same PR (replaced functions, obsolete imports, superseded patterns). No TODOs, no half-wired code, no workarounds, no "fix later". Where a Gap from a deep-dive doc touches this area, close it in this PR.
+- **Zero Bug Policy** (docs/principles.md meta-principle; rule 9 in docs/test-strategy.md): every bug fix uses the canonical architecture in docs/architecture.md and the canonical patterns in docs/design-patterns.md — not a workaround. Every fix ships with a regression test reproducing the original failure mode (failing → passing).
+- **Charter-respecting**: the plan must not violate any rule in docs/architecture.md, docs/performance.md, docs/security.md, docs/design-patterns.md, or docs/test-strategy.md. If it must, propose a rule change as a separate step — do not silently bypass.
+- **Full-stack completeness**: UI-visible behaviour changes require a browser e2e test in e2e/browser/ in addition to unit tests (rules 4-5 in docs/test-strategy.md); new Tauri commands require the IPC mock in src/__mocks__/@tauri-apps/api/core.ts to be updated (rule 5 in docs/test-strategy.md).
+- **Scope discipline**: implement exactly what the spec says — no extras, no scope creep.
 ```
 
 Save the returned plan.

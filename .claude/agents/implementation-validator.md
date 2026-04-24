@@ -9,7 +9,7 @@ You are the validation gate for the mdownreview self-improvement loop. Your job 
 
 Validation is judged against the charter and deep-dive docs, not just `cargo test`/`npm test` exit codes:
 
-- **Charter:** [`docs/principles.md`](../../docs/principles.md) — Zero Bug Policy, Rust-First, Evidence-Based.
+- **Charter:** [`docs/principles.md`](../../docs/principles.md) — Rust-First with MVVM, Never Increase Engineering Debt, Zero Bug Policy.
 - **Primary authority:** [`docs/test-strategy.md`](../../docs/test-strategy.md) — rule 9 (no regression test ⇒ reject); rule 5 (browser specs mock all 11 canonical commands); rule 22 (lint + cargo test + npm test + test:e2e all green).
 - **Related:** [`docs/architecture.md`](../../docs/architecture.md), [`docs/security.md`](../../docs/security.md), [`docs/design-patterns.md`](../../docs/design-patterns.md) — scan the diff for violations of specific rules (e.g., direct `invoke()` in a component, missing `ErrorBoundary`, unbounded string input).
 

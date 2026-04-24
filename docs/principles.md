@@ -30,14 +30,35 @@ Clean layer boundaries, narrow IPC surface, single chokepoints for IPC and loggi
 
 These govern *how* we work. They are non-negotiable and override convenience.
 
-### Evidence-Based Only
-No guessing. Every proposal, bug report, or performance claim cites file:line evidence, a benchmark, or a failing test. "This might be slow" without a measurement is not a proposal.
+### 1. Rust-First with MVVM
 
-### Rust-First
-File I/O, path manipulation, text processing, data validation, and performance-sensitive computation live in Rust and cross IPC once. React/TypeScript owns UI rendering, state management, and user interaction — nothing more. When adding a feature, ask: "Can the heavy lifting live in Rust?" If yes, build it there.
+The app is built as a strict MVVM (Model–ViewModel–View) stack. The boundaries are not suggestions.
 
-### Zero Bug Policy
-Every confirmed bug gets fixed. Every fix ships with a regression test that reproduces the original failure mode. A fix without a failing-then-passing test is not done.
+- **Model — Rust (`src-tauri/src/core/`, `src-tauri/src/commands.rs`).** Owns data and business logic: file I/O, path manipulation, MRSF parse/serialize, comment anchoring, hashing, scanning, threading, validation. Exposed to the frontend only via typed Tauri commands. Never reimplemented in TypeScript.
+- **ViewModel — `src/lib/vm/` + `src/hooks/` + `src/store/`.** Thin bridge that calls the Model and exposes reactive state to the View. Cancellation, loading states, debounce, and derived values live here. No DOM, no JSX, no raw `invoke()` (it uses `src/lib/tauri-commands.ts`).
+- **View — `src/components/`.** Renders ViewModel state and dispatches user actions back through the ViewModel. No IPC calls, no business rules, no file-path manipulation.
+
+When adding a feature, decide in this order: *What does the Model own? What hook in the ViewModel exposes it? What component renders it?* A component that calls `invoke()` or holds business state is a layering violation and does not merge. A hook that serializes YAML or computes anchors is a Rust-First violation and does not merge.
+
+### 2. Never Increase Engineering Debt
+
+Every change leaves the codebase cleaner than it found it — not metaphorically, literally.
+
+- **Hold debt flat or reduce it.** A change that adds a new pattern without consolidating the old one is net debt. Merging it requires the cleanup in the same PR.
+- **Actively close gaps.** Every deep-dive doc carries a **Gaps** section. When you are in the area, pick one and close it — that's part of the change, not a separate ticket.
+- **Delete dead code in the same PR.** A refactor that leaves the replaced function, import, or pattern behind is incomplete.
+- **No TODOs, no workarounds, no "fix later".** Either solve it properly in this PR or don't make the change.
+- **Debt is any divergence from the canonical patterns** in `docs/architecture.md` and `docs/design-patterns.md` — not just bad code. Drift is debt.
+
+The goal is not to hold debt constant. It is to actively shrink it every change.
+
+### 3. Zero Bug Policy
+
+Every confirmed bug gets fixed. "Fixed" has three requirements — all mandatory, no exceptions:
+
+- **Clean architecture.** The fix uses the layer boundaries in `docs/architecture.md`. If the bug exists because logic leaked across layers, the fix moves it back — no workarounds that silence the symptom.
+- **Clean design pattern.** The fix uses the idioms in `docs/design-patterns.md` (cancellation flags, `useShallow`, `emit_to("main", …)`, atomic sidecar writes, etc.). A patch that violates an established pattern is new debt, not a fix.
+- **Regression test.** Every fix ships with a test that reproduces the original failure mode. A race-condition fix needs a test that reproduces the race; a file-size-limit bypass fix needs a test at the boundary. Without the test, the fix is not done — and a bug report without a failing test is incomplete.
 
 ## Deep-dive documents
 

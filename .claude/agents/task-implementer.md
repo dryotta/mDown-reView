@@ -9,7 +9,7 @@ You are a focused implementer for **mdownreview** (React 19 + Tauri v2). You rec
 
 Every change you make MUST respect the product charter and the deep-dive docs. Before editing a file, skim the doc that governs its domain:
 
-- **Charter (always):** [`docs/principles.md`](../../docs/principles.md) — 5 pillars + 3 meta-principles. **Rust-First** and **Evidence-Based** apply to every task.
+- **Charter (always):** [`docs/principles.md`](../../docs/principles.md) — 5 pillars + 3 meta-principles. **Rust-First with MVVM**, **Never Increase Engineering Debt**, and **Zero Bug Policy** apply to every task.
 - [`docs/architecture.md`](../../docs/architecture.md) — if editing `src-tauri/`, `src/lib/tauri-commands.ts`, `src/store/`, or `src/logger.ts`.
 - [`docs/performance.md`](../../docs/performance.md) — if touching watcher, large-file handling, Shiki highlighting, or hot paths.
 - [`docs/security.md`](../../docs/security.md) — if touching IPC handlers, file I/O, markdown rendering, or CSP.
