@@ -1,14 +1,72 @@
-import React, { useMemo } from "react";
-import { parseKqlPipeline, formatKql, KQL_OPERATORS } from "@/lib/kql-parser";
+import React, { useEffect, useMemo, useState } from "react";
+import { parseKql, type KqlPipelineStep } from "@/lib/tauri-commands";
 import "@/styles/kql-plan.css";
 
 interface KqlPlanViewProps {
   content: string;
 }
 
+// View-layer presentation metadata: keywords highlighted in the formatted query.
+const KQL_OPERATORS = new Set([
+  "where",
+  "summarize",
+  "project",
+  "extend",
+  "join",
+  "count",
+  "take",
+  "top",
+  "sort",
+  "order",
+  "distinct",
+  "render",
+  "limit",
+  "let",
+  "union",
+  "mv-expand",
+  "parse",
+  "evaluate",
+  "make-series",
+  "print",
+]);
+
+/**
+ * Format the parsed pipeline back into a multi-line query for display. This is
+ * a pure view-layer concern derived from the steps returned by Rust.
+ */
+function formatStepsForDisplay(steps: KqlPipelineStep[]): string {
+  if (steps.length === 0) return "";
+  const first = steps[0].operator;
+  const rest = steps.slice(1).map((s) => {
+    const detail = s.details ? ` ${s.details}` : "";
+    return `\n| ${s.operator}${detail}`;
+  });
+  return first + rest.join("");
+}
+
 export function KqlPlanView({ content }: KqlPlanViewProps) {
-  const steps = useMemo(() => parseKqlPipeline(content), [content]);
-  const formattedQuery = useMemo(() => formatKql(content), [content]);
+  const [steps, setSteps] = useState<KqlPipelineStep[]>([]);
+
+  useEffect(() => {
+    if (!content.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset when content becomes empty
+      setSteps([]);
+      return;
+    }
+    let cancelled = false;
+    parseKql(content)
+      .then((s) => {
+        if (!cancelled) setSteps(s);
+      })
+      .catch(() => {
+        if (!cancelled) setSteps([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [content]);
+
+  const formattedQuery = useMemo(() => formatStepsForDisplay(steps), [steps]);
 
   if (!content.trim()) {
     return (

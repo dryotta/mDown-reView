@@ -1,12 +1,12 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { useStore, openFilesFromArgs } from "@/store";
+import { useStore } from "@/store";
 import { useShallow } from "zustand/shallow";
-import { getLaunchArgs } from "@/lib/tauri-commands";
 import { useUpdateActions, useUpdateProgress } from "@/lib/vm/use-update-actions";
-import { listen } from "@tauri-apps/api/event";
 import { useFileWatcher } from "@/hooks/useFileWatcher";
 import { useDialogActions } from "@/hooks/useDialogActions";
 import { useMenuListeners } from "@/hooks/useMenuListeners";
+import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
+import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
@@ -76,7 +76,10 @@ export default function App() {
   // Connect Rust file watcher to frontend event pipeline
   useFileWatcher();
 
-  useMenuListeners({ handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, setAboutOpen, checkForUpdate });
+  const menuCallbacks = { handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, setAboutOpen, checkForUpdate };
+  useMenuListeners(menuCallbacks);
+  useGlobalShortcuts(menuCallbacks);
+  useLaunchArgsBootstrap();
 
   // Apply theme class to <html> and listen for OS theme changes
   useEffect(() => {
@@ -95,70 +98,6 @@ export default function App() {
     mq.addEventListener("change", applyTheme);
     return () => mq.removeEventListener("change", applyTheme);
   }, [theme]);
-
-  // Load CLI launch args on mount and subscribe to second-instance args
-  useEffect(() => {
-    const store = useStore.getState();
-    getLaunchArgs()
-      .then(({ files, folders }) => openFilesFromArgs(files, folders, store))
-      .catch(() => {});
-
-    const argsListener = listen<{ files: string[]; folders: string[] }>("args-received", (event) => {
-      const store = useStore.getState();
-      openFilesFromArgs(event.payload.files, event.payload.folders, store);
-    });
-
-    return () => {
-      argsListener.then((fn) => fn()).catch(() => {});
-    };
-  }, []);
-
-  // Global keyboard shortcuts (kept for e2e tests and non-native environments)
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && !e.shiftKey && e.key === "o") {
-        e.preventDefault();
-        handleOpenFile();
-      }
-      if (mod && e.shiftKey && e.key === "O") {
-        e.preventDefault();
-        handleOpenFolder();
-      }
-      if (mod && e.shiftKey && e.key === "C") {
-        e.preventDefault();
-        toggleCommentsPane();
-      }
-      if (mod && !e.shiftKey && e.key === "w") {
-        e.preventDefault();
-        const { activeTabPath, closeTab } = useStore.getState();
-        if (activeTabPath) closeTab(activeTabPath);
-      }
-      if (mod && e.shiftKey && e.key === "W") {
-        e.preventDefault();
-        useStore.getState().closeAllTabs();
-      }
-      // Tab cycling
-      if (mod && !e.shiftKey && e.key === "Tab") {
-        e.preventDefault();
-        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
-        if (tabs.length < 2) return;
-        const idx = tabs.findIndex((t) => t.path === activeTabPath);
-        const next = tabs[(idx + 1) % tabs.length];
-        setActiveTab(next.path);
-      }
-      if (mod && e.shiftKey && e.key === "Tab") {
-        e.preventDefault();
-        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
-        if (tabs.length < 2) return;
-        const idx = tabs.findIndex((t) => t.path === activeTabPath);
-        const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
-        setActiveTab(prev.path);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane]);
 
   // Background update check — 5 s delay, non-blocking
   useEffect(() => {

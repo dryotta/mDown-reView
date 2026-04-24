@@ -12,7 +12,13 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  convertFileSrc: vi.fn((path: string) => `asset://localhost/${encodeURIComponent(path)}`),
+}));
+
 import {
+  convertAssetUrl,
   copyToClipboard,
   openExternalUrl,
   restartApp,
@@ -84,6 +90,28 @@ describe("restartApp", () => {
   it("propagates errors from the underlying plugin", async () => {
     relaunch.mockRejectedValueOnce(new Error("relaunch failed"));
     await expect(restartApp()).rejects.toThrow("relaunch failed");
+  });
+});
+
+describe("convertAssetUrl", () => {
+  it("delegates to convertFileSrc and returns its asset URL", async () => {
+    const { convertFileSrc } = await import("@tauri-apps/api/core");
+    const mock = convertFileSrc as ReturnType<typeof vi.fn>;
+    mock.mockClear();
+
+    const result = convertAssetUrl("/abs/path/to/image.png");
+
+    expect(mock).toHaveBeenCalledWith("/abs/path/to/image.png");
+    expect(result).toBe(`asset://localhost/${encodeURIComponent("/abs/path/to/image.png")}`);
+  });
+
+  it("passes the path through unchanged", async () => {
+    const { convertFileSrc } = await import("@tauri-apps/api/core");
+    const mock = convertFileSrc as ReturnType<typeof vi.fn>;
+    mock.mockClear();
+
+    convertAssetUrl("C:\\Users\\me\\file.png");
+    expect(mock).toHaveBeenCalledWith("C:\\Users\\me\\file.png");
   });
 });
 

@@ -1,5 +1,8 @@
 pub mod anchors;
 pub mod comments;
+pub mod fold_regions;
+pub mod json;
+pub mod kql;
 pub mod matching;
 pub mod scanner;
 pub mod sidecar;

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { stripJsonComments } from "@/lib/json-utils";
+import { useEffect, useState } from "react";
+import { stripJsonComments } from "@/lib/tauri-commands";
 import "../../styles/json-tree.css";
 
 interface JsonTreeViewProps {
@@ -106,17 +106,43 @@ function JsonNode({ value, keyName, depth }: JsonNodeProps) {
 }
 
 export function JsonTreeView({ content }: JsonTreeViewProps) {
-  let parsed: unknown;
-  try {
-    const stripped = stripJsonComments(content);
-    parsed = JSON.parse(stripped);
-  } catch {
+  // null = still parsing, { ok: true, value } = parsed, { ok: false } = error.
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "ok"; value: unknown }
+    | { status: "error" }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    stripJsonComments(content)
+      .then((stripped) => {
+        if (cancelled) return;
+        try {
+          const parsed = JSON.parse(stripped);
+          setState({ status: "ok", value: parsed });
+        } catch {
+          setState({ status: "error" });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [content]);
+
+  if (state.status === "loading") {
+    return <div className="json-tree" aria-busy="true" />;
+  }
+  if (state.status === "error") {
     return <div className="json-error">Invalid JSON: Could not parse content</div>;
   }
 
   return (
     <div className="json-tree">
-      <JsonNode value={parsed} depth={0} />
+      <JsonNode value={state.value} depth={0} />
     </div>
   );
 }

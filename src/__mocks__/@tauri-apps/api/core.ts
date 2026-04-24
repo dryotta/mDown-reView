@@ -2,6 +2,8 @@ import { vi } from "vitest";
 import type {
   CommentThread,
   DirEntry,
+  FoldRegion,
+  KqlPipelineStep,
   LaunchArgs,
   MatchedComment,
   MrsfSidecar,
@@ -18,6 +20,8 @@ type InvokeResult =
   | CommentThread[]
   | MatchedComment[]
   | SearchMatch[]
+  | FoldRegion[]
+  | KqlPipelineStep[]
   | Record<string, number>
   | "file"
   | "dir"

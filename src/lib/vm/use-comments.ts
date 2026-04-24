@@ -24,27 +24,8 @@ export function useComments(filePath: string | null): UseCommentsResult {
   const [threads, setThreads] = useState<CommentThread[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!filePath) {
-      setThreads([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const result = await getFileComments(filePath);
-      setThreads(result);
-    } catch (e) {
-      error(`[vm] Failed to load comments for ${filePath}: ${e}`);
-      setThreads([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filePath]);
-
-  // Initial load + reload on filePath change (with cancellation for stale responses)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  const load = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
       if (!filePath) {
         setThreads([]);
         return;
@@ -52,16 +33,25 @@ export function useComments(filePath: string | null): UseCommentsResult {
       setLoading(true);
       try {
         const result = await getFileComments(filePath);
-        if (!cancelled) setThreads(result);
+        if (!isCancelled()) setThreads(result);
       } catch (e) {
         error(`[vm] Failed to load comments for ${filePath}: ${e}`);
-        if (!cancelled) setThreads([]);
+        if (!isCancelled()) setThreads([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!isCancelled()) setLoading(false);
       }
-    })();
+    },
+    [filePath],
+  );
+
+  // Initial load + reload on filePath change (with cancellation for stale responses)
+  useEffect(() => {
+    let cancelled = false;
+    // Wrap in async IIFE so the synchronous setState inside `load` is decoupled
+    // from this effect body (avoids react-hooks/set-state-in-effect false positive).
+    (async () => { await load(() => cancelled); })();
     return () => { cancelled = true; };
-  }, [filePath]);
+  }, [load]);
 
   // Listen for comments-changed (from Rust mutation commands)
   useEffect(() => {
