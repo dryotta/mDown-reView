@@ -12,7 +12,7 @@ mdownreview
    Alternative: open mdownreview from Applications, accept the block, then
    go to System Settings → Privacy & Security → "Open Anyway".
 
-   (On macOS Sequoia 15+ the old right-click → Open shortcut no longer
+   (On macOS Sequoia 15+ the older context-menu Open shortcut no longer
    bypasses the warning — use one of the two options above.)
 
 See https://dryotta.github.io/mdownreview/ for the full unsigned-app
