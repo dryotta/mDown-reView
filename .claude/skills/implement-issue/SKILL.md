@@ -10,6 +10,19 @@ Implements **one** GitHub issue end-to-end: spec → plan → implement → vali
 
 **RIGID. Follow every step exactly.**
 
+## Product charter (governs every implementation)
+
+Every change must respect the product charter. Read the relevant doc before editing its domain:
+
+- **Charter (always):** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) + 3 meta-principles (Evidence-Based, Rust-First, Zero Bug).
+- [`docs/architecture.md`](../../../docs/architecture.md) — IPC/logger chokepoints, Zustand boundaries, file-size budgets.
+- [`docs/performance.md`](../../../docs/performance.md) — numeric budgets, watcher rules, render-cost rules.
+- [`docs/security.md`](../../../docs/security.md) — IPC surface, CSP, atomic writes, path canonicalization.
+- [`docs/design-patterns.md`](../../../docs/design-patterns.md) — React 19 + Tauri v2 idioms.
+- [`docs/test-strategy.md`](../../../docs/test-strategy.md) — three-layer pyramid, coverage floors, mock hygiene.
+
+The plan step, code review step, and validator all cite specific rule numbers. An implementation that violates a rule is not merged, regardless of whether tests pass.
+
 ## Input
 
 Optional: one issue number (e.g. `/implement-issue 36`).  
@@ -128,12 +141,13 @@ Expert guidance:
 
 For each step include: file(s) to change · exact changes · tests to write · dependencies on other steps.
 
-Engineering principles — all are non-negotiable:
-- Rust-first: logic that can live in Rust goes in src-tauri/src/commands.rs, exposed via src/lib/tauri-commands.ts typed wrappers
-- Zero bug policy: every change gets tests; for bug fixes write the failing test before the fix
-- Full-stack completeness: UI-visible behaviour changes require a browser e2e test in e2e/browser/ in addition to unit tests; new Tauri commands require the IPC mock in src/__mocks__/@tauri-apps/api/core.ts to be updated
+Engineering principles — all are non-negotiable (see docs/principles.md and the 5 deep-dives):
+- Rust-first (principle in docs/principles.md; rules 1-10 in docs/architecture.md): logic that can live in Rust goes in src-tauri/src/commands.rs, exposed via src/lib/tauri-commands.ts typed wrappers
+- Zero bug policy (docs/principles.md; rule 9 in docs/test-strategy.md): every change gets tests; for bug fixes write the failing test before the fix
+- Full-stack completeness: UI-visible behaviour changes require a browser e2e test in e2e/browser/ in addition to unit tests (rules 4-5 in docs/test-strategy.md); new Tauri commands require the IPC mock in src/__mocks__/@tauri-apps/api/core.ts to be updated (rule 5 in docs/test-strategy.md)
 - Zero debt: the plan must include a cleanup step for any code made obsolete by this change (dead functions, replaced imports, superseded patterns). No TODOs, no half-implementations, no workarounds
-- Evidence-based: implement exactly what the spec says — no extras
+- Evidence-based (docs/principles.md meta-principle): implement exactly what the spec says — no extras
+- Charter-respecting: the plan must not violate any rule in docs/architecture.md, docs/performance.md, docs/security.md, or docs/design-patterns.md. If it must, propose a rule change as a separate step, do not silently bypass.
 ```
 
 Save the returned plan.
@@ -206,14 +220,17 @@ Spec (source of truth for requirements):
 Diff:
 <full diff>
 
-Check — flag blocking issues for any of these. Skip style nits.
+Check — flag blocking issues for any of these. Cite rule numbers from docs/*.md where possible. Skip style nits.
 1. Does every Acceptance Criterion pass?
-2. Are there bugs, regressions, or security issues?
-3. Are tests adequate — unit tests AND e2e browser tests for any UI-visible behaviour change?
-4. Does it follow Rust-first principles?
-5. Is there any dead code, unused import, replaced function, or obsolete pattern that was NOT cleaned up?
-6. Does any part of this change introduce technical debt — TODO comments, half-implemented wiring, bypassed safety checks, or workarounds intended for later?
-7. If a new Tauri command was added, is the IPC mock in src/__mocks__/@tauri-apps/api/core.ts updated?
+2. Are there bugs, regressions, or security issues? (docs/security.md rules)
+3. Are tests adequate — unit tests AND e2e browser tests for any UI-visible behaviour change? (docs/test-strategy.md rules 4-5)
+4. Does it follow Rust-first? (docs/principles.md meta-principle; docs/architecture.md rules 1-10)
+5. Does it violate any architecture rule (docs/architecture.md) — direct invoke outside tauri-commands.ts, direct plugin-log outside logger.ts, cross-slice coupling, file >400 lines?
+6. Does it violate any design-pattern rule (docs/design-patterns.md) — missing cancellation, missing unlisten cleanup, non-module-scope components map, useState for UI state that should be Zustand?
+7. Does it violate any performance rule (docs/performance.md) — uncapped scan, rebuilt-per-render heavy object, missing debounce?
+8. Is there any dead code, unused import, replaced function, or obsolete pattern that was NOT cleaned up?
+9. Does any part of this change introduce technical debt — TODO comments, half-implemented wiring, bypassed safety checks, or workarounds intended for later?
+10. If a new Tauri command was added, is the IPC mock in src/__mocks__/@tauri-apps/api/core.ts updated? (docs/test-strategy.md rule 5)
 ```
 
 **If blocking issues:** attempt one fix (same pattern as Step 8), then re-review once.  

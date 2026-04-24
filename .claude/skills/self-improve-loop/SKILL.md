@@ -10,6 +10,15 @@ description: Autonomous improvement loop for mdownreview. Takes a user goal, run
 Accepts one required argument: the improvement **goal** (text after the skill name).  
 Example: `/self-improve-loop eliminate all ESLint warnings in the codebase`
 
+## Product charter (governs every iteration)
+
+The goal-assessor, the planner, and the expert review in Step E all evaluate against the charter and deep-dives:
+
+- **Charter:** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars + 3 meta-principles.
+- [`docs/architecture.md`](../../../docs/architecture.md) · [`docs/performance.md`](../../../docs/performance.md) · [`docs/security.md`](../../../docs/security.md) · [`docs/design-patterns.md`](../../../docs/design-patterns.md) · [`docs/test-strategy.md`](../../../docs/test-strategy.md).
+
+An iteration that violates a rule from any deep-dive BLOCKS at expert review, even if all tests are green. Iterations that ADD evidence closing a Gap from one of these docs are strongly preferred.
+
 ---
 
 ## Phase 0 — Setup (interactive, runs once)
@@ -255,14 +264,15 @@ Goal: [goal] | Iteration: [N]/10
 [DIFF STAT]
 [FULL DIFF]
 
-BLOCK on any of these — APPROVE otherwise:
+BLOCK on any of these — APPROVE otherwise. Cite specific rule numbers from docs/*.md when blocking.
 1. Does this make progress toward the goal?
-2. New bugs, regressions, or architectural problems?
-3. UI-visible change without a browser e2e test in e2e/browser/?
-4. Dead code, unused import, or replaced pattern not deleted?
-5. Technical debt — TODO comments, half-wired code, bypassed checks?
+2. New bugs, regressions, or architectural problems? (docs/architecture.md rules)
+3. Violates any rule in docs/performance.md, docs/security.md, docs/design-patterns.md, or docs/test-strategy.md?
+4. UI-visible change without a browser e2e test in e2e/browser/? (docs/test-strategy.md rules 4-5)
+5. Dead code, unused import, or replaced pattern not deleted?
+6. Technical debt — TODO comments, half-wired code, bypassed checks?
 
-Return: APPROVE or BLOCK with file:line evidence for every BLOCK.
+Return: APPROVE or BLOCK with file:line evidence AND "violates rule N in docs/X.md" citation for every BLOCK.
 ```
 
 Wait for all 6.
