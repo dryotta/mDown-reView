@@ -5,9 +5,6 @@ use super::types::CommentAnchor;
 /// MRSF §6.2: max selected_text length
 pub const SELECTED_TEXT_MAX_LENGTH: usize = 4096;
 
-/// MRSF §6.1: recommended max text length
-pub const TEXT_MAX_LENGTH: usize = 16384;
-
 /// Compute SHA-256 hash of selected text, returned as lowercase hex string.
 pub fn compute_selected_text_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
