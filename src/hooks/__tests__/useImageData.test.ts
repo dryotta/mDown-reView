@@ -66,7 +66,7 @@ describe("useImageData", () => {
   it("resets dataUrl and error when path changes", async () => {
     vi.mocked(commands.readBinaryFile).mockReturnValue(new Promise(() => {}));
 
-    const { result, rerender } = renderHook(
+    const { result } = renderHook(
       ({ path }) => useImageData(path, "image/png"),
       { initialProps: { path: "/a.png" } }
     );
