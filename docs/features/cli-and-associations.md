@@ -12,6 +12,19 @@ Launch-time arguments are read inside the app through `get_launch_args` — the 
 
 Path handling crosses an OS boundary and is therefore canonicalized on entry (rule in [`docs/security.md`](../security.md)). CLI mode is symmetric with double-click: the same command, the same argv shape, the same tab-reuse logic.
 
+```mermaid
+flowchart TD
+    Launch(["mdownreview &lt;path&gt;<br/>(CLI / Finder / Explorer)"]) --> SI{"single-instance plugin:<br/>is another instance running?"}
+    SI -- "no" --> Spawn["start new process"]
+    SI -- "yes" --> Forward["forward argv to running instance"]
+    Spawn --> Init["Tauri setup hook<br/>parse + canonicalize argv"]
+    Forward --> ArgsEvt["emit args-received<br/>to existing window"]
+    Init --> First["first useEffect calls<br/>get_launch_args (consumed once via .take())"]
+    ArgsEvt --> Listener["useLaunchArgsBootstrap listener"]
+    First --> Open["open or focus tab<br/>for canonical path"]
+    Listener --> Open
+```
+
 ## Key source
 
 - **Entry points:** `src-tauri/src/main.rs`, `src-tauri/src/lib.rs` (plugin registration, setup hook, panic hook)

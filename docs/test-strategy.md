@@ -12,6 +12,17 @@ Canonical for test layering, coverage floors, and mock hygiene. Cite violations 
 
 ## Three-layer pyramid
 
+```mermaid
+flowchart TB
+    Native["Native E2E — real Tauri binary, real OS events<br/>(~4 specs · release-only · slowest)"]
+    Browser["Browser integration — Playwright + Vite + IPC mock<br/>(~10 specs · 100+ assertions · fast)"]
+    Unit["Unit / component — Vitest + React Testing Library + Rust #[cfg(test)]<br/>(700+ tests · runs in milliseconds)"]
+    Native --> Browser
+    Browser --> Unit
+```
+
+Tests pick the lowest layer that can prove the claim — the pyramid widens downward by design.
+
 | Layer | Where | What it tests | What it does NOT |
 |---|---|---|---|
 | **Unit / component** | `src/**/__tests__/`, `src-tauri/src/core/*.rs #[cfg(test)]`, `src-tauri/tests/` | Pure functions, store slices, React components in isolation, Rust core, hooks via `renderHook` | No IPC, no file I/O, no network |

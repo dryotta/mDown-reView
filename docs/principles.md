@@ -37,6 +37,32 @@ The app is built as a strict MVVM (Model–ViewModel–View) stack. The boundari
 - **ViewModel — `src/lib/vm/` + `src/hooks/` + `src/store/`.** Bridges the Model to the View. Cancellation, loading states, debounce, derived values live here. No DOM, no JSX, no raw `invoke()` (uses `src/lib/tauri-commands.ts`).
 - **View — `src/components/`.** Renders ViewModel state and dispatches user actions. No IPC calls, no business rules, no file-path manipulation.
 
+```mermaid
+flowchart TB
+    subgraph View["View — src/components/"]
+      Comp["React components<br/>JSX, user events"]
+    end
+    subgraph VM["ViewModel — src/lib/vm + src/hooks + src/store"]
+      Hooks["hooks/ — wires<br/>(useFileContent, useFileWatcher, …)"]
+      Store["store/ — Zustand<br/>(reactive UI state)"]
+      LibVM["lib/vm/ — only seam<br/>that may read store"]
+      TC["lib/tauri-commands.ts<br/>(typed invoke wrappers)"]
+    end
+    subgraph Model["Model — src-tauri/"]
+      Cmd["commands.rs<br/>(Tauri command handlers)"]
+      Core["core/ — file I/O,<br/>MRSF, anchoring, hashing"]
+    end
+    Comp --> Hooks
+    Comp --> Store
+    Hooks --> Store
+    Hooks --> LibVM
+    Hooks --> TC
+    LibVM --> TC
+    LibVM --> Store
+    TC -- "invoke()" --> Cmd
+    Cmd --> Core
+```
+
 When adding a feature: *what does the Model own? what hook in the ViewModel exposes it? what component renders it?* A component that calls `invoke()` or holds business state is a layering violation and does not merge. A hook that serializes YAML or computes anchors is a Rust-First violation and does not merge.
 
 ### 2. Never Increase Engineering Debt
