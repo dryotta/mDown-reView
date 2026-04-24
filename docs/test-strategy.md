@@ -78,11 +78,6 @@ Canonical for test layering, coverage floors, and mock hygiene. Cite violations 
 
 ## Gaps
 
-- **Untested store actions**: `recordSave`, `toggleAutoReveal`, `setGhostEntries`, `setAuthorName`, `setViewMode`, `setUpdateProgress`, `setUpdateVersion`, `dismissUpdate`. `setGhostEntries`'s equality-short-circuit branch (`store/index.ts:188-192`) is particularly untested.
-- **`validatePersistedTabs` error path** (`src/store/index.ts:250-264`): `checkPath` rejection branch not exercised.
-- **File-watcher save-loop debounce branch** (`src/hooks/useFileWatcher.ts:56-59`): the "ignore event within save window" path has no assertion.
-- **Ghost-entry debounce coalescing** (`src/hooks/useFileWatcher.ts:23-39`): not asserted.
-- **`openFilesFromArgs` with `folders: [""]`** (`src/store/index.ts:287-291`): last-folder-wins branch untested.
 - **Comment threading with orphaned reply** (`src-tauri/src/core/threads.rs`): orphaned-reply reparenting branch not obviously covered.
 - **No CI grep-audit** verifying every browser spec mocks the eleven canonical commands.
 - **No mechanical enforcement of the `mockImplementation(() => {})` scope rule.** A developer could silence globally via `beforeAll`, leaking state.

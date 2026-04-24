@@ -9,8 +9,10 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 vi.mock("@/logger");
-vi.mock("@/lib/tauri-commands", () => ({
-  installUpdate: vi.fn().mockResolvedValue(undefined),
+
+const mockInstall = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/vm/use-update-actions", () => ({
+  useUpdateActions: () => ({ install: mockInstall }),
 }));
 
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { readBinaryFile } from "@/lib/tauri-commands";
+import { useImageData } from "@/hooks/useImageData";
 import { extname } from "@/lib/path-utils";
 
 interface Props {
@@ -20,26 +20,14 @@ const MIME_MAP: Record<string, string> = {
 export function ImageViewer({ path }: Props) {
   const [fit, setFit] = useState(true);
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const filename = path.split(/[\\/]/).pop() || path;
   const mime = MIME_MAP[extname(path)] ?? "image/png";
+  const { dataUrl, error } = useImageData(path, mime);
 
   useEffect(() => {
-    let cancelled = false;
-    setDataUrl(null); // eslint-disable-line react-hooks/set-state-in-effect
-    setError(null);
     setDimensions(null);
-    readBinaryFile(path)
-      .then((base64) => {
-        if (!cancelled) setDataUrl(`data:${mime};base64,${base64}`);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(String(err));
-      });
-    return () => { cancelled = true; };
-  }, [path, mime]);
+  }, [path]);
 
   return (
     <div className="image-viewer" style={{ display: "flex", flexDirection: "column", height: "100%" }}>

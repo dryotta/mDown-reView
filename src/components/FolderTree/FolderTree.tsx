@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useStore } from "@/store";
 import { useShallow } from "zustand/shallow";
-import { readDir, type DirEntry } from "@/lib/tauri-commands";
+import { useFolderChildren } from "@/hooks/useFolderChildren";
 import { useUnresolvedCounts } from "@/hooks/useUnresolvedCounts";
 import "@/styles/folder-tree.css";
 
@@ -20,46 +20,12 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
     }))
   );
   const setFolderExpanded = useStore((s) => s.setFolderExpanded);
-  const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
-  const childrenCacheRef = useRef(childrenCache);
-  // Sync ref after each render — needed by the stable loadChildren callback
-  // eslint-disable-next-line react-hooks/refs -- sync ref is the documented pattern for stable callbacks
-  childrenCacheRef.current = childrenCache;
+  const { childrenCache, loadChildren } = useFolderChildren(root);
   const [filter, setFilter] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Stable ref — never re-created, reads cache via ref to avoid stale closures
-  const loadChildren = useCallback(
-    async (path: string): Promise<DirEntry[]> => {
-      const cached = childrenCacheRef.current[path];
-      if (cached) return cached;
-      try {
-        const entries = await readDir(path);
-        setChildrenCache((prev) => {
-          const next = { ...prev, [path]: entries };
-          childrenCacheRef.current = next;
-          return next;
-        });
-        return entries;
-      } catch {
-        return [];
-      }
-    },
-    []
-  );
-
-  // Reset cache when root changes
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on prop change
-  useEffect(() => { setChildrenCache({}); }, [root]);
-
-  useEffect(() => {
-    if (root) loadChildren(root);
-  }, [root, loadChildren]);
-
-
-
-  const handleToggle= async (path: string, isDir: boolean) => {
+  const handleToggle = async (path: string, isDir: boolean) => {
     if (!isDir) {
       onFileOpen(path);
       return;

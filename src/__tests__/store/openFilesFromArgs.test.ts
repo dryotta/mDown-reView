@@ -84,6 +84,12 @@ describe("openFilesFromArgs – deduplication", () => {
     expect(paths).toHaveLength(2);
   });
 
+  it("deduplicates files within a single call", () => {
+    callOpenFilesFromArgs(["/a.md", "/a.md", "/b.md"], []);
+    const paths = useStore.getState().tabs.map((t) => t.path);
+    expect(paths).toEqual(["/a.md", "/b.md"]);
+  });
+
   it("deduplication works regardless of call order", () => {
     useStore.getState().openFile("/file.md");
 
