@@ -67,17 +67,24 @@ For each criterion from Step 1, determine: **met** or **unmet**, with evidence (
 
 ## Step 5 — Write NEXT_REQUIREMENTS (only for in_progress)
 
-Write requirement specs for **one focused implementation step** — the highest-leverage change that moves toward the goal. Rules:
+Write requirement specs for the **next meaningful sprint** toward the goal — a coherent body of work that delivers visible progress, not just the smallest possible next step. Rules:
 - **Fresh from scratch** — do not copy from prior iterations or cached backlogs
 - **Evidence-based** — every requirement cites the specific file:line that needs to change
-- **Scoped** — one step an implementer can complete in a single session, not the entire goal
+- **Sprint-sized** — target 3–8 files worth of changes. If a complete feature slice requires Rust + TypeScript + tests + e2e, include all of it. Do not split work that naturally belongs together across iterations.
+- **Parallelisable** — group requirements by which can be implemented independently so parallel agents can work on them simultaneously. Label each group: `[Group A — independent]`, `[Group B — depends on A]`, etc.
 - **Testable** — each requirement includes what a passing test would assert
 
 Format:
 ```
 NEXT_REQUIREMENTS:
+[Group A — independent]
 - [File: path:line] [What to change] [Test: what a test asserts]
-- ...
+
+[Group B — independent]
+- [File: path:line] [What to change] [Test: what a test asserts]
+
+[Group C — depends on A]
+- [File: path:line] [What to change] [Test: what a test asserts]
 ```
 
 ---

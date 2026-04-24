@@ -94,7 +94,7 @@ This is the diff baseline for this iteration's expert review.
 
 Spawn **`goal-assessor`**. Pass: goal, iteration number, passed\_count, the Iteration Log from the state file.
 
-Instruction: `"Read the codebase from scratch. Ignore prior specs. Assess whether the goal is fully achieved and, if not, write requirement specs for the next implementation step."`
+Instruction: `"Read the codebase from scratch. Ignore prior specs. Assess whether the goal is fully achieved and, if not, write requirement specs for the next meaningful sprint — a coherent body of work that delivers visible progress toward the goal, not just the smallest possible next step. Group requirements by what can be implemented in parallel."`
 
 Returns:
 ```
@@ -117,7 +117,9 @@ Spawn **`general-purpose`**. Pass: goal, NEXT\_REQUIREMENTS, EVIDENCE.
 
 Prompt:
 ```
-Produce a focused implementation plan. For each changed file: exact changes, tests to write.
+Produce a comprehensive sprint plan. Identify ALL changes needed to make a meaningful step toward the goal — do not artificially limit scope. Use the group structure from NEXT_REQUIREMENTS to organise the plan: independent groups can be implemented in parallel, dependent groups run after their dependencies.
+
+For each group: files to change · exact changes · tests to write · dependencies on other groups.
 Rate overall risk: low | medium | high.
 
 Non-negotiable completeness rules:
@@ -129,15 +131,30 @@ Non-negotiable completeness rules:
 
 Save the plan.
 
-**If risk=high**: log `SKIPPED — high risk: [reason]`, increment `iteration`, continue loop.
+**If risk=high**: spawn `architect-expert` with the full plan and prompt: `"Identify the specific risks in this plan and propose concrete mitigations so it can proceed safely."` Incorporate the architect's mitigations into a revised plan and continue. Only log `SKIPPED — architect rejected: [reason]` and increment `iteration` if the architect judges the approach fundamentally unsound.
 
 ---
 
-### Step C — Implement
+### Step C — Implement (parallel by plan group)
 
-Spawn **`task-implementer`** (or multiple in parallel for independent tasks). Pass: plan, goal, `"Write tests first for any bug fix. Return Implementation Summary."`
+For each **independent group** in the plan, spawn one **`task-implementer`** — send all independent groups in **one parallel message**. For groups that depend on prior groups, wait for their dependencies to finish first, then spawn them.
 
-**If implementer reports no changes or failure**: log `FAILED — implementer: [reason]`, increment `iteration`, continue loop (no commits to push, nothing to clean up).
+Each `task-implementer` prompt:
+```
+Implement this group of changes for mdownreview:
+
+Goal: [goal]
+Group: [group name and dependency note]
+Files: [file list for this group]
+Changes: [exact changes from plan]
+Tests: [tests to write — unit + e2e if UI-visible]
+
+Do not touch files outside this group. Return Implementation Summary: files modified · tests written · decisions · concerns.
+```
+
+Wait for each dependency wave before spawning the next. Collect all Implementation Summaries.
+
+**If any implementer reports no changes or failure**: log `FAILED — implementer [group]: [reason]`, increment `iteration`, continue loop (no commits to push).
 
 ---
 
