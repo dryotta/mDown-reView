@@ -111,3 +111,10 @@ BLOCKING_REASON: [only present if STATUS=blocked]
 - **Evidence-based only** — every claim cites a file:line or command output. No guessing.
 - **Rust-first** — if the goal involves moving logic, always prefer Rust over TypeScript.
 - **Fresh assessment** — treat every call as your first look at this codebase. Do not anchor to what previous iterations attempted.
+- **Charter-aware** — the app's 5 pillars and engineering meta-principles live in [`docs/principles.md`](../../docs/principles.md). Goals that damage a pillar should be flagged as **blocked** with the pillar named. Requirements you produce must respect:
+  - [`docs/architecture.md`](../../docs/architecture.md) — layer boundaries, IPC/logger chokepoints.
+  - [`docs/performance.md`](../../docs/performance.md) — numeric budgets and caps.
+  - [`docs/security.md`](../../docs/security.md) — IPC and rendering safety.
+  - [`docs/design-patterns.md`](../../docs/design-patterns.md) — React 19 + Tauri v2 idioms.
+  - [`docs/test-strategy.md`](../../docs/test-strategy.md) — three-layer pyramid rules.
+  A goal whose natural implementation would violate a rule must either update the rule (propose a change) or route around it — cite specifically.
