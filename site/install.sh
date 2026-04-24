@@ -11,6 +11,9 @@ main() {
   need_cmd cp
   need_cmd rm
   need_cmd mktemp
+  need_cmd xattr
+  need_cmd ln
+  need_cmd mkdir
 
   # Only macOS is supported
   OS="$(uname -s)"
@@ -28,7 +31,7 @@ main() {
   esac
 
   say "Fetching latest release..."
-  TAG=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+  TAG=$(curl -fsSL --proto '=https' --tlsv1.2 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
     | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
   [ -z "$TAG" ] && err "Could not determine latest release tag."
   VERSION="${TAG#v}"
@@ -40,7 +43,7 @@ main() {
   trap 'cleanup' EXIT
 
   say "Downloading ${FILENAME}..."
-  curl -fSL --progress-bar -o "${TMPDIR_INSTALL}/${FILENAME}" "$URL"
+  curl -fSL --proto '=https' --tlsv1.2 --progress-bar -o "${TMPDIR_INSTALL}/${FILENAME}" "$URL"
 
   say "Mounting disk image..."
   MOUNT_POINT=$(hdiutil attach -nobrowse -readonly "${TMPDIR_INSTALL}/${FILENAME}" \
@@ -61,8 +64,43 @@ main() {
 
   say "Installing to ${INSTALL_DIR}/${APP_BASENAME}..."
   cp -R "$APP_PATH" "$INSTALL_DIR/"
+  xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_BASENAME" 2>/dev/null || true
 
   hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
+
+  CLI_SRC="$INSTALL_DIR/$APP_BASENAME/Contents/MacOS/mdownreview-cli"
+
+  install_symlink() {
+    # $1 = target dir
+    dir="$1"
+    link="$dir/mdownreview-cli"
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+      say "  refusing to overwrite regular file at $link"
+      return 1
+    fi
+    [ -L "$link" ] && rm -f "$link"
+    mkdir -p "$dir" 2>/dev/null || return 1
+    ln -s "$CLI_SRC" "$link" 2>/dev/null || return 1
+    SYMLINK_PATH="$link"
+    return 0
+  }
+
+  SYMLINK_PATH=""
+  if [ -x "$CLI_SRC" ]; then
+    if install_symlink "/usr/local/bin"; then
+      say "  CLI symlinked at $SYMLINK_PATH"
+    elif install_symlink "$HOME/.local/bin"; then
+      say "  CLI symlinked at $SYMLINK_PATH"
+      case ":${PATH:-}:" in
+        *":$HOME/.local/bin:"*) ;;
+        *) say "  ⚠ Add \$HOME/.local/bin to PATH to use 'mdownreview-cli' directly." ;;
+      esac
+    else
+      say "  ⚠ Could not install CLI symlink. Run manually: ln -s \"$CLI_SRC\" ~/.local/bin/mdownreview-cli"
+    fi
+  else
+    say "  ⚠ Embedded CLI not found at $CLI_SRC — older app bundle? Skipping symlink."
+  fi
 
   say ""
   say "✓ ${APP_NAME} ${VERSION} installed to ${INSTALL_DIR}/${APP_BASENAME}"

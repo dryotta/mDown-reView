@@ -34,17 +34,38 @@ jobs:
             --title "mdownreview ${{ steps.tag.outputs.tag }}" \
             --notes "## Install
 
+          ### Script install (recommended)
+
           **macOS**
           \`\`\`
           curl -LsSf https://dryotta.github.io/mdownreview/install.sh | sh
           \`\`\`
 
-          **Windows**
+          **Windows (PowerShell)**
           \`\`\`
           powershell -ExecutionPolicy ByPass -c \"irm https://dryotta.github.io/mdownreview/install.ps1 | iex\"
           \`\`\`
 
-          Or download the installer for your platform from the Assets section below."
+          > ⚠️ Pipes remote code into your shell — use the manual download below if blocked by security policy.
+
+          ### Manual download
+
+          Grab the installer for your platform from the Assets section below.
+
+          **macOS only** — because the app is ad-hoc signed (not notarized), clear the quarantine attribute after first launch is blocked:
+          \`\`\`
+          xattr -dr com.apple.quarantine /Applications/mdownreview.app
+          \`\`\`
+
+          ### CLI only (Cargo)
+
+          \`\`\`
+          cargo install --git https://github.com/dryotta/mdownreview.git --bin mdownreview-cli
+          \`\`\`
+
+          ### Why is the app unsigned?
+
+          See [docs/features/installation.md](https://github.com/dryotta/mdownreview/blob/main/docs/features/installation.md) for the rationale and security trade-offs."
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -97,18 +118,6 @@ jobs:
         shell: bash
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
 
-      - name: Build Tauri app
-        shell: bash
-        run: |
-          if [ -n "${{ matrix.tauri_args }}" ]; then
-            npm run tauri:build -- ${{ matrix.tauri_args }}
-          else
-            npm run tauri:build
-          fi
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
       - name: Build CLI binary
         shell: bash
         run: |
@@ -123,6 +132,45 @@ jobs:
           else
             cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml
           fi
+
+      - name: Stage CLI for Tauri externalBin
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            EXT=".exe"
+          else
+            EXT=""
+          fi
+          src=$(find ${{ matrix.target_dir }} -maxdepth 1 -name "mdownreview-cli${EXT}" 2>/dev/null | head -1)
+          [ -z "$src" ] && { echo "::error::CLI binary not found at ${{ matrix.target_dir }}/mdownreview-cli${EXT}"; exit 1; }
+          dest="src-tauri/binaries/mdownreview-cli-${{ matrix.rust_target }}${EXT}"
+          cp "$src" "$dest"
+          echo "Staged $src -> $dest"
+
+      - name: Build Tauri app
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.tauri_args }}" ]; then
+            npm run tauri:build -- ${{ matrix.tauri_args }}
+          else
+            npm run tauri:build
+          fi
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Verify ad-hoc signing (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          APP_PATH=$(ls -d src-tauri/target/release/bundle/macos/*.app src-tauri/target/*/release/bundle/macos/*.app 2>/dev/null | head -1)
+          [ -n "$APP_PATH" ] || { echo "::error::No .app bundle found"; exit 1; }
+          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | tee codesign.log
+          grep -q 'Signature=adhoc' codesign.log || { echo "::error::App is not ad-hoc signed"; exit 1; }
+          codesign -dv --verbose=4 "$APP_PATH/Contents/MacOS/mdownreview-cli" 2>&1 | tee codesign-cli.log
+          grep -q 'Signature=adhoc' codesign-cli.log || { echo "::error::Embedded CLI is not ad-hoc signed"; exit 1; }
+          echo "✓ App and embedded CLI are ad-hoc signed"
 
       - name: Rename and upload artifacts
         shell: bash

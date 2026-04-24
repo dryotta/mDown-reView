@@ -139,6 +139,7 @@ e2e/
 - [Navigation](docs/features/navigation.md) — folder tree, tabs, workspace search
 - [Watcher](docs/features/watcher.md) — file-system watcher, hot reload, ghost-entry detection
 - [Updates](docs/features/updates.md) — stable + canary release channels, signed updater
+- [Installation](docs/features/installation.md) — install scripts, DMG quarantine, ad-hoc signing posture
 - [CLI & File Associations](docs/features/cli-and-associations.md) — CLI file-open, single-instance, OS associations
 - [Logging](docs/features/logging.md) — frontend + Rust logging chokepoint, exception capture
 

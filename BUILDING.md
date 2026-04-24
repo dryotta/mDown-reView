@@ -11,7 +11,13 @@
 git clone https://github.com/dryotta/mdownreview.git
 cd mdownreview
 npm install
+npm run stage:cli      # builds + stages mdownreview-cli for Tauri externalBin (one-time per checkout)
 ```
+
+> The `stage:cli` step is required because `tauri.conf.json` declares
+> `bundle.externalBin: ["binaries/mdownreview-cli"]`, which Tauri's build
+> script validates at compile time. `npm run tauri:build` re-runs it
+> automatically, but `cargo check` / `cargo test` need it staged manually.
 
 ## Development
 
@@ -52,6 +58,8 @@ cd src-tauri && cargo build --release --bin mdownreview-cli
 ```
 
 Output: `src-tauri/target/release/mdownreview-cli[.exe]`
+
+> For installer/distribution behaviour (script vs DMG, ad-hoc signing, quarantine handling, externalBin), see [docs/features/installation.md](docs/features/installation.md).
 
 ### Benchmarks
 

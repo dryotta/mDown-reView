@@ -41,3 +41,7 @@ docs/superpowers/
 !src-tauri/tests/fixtures/**/*.review.yaml
 !src-tauri/benches/fixtures/**/*.review.yaml
 !src/__tests__/fixtures/**/*.review.yaml
+
+# Tauri externalBin staging — populated by release.yml from build artefacts
+src-tauri/binaries/mdownreview-cli-*
+!src-tauri/binaries/.gitkeep
