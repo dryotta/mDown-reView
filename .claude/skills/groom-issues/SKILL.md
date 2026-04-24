@@ -9,6 +9,13 @@ Interactively grooms GitHub issues by brainstorming requirements with the user a
 
 **This skill is RIGID. Follow each step exactly.**
 
+## Charter alignment
+
+Every issue is evaluated against the product charter during brainstorming. An issue that would damage a pillar is downgraded or rejected.
+
+- **Charter:** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) + Non-Goals list. An issue that maps to a Non-Goal is closed with an explanation, not groomed.
+- When proposing approaches in brainstorming, cross-check against [`docs/architecture.md`](../../../docs/architecture.md), [`docs/performance.md`](../../../docs/performance.md), [`docs/security.md`](../../../docs/security.md), [`docs/design-patterns.md`](../../../docs/design-patterns.md), and [`docs/test-strategy.md`](../../../docs/test-strategy.md). If the natural approach would violate a rule, either (a) choose a different approach or (b) include a rule-change proposal in the spec.
+
 ## Accepting User Input
 
 This skill accepts optional issue numbers from the user to target specific issues. The input is whatever the user typed after the skill invocation.
@@ -106,8 +113,9 @@ Before asking questions, briefly explore the codebase areas relevant to the issu
 Run an interactive brainstorming session with the user:
 
 1. **Ask clarifying questions one at a time** — understand the exact requirements, constraints, edge cases, and success criteria. Use multiple choice via `ask_user` when possible.
-2. **Propose 2-3 approaches** — with trade-offs and your recommendation, based on codebase context.
-3. **Get user approval** on the chosen approach.
+2. **Pillar check** — before proposing approaches, name which of the 5 pillars (docs/principles.md) this issue strengthens. If it maps to a Non-Goal, flag it and ask whether to close the issue. If it risks another pillar, call that out explicitly.
+3. **Propose 2-3 approaches** — with trade-offs, your recommendation, and each approach's compatibility with the rules in docs/architecture.md, docs/performance.md, docs/security.md, docs/design-patterns.md, docs/test-strategy.md. If an approach would require a rule change, state it.
+4. **Get user approval** on the chosen approach.
 
 Keep the session focused on this single issue. Typical sessions are 3-6 questions depending on complexity.
 
@@ -122,6 +130,9 @@ Produce a structured spec in this format:
 ### Problem Statement
 <What problem does this solve? Who is affected?>
 
+### Pillar impact
+<Which of the 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) this strengthens; which it risks, if any. See docs/principles.md.>
+
 ### Proposed Approach
 <Chosen approach from brainstorming, with enough detail to implement>
 
@@ -131,10 +142,13 @@ Produce a structured spec in this format:
 - ...
 
 ### Technical Notes
-<Key files involved, architectural considerations, dependencies>
+<Key files involved, architectural considerations, dependencies. Cite rules from docs/architecture.md, docs/performance.md, docs/security.md, docs/design-patterns.md, docs/test-strategy.md where relevant.>
 
 ### Constraints & Non-Goals
 <What is explicitly out of scope>
+
+### Rule-change proposals (if any)
+<If this issue's natural implementation would violate a rule in a deep-dive doc, propose the rule change here as a separate step — do not silently bypass. "None" if fully compatible.>
 
 ### Open Questions
 <Any remaining unknowns — or "None" if fully resolved>

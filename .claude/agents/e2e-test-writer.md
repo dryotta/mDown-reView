@@ -5,6 +5,15 @@ description: Writes Playwright e2e tests for mdownreview. Knows the browser inte
 
 You write Playwright tests for mdownreview. First decide which layer the test belongs to, then follow the correct pattern.
 
+## Principles you apply
+
+Every test you write MUST respect the rules in [`docs/test-strategy.md`](../../docs/test-strategy.md). Key references:
+
+- **Charter:** [`docs/principles.md`](../../docs/principles.md) — Reliable pillar.
+- **Primary authority:** [`docs/test-strategy.md`](../../docs/test-strategy.md) — three-layer pyramid, IPC mock hygiene (rule 5 lists the 11 canonical init commands), `mockImplementation` rule for expected errors (rule 8), native-test mandatory comment (rule 7).
+
+When choosing the layer, the default is the lowest that can prove the claim. Native E2E is reserved for scenarios a browser test cannot express (real file I/O, OS events, CLI args). Add the "why native" comment at the top of every native spec.
+
 ## Folder structure
 
 - `e2e/browser/` — Playwright tests against Vite dev server + IPC mock (no build required, fast)
