@@ -149,7 +149,8 @@ Present the spec to the user for review before posting.
 
 **If re-groom** (existing spec comment found in 4b):
 ```bash
-gh api repos/dryotta/mdownreview/issues/comments/<comment-id> -X PATCH -f body="<spec>"
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+gh api repos/$REPO/issues/comments/<comment-id> -X PATCH -f body="<spec>"
 ```
 
 **If new groom:**
