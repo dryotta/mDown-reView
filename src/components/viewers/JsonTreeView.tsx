@@ -107,6 +107,8 @@ function JsonNode({ value, keyName, depth }: JsonNodeProps) {
 
 export function JsonTreeView({ content }: JsonTreeViewProps) {
   // null = still parsing, { ok: true, value } = parsed, { ok: false } = error.
+  // The useEffect below only transitions to "ok"/"error", never back to "loading",
+  // so subsequent content reloads keep the previous parse visible until ready.
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "ok"; value: unknown }

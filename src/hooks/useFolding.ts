@@ -8,7 +8,7 @@ function languageFromPath(path: string): string {
   return ext;
 }
 
-export function useFolding(lines: string[], filePath: string) {
+export function useFolding(content: string, filePath: string) {
   const [collapsedLines, setCollapsedLines] = useState<Set<number>>(new Set());
   const [foldRegions, setFoldRegions] = useState<FoldRegion[]>([]);
 
@@ -16,7 +16,6 @@ export function useFolding(lines: string[], filePath: string) {
   useEffect(() => {
     let cancelled = false;
     const language = languageFromPath(filePath);
-    const content = lines.join("\n");
     computeFoldRegions(content, language)
       .then((regions) => {
         if (!cancelled) setFoldRegions(Array.isArray(regions) ? regions : []);
@@ -27,7 +26,7 @@ export function useFolding(lines: string[], filePath: string) {
     return () => {
       cancelled = true;
     };
-  }, [lines, filePath]);
+  }, [content, filePath]);
 
   const foldStartMap = useMemo(() => {
     const m = new Map<number, FoldRegion>();
