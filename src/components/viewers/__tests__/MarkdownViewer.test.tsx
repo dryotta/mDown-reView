@@ -10,9 +10,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
+const convertAssetUrlMock = vi.fn((src: string) => `asset://${src}`);
+
 vi.mock("@/lib/tauri-commands", async () => ({
   ...(await vi.importActual<typeof import("@/lib/tauri-commands")>("@/lib/tauri-commands")),
   openExternalUrl: vi.fn().mockResolvedValue(undefined),
+  convertAssetUrl: (src: string) => convertAssetUrlMock(src),
 }));
 
 vi.mock("@/logger");
@@ -157,10 +160,9 @@ describe("10.2 – GFM table and task lists", () => {
 // ─── 10.3: image src transformation ──────────────────────────────────────────
 
 describe("10.3 – image src transformation", () => {
-  it("relative image src gets transformed via convertFileSrc", async () => {
-    const { convertFileSrc } = await import("@tauri-apps/api/core");
-    const mockConvert = convertFileSrc as ReturnType<typeof vi.fn>;
-    mockConvert.mockImplementation((src: string) => `asset://${src}`);
+  it("relative image src gets transformed via convertAssetUrl", async () => {
+    convertAssetUrlMock.mockClear();
+    convertAssetUrlMock.mockImplementation((src: string) => `asset://${src}`);
 
     const content = `![alt](./image.png)`;
     render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
@@ -168,15 +170,13 @@ describe("10.3 – image src transformation", () => {
     await waitFor(() => {
       const img = document.querySelector("img");
       expect(img).toBeInTheDocument();
-      expect(mockConvert).toHaveBeenCalledWith("/docs/./image.png");
+      expect(convertAssetUrlMock).toHaveBeenCalledWith("/docs/./image.png");
       expect(img?.src).toContain("asset://");
     });
   });
 
   it("http image passes through without transformation", async () => {
-    const { convertFileSrc } = await import("@tauri-apps/api/core");
-    const mockConvert = convertFileSrc as ReturnType<typeof vi.fn>;
-    mockConvert.mockClear();
+    convertAssetUrlMock.mockClear();
 
     const content = `![alt](https://example.com/img.png)`;
     render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
@@ -185,8 +185,8 @@ describe("10.3 – image src transformation", () => {
       const img = document.querySelector("img");
       expect(img).toBeInTheDocument();
     });
-    // convertFileSrc should NOT be called for http URLs
-    expect(mockConvert).not.toHaveBeenCalledWith("https://example.com/img.png");
+    // convertAssetUrl should NOT be called for http URLs
+    expect(convertAssetUrlMock).not.toHaveBeenCalledWith("https://example.com/img.png");
   });
 });
 

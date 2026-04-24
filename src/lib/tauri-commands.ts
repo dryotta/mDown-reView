@@ -1,5 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+
+// ── Asset URL chokepoint ───────────────────────────────────────────────────
+// All conversion of absolute filesystem paths to webview-loadable asset URLs
+// MUST go through this wrapper. Do not import convertFileSrc directly outside
+// of this module.
+export const convertAssetUrl = (absolute: string): string => convertFileSrc(absolute);
 
 // ── Shared interfaces ──────────────────────────────────────────────────────
 
@@ -163,6 +169,29 @@ export interface SearchMatch {
 
 export const searchInDocument = (content: string, query: string): Promise<SearchMatch[]> =>
   invoke<SearchMatch[]>("search_in_document", { content, query });
+
+// ── Pure parsers (Rust core) ─────────────────────────────────────────────
+
+export interface FoldRegion {
+  startLine: number;
+  endLine: number;
+}
+
+export const computeFoldRegions = (content: string, language: string): Promise<FoldRegion[]> =>
+  invoke<FoldRegion[]>("compute_fold_regions", { content, language });
+
+export interface KqlPipelineStep {
+  step: number;
+  operator: string;
+  details: string;
+  isSource: boolean;
+}
+
+export const parseKql = (query: string): Promise<KqlPipelineStep[]> =>
+  invoke<KqlPipelineStep[]>("parse_kql", { query });
+
+export const stripJsonComments = (text: string): Promise<string> =>
+  invoke<string>("strip_json_comments", { text });
 
 // ── Update channel commands ───────────────────────────────────────────────
 

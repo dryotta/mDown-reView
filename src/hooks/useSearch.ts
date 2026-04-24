@@ -15,7 +15,7 @@ export function useSearch(content: string) {
     let cancelled = false;
     searchInDocument(content, deferredQuery).then(rustMatches => {
       if (!cancelled) {
-        setMatches(rustMatches);
+        setMatches(Array.isArray(rustMatches) ? rustMatches : []);
       }
     }).catch(() => {
       if (!cancelled) setMatches([]);

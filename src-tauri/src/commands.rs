@@ -430,3 +430,23 @@ pub fn search_in_document(content: String, query: String) -> Vec<SearchMatch> {
     }
     results
 }
+
+// ── Pure parsers (Rust core, exposed for the View layer) ──────────────────
+
+pub use crate::core::fold_regions::FoldRegion;
+pub use crate::core::kql::KqlPipelineStep;
+
+#[tauri::command]
+pub fn compute_fold_regions(content: String, language: String) -> Vec<FoldRegion> {
+    crate::core::fold_regions::compute_fold_regions(&content, &language)
+}
+
+#[tauri::command]
+pub fn parse_kql(query: String) -> Vec<KqlPipelineStep> {
+    crate::core::kql::parse_kql_pipeline(&query)
+}
+
+#[tauri::command]
+pub fn strip_json_comments(text: String) -> String {
+    crate::core::json::strip_json_comments(&text)
+}

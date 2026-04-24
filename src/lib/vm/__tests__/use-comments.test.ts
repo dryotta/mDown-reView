@@ -196,6 +196,54 @@ describe("useComments loading", () => {
     expect(result.current.comments[1].id).toBe("c2");
   });
 
+  it("rapid filePath change cancels stale response", async () => {
+    let resolveA!: (val: CommentThread[]) => void;
+    let resolveB!: (val: CommentThread[]) => void;
+
+    vi.mocked(getFileComments)
+      .mockImplementationOnce(
+        () => new Promise((r) => { resolveA = r; }),
+      )
+      .mockImplementationOnce(
+        () => new Promise((r) => { resolveB = r; }),
+      );
+
+    const threadsA = makeMockThreads();
+    const threadsB: CommentThread[] = [
+      {
+        root: {
+          id: "B-root",
+          author: "B-author",
+          text: "B-text",
+          timestamp: "2026-02-02T00:00:00Z",
+          resolved: false,
+          line: 5,
+          matchedLineNumber: 5,
+          isOrphaned: false,
+        },
+        replies: [],
+      },
+    ];
+
+    const { result, rerender } = renderHook(
+      ({ path }: { path: string }) => useComments(path),
+      { initialProps: { path: "/a.md" } },
+    );
+    await flushPromises();
+
+    // Switch to /b.md before /a.md's response arrives
+    rerender({ path: "/b.md" });
+    await flushPromises();
+
+    // /b.md resolves first, then the stale /a.md response arrives
+    await act(async () => { resolveB(threadsB); });
+    await act(async () => { resolveA(threadsA); });
+
+    // Final state must reflect the latest filePath only
+    expect(result.current.threads).toEqual(threadsB);
+    expect(result.current.threads[0].root.id).toBe("B-root");
+  });
+
   it("reloads when filePath changes (verifies getFileComments called with new path)", async () => {
     vi.mocked(getFileComments).mockResolvedValue([]);
 

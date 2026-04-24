@@ -58,6 +58,9 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "check_update") return null;
               if (cmd === "install_update") return null;
               if (cmd === "search_in_document") return [];
+              if (cmd === "compute_fold_regions") return [];
+              if (cmd === "parse_kql") return [];
+              if (cmd === "strip_json_comments") return (args as { text?: string })?.text ?? "";
             }
             return result;
           }
@@ -69,6 +72,9 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "check_update") return null;
           if (cmd === "install_update") return null;
           if (cmd === "search_in_document") return [];
+          if (cmd === "compute_fold_regions") return [];
+          if (cmd === "parse_kql") return [];
+          if (cmd === "strip_json_comments") return (args as { text?: string })?.text ?? "";
           return null;
         },
       };
