@@ -33,3 +33,12 @@ max_iterations: 50
 - Goal assessor confidence: 78%
 - Fix attempts: 0
 - Summary: Consolidated checkUpdate logic from App.tsx and AboutDialog.tsx into useUpdateActions VM hook (checkForUpdate). Extracted listen("update-progress") into useUpdateProgress hook. UpdateBanner reduced to pure view. Removed orphaned-reply doc gap (covered), updated Zustand coverage status, fixed stale architecture.md gap. Added SkeletonLoader tests. Net: +215/-92 lines, 9 files.
+## Iteration 4 - PASSED
+- Commits: 040be9b, e6e0a04
+- ITER_BASE_SHA: b76ac7e
+- CI: pending (in progress at commit e6e0a04)
+- Local tests: all 5 suites passed (lint, tsc, cargo, vitest 671, e2e 40)
+- Expert review: 4/4 approved (architect, react-tauri, security with 1 conditional fix, test-gap). Security finding 1 (openExternalUrl scheme validation) addressed.
+- Goal assessor: 6 groups identified, 3 implemented (Group B plugin IPC, Group A App.tsx hooks, Group D+F FolderTree+JsonTreeView). Skipped: Group C (truncateSelectedText kept as defense-in-depth), Group E (MarkdownViewer at 392 lines, within budget).
+- Fix attempts: 1 (post-expert-review: openExternalUrl URL scheme guard, plugin wrapper unit tests, MarkdownViewer test mock alignment)
+- Summary: Routed 4 plugin imports (clipboard, opener, dialog, process) through tauri-commands.ts chokepoint with URL scheme validation for openExternalUrl. Extracted App.tsx menu/dialog logic into useDialogActions + useMenuListeners hooks (App.tsx down to 239 lines). Extracted FolderTree tree-building into useFolderTree hook + buildFolderTree pure function. Extracted stripJsonComments to src/lib/json-utils.ts. Added 52 new tests (38 from extractions + 14 plugin wrapper tests). Net: +863/-236 lines, 21 files.
