@@ -12,6 +12,20 @@ Markdown goes through `react-markdown` + `remark-gfm` + `@shikijs/rehype` + `reh
 
 A single Shiki highlighter instance is shared across viewers — see the Shiki singleton rule in [`docs/design-patterns.md`](../design-patterns.md). The table of contents, selection toolbar, and viewer toolbar are composable overlays, not viewer-specific code.
 
+```mermaid
+flowchart TD
+    File["selected file<br/>(path + watcher status)"] --> Router{"ViewerRouter"}
+    Router -- "ghost: deleted on disk,<br/>orphaned comments" --> DV["DeletedFileViewer"]
+    Router -- ".md / .mdx" --> MV["MarkdownViewer<br/>(react-markdown + Shiki)"]
+    Router -- "Mermaid block / file" --> MM["MermaidView<br/>(lazy-loaded, securityLevel: strict)"]
+    Router -- ".json" --> JT["JsonTreeView"]
+    Router -- ".csv" --> CT["CsvTableView"]
+    Router -- ".html" --> HV["HtmlPreviewView"]
+    Router -- "image" --> IV["ImageViewer<br/>(via convertFileSrc)"]
+    Router -- "other text<br/>(.ts, .rs, .py, …)" --> SV["SourceView<br/>(line anchors + folding + search)"]
+    Router -- "binary or > 10 MB" --> BP["BinaryPlaceholder"]
+```
+
 ## Key source
 
 - **Router:** `src/components/viewers/ViewerRouter.tsx`

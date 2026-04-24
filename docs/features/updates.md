@@ -12,6 +12,20 @@ Check logic is offline-tolerant: a failed check logs and backs off; it never blo
 
 Release CI produces one installer per channel per platform; the GitHub release that matches the current channel is the update source.
 
+```mermaid
+flowchart TD
+    Start(["app startup"]) --> Detect["detect channel<br/>from pre-release suffix<br/>(stable / canary)"]
+    Detect --> Check{"check signed release<br/>for current channel"}
+    Check -- "offline / network error" --> Backoff["log + back off<br/>never modal, never blocks UI"]
+    Check -- "up to date" --> Idle["updateSlice idle<br/>About dialog shows OK"]
+    Check -- "newer signed build" --> Notify["updateSlice → status bar<br/>+ About dialog announce"]
+    Notify --> Action{"user clicks install?"}
+    Action -- "no" --> Idle
+    Action -- "yes" --> DL["download artifact<br/>verify minisign signature"]
+    DL --> Install["install + restart"]
+    Backoff --> Idle
+```
+
 ## Key source
 
 - **Rust:** `src-tauri/src/update.rs`, `src-tauri/src/lib.rs` (plugin registration)

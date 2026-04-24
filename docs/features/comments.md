@@ -12,6 +12,25 @@ Anchoring survives file edits through a 4-step algorithm — exact match at orig
 
 The UI surface is a selection toolbar that appears on text selection, a comment input, a threaded reply view, and an aggregated panel that summarises unresolved counts across the workspace. Line-gutter indicators in `SourceView` make every anchored comment discoverable at a glance.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as CommentInput / Thread
+    participant VM as useCommentActions
+    participant TC as lib/tauri-commands.ts
+    participant Cmd as Rust commands.rs
+    participant SC as MRSF sidecar (.review.yaml)
+    participant W as watcher / listeners
+    UI->>VM: addComment / editComment / addReply
+    VM->>TC: typed wrapper
+    TC->>Cmd: invoke("add_comment")
+    Cmd->>Cmd: with_sidecar_mut<br/>load → mutate → re-anchor
+    Cmd->>SC: temp-write + atomic rename
+    Cmd-->>TC: Result<Comment, String>
+    Cmd--)W: emit_to("main", "comments-changed")
+    W-->>UI: useComments re-fetch via get_file_comments
+```
+
 ## Key source
 
 - **UI components:** `src/components/comments/{CommentInput,CommentThread,CommentsPanel,LineCommentMargin,SelectionToolbar}.tsx`

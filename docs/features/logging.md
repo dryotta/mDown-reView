@@ -12,6 +12,27 @@ A panic hook installed in `lib.rs` converts Rust panics into logged error events
 
 The log file lives in the OS-appropriate per-user location; users retrieve it via `get_log_path`. There is no in-app log viewer and no network log upload — both are Non-Goals in [`docs/principles.md`](../principles.md).
 
+```mermaid
+flowchart LR
+    subgraph Rust["Rust side"]
+      Tracing["tracing::* / log::*"]
+      Panic["panic hook<br/>(lib.rs setup)"]
+    end
+    subgraph Front["Frontend side"]
+      Logger["src/logger.ts<br/>(prefixes [web])"]
+      EB["ErrorBoundary"]
+      WinErr["window.onerror /<br/>unhandledrejection<br/>(installed pre-createRoot)"]
+      Console["WebView console.warn / .error<br/>(release: forwarded only)"]
+    end
+    Panic --> Tracing
+    Tracing --> Plugin["tauri-plugin-log"]
+    Logger --> Plugin
+    EB --> Logger
+    WinErr --> Logger
+    Console --> Plugin
+    Plugin --> File[("rotating log file<br/>5 MB cap, kept across rotations<br/>retrieved via get_log_path")]
+```
+
 ## Key source
 
 - **Rust:** `src-tauri/src/lib.rs` (plugin registration, panic hook), any `tracing::*` calls throughout `src-tauri/src/`

@@ -12,9 +12,34 @@ Unique to architecture. Rust-First is a charter meta-principle — see [`docs/pr
 4. **Commands Mutate, Events Notify.** Tauri commands do imperative work and return typed results. Events notify async change. Events can fire before React's first `useEffect`, so deterministic bootstrap uses commands.
 5. **Layer Directionality.** Dependencies flow inward only: `components/` → `hooks/` → `lib/` → `store/`. `lib/vm/` is the single seam where `lib/` may read `@/store`. `lib/` never imports `components/` or `hooks/`.
 
+```mermaid
+flowchart LR
+    Components["src/components/<br/>(View — JSX)"]
+    Hooks["src/hooks/<br/>(wires)"]
+    Lib["src/lib/<br/>(typed IPC, pure utils)"]
+    Store[("src/store/<br/>Zustand slices")]
+    LibVM["src/lib/vm/<br/>(only seam reading store)"]
+    Components --> Hooks
+    Components --> Store
+    Hooks --> Lib
+    Hooks --> Store
+    LibVM --> Store
+    Lib -.->|"forbidden"| Components
+    Lib -.->|"forbidden"| Hooks
+```
+
 ## Rules
 
 ### IPC & logging chokepoints
+
+```mermaid
+flowchart LR
+    Comp["component / hook"] --> Wrapper["src/lib/tauri-commands.ts<br/>(typed wrapper — only<br/>non-test invoke importer)"]
+    Wrapper -- "invoke()" --> Cmd["src-tauri/src/commands.rs<br/>(registered in shared_commands!)"]
+    Cmd --> Core["core/ — sidecar, matching,<br/>anchors, scanner, …"]
+    Cmd -. "emit_to('main', …)" .-> Listener["useFileWatcher /<br/>App.tsx listeners"]
+```
+
 1. Every Tauri IPC call goes through a typed wrapper in `src/lib/tauri-commands.ts`; production code never imports `invoke` directly. (`src/lib/tauri-commands.ts:1` is the only non-test `invoke` importer.)
 2. Every new Rust command ships with a matching typed TS wrapper; the wrapper's return type matches the Rust `Result<T, String>` unwrapped `T`. (`commands.rs:107` ↔ `tauri-commands.ts:50`.)
 3. Every Rust command is registered in `shared_commands!` in `src-tauri/src/lib.rs:222-251`.
@@ -95,6 +120,19 @@ Canonical implementation: `src-tauri/src/core/matching.rs:12`.
 2. **Line fallback** — if the original line number is still in bounds, anchor there.
 3. **Fuzzy match** — Levenshtein similarity ≥ 0.6, prefer closest to original line.
 4. **Orphan** — all strategies failed; comment displays with an orphan banner.
+
+```mermaid
+flowchart TD
+    Start(["comment.selected_text +<br/>original line"]) --> S1{"exact match at<br/>original line?"}
+    S1 -- "yes" --> A1(["anchored — original line"])
+    S1 -- "no" --> S1b{"exact match elsewhere<br/>in document?"}
+    S1b -- "yes" --> A2(["anchored — closest match"])
+    S1b -- "no" --> S2{"original line still<br/>in document bounds?"}
+    S2 -- "yes" --> A3(["line fallback —<br/>anchored at same line"])
+    S2 -- "no" --> S3{"Levenshtein<br/>similarity ≥ 0.6?"}
+    S3 -- "yes" --> A4(["fuzzy match — nearest<br/>candidate to original line"])
+    S3 -- "no" --> Orphan(["orphan banner —<br/>preserved, never lost"])
+```
 
 ### Surviving AI refactoring
 Layered defenses: (1) 4-step re-anchoring; (2) sidecars travel alongside source files; (3) ghost entries surface deleted-source sidecars; (4) the Rust watcher auto-reloads content and comments. Debounce/save-loop windows: rules 4-6 in [`docs/performance.md`](performance.md).
