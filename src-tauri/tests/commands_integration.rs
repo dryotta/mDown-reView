@@ -2,6 +2,7 @@ use mdown_review_lib::commands::{
     read_binary_file, read_dir,
     read_text_file, CommentsChangedEvent, LaunchArgs, LaunchArgsState,
     MrsfComment, MrsfSidecar,
+    parse_frontmatter, search_in_document, get_comment_counts_by_line,
 };
 use mdown_review_lib::core::sidecar::{save_sidecar, load_sidecar};
 use mdown_review_lib::watcher::FileChangeEvent;
@@ -345,4 +346,199 @@ fn comments_changed_event_payload_matches_frontend_listener() {
         json.get("file_path").unwrap().is_string(),
         "file_path must be a string"
     );
+}
+
+// ── parse_frontmatter ─────────────────────────────────────────────────────
+
+#[test]
+fn parse_frontmatter_with_valid_yaml() {
+    let content = "---\ntitle: Test\nauthor: Dave\n---\n# Hello".to_string();
+    let result = parse_frontmatter(content);
+    assert_eq!(result.body, "# Hello");
+    let data = result.data.unwrap();
+    assert_eq!(data.get("title").unwrap(), "Test");
+    assert_eq!(data.get("author").unwrap(), "Dave");
+}
+
+#[test]
+fn parse_frontmatter_without_frontmatter() {
+    let content = "# Just a heading\n\nSome body text.".to_string();
+    let result = parse_frontmatter(content.clone());
+    assert_eq!(result.body, content);
+    assert!(result.data.is_none());
+}
+
+#[test]
+fn parse_frontmatter_unclosed_delimiters() {
+    let content = "---\ntitle: Test\nNo closing delimiter".to_string();
+    let result = parse_frontmatter(content.clone());
+    assert_eq!(result.body, content);
+    assert!(result.data.is_none());
+}
+
+#[test]
+fn parse_frontmatter_short_content() {
+    let result = parse_frontmatter("---".to_string());
+    assert_eq!(result.body, "---");
+    assert!(result.data.is_none());
+}
+
+// ── search_in_document ────────────────────────────────────────────────────
+
+#[test]
+fn search_empty_query_returns_empty() {
+    let results = search_in_document("hello world".to_string(), "".to_string());
+    assert!(results.is_empty());
+}
+
+#[test]
+fn search_multi_match_single_line() {
+    let results = search_in_document("foo bar foo baz foo".to_string(), "foo".to_string());
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].line_index, 0);
+    assert_eq!(results[0].start_col, 0);
+    assert_eq!(results[0].end_col, 3);
+    assert_eq!(results[1].start_col, 8);
+    assert_eq!(results[2].start_col, 16);
+}
+
+#[test]
+fn search_case_insensitive() {
+    let results = search_in_document("Hello HELLO hello".to_string(), "hello".to_string());
+    assert_eq!(results.len(), 3);
+}
+
+#[test]
+fn search_no_match() {
+    let results = search_in_document("hello world".to_string(), "xyz".to_string());
+    assert!(results.is_empty());
+}
+
+#[test]
+fn search_across_lines() {
+    let results = search_in_document("line1 x\nline2 y\nline3 x".to_string(), "x".to_string());
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].line_index, 0);
+    assert_eq!(results[1].line_index, 2);
+}
+
+#[test]
+fn search_unicode_content() {
+    let results = search_in_document("café résumé café".to_string(), "café".to_string());
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].start_col, 0);
+}
+
+// ── get_comment_counts_by_line ────────────────────────────────────────────
+
+#[test]
+fn comment_counts_by_line_with_comments() {
+    let dir = tempfile::tempdir().unwrap();
+    let md_path = dir.path().join("test.md");
+    std::fs::write(&md_path, "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n").unwrap();
+
+    let comments = vec![
+        MrsfComment {
+            id: "c1".to_string(),
+            author: "Test".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            text: "Comment on line 5".to_string(),
+            resolved: false,
+            line: Some(5),
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            selected_text: None,
+            anchored_text: None,
+            selected_text_hash: None,
+            commit: None,
+            comment_type: None,
+            severity: None,
+            reply_to: None,
+        },
+        MrsfComment {
+            id: "c2".to_string(),
+            author: "Test".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            text: "Another comment on line 5".to_string(),
+            resolved: false,
+            line: Some(5),
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            selected_text: None,
+            anchored_text: None,
+            selected_text_hash: None,
+            commit: None,
+            comment_type: None,
+            severity: None,
+            reply_to: None,
+        },
+    ];
+
+    save_sidecar(md_path.to_str().unwrap(), "test.md", &comments).unwrap();
+
+    let counts = get_comment_counts_by_line(md_path.to_str().unwrap().to_string()).unwrap();
+    assert_eq!(*counts.get(&5).unwrap(), 2);
+}
+
+#[test]
+fn comment_counts_excludes_resolved() {
+    let dir = tempfile::tempdir().unwrap();
+    let md_path = dir.path().join("test2.md");
+    std::fs::write(&md_path, "line1\nline2\nline3\n").unwrap();
+
+    let comments = vec![
+        MrsfComment {
+            id: "c1".to_string(),
+            author: "Test".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            text: "Unresolved".to_string(),
+            resolved: false,
+            line: Some(2),
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            selected_text: None,
+            anchored_text: None,
+            selected_text_hash: None,
+            commit: None,
+            comment_type: None,
+            severity: None,
+            reply_to: None,
+        },
+        MrsfComment {
+            id: "c2".to_string(),
+            author: "Test".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            text: "Resolved".to_string(),
+            resolved: true,
+            line: Some(2),
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            selected_text: None,
+            anchored_text: None,
+            selected_text_hash: None,
+            commit: None,
+            comment_type: None,
+            severity: None,
+            reply_to: None,
+        },
+    ];
+
+    save_sidecar(md_path.to_str().unwrap(), "test2.md", &comments).unwrap();
+
+    let counts = get_comment_counts_by_line(md_path.to_str().unwrap().to_string()).unwrap();
+    assert_eq!(*counts.get(&2).unwrap(), 1);
+}
+
+#[test]
+fn comment_counts_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let md_path = dir.path().join("empty.md");
+    std::fs::write(&md_path, "").unwrap();
+
+    let counts = get_comment_counts_by_line(md_path.to_str().unwrap().to_string()).unwrap();
+    assert!(counts.is_empty());
 }

@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useDeferredValue } from "react";
+import { useState, useEffect, useCallback, useDeferredValue } from "react";
+import { searchInDocument } from "@/lib/tauri-commands";
 
 export interface SearchMatch {
   lineIndex: number;
@@ -12,22 +13,20 @@ export function useSearch(content: string) {
   const deferredQuery = useDeferredValue(query);
   const isPending = query !== deferredQuery;
 
-  const matches = useMemo(() => {
-    if (!deferredQuery) return [];
-    const results: SearchMatch[] = [];
-    const lines = content.split("\n");
-    const lowerQuery = deferredQuery.toLowerCase();
-    for (let i = 0; i < lines.length; i++) {
-      const lowerLine = lines[i].toLowerCase();
-      let pos = 0;
-      while (pos <= lowerLine.length - lowerQuery.length) {
-        const idx = lowerLine.indexOf(lowerQuery, pos);
-        if (idx === -1) break;
-        results.push({ lineIndex: i, startCol: idx, endCol: idx + deferredQuery.length });
-        pos = idx + 1;
+  const [matches, setMatches] = useState<SearchMatch[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    searchInDocument(content, deferredQuery).then(rustMatches => {
+      if (!cancelled) {
+        setMatches(rustMatches.map(m => ({
+          lineIndex: m.line_index,
+          startCol: m.start_col,
+          endCol: m.end_col,
+        })));
       }
-    }
-    return results;
+    });
+    return () => { cancelled = true; };
   }, [content, deferredQuery]);
 
   const setQuery = useCallback((q: string) => {

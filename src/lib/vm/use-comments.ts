@@ -73,7 +73,7 @@ export function useComments(filePath: string | null): UseCommentsResult {
       }
     });
 
-    return () => { listenerPromise.then((fn) => fn()); };
+    return () => { listenerPromise.then((fn) => fn()).catch(() => {}); };
   }, [filePath, load]);
 
   // Listen for file-changed (from watcher, for external sidecar changes)
@@ -93,7 +93,7 @@ export function useComments(filePath: string | null): UseCommentsResult {
       }
     });
 
-    return () => { listenerPromise.then((fn) => fn()); };
+    return () => { listenerPromise.then((fn) => fn()).catch(() => {}); };
   }, [filePath, load]);
 
   const comments: MatchedComment[] = useMemo(

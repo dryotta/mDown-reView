@@ -153,6 +153,32 @@ export const computeAnchorHash = (text: string): Promise<string> =>
 export const getUnresolvedCounts = (filePaths: string[]): Promise<Record<string, number>> =>
   invoke<Record<string, number>>("get_unresolved_counts", { filePaths });
 
+// ── Frontmatter parsing ──────────────────────────────────────────────────
+
+export interface ParsedFrontmatter {
+  body: string;
+  data: Record<string, string> | null;
+}
+
+export const parseFrontmatter = (content: string): Promise<ParsedFrontmatter> =>
+  invoke<ParsedFrontmatter>("parse_frontmatter", { content });
+
+// ── Document search ──────────────────────────────────────────────────────
+
+export interface SearchMatch {
+  line_index: number;
+  start_col: number;
+  end_col: number;
+}
+
+export const searchInDocument = (content: string, query: string): Promise<SearchMatch[]> =>
+  invoke<SearchMatch[]>("search_in_document", { content, query });
+
+// ── Per-line comment counts ──────────────────────────────────────────────
+
+export const getCommentCountsByLine = (filePath: string): Promise<Record<string, number>> =>
+  invoke<Record<string, number>>("get_comment_counts_by_line", { filePath });
+
 // ── Update channel commands ───────────────────────────────────────────────
 
 export interface UpdateInfo {

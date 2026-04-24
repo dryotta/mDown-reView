@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useStore } from "@/store";
 import { updateWatchedFiles, scanReviewFiles } from "@/lib/tauri-commands";
 import type { FileChangeEvent } from "@/lib/tauri-commands";
+import { warn, debug } from "@/logger";
 
 const SAVE_DEBOUNCE_MS = 1500;
 const SCAN_DEBOUNCE_MS = 500;
@@ -32,7 +33,7 @@ export function useFileWatcher() {
             )
           )
           .catch((err) =>
-            console.warn("[useFileWatcher] failed to re-scan after deletion:", err)
+            warn(`[useFileWatcher] failed to re-scan after deletion: ${err}`)
           );
       }
     }, SCAN_DEBOUNCE_MS);
@@ -42,7 +43,7 @@ export function useFileWatcher() {
   useEffect(() => {
     const paths = tabs.map((t) => t.path);
     updateWatchedFiles(paths).catch((err) =>
-      console.warn("[useFileWatcher] failed to update watched files:", err)
+      warn(`[useFileWatcher] failed to update watched files: ${err}`)
     );
   }, [tabs]);
 
@@ -54,11 +55,11 @@ export function useFileWatcher() {
       const lastSave = lastSaveByPathRef.current[path] ?? 0;
 
       if (now - lastSave < SAVE_DEBOUNCE_MS) {
-        console.debug("[useFileWatcher] ignoring event within save debounce window:", path);
+        debug(`[useFileWatcher] ignoring event within save debounce window: ${path}`);
         return;
       }
 
-      console.debug(`[useFileWatcher] file changed: ${path} (${kind})`);
+      debug(`[useFileWatcher] file changed: ${path} (${kind})`);
       window.dispatchEvent(
         new CustomEvent("mdownreview:file-changed", {
           detail: { path, kind },
@@ -91,7 +92,7 @@ export function useFileWatcher() {
         )
       )
       .catch((err) =>
-        console.warn("[useFileWatcher] failed to scan review files:", err)
+        warn(`[useFileWatcher] failed to scan review files: ${err}`)
       );
   }, [root, setGhostEntries]);
 }

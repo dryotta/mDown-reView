@@ -27,6 +27,7 @@ import { CommentThread } from "@/components/comments/CommentThread";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
+import { parseFrontmatter, getCommentCountsByLine } from "@/lib/tauri-commands";
 import type { CommentThread as CommentThreadType, CommentAnchor } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
@@ -39,26 +40,6 @@ interface Props {
   content: string;
   filePath: string;
   fileSize?: number;
-}
-
-function parseFrontmatter(content: string): {
-  body: string;
-  data: Record<string, unknown> | null;
-} {
-  if (!content.startsWith("---")) return { body: content, data: null };
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) return { body: content, data: null };
-  const yaml = content.slice(4, end);
-  const body = content.slice(end + 4).trimStart();
-  const data: Record<string, unknown> = {};
-  for (const line of yaml.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon === -1) continue;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
-    if (key) data[key] = value;
-  }
-  return { body, data };
 }
 
 // Shiki highlighter is shared via @/lib/shiki
@@ -273,7 +254,17 @@ function MdCommentPopover({
 }
 
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
-  const { body, data } = useMemo(() => parseFrontmatter(content), [content]);
+  const [parsed, setParsed] = useState<{ body: string; data: Record<string, string> | null }>({ body: content, data: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    parseFrontmatter(content).then(result => {
+      if (!cancelled) setParsed(result);
+    });
+    return () => { cancelled = true; };
+  }, [content]);
+
+  const { body, data } = parsed;
   const headings = useMemo(() => extractHeadings(body), [body]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
@@ -320,18 +311,21 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
-  const commentCountByLine = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const [ln, lineThreads] of threadsByLine) {
-      let count = 0;
-      for (const t of lineThreads) {
-        if (!t.root.resolved) count++;
-        count += t.replies.filter(r => !r.resolved).length;
+  const [commentCountByLine, setCommentCountByLine] = useState<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!filePath) return;
+    getCommentCountsByLine(filePath).then(counts => {
+      if (cancelled) return;
+      const map = new Map<number, number>();
+      for (const [k, v] of Object.entries(counts)) {
+        map.set(Number(k), v);
       }
-      map.set(ln, count);
-    }
-    return map;
-  }, [threadsByLine]);
+      setCommentCountByLine(map);
+    });
+    return () => { cancelled = true; };
+  }, [filePath, threads]);
 
   const handleLineClick = useCallback((line: number) => {
     const lineThreads = threadsByLine.get(line) ?? [];

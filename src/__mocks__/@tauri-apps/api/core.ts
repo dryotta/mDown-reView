@@ -5,6 +5,8 @@ import type {
   LaunchArgs,
   MatchedComment,
   MrsfSidecar,
+  ParsedFrontmatter,
+  SearchMatch,
 } from "@/lib/tauri-commands";
 
 // Typed mock return values are validated at compile time against shared interfaces
@@ -16,6 +18,9 @@ type InvokeResult =
   | MrsfSidecar
   | CommentThread[]
   | MatchedComment[]
+  | ParsedFrontmatter
+  | SearchMatch[]
+  | Record<string, number>
   | "file"
   | "dir"
   | "missing"

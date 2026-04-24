@@ -43,7 +43,7 @@ export function useUnresolvedCounts(filePaths: string[]): Record<string, number>
   // Reload on comment mutations
   useEffect(() => {
     const p = listen("comments-changed", () => { setReloadKey(k => k + 1); });
-    return () => { p.then(fn => fn()); };
+    return () => { p.then(fn => fn()).catch(() => {}); };
   }, []);
 
   // Reload on sidecar changes from watcher
@@ -51,7 +51,7 @@ export function useUnresolvedCounts(filePaths: string[]): Record<string, number>
     const p = listen<{ kind: string }>("file-changed", (event) => {
       if (event.payload.kind === "review") setReloadKey(k => k + 1);
     });
-    return () => { p.then(fn => fn()); };
+    return () => { p.then(fn => fn()).catch(() => {}); };
   }, []);
 
   return counts;

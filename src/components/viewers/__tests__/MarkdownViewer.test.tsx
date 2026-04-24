@@ -4,7 +4,28 @@ import { MarkdownViewer } from "../MarkdownViewer";
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: vi.fn((src: string) => `asset://${src}`),
-  invoke: vi.fn().mockResolvedValue(null),
+  invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
+    if (cmd === "parse_frontmatter") {
+      const content = (args?.content as string) ?? "";
+      if (!content.startsWith("---")) return Promise.resolve({ body: content, data: null });
+      const end = content.indexOf("\n---", 4);
+      if (end === -1) return Promise.resolve({ body: content, data: null });
+      const yaml = content.slice(4, end);
+      const body = content.slice(end + 4).trimStart();
+      const data: Record<string, string> = {};
+      for (const line of yaml.split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon === -1) continue;
+        const key = line.slice(0, colon).trim();
+        const value = line.slice(colon + 1).trim();
+        if (key) data[key] = value;
+      }
+      return Promise.resolve({ body, data: Object.keys(data).length > 0 ? data : null });
+    }
+    if (cmd === "get_comment_counts_by_line") return Promise.resolve({});
+    if (cmd === "get_file_comments") return Promise.resolve([]);
+    return Promise.resolve(null);
+  }),
 }));
 
 vi.mock("@tauri-apps/plugin-opener", () => ({

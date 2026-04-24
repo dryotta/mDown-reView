@@ -65,7 +65,6 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 - **Rust-First violation: frontmatter parsing.** `MarkdownViewer.tsx:44-62` reimplements YAML-ish parsing in TS on every markdown open. Move to a `#[tauri::command] fn parse_frontmatter` via `serde_yaml`.
 - **Rust-First violation: search.** `useSearch.ts:15-31` scans the entire file in JS per query. Move to a Rust `search_in_document` streaming results.
 - **Rust-First violation: per-line `commentCountByLine`** in `MarkdownViewer.tsx:323-334` recomputes every render. Extend `get_unresolved_counts` to return per-line counts, memoize by sidecar-mtime.
-- **Dead abstraction: `readBinaryFile`** (`src/lib/tauri-commands.ts:47-48`) is exported but only referenced by mocks.
 - **`updater.createUpdaterArtifacts: "v1Compatible"`** (`tauri.conf.json:29`) is v1-compat; drop to default once all released clients are v2.
 - **No per-window capability ACL.** Commands register via `tauri::generate_handler!` (`lib.rs:222-240`), bypassing v2's capability system. Add a `default.json` capability enumerating commands per window.
 - **`ErrorBoundary` as only class component.** Required by React 19; CI should grep-check that `extends Component` appears exactly once.

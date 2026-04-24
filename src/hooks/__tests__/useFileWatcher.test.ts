@@ -177,3 +177,100 @@ describe("useFileWatcher debounced deletion scan", () => {
     expect(scanReviewFiles).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useFileWatcher save-loop suppression", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    useStore.setState({
+      root: "/workspace",
+      tabs: [{ path: "/workspace/file.md", scrollTop: 0 }],
+      lastSaveByPath: {},
+      ghostEntries: [],
+      autoReveal: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("suppresses file-changed event within save debounce window", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    // Record a save for the file (sets lastSaveByPath timestamp to "now")
+    act(() => {
+      useStore.getState().recordSave("/workspace/file.md");
+    });
+
+    // File-changed event arrives for the same path within the debounce window
+    act(() => {
+      callback({ payload: { path: "/workspace/file.md", kind: "content" } });
+    });
+
+    // CustomEvent should NOT have been dispatched (save-loop suppression)
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed"
+    );
+    expect(fileChangedEvents).toHaveLength(0);
+
+    dispatchSpy.mockRestore();
+  });
+
+  it("allows file-changed event outside save debounce window", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    // Record a save, then advance time past the 1500ms debounce window
+    act(() => {
+      useStore.getState().recordSave("/workspace/file.md");
+    });
+    act(() => {
+      vi.advanceTimersByTime(1600);
+    });
+
+    // File-changed event arrives after the debounce window
+    act(() => {
+      callback({ payload: { path: "/workspace/file.md", kind: "content" } });
+    });
+
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed"
+    );
+    expect(fileChangedEvents).toHaveLength(1);
+
+    dispatchSpy.mockRestore();
+  });
+
+  it("does not suppress events for paths without a recent save", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    // Record save for a different file
+    act(() => {
+      useStore.getState().recordSave("/workspace/other.md");
+    });
+
+    // File-changed event for a file with no save record
+    act(() => {
+      callback({ payload: { path: "/workspace/file.md", kind: "content" } });
+    });
+
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed"
+    );
+    expect(fileChangedEvents).toHaveLength(1);
+
+    dispatchSpy.mockRestore();
+  });
+});

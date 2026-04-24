@@ -57,6 +57,9 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "update_watched_files") return undefined;
               if (cmd === "check_update") return null;
               if (cmd === "install_update") return null;
+              if (cmd === "parse_frontmatter") return { body: (args as Record<string, unknown>).content || "", data: null };
+              if (cmd === "search_in_document") return [];
+              if (cmd === "get_comment_counts_by_line") return {};
             }
             return result;
           }
@@ -67,6 +70,9 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "update_watched_files") return undefined;
           if (cmd === "check_update") return null;
           if (cmd === "install_update") return null;
+          if (cmd === "parse_frontmatter") return { body: (args as Record<string, unknown>).content || "", data: null };
+          if (cmd === "search_in_document") return [];
+          if (cmd === "get_comment_counts_by_line") return {};
           return null;
         },
       };

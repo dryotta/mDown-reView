@@ -150,6 +150,20 @@ describe("validatePersistedTabs", () => {
     expect(useStore.getState().tabs).toEqual([]);
   });
 
+  it("propagates checkPath rejection", async () => {
+    useStore.setState({
+      tabs: [
+        { path: "/a.md", scrollTop: 0 },
+        { path: "/b.md", scrollTop: 0 },
+      ],
+      activeTabPath: "/a.md",
+    });
+
+    const mockChecker = vi.fn().mockRejectedValue(new Error("disk error"));
+
+    await expect(validatePersistedTabs(mockChecker)).rejects.toThrow("disk error");
+  });
+
   it("keeps directories as valid tabs", async () => {
     useStore.setState({
       tabs: [{ path: "/folder", scrollTop: 0 }],
