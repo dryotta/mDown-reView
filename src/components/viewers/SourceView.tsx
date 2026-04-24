@@ -3,11 +3,12 @@ import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { useSearch } from "@/hooks/useSearch";
-import { useSourceHighlighting, escapeHtml } from "@/hooks/useSourceHighlighting";
+import { useSourceHighlighting } from "@/hooks/useSourceHighlighting";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
 import { useFolding } from "@/hooks/useFolding";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
+import { useSourceLineModel, type SearchMatchInLine } from "@/hooks/useSourceLineModel";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
@@ -19,11 +20,6 @@ interface Props {
   filePath: string;
   fileSize?: number;
   wordWrap?: boolean;
-}
-
-function extractInnerCode(html: string): string {
-  const match = /<code[^>]*>([\s\S]*?)<\/code>/.exec(html);
-  return match ? match[1] : html;
 }
 
 export function SourceView({ content, path, filePath, fileSize, wordWrap }: Props) {
@@ -67,7 +63,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
 
   // Search match lookup by line
   const matchesByLine = useMemo(() => {
-    const map = new Map<number, { startCol: number; endCol: number; isCurrent: boolean }[]>();
+    const map = new Map<number, SearchMatchInLine[]>();
     matches.forEach((m, i) => {
       const arr = map.get(m.lineIndex) ?? [];
       arr.push({ startCol: m.startCol, endCol: m.endCol, isCurrent: i === currentIndex });
@@ -76,7 +72,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     return map;
   }, [matches, currentIndex]);
 
-  const threadsByLine = useThreadsByLine(threads);
+  const { threadsByLine } = useThreadsByLine(threads);
 
   // Auto-scroll to current match
   useEffect(() => {
@@ -94,21 +90,42 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   }, []);
   useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo);
 
-  function highlightSearchInLine(lineIdx: number): string {
-    const lineMatches = matchesByLine.get(lineIdx);
-    if (!lineMatches) return escapeHtml(lines[lineIdx]);
-    const line = lines[lineIdx];
-    const parts: string[] = [];
-    let last = 0;
-    for (const { startCol, endCol, isCurrent } of lineMatches) {
-      parts.push(escapeHtml(line.slice(last, startCol)));
-      const cls = isCurrent ? "search-match-current" : "search-match";
-      parts.push(`<mark class="${cls}">${escapeHtml(line.slice(startCol, endCol))}</mark>`);
-      last = endCol;
+  // Stable handlers — recompute identity only when their dependencies actually
+  // change. This is what allows `React.memo` on `SourceLine` to skip re-renders
+  // for the other ~4999 lines while the user types in the search bar.
+  const handleCommentButtonClick = useCallback((ln: number) => {
+    const lt = threadsByLine.get(ln) ?? [];
+    if (lt.length > 0 && expandedLine !== ln) {
+      setExpandedLine(ln);
+      setCommentingLine(null);
+      clearSelection();
+    } else {
+      clearSelection();
+      setCommentingLine((prev) => (prev === ln ? null : ln));
     }
-    parts.push(escapeHtml(line.slice(last)));
-    return parts.join("");
-  }
+  }, [expandedLine, threadsByLine, clearSelection]);
+
+  const handleCloseInput = useCallback(() => {
+    setCommentingLine(null);
+    setExpandedLine(null);
+    clearSelection();
+  }, [clearSelection]);
+
+  const handleRequestInput = useCallback((ln: number) => {
+    setCommentingLine(ln);
+  }, []);
+
+  const model = useSourceLineModel({
+    lines,
+    threadsByLine,
+    foldStartMap,
+    collapsedLines,
+    query,
+    matchesByLine,
+    highlightedLines,
+    expandedLine,
+    commentingLine,
+  });
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
@@ -131,74 +148,39 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
         </div>
       )}
       <div className="source-lines" ref={sourceLinesRef} onMouseUp={handleMouseUp}>
-        {(() => {
-          const elements: React.ReactNode[] = [];
-          let idx = 0;
-          while (idx < lines.length) {
-            const lineNum = idx + 1;
-            const line = lines[idx];
-            const lineThreads = threadsByLine.get(lineNum) ?? [];
-            const foldRegion = foldStartMap.get(lineNum);
-            const isCollapsed = foldRegion !== undefined && collapsedLines.has(lineNum);
-            const contentHtml =
-              query && matchesByLine.has(idx)
-                ? highlightSearchInLine(idx)
-                : highlightedLines[idx]
-                  ? extractInnerCode(highlightedLines[idx])
-                  : escapeHtml(line);
-            const onSaveComment =
-              pendingSelectionAnchor && commentingLine === lineNum
-                ? (text: string) => {
-                    addComment(filePath, text, pendingSelectionAnchor).catch(() => {});
-                    clearSelection();
-                  }
-                : undefined;
-
-            elements.push(
-              <SourceLine
-                key={idx}
-                idx={idx}
-                lineNum={lineNum}
-                line={line}
-                filePath={filePath}
-                contentHtml={contentHtml}
-                isSelectionActive={highlightedSelectionLines.has(lineNum)}
-                foldRegion={foldRegion}
-                isCollapsed={isCollapsed}
-                lineThreads={lineThreads}
-                isCommenting={commentingLine === lineNum}
-                isExpanded={expandedLine === lineNum}
-                onToggleFold={toggleFold}
-                onCommentButtonClick={(ln) => {
-                  const lt = threadsByLine.get(ln) ?? [];
-                  if (lt.length > 0 && expandedLine !== ln) {
-                    setExpandedLine(ln);
-                    setCommentingLine(null);
-                    clearSelection();
-                  } else {
-                    clearSelection();
-                    setCommentingLine(commentingLine === ln ? null : ln);
-                  }
-                }}
-                onCloseInput={() => {
-                  setCommentingLine(null);
-                  setExpandedLine(null);
+        {model.map((item) => {
+          // Build the per-line save callback only for the currently-commenting
+          // line; all other lines receive `undefined` (a stable reference) so
+          // React.memo continues to skip them on unrelated re-renders.
+          const onSaveComment =
+            pendingSelectionAnchor && item.isCommenting
+              ? (text: string) => {
+                  addComment(filePath, text, pendingSelectionAnchor).catch(() => {});
                   clearSelection();
-                }}
-                onRequestInput={(ln) => setCommentingLine(ln)}
-                onSaveComment={onSaveComment}
-              />
-            );
-
-            if (isCollapsed && foldRegion) {
-              // Skip to the end line (render it on the next iteration).
-              idx = foldRegion.endLine - 1;
-            } else {
-              idx++;
-            }
-          }
-          return elements;
-        })()}
+                }
+              : undefined;
+          return (
+            <SourceLine
+              key={item.idx}
+              idx={item.idx}
+              lineNum={item.lineNum}
+              line={item.line}
+              filePath={filePath}
+              contentHtml={item.contentHtml}
+              isSelectionActive={highlightedSelectionLines.has(item.lineNum)}
+              foldRegion={item.foldRegion}
+              isCollapsed={item.isCollapsed}
+              lineThreads={item.lineThreads}
+              isCommenting={item.isCommenting}
+              isExpanded={item.isExpanded}
+              onToggleFold={toggleFold}
+              onCommentButtonClick={handleCommentButtonClick}
+              onCloseInput={handleCloseInput}
+              onRequestInput={handleRequestInput}
+              onSaveComment={onSaveComment}
+            />
+          );
+        })}
       </div>
       {selectionToolbar && (
         <SelectionToolbar

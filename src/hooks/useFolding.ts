@@ -1,12 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { computeFoldRegions, type FoldRegion } from "@/lib/tauri-commands";
-
-function languageFromPath(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "py") return "python";
-  if (ext === "yml" || ext === "yaml") return "yaml";
-  return ext;
-}
+import { getFoldLanguage } from "@/lib/file-types";
 
 export function useFolding(content: string, filePath: string) {
   const [collapsedLines, setCollapsedLines] = useState<Set<number>>(new Set());
@@ -15,7 +9,7 @@ export function useFolding(content: string, filePath: string) {
   // Re-compute fold regions in Rust whenever the content or file changes.
   useEffect(() => {
     let cancelled = false;
-    const language = languageFromPath(filePath);
+    const language = getFoldLanguage(filePath);
     computeFoldRegions(content, language)
       .then((regions) => {
         if (!cancelled) setFoldRegions(Array.isArray(regions) ? regions : []);
