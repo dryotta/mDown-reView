@@ -13,3 +13,11 @@ max_iterations: 30
 - Expert review: 6/6 approved, suggestions: perf expert noted IPC storm claim overstated (string-key guard already prevented it, but memo still eliminates wasted tree traversals); test-gap reviewer noted additional edge-case tests for future iterations
 - Goal assessor confidence: 82%
 - Summary: Stabilized FolderTree mergedList memo, added useUnresolvedCounts (5 tests) and useTheme (3 tests) coverage
+
+## Iteration 2 — PASSED
+- Branch: auto-improve/loop-2-remove-dead-rust-code
+- PR: https://github.com/dryotta/mdownreview/pull/46
+- CI: passed (Test Linux, Build macOS-arm64, Build windows-x64)
+- Expert review: 6/6 approved, no blocks
+- Goal assessor confidence: 78%
+- Summary: Removed dead compute_document_path function (25 lines), unused TEXT_MAX_LENGTH constant, and 8 associated integration tests. Net -83 lines.

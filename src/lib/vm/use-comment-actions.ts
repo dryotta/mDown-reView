@@ -10,7 +10,7 @@ import {
 } from "@/lib/tauri-commands";
 import { error } from "@/logger";
 
-export interface UseCommentActionsResult {
+interface UseCommentActionsResult {
   addComment: (
     filePath: string,
     text: string,
