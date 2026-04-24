@@ -31,14 +31,21 @@ fn endpoint_for_channel(channel: &str) -> &'static str {
     }
 }
 
-/// Derive the installed channel from the current app version string.
-fn installed_channel(app: &AppHandle) -> &'static str {
-    let version = app.config().version.clone().unwrap_or_default();
-    if version.contains("-canary") {
+/// Derive the channel ("canary" or "stable") from a version string.
+/// Canary builds are identified by a pre-release suffix (e.g. "0.3.4-2").
+/// Stable releases have no pre-release component (e.g. "0.3.4").
+fn channel_from_version(version: &str) -> &'static str {
+    if version.contains('-') {
         "canary"
     } else {
         "stable"
     }
+}
+
+/// Derive the installed channel from the current app version string.
+fn installed_channel(app: &AppHandle) -> &'static str {
+    let version = app.config().version.clone().unwrap_or_default();
+    channel_from_version(&version)
 }
 
 /// Check for an update on the given channel.
@@ -120,4 +127,28 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::channel_from_version;
+
+    #[test]
+    fn stable_version_returns_stable() {
+        assert_eq!(channel_from_version("0.3.4"), "stable");
+        assert_eq!(channel_from_version("1.0.0"), "stable");
+        assert_eq!(channel_from_version("0.0.1"), "stable");
+    }
+
+    #[test]
+    fn canary_numeric_suffix_returns_canary() {
+        assert_eq!(channel_from_version("0.3.4-2"), "canary");
+        assert_eq!(channel_from_version("0.3.4-10"), "canary");
+        assert_eq!(channel_from_version("1.0.0-1"), "canary");
+    }
+
+    #[test]
+    fn empty_version_returns_stable() {
+        assert_eq!(channel_from_version(""), "stable");
+    }
 }

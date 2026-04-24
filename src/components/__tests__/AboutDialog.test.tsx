@@ -145,12 +145,21 @@ describe("14.4 – AboutDialog", () => {
     expect(screen.queryByText(/Canary builds are untested/)).not.toBeInTheDocument();
   });
 
-  it("shows canary badge when version contains -canary", async () => {
-    mockGetAppVersion.mockResolvedValue("0.3.4-canary.42");
+  it("shows canary badge when version has a numeric pre-release suffix", async () => {
+    mockGetAppVersion.mockResolvedValue("0.3.4-2");
     await act(async () => {
       render(<AboutDialog onClose={vi.fn()} />);
     });
 
     expect(screen.getByText("canary")).toBeInTheDocument();
+  });
+
+  it("does not show canary badge for a stable version", async () => {
+    mockGetAppVersion.mockResolvedValue("0.3.4");
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+
+    expect(screen.queryByText("canary")).not.toBeInTheDocument();
   });
 });

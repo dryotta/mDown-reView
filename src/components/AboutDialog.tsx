@@ -54,7 +54,7 @@ export function AboutDialog({ onClose }: Props) {
     }
   };
 
-  const isCanary = version.includes("-canary");
+  const isCanary = version.includes("-");
 
   return (
     <div className="dialog-overlay" onClick={onClose} role="dialog" aria-modal="true">
