@@ -52,3 +52,17 @@ max_iterations: 50
 - Goal assessor confidence: 75% pre-iteration; architect estimates 85% post.
 - Fix attempts: 1 (post-expert: useFolding signature simplification, 4 null-IPC regression tests)
 - Summary: Group A trimmed view layer (MarkdownViewer 430->268, App.tsx 266->182). Group C ported fold-regions/kql-parser/json-utils to Rust core (35 new cargo tests, 3 TS files+tests deleted). Group D deduplicated vm/use-comments load logic, extracted useLaunchArgsBootstrap and useGlobalShortcuts hooks. Added convertAssetUrl chokepoint - last direct @tauri-apps/api/core import eliminated. Net: +1638/-911, 33 files. Skipped Group B (event chokepoint) and E (docs) for next iteration.
+- Expert review: 4/4 approved (architect 85% confidence, react-tauri APPROVED, performance APPROVED with follow-ups, test-gap BLOCKED then resolved with regression tests).
+- Goal assessor confidence: 78%. 5 groups identified, A/C/D implemented (Group A markdown comment block extraction, Group C 3 parsers ported to Rust, Group D vm/use-comments dedup + 2 hook extractions). Skipped: Group B (vm/use-update-actions deferred), Group E (HtmlPreviewView remained  picked up in iter 6).
+- Fix attempts: 1 (post-validation: useFolding signature fix per perf review, +4 null-IPC regression tests for useFolding/useSearch per test-gap block).
+- Summary: Extracted MdComment* (4 exports, 138 lines) into markdown/CommentableBlocks.tsx; MarkdownViewer 430->268 lines. Ported fold-regions, kql-parser, json-utils from TS to Rust core (+35 cargo tests, deleted 3 TS lib files + tests). Deduplicated vm/use-comments load logic with isCancelled predicate (rule 7). Extracted useLaunchArgsBootstrap + useGlobalShortcuts hooks; App.tsx 266->182 lines. Added convertAssetUrl wrapper in tauri-commands.ts (last direct core import in MarkdownViewer eliminated).
+
+## Iteration 6 - PASSED
+- Commits: 8079a30, 368d5b2
+- ITER_BASE_SHA: a8ecc16
+- CI: pending (in progress at commit 368d5b2)
+- Local tests: all 5 suites passed (lint, tsc, cargo 164=121+30+13, vitest 681, e2e 40)
+- Expert review: 4/4 APPROVED (architect, react-tauri with 1 minor non-blocking fix applied, performance APPROVED, test-gap APPROVED with non-blocking advisories).
+- Goal assessor confidence: 78%. 6 groups identified, 4 implemented (A event chokepoint, C test gaps + extractions, D criterion benches, E HTML assets to Rust). Group B (stale doc citations) and Group F (test-isolation hardening) deferred to next iteration.
+- Fix attempts: 1 (post-review: HtmlPreviewView setResolving(false) when filePath becomes undefined, per react-tauri-expert).
+- Summary: Created src/lib/tauri-events.ts as typed event chokepoint (mirrors tauri-commands.ts); 6 hooks/VMs migrated to listenEvent; meta-test enforces single-source rule. Ported resolve-html-assets.ts (112 lines, TS) to src-tauri/src/core/html_assets.rs + Tauri command (+17 cargo tests, eliminated N+1 IPC roundtrips per asset). Extracted parseFrontmatter + formatStepsForDisplay into testable lib/ modules. Added 14 CommentableBlocks unit tests. Added Criterion benches for the 3 new parsers (parsers_bench.rs) with budgets in docs/performance.md.
