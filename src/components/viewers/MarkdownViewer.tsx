@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import { getSharedHighlighter } from "@/lib/shiki";
-import { convertAssetUrl, openExternalUrl } from "@/lib/tauri-commands";
+import { openExternalUrl } from "@/lib/tauri-commands";
 import { useTheme } from "@/hooks/useTheme";
 import {
   useState,
@@ -28,7 +28,7 @@ import {
   CommentableLi,
   MdCommentPopover,
 } from "./markdown/CommentableBlocks";
-import { dirname } from "@/lib/path-utils";
+import { useImgResolver } from "./markdown/useImgResolver";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
@@ -130,7 +130,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const { threads } = useComments(filePath);
   const { addComment } = useCommentActions();
 
-  const threadsByLine = useThreadsByLine(threads);
+  const { threadsByLine, commentCountByLine } = useThreadsByLine(threads);
 
   const {
     selectionToolbar,
@@ -141,21 +141,9 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     clearSelection,
   } = useSelectionToolbar("data-source-line", 0);
 
-  // Build components with img resolver (only img depends on filePath)
-  const components = useMemo(() => ({
-    ...MD_COMPONENTS,
-    img: ({ src, alt, node: _node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) => {
-      let resolvedSrc = src;
-      if (src && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:")) {
-        const fileDir = dirname(filePath);
-        const absolute = src.startsWith("/") || src.startsWith("\\") || /^[a-zA-Z]:/.test(src)
-          ? src
-          : `${fileDir}/${src}`;
-        resolvedSrc = convertAssetUrl(absolute);
-      }
-      return <img src={resolvedSrc} alt={alt ?? ""} {...props} />;
-    },
-  }), [filePath]);
+  // Stable img resolver — only changes when filePath changes
+  const { img } = useImgResolver(filePath);
+  const components = useMemo(() => ({ ...MD_COMPONENTS, img }), [img]);
 
   // Scroll-to-line from CommentsPanel click
   const handleScrollTo = useCallback((line: number) => {
@@ -165,23 +153,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
-
-  const commentCountByLine = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const t of threads) {
-      if (!t.root.resolved) {
-        const line = t.root.matchedLineNumber;
-        map.set(line, (map.get(line) ?? 0) + 1);
-      }
-      for (const r of t.replies) {
-        if (!r.resolved) {
-          const line = r.matchedLineNumber;
-          map.set(line, (map.get(line) ?? 0) + 1);
-        }
-      }
-    }
-    return map;
-  }, [threads]);
 
   const handleLineClick = useCallback((line: number) => {
     const lineThreads = threadsByLine.get(line) ?? [];

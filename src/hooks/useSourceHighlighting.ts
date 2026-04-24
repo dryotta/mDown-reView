@@ -1,26 +1,12 @@
 import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import { type BundledLanguage } from "shiki";
 import { getSharedHighlighter } from "@/lib/shiki";
-import { extname } from "@/lib/path-utils";
+import { getShikiLanguage } from "@/lib/file-types";
 import { useTheme } from "@/hooks/useTheme";
 import kqlGrammar from "@/lib/kql.tmLanguage.json";
 
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function langFromPath(path: string): string {
-  const ext = extname(path).slice(1);
-  const map: Record<string, string> = {
-    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-    py: "python", rs: "rust", go: "go", java: "java",
-    c: "c", cpp: "cpp", h: "c", css: "css", html: "html",
-    json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
-    sh: "bash", bash: "bash", md: "markdown", sql: "sql",
-    rb: "ruby", php: "php", swift: "swift", kt: "kotlin", cs: "csharp",
-    xml: "xml", kql: "kql", csl: "kql",
-  };
-  return map[ext] ?? "text";
 }
 
 export function useSourceHighlighting(content: string, path: string) {
@@ -34,7 +20,7 @@ export function useSourceHighlighting(content: string, path: string) {
   useEffect(() => {
     let cancelled = false;
     const theme = currentTheme === "dark" ? "github-dark" : "github-light";
-    const lang = langFromPath(path);
+    const lang = getShikiLanguage(path);
     getSharedHighlighter()
       .then(async (hl) => {
         if (cancelled) return;

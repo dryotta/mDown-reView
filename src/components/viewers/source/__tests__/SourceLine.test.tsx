@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { memo, useEffect, useState } from "react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { SourceLine, type SourceLineProps } from "../SourceLine";
 import type { CommentThread, FoldRegion } from "@/lib/tauri-commands";
 
@@ -130,4 +131,107 @@ describe("SourceLine", () => {
     expect(toggle.textContent).toBe("▾");
     expect(document.querySelector(".source-fold-placeholder")).toBeNull();
   });
+
+  it("re-renders only the line whose props changed (React.memo + stable handlers)", () => {
+    // Sanity check first: SourceLine itself must be a React.memo component
+    // — without that wrapper the parent's stable handlers buy nothing.
+    expect((SourceLine as unknown as { $$typeof: symbol }).$$typeof).toBe(
+      Symbol.for("react.memo"),
+    );
+
+    // Render-counter wrapper — counts how many times each line's render
+    // pipeline commits. Wrapper itself is memoized (mirroring SourceLine's
+    // own memo) so the counter only ticks when shallow-equal props change.
+    // Together with stable parent handlers this proves that 4999/5000 lines
+    // skip re-render during a parent re-render.
+    const renderCounts: Record<number, number> = {};
+    const setterRef: { current: ((html: string) => void) | null } = { current: null };
+
+    function CountingSourceLine(props: SourceLineProps) {
+      // Count via useEffect: skipped (memoized) commits don't fire it, so
+      // this measures actual reconciliations rather than render-fn calls.
+      useEffect(() => {
+        renderCounts[props.idx] = (renderCounts[props.idx] ?? 0) + 1;
+      });
+      return <SourceLine {...props} />;
+    }
+    const MemoCountingSourceLine = memo(CountingSourceLine);
+
+    function Harness() {
+      const [line1Html, setLine1Html] = useState("AAA");
+      // Use an effect so the setter assignment isn't a render-phase side effect.
+      useEffect(() => {
+        setterRef.current = setLine1Html;
+      }, []);
+      // Stable handlers — what the real SourceView does via useCallback.
+      const onToggleFold = useStableFn();
+      const onCommentButtonClick = useStableFn();
+      const onCloseInput = useStableFn();
+      const onRequestInput = useStableFn();
+
+      const baseProps = {
+        filePath: "/test.ts",
+        isSelectionActive: false,
+        foldRegion: undefined,
+        isCollapsed: false,
+        lineThreads: STABLE_EMPTY_THREADS,
+        isCommenting: false,
+        isExpanded: false,
+        onToggleFold,
+        onCommentButtonClick,
+        onCloseInput,
+        onRequestInput,
+      } as const;
+
+      return (
+        <>
+          <MemoCountingSourceLine
+            {...baseProps}
+            idx={0}
+            lineNum={1}
+            line="line1"
+            contentHtml={line1Html}
+          />
+          <MemoCountingSourceLine
+            {...baseProps}
+            idx={1}
+            lineNum={2}
+            line="line2"
+            contentHtml="BBB"
+          />
+          <MemoCountingSourceLine
+            {...baseProps}
+            idx={2}
+            lineNum={3}
+            line="line3"
+            contentHtml="CCC"
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    // Initial render: each line rendered exactly once.
+    expect(renderCounts[0]).toBe(1);
+    expect(renderCounts[1]).toBe(1);
+    expect(renderCounts[2]).toBe(1);
+
+    // Trigger a parent re-render that only changes line 0's contentHtml.
+    act(() => setterRef.current?.("AAA-changed"));
+
+    expect(renderCounts[0]).toBe(2); // changed → re-rendered
+    expect(renderCounts[1]).toBe(1); // unchanged props → memo skipped
+    expect(renderCounts[2]).toBe(1); // unchanged props → memo skipped
+  });
 });
+
+// ── helpers for the memoization test ───────────────────────────────────────
+
+const STABLE_EMPTY_THREADS: CommentThread[] = [];
+
+function useStableFn() {
+  // A no-op callback whose identity never changes across renders, mirroring
+  // the useCallback-stabilized handlers in SourceView.
+  const [fn] = useState(() => () => {});
+  return fn;
+}

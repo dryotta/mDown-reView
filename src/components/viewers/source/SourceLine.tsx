@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import type { CommentThread, FoldRegion } from "@/lib/tauri-commands";
 
@@ -29,7 +30,7 @@ export interface SourceLineProps {
  * Pure presentation: all per-line state is passed in via props; the parent
  * `SourceView` owns iteration, fold-skip logic, and all data-fetching hooks.
  */
-export function SourceLine({
+function SourceLineImpl({
   idx,
   lineNum,
   line,
@@ -107,3 +108,5 @@ export function SourceLine({
     </>
   );
 }
+
+export const SourceLine = memo(SourceLineImpl);
