@@ -201,6 +201,9 @@ export const copyToClipboard = (text: string): Promise<void> => {
 };
 
 export const openExternalUrl = (url: string): Promise<void> => {
+  if (!/^https?:\/\//i.test(url)) {
+    return Promise.reject(new Error(`Blocked URL scheme: ${url}`));
+  }
   return import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url));
 };
 

@@ -10,8 +10,9 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/tauri-commands", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/tauri-commands")>("@/lib/tauri-commands")),
+  openExternalUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/logger");
