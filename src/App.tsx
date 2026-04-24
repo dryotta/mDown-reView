@@ -4,8 +4,9 @@ import { useShallow } from "zustand/shallow";
 import { getLaunchArgs } from "@/lib/tauri-commands";
 import { useUpdateActions, useUpdateProgress } from "@/lib/vm/use-update-actions";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useFileWatcher } from "@/hooks/useFileWatcher";
+import { useDialogActions } from "@/hooks/useDialogActions";
+import { useMenuListeners } from "@/hooks/useMenuListeners";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
@@ -64,16 +65,18 @@ export default function App() {
   const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
-  const setRoot = useStore((s) => s.setRoot);
-  const addRecentItem = useStore((s) => s.addRecentItem);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
+  const { handleOpenFile, handleOpenFolder } = useDialogActions();
+
   // Connect Rust file watcher to frontend event pipeline
   useFileWatcher();
+
+  useMenuListeners({ handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, setAboutOpen, checkForUpdate });
 
   // Apply theme class to <html> and listen for OS theme changes
   useEffect(() => {
@@ -109,35 +112,6 @@ export default function App() {
       argsListener.then((fn) => fn()).catch(() => {});
     };
   }, []);
-
-  const handleOpenFile = useCallback(async () => {
-    try {
-      const selected = await open({ directory: false, multiple: true });
-      if (Array.isArray(selected)) {
-        for (const f of selected) {
-          openFile(f);
-          addRecentItem(f, "file");
-        }
-      } else if (typeof selected === "string") {
-        openFile(selected);
-        addRecentItem(selected, "file");
-      }
-    } catch {
-      // User cancelled or dialog error — ignore
-    }
-  }, [openFile, addRecentItem]);
-
-  const handleOpenFolder = useCallback(async () => {
-    try {
-      const selected = await open({ directory: true, multiple: false });
-      if (typeof selected === "string") {
-        setRoot(selected);
-        addRecentItem(selected, "folder");
-      }
-    } catch {
-      // User cancelled or dialog error — ignore
-    }
-  }, [setRoot, addRecentItem]);
 
   // Global keyboard shortcuts (kept for e2e tests and non-native environments)
   useEffect(() => {
@@ -196,41 +170,6 @@ export default function App() {
     const idx = THEME_CYCLE.indexOf(theme);
     setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
   }, [theme, setTheme]);
-
-  // Native menu event listeners
-  useEffect(() => {
-    const pending = [
-      listen("menu-open-file", () => handleOpenFile()),
-      listen("menu-open-folder", () => handleOpenFolder()),
-      listen("menu-close-folder", () => useStore.getState().closeFolder()),
-      listen("menu-toggle-comments-pane", () => toggleCommentsPane()),
-      listen("menu-close-tab", () => {
-        const { activeTabPath, closeTab } = useStore.getState();
-        if (activeTabPath) closeTab(activeTabPath);
-      }),
-      listen("menu-close-all-tabs", () => useStore.getState().closeAllTabs()),
-      listen("menu-next-tab", () => {
-        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
-        if (tabs.length < 2) return;
-        const idx = tabs.findIndex((t) => t.path === activeTabPath);
-        setActiveTab(tabs[(idx + 1) % tabs.length].path);
-      }),
-      listen("menu-prev-tab", () => {
-        const { tabs, activeTabPath, setActiveTab } = useStore.getState();
-        if (tabs.length < 2) return;
-        const idx = tabs.findIndex((t) => t.path === activeTabPath);
-        setActiveTab(tabs[(idx - 1 + tabs.length) % tabs.length].path);
-      }),
-      listen("menu-theme-system", () => setTheme("system")),
-      listen("menu-theme-light", () => setTheme("light")),
-      listen("menu-theme-dark", () => setTheme("dark")),
-      listen("menu-about", () => setAboutOpen(true)),
-      listen("menu-check-updates", () => { checkForUpdate(); }),
-    ];
-    return () => {
-      pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
-    };
-  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, checkForUpdate]);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(

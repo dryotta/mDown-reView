@@ -20,13 +20,13 @@ vi.mock("@/lib/vm/use-update-actions", () => ({
   useUpdateActions: () => ({ checkForUpdate: mockCheckForUpdate, install: vi.fn() }),
 }));
 
-// Mock clipboard plugin
-vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
-  writeText: vi.fn().mockResolvedValue(undefined),
+// Mock clipboard via tauri-commands chokepoint
+vi.mock("@/lib/tauri-commands", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-const mockWriteText = writeText as ReturnType<typeof vi.fn>;
+import { copyToClipboard } from "@/lib/tauri-commands";
+const mockCopyToClipboard = vi.mocked(copyToClipboard);
 
 const LOG_PATH = "/home/user/.local/share/mdownreview/app.log";
 
@@ -81,7 +81,7 @@ describe("14.4 – AboutDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /copy path/i }));
 
     await waitFor(() => {
-      expect(mockWriteText).toHaveBeenCalledWith(LOG_PATH);
+      expect(mockCopyToClipboard).toHaveBeenCalledWith(LOG_PATH);
     });
   });
 

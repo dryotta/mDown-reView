@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { copyToClipboard } from "@/lib/tauri-commands";
 import { useUpdateActions } from "@/lib/vm/use-update-actions";
 import { useAboutInfo } from "@/hooks/useAboutInfo";
 import { useStore, type UpdateChannel } from "@/store";
@@ -23,7 +23,7 @@ export function AboutDialog({ onClose }: Props) {
   const { checkForUpdate } = useUpdateActions();
 
   const handleCopy = async () => {
-    await writeText(logPath);
+    await copyToClipboard(logPath);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

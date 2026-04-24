@@ -177,3 +177,34 @@ export const checkUpdate = (channel: string): Promise<UpdateInfo | null> =>
 export const installUpdate = (): Promise<void> =>
   invoke<void>("install_update");
 
+// ── Dialog wrapper ────────────────────────────────────────────────────────
+
+export interface OpenDialogOptions {
+  directory?: boolean;
+  multiple?: boolean;
+  title?: string;
+  defaultPath?: string;
+  filters?: { name: string; extensions: string[] }[];
+}
+
+export const showOpenDialog = async (
+  options: OpenDialogOptions = {}
+): Promise<string | string[] | null> => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  return open(options);
+};
+
+// ── Plugin wrappers ──────────────────────────────────────────────────────
+
+export const copyToClipboard = (text: string): Promise<void> => {
+  return import("@tauri-apps/plugin-clipboard-manager").then((m) => m.writeText(text));
+};
+
+export const openExternalUrl = (url: string): Promise<void> => {
+  return import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url));
+};
+
+export const restartApp = (): Promise<void> => {
+  return import("@tauri-apps/plugin-process").then((m) => m.relaunch());
+};
+

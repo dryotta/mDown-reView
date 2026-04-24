@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import { getSharedHighlighter } from "@/lib/shiki";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { openUrl as shellOpen } from "@tauri-apps/plugin-opener";
+import { openExternalUrl } from "@/lib/tauri-commands";
 import { useTheme } from "@/hooks/useTheme";
 import {
   useState,
@@ -146,7 +146,7 @@ const MD_COMPONENTS: Record<string, unknown> = {
         e.preventDefault();
         // Only open http/https URLs in external browser (security: block file://, javascript:, etc.)
         if (/^https?:\/\//i.test(href)) {
-          shellOpen(href).catch(() => {});
+          openExternalUrl(href).catch(() => {});
         }
       }
     };

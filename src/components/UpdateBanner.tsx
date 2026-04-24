@@ -1,3 +1,4 @@
+import { restartApp } from "@/lib/tauri-commands";
 import { useUpdateActions } from "@/lib/vm/use-update-actions";
 import { useUpdateState } from "@/store";
 import "@/styles/update-banner.css";
@@ -20,8 +21,7 @@ export function UpdateBanner() {
   };
 
   const handleRestart = async () => {
-    const { relaunch } = await import("@tauri-apps/plugin-process");
-    await relaunch();
+    await restartApp();
   };
 
   return (

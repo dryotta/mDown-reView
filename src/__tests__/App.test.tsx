@@ -31,12 +31,9 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn().mockResolvedValue(null),
-}));
-
 vi.mock("@/lib/tauri-commands", () => ({
   getLaunchArgs: vi.fn().mockResolvedValue({ files: [], folders: [] }),
+  showOpenDialog: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({
@@ -81,8 +78,8 @@ vi.mock("@/components/Icons", () => ({
   IconInfo: () => <span data-testid="icon-info" />,
 }));
 
-import { open } from "@tauri-apps/plugin-dialog";
-const mockOpen = open as ReturnType<typeof vi.fn>;
+import { showOpenDialog } from "@/lib/tauri-commands";
+const mockOpen = vi.mocked(showOpenDialog);
 
 import App from "@/App";
 
