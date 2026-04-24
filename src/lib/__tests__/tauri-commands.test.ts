@@ -140,3 +140,81 @@ describe("showOpenDialog", () => {
     expect(result).toEqual(["/a", "/b"]);
   });
 });
+
+describe("comment-mutation wrappers", () => {
+  it("editComment forwards filePath, commentId, text to invoke", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce(undefined);
+    const { editComment } = await import("../tauri-commands");
+    await editComment("/p/file.md", "c1", "new text");
+    expect(m).toHaveBeenCalledWith("edit_comment", {
+      filePath: "/p/file.md",
+      commentId: "c1",
+      text: "new text",
+    });
+  });
+
+  it("deleteComment forwards filePath and commentId to invoke", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce(undefined);
+    const { deleteComment } = await import("../tauri-commands");
+    await deleteComment("/p/file.md", "c2");
+    expect(m).toHaveBeenCalledWith("delete_comment", {
+      filePath: "/p/file.md",
+      commentId: "c2",
+    });
+  });
+
+  it("setCommentResolved forwards resolved flag to invoke", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce(undefined);
+    const { setCommentResolved } = await import("../tauri-commands");
+    await setCommentResolved("/p/file.md", "c3", true);
+    expect(m).toHaveBeenCalledWith("set_comment_resolved", {
+      filePath: "/p/file.md",
+      commentId: "c3",
+      resolved: true,
+    });
+  });
+
+  it("setCommentResolved supports false for unresolve", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce(undefined);
+    const { setCommentResolved } = await import("../tauri-commands");
+    await setCommentResolved("/p/file.md", "c4", false);
+    expect(m).toHaveBeenCalledWith("set_comment_resolved", {
+      filePath: "/p/file.md",
+      commentId: "c4",
+      resolved: false,
+    });
+  });
+});
+
+describe("installUpdate", () => {
+  it("invokes install_update with no args", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce(undefined);
+    const { installUpdate } = await import("../tauri-commands");
+    await installUpdate();
+    expect(m).toHaveBeenCalledWith("install_update");
+  });
+
+  it("propagates errors from the underlying invoke", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockRejectedValueOnce(new Error("bundle fetch failed"));
+    const { installUpdate } = await import("../tauri-commands");
+    await expect(installUpdate()).rejects.toThrow("bundle fetch failed");
+  });
+});

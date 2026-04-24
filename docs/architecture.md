@@ -52,6 +52,9 @@ Unique to architecture. Rust-First is a charter meta-principle — see [`docs/pr
 ### Native menu
 24. Native OS menu events are forwarded as `menu-*` Tauri events handled in `src/hooks/useMenuListeners.ts`, not invoked as commands. (`lib.rs:193-212`; `useMenuListeners.ts:22-54`.)
 
+### Sidecar writes
+25. TypeScript code MUST NOT write `*.review.{yaml,json}` sidecar files directly. All sidecar mutations flow through Rust commands (`add_comment`, `add_reply`, `edit_comment`, `delete_comment`, `set_comment_resolved`) so the canonical `with_sidecar_or_create` / `mutate_sidecar_or_create` chokepoint owns atomic write, anchor preservation, and watcher notification. Enforced by meta-test `src/__tests__/no-ts-sidecar-writes.test.ts`.
+
 ## MRSF v1.0 sidecar schema
 
 Comments persist as **Markdown Review Sidecar Format (MRSF) v1.0** — an open standard ([specification](https://sidemark.org/specification.html)) compatible with VS Code's Sidemark extension. One sidecar per reviewed document:
@@ -104,5 +107,4 @@ Layered defenses: (1) 4-step re-anchoring; (2) sidecars travel alongside source 
 - Dependency directionality (rule 17) not mechanically enforced; `dependency-cruiser` would codify it.
 - TS types in `tauri-commands.ts` are hand-mirrors of `src-tauri/src/core/types.rs`; a codegen step (`ts-rs`, `specta`) would remove drift risk.
 - File-size budgets (rule 23) not enforced by CI.
-- No written rule forbids the UI from writing sidecars directly. True today (no write path), worth codifying.
 <!-- Reviewed 2026-04-24: all gaps still valid -->

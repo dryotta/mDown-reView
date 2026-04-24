@@ -230,7 +230,7 @@
   opacity: 1;
 }
 
-/* Floating comment button in visual mode — DEPRECATED, replaced by inline gutter */
+/* Floating comment popover used in markdown visual mode (CommentableBlocks) */
 
 .md-comment-popover {
   min-width: 280px;
