@@ -25,9 +25,8 @@ export function ImageViewer({ path }: Props) {
   const mime = MIME_MAP[extname(path)] ?? "image/png";
   const { dataUrl, error } = useImageData(path, mime);
 
-  useEffect(() => {
-    setDimensions(null);
-  }, [path]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on prop change
+  useEffect(() => { setDimensions(null); }, [path]);
 
   return (
     <div className="image-viewer" style={{ display: "flex", flexDirection: "column", height: "100%" }}>

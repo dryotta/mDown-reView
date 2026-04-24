@@ -253,9 +253,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                 role={isDir ? "treeitem" : "option"}
                 aria-selected={isActive}
                 aria-expanded={isDir ? expandedFolders[path] : undefined}
-                // eslint-disable-next-line react-hooks/refs -- event handlers only run on user interaction
                 onClick={() => { if (isGhost) onFileOpen(path); else handleToggle(path, isDir); }}
-                // eslint-disable-next-line react-hooks/refs -- event handlers only run on user interaction
                 onKeyDown={(e) => { handleKeyDown(e, path, isDir); }}
               >
                 {Array.from({ length: depth }, (_, i) => (
