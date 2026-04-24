@@ -304,7 +304,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                   {isDir ? (expandedFolders[path] ? "▾" : "▸") : "·"}
                 </span>
                 <span className="tree-name" title={path}>{name}</span>
-                {!isDir && unresolvedCounts[path] > 0 && (
+                {!isDir && unresolvedCounts?.[path] > 0 && (
                   <span className="tree-comment-badge">{unresolvedCounts[path]}</span>
                 )}
               </div>

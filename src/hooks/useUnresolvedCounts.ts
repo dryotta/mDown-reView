@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getUnresolvedCounts } from "@/lib/tauri-commands";
 
@@ -10,14 +10,35 @@ export function useUnresolvedCounts(filePaths: string[]): Record<string, number>
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [reloadKey, setReloadKey] = useState(0);
 
+  // Stabilize: only re-fire effect when actual path content changes
+  const pathsKey = filePaths.join("\0");
+  const pathsRef = useRef(filePaths);
+
+  useEffect(() => {
+    pathsRef.current = filePaths;
+  });
+
   useEffect(() => {
     let cancelled = false;
-    if (filePaths.length === 0) return;
-    getUnresolvedCounts(filePaths)
-      .then(result => { if (!cancelled) setCounts(result); })
-      .catch(() => { if (!cancelled) setCounts({}); });
+    const paths = pathsRef.current;
+    if (paths.length === 0) return;
+    getUnresolvedCounts(paths)
+      .then(result => {
+        if (cancelled) return;
+        const next = result ?? {};
+        setCounts(prev => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(next);
+          if (prevKeys.length === nextKeys.length &&
+              prevKeys.every(k => prev[k] === next[k])) return prev;
+          return next;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCounts(prev => Object.keys(prev).length === 0 ? prev : {});
+      });
     return () => { cancelled = true; };
-  }, [filePaths, reloadKey]);
+  }, [pathsKey, reloadKey]);
 
   // Reload on comment mutations
   useEffect(() => {
