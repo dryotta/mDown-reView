@@ -6,7 +6,7 @@ import { useSearch } from "../useSearch";
 vi.mock("@/lib/tauri-commands", () => ({
   searchInDocument: vi.fn(async (content: string, query: string) => {
     if (!query) return [];
-    const results: Array<{ line_index: number; start_col: number; end_col: number }> = [];
+    const results: Array<{ lineIndex: number; startCol: number; endCol: number }> = [];
     const lines = content.split("\n");
     const lowerQuery = query.toLowerCase();
     for (let i = 0; i < lines.length; i++) {
@@ -15,7 +15,7 @@ vi.mock("@/lib/tauri-commands", () => ({
       while (pos <= lowerLine.length - lowerQuery.length) {
         const idx = lowerLine.indexOf(lowerQuery, pos);
         if (idx === -1) break;
-        results.push({ line_index: i, start_col: idx, end_col: idx + query.length });
+        results.push({ lineIndex: i, startCol: idx, endCol: idx + query.length });
         pos = idx + 1;
       }
     }

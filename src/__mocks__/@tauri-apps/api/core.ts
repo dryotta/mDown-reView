@@ -5,7 +5,6 @@ import type {
   LaunchArgs,
   MatchedComment,
   MrsfSidecar,
-  ParsedFrontmatter,
   SearchMatch,
 } from "@/lib/tauri-commands";
 
@@ -18,7 +17,6 @@ type InvokeResult =
   | MrsfSidecar
   | CommentThread[]
   | MatchedComment[]
-  | ParsedFrontmatter
   | SearchMatch[]
   | Record<string, number>
   | "file"

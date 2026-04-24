@@ -392,33 +392,10 @@ pub fn get_unresolved_counts(file_paths: Vec<String>) -> Result<std::collections
     Ok(counts)
 }
 
-// ── Frontmatter parsing ───────────────────────────────────────────────────
-
-#[derive(serde::Serialize)]
-pub struct ParsedFrontmatter {
-    pub body: String,
-    pub data: Option<std::collections::HashMap<String, String>>,
-}
-
-#[tauri::command]
-pub fn parse_frontmatter(content: String) -> ParsedFrontmatter {
-    if !content.starts_with("---") || content.len() < 4 {
-        return ParsedFrontmatter { body: content, data: None };
-    }
-    let end = match content[4..].find("\n---") {
-        Some(idx) => idx + 4,
-        None => return ParsedFrontmatter { body: content, data: None },
-    };
-    let yaml_str = &content[4..end];
-    let body = content[end + 4..].trim_start().to_string();
-    let data: Option<std::collections::HashMap<String, String>> =
-        serde_yaml_ng::from_str(yaml_str).ok();
-    ParsedFrontmatter { body, data }
-}
-
 // ── Document search ───────────────────────────────────────────────────────
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
     pub line_index: usize,
     pub start_col: usize,
@@ -431,46 +408,25 @@ pub fn search_in_document(content: String, query: String) -> Vec<SearchMatch> {
         return vec![];
     }
     let lower_query = query.to_lowercase();
+    let query_chars = lower_query.chars().count();
     let mut results = Vec::new();
     for (i, line) in content.lines().enumerate() {
         let lower_line = line.to_lowercase();
+        let chars: Vec<char> = lower_line.chars().collect();
+        let query_chars_vec: Vec<char> = lower_query.chars().collect();
         let mut pos = 0;
-        while pos <= lower_line.len().saturating_sub(lower_query.len()) {
-            if let Some(idx) = lower_line[pos..].find(&lower_query) {
-                let start = pos + idx;
+        while pos + query_chars <= chars.len() {
+            if chars[pos..pos + query_chars] == query_chars_vec[..] {
                 results.push(SearchMatch {
                     line_index: i,
-                    start_col: start,
-                    end_col: start + query.len(),
+                    start_col: pos,
+                    end_col: pos + query_chars,
                 });
-                pos = start + 1;
+                pos += 1;
             } else {
-                break;
+                pos += 1;
             }
         }
     }
     results
-}
-
-// ── Per-line comment counts ───────────────────────────────────────────────
-
-#[tauri::command]
-pub fn get_comment_counts_by_line(
-    file_path: String,
-) -> Result<std::collections::HashMap<u32, u32>, String> {
-    let threads = get_file_comments(file_path)?;
-    let mut counts: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-    for thread in &threads {
-        if !thread.root.comment.resolved {
-            let line = thread.root.matched_line_number;
-            *counts.entry(line).or_insert(0) += 1;
-        }
-        for reply in &thread.replies {
-            if !reply.comment.resolved {
-                let line = reply.matched_line_number;
-                *counts.entry(line).or_insert(0) += 1;
-            }
-        }
-    }
-    Ok(counts)
 }

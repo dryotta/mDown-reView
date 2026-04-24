@@ -1,11 +1,7 @@
 import { useState, useEffect, useCallback, useDeferredValue } from "react";
-import { searchInDocument } from "@/lib/tauri-commands";
+import { searchInDocument, type SearchMatch } from "@/lib/tauri-commands";
 
-export interface SearchMatch {
-  lineIndex: number;
-  startCol: number;
-  endCol: number;
-}
+export type { SearchMatch };
 
 export function useSearch(content: string) {
   const [query, setQueryRaw] = useState("");
@@ -19,12 +15,10 @@ export function useSearch(content: string) {
     let cancelled = false;
     searchInDocument(content, deferredQuery).then(rustMatches => {
       if (!cancelled) {
-        setMatches(rustMatches.map(m => ({
-          lineIndex: m.line_index,
-          startCol: m.start_col,
-          endCol: m.end_col,
-        })));
+        setMatches(rustMatches);
       }
+    }).catch(() => {
+      if (!cancelled) setMatches([]);
     });
     return () => { cancelled = true; };
   }, [content, deferredQuery]);

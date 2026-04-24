@@ -74,7 +74,7 @@ export function useFileWatcher() {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn) => fn()).catch(() => {});
       if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
     };
   }, [debouncedScan]);
