@@ -629,3 +629,99 @@ Append to `.claude/iterate-state.md`:
 **Termination check** (after 8):
 - If `iteration > 30`: go to **Done-TimedOut**.
 - Otherwise: return to Step 1 of the next iteration.
+
+---
+
+### Step 9 — Release-gate validation (FINAL step — runs ONLY on Done-Achieved path)
+
+Triggered from **Done-Achieved** before the iterate PR is marked ready. Purpose: run the full Windows + macOS **Release Gate** workflow (real installers, signed builds, platform matrix) against the accumulated work. Release Gate only triggers on PRs whose branch starts with `release/`, so this step creates a companion mirror branch+PR at the iterate branch tip, validates there, and forward-fixes any failures on the **iterate branch** (not the mirror) so humans review a single PR.
+
+#### 9a. Create release-validation branch and mirror PR
+
+```bash
+RELEASE_BRANCH="release/iterate-$(echo "$BRANCH" | sed 's|^[^/]*/||' | cut -c1-40)-$(date +%Y%m%d%H%M)"
+git checkout -b "$RELEASE_BRANCH"
+git push -u origin HEAD
+git checkout "$BRANCH"
+
+RELEASE_PR_URL=$(gh pr create --draft --base main --head "$RELEASE_BRANCH" \
+  --title "validate-release: $PR_TITLE" \
+  --body "$(cat <<'EOF'
+Release-gate validation for #<PR_NUMBER>. Close with `gh pr close --delete-branch` after validation completes.
+EOF
+)")
+RELEASE_PR_NUMBER=<parse the number from $RELEASE_PR_URL>
+```
+
+If `$RELEASE_BRANCH` already exists (e.g., a previous skill run crashed mid-step-9), halt as **Done-Blocked** with reason = `release-gate branch <RELEASE_BRANCH> already exists — delete it and re-run step 9 manually`. Do NOT overwrite.
+
+Comment on the iterate PR:
+```bash
+gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-start -->
+⏳ Release-gate validation started on $RELEASE_PR_URL"
+```
+
+#### 9b. Poll CI + Release Gate on the mirror PR
+
+Spawn `general-purpose`:
+```
+Poll CI and Release Gate status for PR <RELEASE_PR_NUMBER> every 60 seconds until all checks complete or 60 minutes elapse.
+  gh pr checks <RELEASE_PR_NUMBER>
+Stop when no check shows "pending" or "in_progress".
+Return: PASS (all checks green) or FAIL (list of failed check names with their logs).
+```
+
+Release-gate jobs are slower than CI — use 60 min timeout (not 30) and 60 s poll interval (not 30).
+
+#### 9c. Forward-fix loop (max 5 attempts)
+
+On FAIL:
+
+1. Spawn `task-implementer`:
+   ```
+   Fix the following Release Gate failures. Do not revert — forward fix.
+   Failed checks: <names>
+   Logs:
+   <truncated logs>
+   Prior attempts in this loop: <summaries>
+
+   Edit files on the iterate branch (current working tree). Do NOT edit the release-mirror branch. Return Implementation Summary.
+   ```
+2. Commit + push on the **iterate branch**:
+   ```bash
+   git add <specific files>
+   git commit -m "fix(iter-release): <one-line summary>"
+   git push
+   ```
+3. Fast-forward the mirror branch to the iterate tip, then push (re-triggers Release Gate):
+   ```bash
+   git checkout "$RELEASE_BRANCH"
+   git merge --ff-only "$BRANCH"
+   git push
+   git checkout "$BRANCH"
+   ```
+4. Re-run 9b.
+5. PASS → proceed to 9d.
+6. Still FAIL after attempt 5: halt as **Done-Blocked** with reason = `release-gate failure after 5 forward-fix attempts`. Leave mirror PR draft. Leave iterate PR draft.
+
+#### 9d. Close the mirror PR on success
+
+```bash
+gh pr close "$RELEASE_PR_NUMBER" --delete-branch
+```
+
+Append to state file:
+```markdown
+## Release-gate validation — PASSED
+- Mirror PR: <RELEASE_PR_URL>
+- Fix attempts: <N>
+- Commit validated: <iterate branch HEAD SHA>
+```
+
+Comment on the iterate PR:
+```bash
+gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-done -->
+🟢 Release gate validated on commit <sha>. Mirror PR closed."
+```
+
+Proceed to Done-Achieved's "mark ready" step.
