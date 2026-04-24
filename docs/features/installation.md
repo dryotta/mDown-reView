@@ -54,7 +54,7 @@ The `mdownreview-cli` binary embedded inside the `.app` bundle (`externalBin`) i
 
 ## Per-user install
 
-No UAC on Windows, no `sudo` on macOS — both install paths run entirely in user space. This is a charter Non-Goal: see [`docs/principles.md`](../principles.md) Non-Goals (no UAC/sudo).
+No UAC on Windows, no `sudo` on macOS — both install paths run entirely in user space. NSIS uses `installMode: currentUser` (`tauri.conf.json`) and `site/install.sh` falls back from `/usr/local/bin` to `~/.local/bin` rather than escalating.
 
 ## Updater is separate
 
@@ -64,12 +64,11 @@ No UAC on Windows, no `sudo` on macOS — both install paths run entirely in use
 
 - `site/install.sh` — macOS install script
 - `site/install.ps1` — Windows install script
-- `src-tauri/tauri.conf.json` — bundle config (`signingIdentity`, `externalBin`)
+- `src-tauri/tauri.conf.json` — bundle config (`signingIdentity`, `externalBin`, `bundle.targets`)
+- `scripts/stage-cli.mjs` — places the CLI at `src-tauri/binaries/mdownreview-cli-<triple>` so Tauri's `externalBin` build-time check passes
 - `.github/workflows/release.yml` — build pipeline + codesign verification
 
 ## Related rules
 
-- Per-user installation, no elevation — [`docs/principles.md`](../principles.md) Non-Goals (no UAC/sudo).
 - Updater signing (minisign, separate from Apple codesign) — [`docs/features/updates.md`](updates.md).
-- Path canonicalization for installer-supplied paths — [`docs/security.md`](../security.md).
 - What the CLI does once installed — [`docs/features/cli-and-associations.md`](cli-and-associations.md).
