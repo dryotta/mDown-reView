@@ -7,6 +7,7 @@ import { useDialogActions } from "@/hooks/useDialogActions";
 import { useMenuListeners } from "@/hooks/useMenuListeners";
 import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
+import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
@@ -82,22 +83,7 @@ export default function App() {
   useLaunchArgsBootstrap();
 
   // Apply theme class to <html> and listen for OS theme changes
-  useEffect(() => {
-    const html = document.documentElement;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-
-    function applyTheme() {
-      if (theme === "system") {
-        html.setAttribute("data-theme", mq.matches ? "dark" : "light");
-      } else {
-        html.setAttribute("data-theme", theme);
-      }
-    }
-
-    applyTheme();
-    mq.addEventListener("change", applyTheme);
-    return () => mq.removeEventListener("change", applyTheme);
-  }, [theme]);
+  useApplyTheme(theme);
 
   // Background update check — 5 s delay, non-blocking
   useEffect(() => {

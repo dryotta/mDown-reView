@@ -49,6 +49,49 @@ fn with_sidecar_mut(
     Ok(())
 }
 
+/// Pure helper: load an existing sidecar OR create an empty default,
+/// apply a mutation, then save. Does NOT emit (so it can be unit-tested
+/// without a Tauri AppHandle). Used by `with_sidecar_or_create`.
+pub fn mutate_sidecar_or_create(
+    file_path: &str,
+    document_default: Option<String>,
+    mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| MrsfSidecar {
+            mrsf_version: "1.0".to_string(),
+            document: document_default.unwrap_or_else(|| {
+                std::path::Path::new(file_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            }),
+            comments: vec![],
+        });
+    mutate(&mut sidecar)?;
+    crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Like `with_sidecar_mut` but creates an empty default sidecar if none exists.
+/// Use for "create" operations (e.g. adding the first comment to a file).
+fn with_sidecar_or_create(
+    app: &tauri::AppHandle,
+    file_path: &str,
+    document_default: Option<String>,
+    mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
+) -> Result<(), String> {
+    mutate_sidecar_or_create(file_path, document_default, mutate)?;
+    let _ = app.emit_to(
+        "main",
+        "comments-changed",
+        CommentsChangedEvent { file_path: file_path.to_string() },
+    );
+    Ok(())
+}
+
 // ── Commands ───────────────────────────────────────────────────────────────
 
 /// Read directory entries, rejecting path traversal.
@@ -275,28 +318,10 @@ pub fn add_comment(
         severity.as_deref(),
     );
 
-    // Load existing, append, save
-    let mut sidecar = crate::core::sidecar::load_sidecar(&file_path)
-        .map_err(|e| e.to_string())?
-        .unwrap_or(MrsfSidecar {
-            mrsf_version: "1.0".to_string(),
-            document: document.unwrap_or_else(|| {
-                std::path::Path::new(&file_path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            }),
-            comments: vec![],
-        });
-    sidecar.comments.push(comment);
-    crate::core::sidecar::save_sidecar(
-        &file_path,
-        &sidecar.document,
-        &sidecar.comments,
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = app.emit_to("main", "comments-changed", CommentsChangedEvent { file_path });
-    Ok(())
+    with_sidecar_or_create(&app, &file_path, document, |sidecar| {
+        sidecar.comments.push(comment);
+        Ok(())
+    })
 }
 
 /// Create a reply to an existing comment, save to sidecar.

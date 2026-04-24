@@ -31,7 +31,6 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
 }));
 
 vi.mock("@/lib/tauri-commands");
-vi.mock("@tauri-apps/api/core");
 
 // ── Helper ─────────────────────────────────────────────────────────────────
 

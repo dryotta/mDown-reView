@@ -112,7 +112,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
                     content_length,
                     chunk_length,
                 };
-                let _ = app_handle.emit("update-progress", payload);
+                let _ = app_handle.emit_to("main", "update-progress", payload);
             },
             move || {
                 let payload = UpdateProgressEvent {
@@ -120,7 +120,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
                     content_length: None,
                     chunk_length: 0,
                 };
-                let _ = app_finish.emit("update-progress", payload);
+                let _ = app_finish.emit_to("main", "update-progress", payload);
             },
         )
         .await

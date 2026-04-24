@@ -69,4 +69,10 @@ describe("listenEvent (Tauri event chokepoint)", () => {
       expect(p).toBeUndefined();
     });
   });
+
+  it("propagates rejection from underlying listen()", async () => {
+    vi.mocked(listen).mockRejectedValueOnce(new Error("boom"));
+
+    await expect(listenEvent("file-changed", () => {})).rejects.toThrow("boom");
+  });
 });

@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { useSearch } from "@/hooks/useSearch";
 import { useSourceHighlighting, escapeHtml } from "@/hooks/useSourceHighlighting";
@@ -10,6 +9,7 @@ import { useFolding } from "@/hooks/useFolding";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { SearchBar } from "./SearchBar";
+import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import "@/styles/source-viewer.css";
 
@@ -140,91 +140,58 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
             const lineThreads = threadsByLine.get(lineNum) ?? [];
             const foldRegion = foldStartMap.get(lineNum);
             const isCollapsed = foldRegion !== undefined && collapsedLines.has(lineNum);
+            const contentHtml =
+              query && matchesByLine.has(idx)
+                ? highlightSearchInLine(idx)
+                : highlightedLines[idx]
+                  ? extractInnerCode(highlightedLines[idx])
+                  : escapeHtml(line);
+            const onSaveComment =
+              pendingSelectionAnchor && commentingLine === lineNum
+                ? (text: string) => {
+                    addComment(filePath, text, pendingSelectionAnchor).catch(() => {});
+                    clearSelection();
+                  }
+                : undefined;
 
             elements.push(
-              <div key={idx}>
-                <div className={`source-line${highlightedSelectionLines.has(lineNum) ? " selection-active" : ""}`} data-line-idx={idx}>
-                  <span className="source-line-gutter">
-                    <span className="source-line-comment-zone">
-                      <button
-                        className="comment-plus-btn"
-                        aria-label="Add comment"
-                        onClick={() => {
-                          const lt = threadsByLine.get(lineNum) ?? [];
-                          if (lt.length > 0 && expandedLine !== lineNum) {
-                            setExpandedLine(lineNum);
-                            setCommentingLine(null);
-                            clearSelection();
-                          } else {
-                            clearSelection();
-                            setCommentingLine(
-                              commentingLine === lineNum ? null : lineNum
-                            );
-                          }
-                        }}
-                      >
-                        +
-                      </button>
-                    </span>
-                    <span className="source-line-fold-zone">
-                      {foldRegion && (
-                        <button
-                          className="source-line-fold-toggle"
-                          aria-label={isCollapsed ? "Expand" : "Collapse"}
-                          onClick={() => toggleFold(lineNum)}
-                        >
-                          {isCollapsed ? "▸" : "▾"}
-                        </button>
-                      )}
-                    </span>
-                    <span className="source-line-number-zone">{lineNum}</span>
-                  </span>
-                  <span
-                    className="source-line-content"
-                    dangerouslySetInnerHTML={{
-                      __html: (query && matchesByLine.has(idx))
-                        ? highlightSearchInLine(idx)
-                        : highlightedLines[idx]
-                          ? extractInnerCode(highlightedLines[idx])
-                          : escapeHtml(line),
-                    }}
-                  />
-                </div>
-                {(commentingLine === lineNum || expandedLine === lineNum || lineThreads.length > 0) && (
-                  <LineCommentMargin
-                    filePath={filePath}
-                    lineNumber={lineNum}
-                    lineText={line}
-                    threads={lineThreads}
-                    showInput={commentingLine === lineNum}
-                    forceExpanded={expandedLine === lineNum}
-                    onCloseInput={() => { setCommentingLine(null); setExpandedLine(null); clearSelection(); }}
-                    onRequestInput={() => setCommentingLine(lineNum)}
-                    onSaveComment={
-                      pendingSelectionAnchor && commentingLine === lineNum
-                        ? (text: string) => {
-                            addComment(filePath, text, pendingSelectionAnchor).catch(() => {});
-                            clearSelection();
-                          }
-                        : undefined
-                    }
-                  />
-                )}
-              </div>
+              <SourceLine
+                key={idx}
+                idx={idx}
+                lineNum={lineNum}
+                line={line}
+                filePath={filePath}
+                contentHtml={contentHtml}
+                isSelectionActive={highlightedSelectionLines.has(lineNum)}
+                foldRegion={foldRegion}
+                isCollapsed={isCollapsed}
+                lineThreads={lineThreads}
+                isCommenting={commentingLine === lineNum}
+                isExpanded={expandedLine === lineNum}
+                onToggleFold={toggleFold}
+                onCommentButtonClick={(ln) => {
+                  const lt = threadsByLine.get(ln) ?? [];
+                  if (lt.length > 0 && expandedLine !== ln) {
+                    setExpandedLine(ln);
+                    setCommentingLine(null);
+                    clearSelection();
+                  } else {
+                    clearSelection();
+                    setCommentingLine(commentingLine === ln ? null : ln);
+                  }
+                }}
+                onCloseInput={() => {
+                  setCommentingLine(null);
+                  setExpandedLine(null);
+                  clearSelection();
+                }}
+                onRequestInput={(ln) => setCommentingLine(ln)}
+                onSaveComment={onSaveComment}
+              />
             );
 
             if (isCollapsed && foldRegion) {
-              const hiddenCount = foldRegion.endLine - lineNum - 1;
-              elements.push(
-                <div
-                  key={`fold-${lineNum}`}
-                  className="source-fold-placeholder"
-                  onClick={() => toggleFold(lineNum)}
-                >
-                  ⋯ {hiddenCount} lines hidden
-                </div>
-              );
-              // Skip to the end line (render it on the next iteration)
+              // Skip to the end line (render it on the next iteration).
               idx = foldRegion.endLine - 1;
             } else {
               idx++;

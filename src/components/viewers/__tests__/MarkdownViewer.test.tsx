@@ -2,13 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MarkdownViewer } from "../MarkdownViewer";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: vi.fn((src: string) => `asset://${src}`),
-  invoke: vi.fn((cmd: string) => {
-    if (cmd === "get_file_comments") return Promise.resolve([]);
-    return Promise.resolve(null);
-  }),
-}));
+vi.mock("@tauri-apps/api/core");
 
 const convertAssetUrlMock = vi.fn((src: string) => `asset://${src}`);
 

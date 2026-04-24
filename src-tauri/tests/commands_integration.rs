@@ -414,3 +414,58 @@ fn search_returns_char_indices_not_bytes() {
     assert_eq!(results[0].start_col, 7);
     assert_eq!(results[0].end_col, 12);
 }
+
+
+//  mutate_sidecar_or_create 
+
+#[test]
+fn mutate_sidecar_or_create_creates_first_comment_sidecar() {
+    use mdown_review_lib::commands::mutate_sidecar_or_create;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    std::fs::write(&file, "hello world\n").unwrap();
+    let file_path = file.to_str().unwrap().to_string();
+    let sidecar_path = dir.path().join("doc.md.review.yaml");
+
+    // Precondition: no sidecar yet.
+    assert!(!sidecar_path.exists());
+
+    mutate_sidecar_or_create(&file_path, None, |sidecar| {
+        sidecar.comments.push(make_mrsf_comment("first-comment"));
+        Ok(())
+    })
+    .unwrap();
+
+    // Sidecar must now exist with the new comment.
+    assert!(sidecar_path.exists(), "sidecar should be created on first comment");
+    let loaded = load_sidecar(&file_path).unwrap().unwrap();
+    assert_eq!(loaded.comments.len(), 1);
+    assert_eq!(loaded.comments[0].id, "first-comment");
+    assert_eq!(loaded.document, "doc.md");
+    assert_eq!(loaded.mrsf_version, "1.0");
+}
+
+#[test]
+fn mutate_sidecar_or_create_appends_to_existing() {
+    use mdown_review_lib::commands::mutate_sidecar_or_create;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    std::fs::write(&file, "hello\n").unwrap();
+    let file_path = file.to_str().unwrap().to_string();
+
+    // Pre-create a sidecar with one comment.
+    save_sidecar(&file_path, "doc.md", &[make_mrsf_comment("c1")]).unwrap();
+
+    mutate_sidecar_or_create(&file_path, None, |sidecar| {
+        sidecar.comments.push(make_mrsf_comment("c2"));
+        Ok(())
+    })
+    .unwrap();
+
+    let loaded = load_sidecar(&file_path).unwrap().unwrap();
+    assert_eq!(loaded.comments.len(), 2);
+    assert_eq!(loaded.comments[0].id, "c1");
+    assert_eq!(loaded.comments[1].id, "c2");
+}

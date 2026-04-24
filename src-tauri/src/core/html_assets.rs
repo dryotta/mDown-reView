@@ -338,4 +338,55 @@ mod tests {
         let out = resolve_local_assets(html, tmp.path());
         assert!(out.contains("<style>x{}</style>"));
     }
+
+    // ── Edge cases ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn empty_img_src_preserves_original_tag() {
+        // An empty `src` is "local" by the predicate, but reading "" fails;
+        // the per-asset error path keeps the tag intact.
+        let tmp = TempDir::new().unwrap();
+        let html = r#"<img src="">"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html);
+    }
+
+    #[test]
+    fn mismatched_img_quotes_not_matched() {
+        // IMG_RE requires balanced double quotes. A double-quote opener with a
+        // single-quote attempt-closer should never match the regex, so the
+        // tag is left untouched (no read attempt, no replacement).
+        let tmp = TempDir::new().unwrap();
+        let html = r#"<img src="foo'>"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html);
+    }
+
+    #[test]
+    fn img_src_with_query_and_fragment_preserved_when_no_such_file() {
+        // The path resolver passes the literal value (including `?...#...`)
+        // through to std::fs::read. No file by that exact name exists, so
+        // the tag is preserved. This pins current behavior — callers should
+        // not rely on URL-style query/fragment stripping at this layer.
+        let tmp = TempDir::new().unwrap();
+        // Note: a real `logo.png` exists, but the resolver looks for
+        // "logo.png?v=2#anchor" verbatim, which does NOT exist.
+        write(tmp.path(), "logo.png", b"PNG");
+        let html = r#"<img src="logo.png?v=2#anchor">"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html);
+    }
+
+    #[test]
+    fn single_quoted_img_src_left_untouched() {
+        // IMG_RE is intentionally double-quote-only (mirrors the deleted TS
+        // resolve-html-assets.ts). Single-quoted `<img>` tags should not
+        // be inlined even when the referenced file exists. This pins the
+        // contract; widening it is an explicit, separate change.
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "p.png", b"PNGDATA");
+        let html = r#"<img src='p.png'>"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html);
+    }
 }

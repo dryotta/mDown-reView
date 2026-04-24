@@ -1,6 +1,7 @@
 pub mod anchors;
 pub mod comments;
 pub mod fold_regions;
+pub mod fuzzy;
 pub mod html_assets;
 pub mod json;
 pub mod kql;

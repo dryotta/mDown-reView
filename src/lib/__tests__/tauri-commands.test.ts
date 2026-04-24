@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 // Mock the underlying Tauri plugins. The wrappers in tauri-commands.ts use
 // dynamic imports, so vi.mock intercepts them when the wrapper is invoked.
@@ -12,10 +13,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-  convertFileSrc: vi.fn((path: string) => `asset://localhost/${encodeURIComponent(path)}`),
-}));
+vi.mock("@tauri-apps/api/core");
 
 import {
   convertAssetUrl,
@@ -30,6 +28,12 @@ beforeEach(() => {
   openUrl.mockClear();
   relaunch.mockClear();
   open.mockClear();
+  // Re-apply the shared mock's convertFileSrc implementation. Vitest's
+  // global `vi.restoreAllMocks()` (in test-setup.ts) wipes implementations
+  // of `vi.fn()` mocks between tests, so we must re-prime this each time.
+  vi.mocked(convertFileSrc).mockImplementation(
+    (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
+  );
 });
 
 describe("copyToClipboard", () => {
