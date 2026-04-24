@@ -55,6 +55,22 @@ describe("useImgResolver", () => {
     expect(convertAssetUrlMock).toHaveBeenCalledWith("/abs/path.png");
   });
 
+  it("passes Windows drive-letter absolute paths through unchanged", () => {
+    const winPath = "C:\\images\\foo.png";
+    const { result } = renderHook(() => useImgResolver("C:/docs/notes.md"));
+    const Img = result.current.img;
+    render(<Img src={winPath} alt="" />);
+    expect(convertAssetUrlMock).toHaveBeenCalledWith(winPath);
+  });
+
+  it("passes Windows backslash-rooted absolute paths through unchanged", () => {
+    const winPath = "\\foo.png";
+    const { result } = renderHook(() => useImgResolver("/docs/notes.md"));
+    const Img = result.current.img;
+    render(<Img src={winPath} alt="" />);
+    expect(convertAssetUrlMock).toHaveBeenCalledWith(winPath);
+  });
+
   it("returns src unchanged when filePath is null", () => {
     const { result } = renderHook(() => useImgResolver(null));
     const Img = result.current.img;

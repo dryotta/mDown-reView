@@ -120,6 +120,30 @@ describe("useSourceLineModel", () => {
     expect(result.current[0].lineThreads).toBe(emptyRefBefore);
   });
 
+  it("query active + line has no match + Shiki highlights present → still renders Shiki HTML, not escaped text", () => {
+    // Critical perf-correctness invariant: while typing in search, lines
+    // without a match must keep their syntax colors (extracted from Shiki),
+    // not collapse to plain escaped text.
+    const lines = ["const a = 1;", "const b = 2;"];
+    const highlightedLines = [
+      '<pre class="shiki"><code><span class="line">SHIKI_A</span></code></pre>',
+      '<pre class="shiki"><code><span class="line">SHIKI_B</span></code></pre>',
+    ];
+    const { result } = renderHook(() =>
+      useSourceLineModel(
+        makeInput({
+          lines,
+          highlightedLines,
+          query: "a",
+          // Only line 0 matches; line 1 has no matches but should still be highlighted.
+          matchesByLine: new Map([[0, [{ startCol: 6, endCol: 7, isCurrent: true }]]]),
+        }),
+      ),
+    );
+    expect(result.current[0].contentHtml).toContain('<mark class="search-match-current">');
+    expect(result.current[1].contentHtml).toBe('<span class="line">SHIKI_B</span>');
+  });
+
   it("expandedLine / commentingLine flags map to the right entry", () => {
     const lines = ["a", "b", "c"];
     const { result } = renderHook(() =>

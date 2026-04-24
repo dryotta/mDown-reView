@@ -124,6 +124,21 @@ describe("useThreadsByLine — commentCountByLine", () => {
     expect(result.current.commentCountByLine.get(7)).toBe(1);
   });
 
+  it("counts a re-anchored reply on its own matched line, not the root's line", () => {
+    // Reply re-anchored to line 12 while its thread root sits on line 4.
+    // Gutter badge for line 12 must reflect the reply; line 4 must not double-count it.
+    const threads = [
+      makeThread({
+        id: "t1",
+        matchedLineNumber: 4,
+        replies: [makeReply({ id: "r1", matchedLineNumber: 12 })],
+      }),
+    ];
+    const { result } = renderHook(() => useThreadsByLine(threads));
+    expect(result.current.commentCountByLine.get(4)).toBe(1);
+    expect(result.current.commentCountByLine.get(12)).toBe(1);
+  });
+
   it("falls back to thread line when reply matchedLineNumber is missing", () => {
     const threads = [
       makeThread({
