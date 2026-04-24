@@ -231,7 +231,9 @@ Requires an explicit confirmation step before writing any files — will stop an
 
 ### Expert Subagents
 
-Subagents are specialist Claude instances invoked in parallel by `/expert-review` and `/self-improve`. Defined in `.claude/agents/`.
+Subagents are specialist Claude instances invoked in parallel by the `/iterate` skill (9-expert unconditional panel + 1 conditional per-iteration diff review, plus demand-driven pre-consult). Defined in `.claude/agents/`.
+
+**Review panel (run per iteration diff):**
 
 | Agent | Specialisation |
 |---|---|
@@ -241,11 +243,19 @@ Subagents are specialist Claude instances invoked in parallel by `/expert-review
 | `react-tauri-expert` | React 19 API misuse (missing `useTransition`, stale closures), Tauri v2 pattern correctness, plugin usage |
 | `ux-expert` | Keyboard navigation, loading/error states, comment workflow friction, empty states |
 | `bug-hunter` | Race conditions, async error handling, `listen()` leaks without `unlisten()`, comment anchor edge cases |
-| `task-implementer` | Implements a single scoped task; returns a structured change summary; used by `/self-improve` |
-| `implementation-validator` | Runs TS check → vitest → eslint; returns COMMIT or DO NOT COMMIT verdict; used by `/self-improve` |
-| `security-reviewer` | Tauri IPC handlers, path traversal, XSS in markdown rendering, IPC type mismatches |
+| `test-expert` | Test completeness, pyramid-layer correctness, reliability/flakiness, e2e coverage, IPC-mock hygiene, oracle quality |
+| `documentation-expert` | Doc taxonomy (principles + deep-dives + one evergreen `docs/features/<area>.md`), code/doc drift, rule-citation staleness |
+| `lean-expert` | **Pushes for simpler implementations** — dependency justification, bundle/binary size, dead code, file-size budgets, inlining + collapsing opportunities |
+| `security-reviewer` *(conditional)* | Tauri IPC handlers, path traversal, XSS in markdown rendering, IPC type mismatches — runs when diff touches commands, path handling, or markdown rendering |
+
+**Assessor + workers:**
+
+| Agent | Role |
+|---|---|
+| `goal-assessor` | Reads the code from scratch each iteration, emits fresh requirement specs (Step 2 of `/iterate`) |
+| `task-implementer` | Implements a single scoped task; returns a structured change summary |
 | `e2e-test-writer` | Writes Playwright browser and native tests following the IPC mock pattern |
-| `test-gap-reviewer` | Identifies missing unit test cases for recently changed source files |
+| `implementation-validator` | Runs lint → tsc → cargo test → vitest → browser-e2e → native-e2e; returns PASS/FAIL with full output |
 
 ### Hooks
 

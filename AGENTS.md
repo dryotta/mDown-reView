@@ -130,9 +130,23 @@ e2e/
   native/                   ← Playwright tests (real binary, Windows-only CDP)
 ```
 
-## Behavioral Specs
+## Feature Documentation
 
-Feature-level requirements (principles/rules live in [`docs/principles.md`](docs/principles.md) and the 5 deep-dives):
+**Evergreen** descriptions of each major user-facing area live in [`docs/features/`](docs/features/) — one file per capability, refreshed in place when the area changes. Start here to understand what the app does:
+
+- [Viewer](docs/features/viewer.md) — markdown, source, Mermaid, JSON, CSV, HTML, image, binary rendering
+- [Comments](docs/features/comments.md) — inline review, selection toolbar, MRSF sidecars, 4-step re-anchoring
+- [Navigation](docs/features/navigation.md) — folder tree, tabs, workspace search
+- [Watcher](docs/features/watcher.md) — file-system watcher, hot reload, ghost-entry detection
+- [Updates](docs/features/updates.md) — stable + canary release channels, signed updater
+- [CLI & File Associations](docs/features/cli-and-associations.md) — CLI file-open, single-instance, OS associations
+- [Logging](docs/features/logging.md) — frontend + Rust logging chokepoint, exception capture
+
+Taxonomy + drift enforcement is owned by the `documentation-expert` agent (`.claude/agents/documentation-expert.md`).
+
+### Historical per-increment specs
+
+`docs/specs/` holds **born-to-die** specs tied to individual PRs / issues. They are historical reference only — do NOT update them when subsequent changes touch the same area; update the corresponding `docs/features/<area>.md` file instead.
 
 - [App Logging](docs/specs/app-logging.md)
 - [CLI File Open & File Associations](docs/specs/cli-file-open.md)
