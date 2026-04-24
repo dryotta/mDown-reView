@@ -725,3 +725,160 @@ gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-done -->
 ```
 
 Proceed to Done-Achieved's "mark ready" step.
+
+---
+
+## Termination
+
+Three specific points inside an iteration can terminate the loop:
+
+1. **Step 1 aborts** (all rebase auto-resolution failed) → **Done-Blocked** with reason = merge-conflict. Steps 2–9 skipped.
+2. **Step 2 returns `STATUS=achieved`** → **Done-Achieved** (runs Step 9 first). Steps 3–8 skipped this iteration.
+3. **Step 2 returns `STATUS=blocked`** → **Done-Blocked**. Steps 3–9 skipped.
+
+After a completed iteration (end of Step 8), if `iteration + 1 > 30`, exit via **Done-TimedOut**.
+
+`DEGRADED` and `SKIPPED` iterations do NOT terminate. They count against `degraded_count` and the loop continues — the next iteration's assessor re-reads the code and will fold the carry-over in, OR re-flag it as `blocked` if structurally unfixable.
+
+### Done-Achieved
+
+**First, run Step 9 Release-gate validation.** If it halts, you are in Done-Blocked — do not continue here.
+
+Once release gate passes:
+
+```bash
+gh pr ready <PR_NUMBER>
+```
+
+Refresh the PR body: tick every progress item, change summary to "Ready for review — goal achieved, release gate passed". In issue mode, ensure `Closes #<ISSUE_NUMBER>` remains in the body trailer.
+
+Print:
+```
+✅ <MODE> — <ref>
+   PR: <PR_URL> (ready for review, release gate passed)
+   Branch: <BRANCH>
+   Iterations: <passed_count> passed · <degraded_count> degraded
+   Release-gate fix attempts: <K>
+   Final assessor confidence: <%>
+```
+
+Exit.
+
+### Done-Blocked
+
+Leave PR in draft. Comment on the iterate PR:
+```bash
+gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
+<!-- iterate-blocked -->
+## ⚠️ Autonomous iteration halted at iteration <N>/30
+
+**Reason:** <BLOCKING_REASON or rebase-conflict summary or release-gate reason>
+**Last assessor evidence:** <EVIDENCE, if any>
+<If rebase-conflict:>
+**Conflicted files:** <list>
+<End.>
+
+Iterations 1..<N-1> are complete and pushed. This iteration needs human attention. After resolving the blocker, restart with `/iterate <same args>` (the branch must first be deleted) or continue manually on this branch.
+EOF
+)"
+```
+
+In issue mode, post the same message on the issue (use `<!-- iterate-blocked-issue -->`).
+
+Print:
+```
+❌ <MODE> — <ref>
+   Halted at iteration <N>/30
+   Reason: <short>
+   PR (draft): <PR_URL>
+   Branch: <BRANCH>
+```
+
+Exit.
+
+### Done-TimedOut
+
+Leave PR in draft. Comment on the iterate PR:
+```bash
+gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
+<!-- iterate-timeout -->
+## ⏱ Iteration cap reached (30)
+
+**Progress:** <passed_count> passed · <degraded_count> degraded
+**Final assessor confidence:** <%>
+**Last NEXT_REQUIREMENTS (work still open):**
+<bulleted list>
+
+Review the branch, then either merge what is ready, continue manually, or restart with `/iterate <args>` after adjusting scope.
+EOF
+)"
+```
+
+In issue mode, post the same message on the issue.
+
+Print:
+```
+⏱  <MODE> — <ref>
+   Cap reached after 30 iterations
+   PR (draft, partial progress): <PR_URL>
+   Branch: <BRANCH>
+```
+
+Exit.
+
+---
+
+## Halt semantics (summary)
+
+The skill **halts the loop** only on:
+- Step 2 returns `STATUS=blocked`
+- Step 1 aborts after all auto-resolution strategies fail
+- Iteration cap reached (30)
+- Step 9 (Release Gate) fails after 5 forward-fix attempts
+- Step 9 finds a pre-existing release-mirror branch
+
+The skill **logs `DEGRADED` and continues** on:
+- Validate/CI fails after 5 forward-fix attempts (Step 6)
+- Expert review blocks after one forward-fix attempt (Step 7)
+
+The skill **logs `SKIPPED` and continues** on:
+- `risk=high` plan is rejected by `architect-expert` as fundamentally unsound (Step 4)
+- Every implementer in an iteration reports "no-op" (Step 5)
+
+The skill **halts before starting the loop** on:
+- Dirty working tree at setup
+- Pre-existing target branch
+- Issue mode and issue has no `<!-- mdownreview-spec -->` comment
+- Issue mode auto-pick finds no groomed issues
+
+No other halts.
+
+---
+
+## Commit conventions
+
+| Situation | Mode | Message |
+|---|---|---|
+| Iteration implementation commit | Issue | `feat(#<N>): iter <iteration> — <summary>\n\n<2-3 sentence body>\n\nRefs #<N>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
+| Iteration implementation commit | Goal | `auto-improve: iter <iteration> — <summary>\n\n<2-3 sentence body>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
+| Forward-fix commit inside an iteration | Either | `fix(iter-<iteration>): <summary>` |
+| Rebase-repair commit | Either | `fix(rebase): <summary>` |
+| Release-gate forward-fix | Either | `fix(iter-release): <summary>` |
+
+There is no "final-iteration" commit. When Step 2 returns `achieved`, Steps 3–8 are skipped, so no new commit is produced. Issue closure on merge is driven by the `Closes #<N>` trailer in the PR body (set in Phase 0f), not by commit messages.
+
+---
+
+## Failure recovery
+
+If the skill is interrupted mid-loop:
+
+1. Read `.claude/iterate-state.md` for branch, PR, and last iteration.
+2. Check out the loop branch: `git checkout <BRANCH>`.
+3. If a rebase is in progress (`.git/rebase-merge` or `.git/rebase-apply` exists), complete or abort it before restarting.
+4. Ensure rerere is enabled on the branch (idempotent):
+   ```bash
+   git config rerere.enabled true
+   git config rerere.autoupdate true
+   ```
+5. Restart is NOT supported — the pre-flight check in Phase 0 halts on the existing branch. To resume the work itself, delete the in-flight branch and re-invoke `/iterate <same args>` — Step 1's rebase + Step 2's assessor will account for the already-committed work on the deleted branch's remote tip if it has been pushed.
