@@ -100,8 +100,9 @@ Layered defenses: (1) 4-step re-anchoring; (2) sidecars travel alongside source 
 
 - No ESLint rule blocks direct `invoke()` imports outside `src/lib/tauri-commands.ts`.
 - No ESLint rule blocks direct `@tauri-apps/plugin-log` imports outside `src/logger.ts`.
-- No lint rule blocks `console.log/info` in production code; `useFileWatcher.ts` uses raw `console.warn`/`console.debug`.
+- No lint rule blocks `console.log/info` in production code.
 - Dependency directionality (rule 17) not mechanically enforced; `dependency-cruiser` would codify it.
 - TS types in `tauri-commands.ts` are hand-mirrors of `src-tauri/src/core/types.rs`; a codegen step (`ts-rs`, `specta`) would remove drift risk.
 - File-size budgets (rule 23) not enforced by CI.
 - No written rule forbids the UI from writing sidecars directly. True today (no write path), worth codifying.
+<!-- Reviewed 2026-04-24: all gaps still valid -->

@@ -22,7 +22,7 @@ Canonical for test layering, coverage floors, and mock hygiene. Cite violations 
 
 | Layer | Target | Measured? | Current |
 |---|---|---|---|
-| Zustand slice actions | 100% actions invoked, incl. early-return branches | No | Gaps below |
+| Zustand slice actions | 100% actions invoked, incl. early-return branches | No | All slices tested |
 | `src/lib/*.ts` pure functions | 100% exported-symbol, 90% branch | No | All files have co-located tests |
 | React components with branching render | 80% branch | No | 20 test files |
 | Rust core (`src-tauri/src/core/`) | 90% line, 95% branch on `matching.rs`/`anchors.rs` | `cargo tarpaulin` not wired | 74 `#[test]` across 7 modules + 22 integration |
@@ -78,6 +78,5 @@ Canonical for test layering, coverage floors, and mock hygiene. Cite violations 
 
 ## Gaps
 
-- **Comment threading with orphaned reply** (`src-tauri/src/core/threads.rs`): orphaned-reply reparenting branch not obviously covered.
 - **No CI grep-audit** verifying every browser spec mocks the eleven canonical commands.
 - **No mechanical enforcement of the `mockImplementation(() => {})` scope rule.** A developer could silence globally via `beforeAll`, leaking state.

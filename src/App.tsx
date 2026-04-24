@@ -1,7 +1,8 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useStore, openFilesFromArgs } from "@/store";
 import { useShallow } from "zustand/shallow";
-import { getLaunchArgs, checkUpdate } from "@/lib/tauri-commands";
+import { getLaunchArgs } from "@/lib/tauri-commands";
+import { useUpdateActions, useUpdateProgress } from "@/lib/vm/use-update-actions";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useFileWatcher } from "@/hooks/useFileWatcher";
@@ -65,6 +66,8 @@ export default function App() {
   const openFile = useStore((s) => s.openFile);
   const setRoot = useStore((s) => s.setRoot);
   const addRecentItem = useStore((s) => s.addRecentItem);
+  const { checkForUpdate } = useUpdateActions();
+  useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
@@ -183,27 +186,11 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleOpenFile, handleOpenFolder, toggleCommentsPane]);
 
-  const triggerUpdateCheck = useCallback(async () => {
-    const { setUpdateStatus, setUpdateVersion, updateChannel } = useStore.getState();
-    try {
-      setUpdateStatus("checking");
-      const info = await checkUpdate(updateChannel);
-      if (info) {
-        setUpdateVersion(info.version);
-        setUpdateStatus("available");
-      } else {
-        setUpdateStatus("idle");
-      }
-    } catch {
-      setUpdateStatus("idle");
-    }
-  }, []);
-
   // Background update check — 5 s delay, non-blocking
   useEffect(() => {
-    const t = setTimeout(triggerUpdateCheck, 5000);
+    const t = setTimeout(() => { checkForUpdate(); }, 5000);
     return () => clearTimeout(t);
-  }, [triggerUpdateCheck]);
+  }, [checkForUpdate]);
 
   const cycleTheme = useCallback(() => {
     const idx = THEME_CYCLE.indexOf(theme);
@@ -238,12 +225,12 @@ export default function App() {
       listen("menu-theme-light", () => setTheme("light")),
       listen("menu-theme-dark", () => setTheme("dark")),
       listen("menu-about", () => setAboutOpen(true)),
-      listen("menu-check-updates", () => triggerUpdateCheck()),
+      listen("menu-check-updates", () => { checkForUpdate(); }),
     ];
     return () => {
       pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
-  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, triggerUpdateCheck]);
+  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, checkForUpdate]);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(

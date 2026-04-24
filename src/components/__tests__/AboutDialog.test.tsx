@@ -14,9 +14,10 @@ vi.mock("@/hooks/useAboutInfo", () => ({
 import { useAboutInfo } from "@/hooks/useAboutInfo";
 const mockUseAboutInfo = vi.mocked(useAboutInfo);
 
-// Mock tauri-commands for checkUpdate (still used directly in component)
-vi.mock("@/lib/tauri-commands", () => ({
-  checkUpdate: vi.fn().mockResolvedValue(null),
+// Mock useUpdateActions (checkForUpdate is now in VM hook)
+const mockCheckForUpdate = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/vm/use-update-actions", () => ({
+  useUpdateActions: () => ({ checkForUpdate: mockCheckForUpdate, install: vi.fn() }),
 }));
 
 // Mock clipboard plugin
@@ -31,6 +32,7 @@ const LOG_PATH = "/home/user/.local/share/mdownreview/app.log";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCheckForUpdate.mockClear();
   mockUseAboutInfo.mockReturnValue({ version: "0.2.2", logPath: LOG_PATH });
 });
 
@@ -159,5 +161,19 @@ describe("14.4 – AboutDialog", () => {
     });
 
     expect(screen.queryByText("canary")).not.toBeInTheDocument();
+  });
+
+  it("calls checkForUpdate from VM when channel is changed", async () => {
+    useStore.setState({ updateChannel: "stable" });
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+
+    const select = screen.getByLabelText("Update channel") as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "canary" } });
+    });
+
+    expect(mockCheckForUpdate).toHaveBeenCalledWith("canary");
   });
 });

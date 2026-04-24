@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { checkUpdate } from "@/lib/tauri-commands";
+import { useUpdateActions } from "@/lib/vm/use-update-actions";
 import { useAboutInfo } from "@/hooks/useAboutInfo";
 import { useStore, type UpdateChannel } from "@/store";
 import { useShallow } from "zustand/shallow";
@@ -20,6 +20,7 @@ export function AboutDialog({ onClose }: Props) {
       setUpdateChannel: s.setUpdateChannel,
     }))
   );
+  const { checkForUpdate } = useUpdateActions();
 
   const handleCopy = async () => {
     await writeText(logPath);
@@ -30,19 +31,7 @@ export function AboutDialog({ onClose }: Props) {
   const handleChannelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const channel = e.target.value as UpdateChannel;
     setUpdateChannel(channel);
-    const { setUpdateStatus, setUpdateVersion } = useStore.getState();
-    try {
-      setUpdateStatus("checking");
-      const info = await checkUpdate(channel);
-      if (info) {
-        setUpdateVersion(info.version);
-        setUpdateStatus("available");
-      } else {
-        setUpdateStatus("idle");
-      }
-    } catch {
-      setUpdateStatus("idle");
-    }
+    await checkForUpdate(channel);
   };
 
   const isCanary = version.includes("-");

@@ -1,45 +1,15 @@
-import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { useUpdateActions } from "@/lib/vm/use-update-actions";
 import { useUpdateState } from "@/store";
 import "@/styles/update-banner.css";
-
-interface ProgressPayload {
-  event: "Started" | "Progress" | "Finished";
-  content_length: number | null;
-  chunk_length: number;
-}
 
 export function UpdateBanner() {
   const {
     updateStatus,
     updateVersion,
     updateProgress,
-    setUpdateStatus,
-    setUpdateProgress,
     dismissUpdate,
   } = useUpdateState();
   const { install } = useUpdateActions();
-
-  // Listen for progress events from Rust install_update command
-  useEffect(() => {
-    let downloaded = 0;
-    let total = 0;
-    const unlisten = listen<ProgressPayload>("update-progress", (event) => {
-      const { payload } = event;
-      if (payload.event === "Started") {
-        total = payload.content_length ?? 0;
-      } else if (payload.event === "Progress") {
-        downloaded += payload.chunk_length;
-        if (total > 0) setUpdateProgress(Math.min(Math.round((downloaded / total) * 100), 100));
-      } else if (payload.event === "Finished") {
-        setUpdateStatus("ready");
-      }
-    });
-    return () => {
-      unlisten.then((fn) => fn()).catch(() => {});
-    };
-  }, [setUpdateProgress, setUpdateStatus]);
 
   if (updateStatus === "idle" || updateStatus === "checking" || updateStatus === "error") {
     return null;
