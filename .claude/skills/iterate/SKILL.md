@@ -272,3 +272,135 @@ npx tsc --noEmit
 ```
 
 If either fails, spawn `task-implementer` with the compile/type errors and instruction to fix as a follow-up commit. Commit + push. Only proceed to Step 2 once the tree compiles.
+
+---
+
+### Step 2 — Assess
+
+Spawn `goal-assessor` in ONE call. Inputs:
+
+```
+Goal: <GOAL_FOR_ASSESSOR>
+Iteration: <N>/30
+Passed so far: <passed_count>
+Degraded so far: <degraded_count>
+Iteration log (prior): <full content of .claude/iterate-state.md>
+
+<Issue mode only — append this block:>
+Issue #<ISSUE_NUMBER>: <ISSUE_TITLE>
+Issue body:
+<ISSUE_BODY>
+
+Spec (source of truth — the contract with the human reviewer):
+<SPEC_MARKDOWN>
+
+Acceptance criteria (remaining open items — the skill has been ticking these off in the PR body as iterations satisfy them; derive current state from the iteration log):
+<open AC bullets>
+<End issue-mode block.>
+
+Instruction:
+Read the codebase from scratch. Ignore prior iteration specs. Assess whether the goal is fully achieved and, if not, write requirement specs for the next meaningful sprint — a coherent body of work that delivers visible progress, not just the smallest next step. Group requirements by what can be implemented in parallel.
+
+In issue mode: for each remaining AC checkbox, determine whether it is currently satisfied by the code and say so with file:line evidence. If NEXT_REQUIREMENTS is empty but some AC is still open, mark STATUS=blocked with BLOCKING_REASON pointing at the unreachable AC.
+```
+
+The agent returns:
+```
+STATUS: achieved | in_progress | blocked
+CONFIDENCE: 0–100
+NEXT_REQUIREMENTS: <bulleted spec, grouped for parallelism>
+EVIDENCE: <file:line citations>
+BLOCKING_REASON: <only when STATUS=blocked>
+```
+
+Routing:
+- `achieved` → skip Steps 3–8, jump straight to **Done-Achieved**. No new commit this iteration.
+- `blocked` → skip Steps 3–8, jump straight to **Done-Blocked**. No new commit.
+- `in_progress` → continue to Step 3.
+
+---
+
+### Step 3 — Demand-driven pre-consult (parallel)
+
+Scan `NEXT_REQUIREMENTS` text for domain triggers. For each triggered expert, spawn it **in one parallel message** alongside the others. If no trigger matches, skip Step 3 entirely.
+
+| Trigger (keyword or path pattern in NEXT_REQUIREMENTS) | Expert |
+|---|---|
+| "IPC", "Tauri command", "invoke", `src-tauri/src/commands.rs`, `src/lib/tauri-commands.ts`, `src/store/*` | `architect-expert` |
+| "React component", "hook", "Zustand", `src/components/`, `src/hooks/`, `src/store/` | `react-tauri-expert` |
+| "file read", "file write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `security-reviewer` |
+| "startup", "debounce", "throttle", "watcher", "large file", "render cost" | `performance-expert` |
+
+Each expert prompt:
+
+```
+I'm about to plan iteration <N> for <MODE> <ref>.
+
+Goal: <GOAL_FOR_ASSESSOR>
+Next requirements (assessor output):
+<NEXT_REQUIREMENTS>
+Evidence:
+<EVIDENCE>
+
+From your area of expertise:
+1. Key considerations for this iteration.
+2. Risks or pitfalls to watch for.
+3. Which files to modify and how.
+
+Cite file:line for every recommendation. Cite rule numbers from docs/*.md when a rule applies. If the plan looks sound, say so in one line.
+```
+
+Collect any guidance into a short `ADVISORY_SUMMARY`. If no expert was spawned, `ADVISORY_SUMMARY = "none — no expert domains triggered"`.
+
+---
+
+### Step 4 — Plan
+
+Spawn `general-purpose`:
+
+```
+Produce a comprehensive sprint plan for this iteration. Identify ALL changes needed to make the requested progress — do not artificially limit scope.
+
+Goal: <GOAL_FOR_ASSESSOR>
+Iteration: <N>/30
+Mode: <MODE>
+<Issue mode only:>
+Spec excerpt (the contract):
+<relevant sections of SPEC_MARKDOWN>
+Remaining acceptance criteria:
+<open AC bullets>
+<End.>
+Next requirements (assessor):
+<NEXT_REQUIREMENTS>
+Expert guidance:
+<ADVISORY_SUMMARY>
+
+Use the grouping in NEXT_REQUIREMENTS to organise the plan: independent groups run in parallel, dependent groups wait for their dependencies.
+
+For each group:
+- Files to change · exact changes · tests to write · dependencies on other groups
+- Local validation expected to pass
+- Acceptance-criteria items satisfied (issue mode only — cite spec text)
+
+Rate overall risk: low | medium | high.
+
+Non-negotiable completeness rules:
+- Every UI-visible behaviour change: browser e2e test in e2e/browser/ AND native e2e test in e2e/native/ if the scenario requires real file I/O or IPC (docs/test-strategy.md rules 4-5)
+- Every new Tauri command: update commands.rs + tauri-commands.ts + IPC mock in src/__mocks__/@tauri-apps/api/core.ts (docs/test-strategy.md rule 5)
+- Delete code made obsolete by this change in the same step
+- No TODO comments, no half-wired code, no workarounds
+
+Charter meta-principles (non-negotiable):
+- Rust-First with MVVM: Model = Rust (src-tauri/src/core/, commands.rs); ViewModel = src/lib/vm/ + src/hooks/ + src/store/; View = src/components/
+- Never Increase Engineering Debt: every iteration reduces or holds debt flat; close Gap markers in deep-dive docs where applicable
+- Zero Bug Policy: every fix ships with a regression test reproducing the original failure
+```
+
+Save the plan text as `PLAN`. Parse each group; label them `independent` or with their dependencies.
+
+**If `risk=high`**: spawn `architect-expert`:
+```
+Identify the specific risks in this plan and propose concrete mitigations so it can proceed safely.
+<Paste full PLAN here.>
+```
+Incorporate mitigations into a revised `PLAN` and continue. If the architect judges the approach fundamentally unsound, log `SKIPPED — architect rejected: <reason>` to the state file, go to Step 8 (skip 5–7), then advance iteration.
