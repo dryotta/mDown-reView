@@ -7,7 +7,7 @@ import {
 } from "@/lib/tauri-commands";
 import { info, error } from "@/logger";
 
-export interface UseCommentsResult {
+interface UseCommentsResult {
   threads: CommentThread[];
   comments: MatchedComment[];
   loading: boolean;
