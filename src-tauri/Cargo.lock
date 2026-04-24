@@ -2720,6 +2720,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "walkdir",
 ]

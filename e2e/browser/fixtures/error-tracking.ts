@@ -55,6 +55,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "get_file_comments") return [];
               if (cmd === "scan_review_files") return [];
               if (cmd === "update_watched_files") return undefined;
+              if (cmd === "check_update") return null;
+              if (cmd === "install_update") return null;
             }
             return result;
           }
@@ -63,6 +65,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "get_file_comments") return [];
           if (cmd === "scan_review_files") return [];
           if (cmd === "update_watched_files") return undefined;
+          if (cmd === "check_update") return null;
+          if (cmd === "install_update") return null;
           return null;
         },
       };

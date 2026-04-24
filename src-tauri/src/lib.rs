@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod core;
+pub mod update;
 pub mod watcher;
 
 use commands::LaunchArgsState;
@@ -102,6 +103,7 @@ pub fn run() {
             })
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::PendingUpdate(std::sync::Mutex::new(None)))
         .manage(watcher::WatcherState::new(sync_tx))
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
         .setup(|app| {
@@ -236,6 +238,8 @@ pub fn run() {
                 commands::compute_anchor_hash,
                 commands::get_unresolved_counts,
                 watcher::update_watched_files,
+                update::check_update,
+                update::install_update,
                 $($extra),*
             ]
         };

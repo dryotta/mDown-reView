@@ -78,14 +78,17 @@ interface WatcherSlice {
 
 // "error" is treated identically to "idle" by the banner (silent fallback); reserved for future telemetry
 export type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
+export type UpdateChannel = "stable" | "canary";
 
 interface UpdateSlice {
   updateStatus: UpdateStatus;
   updateVersion: string | null;
   updateProgress: number; // 0–100 during download
+  updateChannel: UpdateChannel;
   setUpdateStatus: (status: UpdateStatus) => void;
   setUpdateVersion: (version: string | null) => void;
   setUpdateProgress: (progress: number) => void;
+  setUpdateChannel: (channel: UpdateChannel) => void;
   dismissUpdate: () => void;
 }
 
@@ -203,9 +206,11 @@ export const useStore = create<Store>()(
       updateStatus: "idle",
       updateVersion: null,
       updateProgress: 0,
+      updateChannel: "stable" as UpdateChannel,
       setUpdateStatus: (status) => set({ updateStatus: status }),
       setUpdateVersion: (version) => set({ updateVersion: version }),
       setUpdateProgress: (progress) => set({ updateProgress: progress }),
+      setUpdateChannel: (channel) => set({ updateChannel: channel }),
       dismissUpdate: () => set({ updateStatus: "idle", updateVersion: null, updateProgress: 0 }),
 
       // Recent items
@@ -232,6 +237,7 @@ export const useStore = create<Store>()(
         recentItems: state.recentItems,
         tabs: state.tabs,
         activeTabPath: state.activeTabPath,
+        updateChannel: state.updateChannel,
       }),
       onRehydrateStorage: () => () => {
         queueMicrotask(() => {
@@ -270,8 +276,10 @@ export function useUpdateState() {
       updateStatus: s.updateStatus,
       updateVersion: s.updateVersion,
       updateProgress: s.updateProgress,
+      updateChannel: s.updateChannel,
       setUpdateStatus: s.setUpdateStatus,
       setUpdateProgress: s.setUpdateProgress,
+      setUpdateChannel: s.setUpdateChannel,
       dismissUpdate: s.dismissUpdate,
     }))
   );

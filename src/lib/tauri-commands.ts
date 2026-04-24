@@ -153,3 +153,16 @@ export const computeAnchorHash = (text: string): Promise<string> =>
 export const getUnresolvedCounts = (filePaths: string[]): Promise<Record<string, number>> =>
   invoke<Record<string, number>>("get_unresolved_counts", { filePaths });
 
+// ── Update channel commands ───────────────────────────────────────────────
+
+export interface UpdateInfo {
+  version: string;
+  body: string | null;
+}
+
+export const checkUpdate = (channel: string): Promise<UpdateInfo | null> =>
+  invoke<UpdateInfo | null>("check_update", { channel });
+
+export const installUpdate = (): Promise<void> =>
+  invoke<void>("install_update");
+

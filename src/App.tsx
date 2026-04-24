@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useStore, openFilesFromArgs } from "@/store";
 import { useShallow } from "zustand/shallow";
-import { getLaunchArgs } from "@/lib/tauri-commands";
+import { getLaunchArgs, checkUpdate } from "@/lib/tauri-commands";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useFileWatcher } from "@/hooks/useFileWatcher";
@@ -14,7 +14,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
-import type { Update } from "@tauri-apps/plugin-updater";
 import "@/styles/app.css";
 
 type Theme = "system" | "light" | "dark";
@@ -68,8 +67,7 @@ export default function App() {
   const addRecentItem = useStore((s) => s.addRecentItem);
 
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   // Connect Rust file watcher to frontend event pipeline
   useFileWatcher();
@@ -186,14 +184,12 @@ export default function App() {
   }, [handleOpenFile, handleOpenFolder, toggleCommentsPane]);
 
   const triggerUpdateCheck = useCallback(async () => {
-    const { setUpdateStatus, setUpdateVersion } = useStore.getState();
+    const { setUpdateStatus, setUpdateVersion, updateChannel } = useStore.getState();
     try {
       setUpdateStatus("checking");
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
-      if (update) {
-        setPendingUpdate(update);
-        setUpdateVersion(update.version);
+      const info = await checkUpdate(updateChannel);
+      if (info) {
+        setUpdateVersion(info.version);
         setUpdateStatus("available");
       } else {
         setUpdateStatus("idle");
@@ -302,7 +298,7 @@ export default function App() {
         </div>
       </div>
 
-      <UpdateBanner update={pendingUpdate} />
+      <UpdateBanner />
       </ErrorBoundary>
 
       <div className="main-area">

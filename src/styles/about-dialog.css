@@ -82,3 +82,46 @@
   border-radius: 4px;
   flex: 1;
 }
+
+.dialog-channel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialog-channel-select {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.dialog-channel-select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.dialog-channel-warning {
+  font-size: 12px;
+  color: var(--color-warning, #d4a017);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.canary-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--color-warning, #d4a017);
+  color: #000;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 8px;
+  vertical-align: middle;
+}

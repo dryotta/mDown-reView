@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { AboutDialog } from "../AboutDialog";
+import { useStore } from "@/store";
 
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
@@ -9,6 +10,7 @@ vi.mock("@/logger");
 vi.mock("@/lib/tauri-commands", () => ({
   getLogPath: vi.fn(),
   getAppVersion: vi.fn(),
+  checkUpdate: vi.fn().mockResolvedValue(null),
 }));
 
 import { getLogPath, getAppVersion } from "@/lib/tauri-commands";
@@ -112,5 +114,43 @@ describe("14.4 – AboutDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "×" }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("renders update channel dropdown defaulting to stable", async () => {
+    useStore.setState({ updateChannel: "stable" });
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+
+    const select = screen.getByLabelText("Update channel") as HTMLSelectElement;
+    expect(select).toBeInTheDocument();
+    expect(select.value).toBe("stable");
+  });
+
+  it("shows canary warning when canary is selected", async () => {
+    useStore.setState({ updateChannel: "canary" });
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+
+    expect(screen.getByText(/Canary builds are untested/)).toBeInTheDocument();
+  });
+
+  it("does not show canary warning when stable is selected", async () => {
+    useStore.setState({ updateChannel: "stable" });
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+
+    expect(screen.queryByText(/Canary builds are untested/)).not.toBeInTheDocument();
+  });
+
+  it("shows canary badge when version contains -canary", async () => {
+    mockGetAppVersion.mockResolvedValue("0.3.4-canary.42");
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+
+    expect(screen.getByText("canary")).toBeInTheDocument();
   });
 });
