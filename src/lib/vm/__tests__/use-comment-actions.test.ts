@@ -7,6 +7,7 @@ import {
   editComment as editCommentCmd,
   deleteComment as deleteCommentCmd,
   setCommentResolved,
+  computeAnchorHash,
 } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
 import { error as logError } from "@/logger";
@@ -24,6 +25,7 @@ vi.mock("@/lib/tauri-commands", () => ({
   editComment: vi.fn().mockResolvedValue(undefined),
   deleteComment: vi.fn().mockResolvedValue(undefined),
   setCommentResolved: vi.fn().mockResolvedValue(undefined),
+  computeAnchorHash: vi.fn().mockResolvedValue("auto-hash-123"),
 }));
 
 vi.mock("@/logger", () => ({
@@ -108,14 +110,78 @@ describe("useCommentActions", () => {
         );
       });
 
+      expect(computeAnchorHash).toHaveBeenCalledWith("code");
       expect(addCommentCmd).toHaveBeenCalledWith(
         "/test.md",
         "Test Author",
         "issue here",
-        anchor,
+        { line: 5, selected_text: "code", selected_text_hash: "auto-hash-123" },
         "issue",
         "high",
         "README.md",
+      );
+    });
+
+    it("auto-computes hash when anchor has selected_text but no selected_text_hash", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addComment(
+          "/test.md",
+          "comment",
+          { line: 10, selected_text: "some text" },
+        );
+      });
+
+      expect(computeAnchorHash).toHaveBeenCalledWith("some text");
+      expect(addCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "Test Author",
+        "comment",
+        { line: 10, selected_text: "some text", selected_text_hash: "auto-hash-123" },
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+
+    it("skips hash computation when selected_text_hash is already provided", async () => {
+      const { result } = renderHook(() => useCommentActions());
+      const anchor = { line: 5, selected_text: "code", selected_text_hash: "existing-hash" };
+
+      await act(async () => {
+        await result.current.addComment("/test.md", "note", anchor);
+      });
+
+      expect(computeAnchorHash).not.toHaveBeenCalled();
+      expect(addCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "Test Author",
+        "note",
+        anchor,
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+
+    it("skips hash computation when anchor has no selected_text", async () => {
+      const { result } = renderHook(() => useCommentActions());
+      const anchor = { line: 5 };
+
+      await act(async () => {
+        await result.current.addComment("/test.md", "note", anchor);
+      });
+
+      expect(computeAnchorHash).not.toHaveBeenCalled();
+      expect(addCommentCmd).toHaveBeenCalledWith(
+        "/test.md",
+        "Test Author",
+        "note",
+        anchor,
+        undefined,
+        undefined,
+        undefined,
       );
     });
 

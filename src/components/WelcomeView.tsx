@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
 import { useStore } from "@/store";
 import type { RecentItem } from "@/store";
-import { checkPathExists } from "@/lib/tauri-commands";
+import { useRecentItemStatus } from "@/hooks/useRecentItemStatus";
 import { basename, dirname } from "@/lib/path-utils";
 import "@/styles/welcome-view.css";
 
@@ -15,30 +14,7 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
   const openFile = useStore((s) => s.openFile);
   const setRoot = useStore((s) => s.setRoot);
   const addRecentItem = useStore((s) => s.addRecentItem);
-  const [pathStatus, setPathStatus] = useState<
-    Record<string, "file" | "dir" | "missing">
-  >({});
-
-  useEffect(() => {
-    let cancelled = false;
-    async function checkAll() {
-      const results: Record<string, "file" | "dir" | "missing"> = {};
-      await Promise.all(
-        recentItems.map(async (item) => {
-          try {
-            results[item.path] = await checkPathExists(item.path);
-          } catch {
-            results[item.path] = "missing";
-          }
-        }),
-      );
-      if (!cancelled) setPathStatus(results);
-    }
-    if (recentItems.length > 0) checkAll();
-    return () => {
-      cancelled = true;
-    };
-  }, [recentItems]);
+  const pathStatus = useRecentItemStatus(recentItems);
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const mod = isMac ? "⌘" : "Ctrl";

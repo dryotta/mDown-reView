@@ -1,7 +1,5 @@
 use sha2::{Digest, Sha256};
 
-use super::types::CommentAnchor;
-
 /// MRSF §6.2: max selected_text length
 pub const SELECTED_TEXT_MAX_LENGTH: usize = 4096;
 
@@ -11,43 +9,6 @@ pub fn compute_selected_text_hash(text: &str) -> String {
     hasher.update(text.as_bytes());
     let result = hasher.finalize();
     format!("{:x}", result)
-}
-
-/// Create a line-only anchor.
-pub fn create_line_anchor(line: u32) -> CommentAnchor {
-    CommentAnchor {
-        line,
-        end_line: None,
-        start_column: None,
-        end_column: None,
-        selected_text: None,
-        selected_text_hash: None,
-    }
-}
-
-/// Create a selection anchor with validated targeting fields.
-/// Truncates selected_text to 4096 chars per MRSF §6.2.
-/// Clamps end_line ≥ line and end_column ≥ start_column (same line).
-pub fn create_selection_anchor(
-    start_line: u32,
-    end_line: u32,
-    start_column: u32,
-    end_column: u32,
-    selected_text: &str,
-) -> CommentAnchor {
-    let (line, clamped_end_line, clamped_start_column, clamped_end_column) =
-        validate_targeting_fields(start_line, end_line, start_column, end_column);
-    let truncated = truncate_selected_text(selected_text);
-    let hash = compute_selected_text_hash(&truncated);
-
-    CommentAnchor {
-        line,
-        end_line: Some(clamped_end_line),
-        start_column: Some(clamped_start_column),
-        end_column: Some(clamped_end_column),
-        selected_text: Some(truncated),
-        selected_text_hash: Some(hash),
-    }
 }
 
 /// Truncate selected_text to SELECTED_TEXT_MAX_LENGTH chars.
@@ -80,6 +41,40 @@ pub fn validate_targeting_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::types::CommentAnchor;
+
+    fn create_line_anchor(line: u32) -> CommentAnchor {
+        CommentAnchor {
+            line,
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            selected_text: None,
+            selected_text_hash: None,
+        }
+    }
+
+    fn create_selection_anchor(
+        start_line: u32,
+        end_line: u32,
+        start_column: u32,
+        end_column: u32,
+        selected_text: &str,
+    ) -> CommentAnchor {
+        let (line, clamped_end_line, clamped_start_column, clamped_end_column) =
+            validate_targeting_fields(start_line, end_line, start_column, end_column);
+        let truncated = truncate_selected_text(selected_text);
+        let hash = compute_selected_text_hash(&truncated);
+
+        CommentAnchor {
+            line,
+            end_line: Some(clamped_end_line),
+            start_column: Some(clamped_start_column),
+            end_column: Some(clamped_end_column),
+            selected_text: Some(truncated),
+            selected_text_hash: Some(hash),
+        }
+    }
 
     #[test]
     fn sha256_known_value() {

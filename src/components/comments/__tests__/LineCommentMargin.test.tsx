@@ -30,13 +30,8 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
   useCommentActions: () => ({ addComment: mockAddComment }),
 }));
 
-// ── Mock computeAnchorHash ─────────────────────────────────────────────────
-vi.mock("@/lib/tauri-commands", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/tauri-commands")>("@/lib/tauri-commands");
-  return { ...actual, computeAnchorHash: vi.fn().mockResolvedValue("mock-hash-abc") };
-});
-
-import { computeAnchorHash } from "@/lib/tauri-commands";
+vi.mock("@/lib/tauri-commands");
+vi.mock("@tauri-apps/api/core");
 
 // ── Helper ─────────────────────────────────────────────────────────────────
 
@@ -226,18 +221,15 @@ describe("LineCommentMargin", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => {
-      expect(computeAnchorHash).toHaveBeenCalledWith("some source line text");
+      expect(mockAddComment).toHaveBeenCalledWith(
+        "/test/file.md",
+        "test comment",
+        {
+          line: 10,
+          selected_text: "some source line text",
+        },
+      );
     });
-
-    expect(mockAddComment).toHaveBeenCalledWith(
-      "/test/file.md",
-      "test comment",
-      {
-        line: 10,
-        selected_text: "some source line text",
-        selected_text_hash: "mock-hash-abc",
-      },
-    );
     expect(onCloseInput).toHaveBeenCalled();
   });
 });

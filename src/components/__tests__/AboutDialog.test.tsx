@@ -6,16 +6,18 @@ import { useStore } from "@/store";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
-// Mock tauri-commands to control getLogPath and getAppVersion
-vi.mock("@/lib/tauri-commands", () => ({
-  getLogPath: vi.fn(),
-  getAppVersion: vi.fn(),
-  checkUpdate: vi.fn().mockResolvedValue(null),
+// Mock useAboutInfo hook
+vi.mock("@/hooks/useAboutInfo", () => ({
+  useAboutInfo: vi.fn(),
 }));
 
-import { getLogPath, getAppVersion } from "@/lib/tauri-commands";
-const mockGetLogPath = getLogPath as ReturnType<typeof vi.fn>;
-const mockGetAppVersion = getAppVersion as ReturnType<typeof vi.fn>;
+import { useAboutInfo } from "@/hooks/useAboutInfo";
+const mockUseAboutInfo = vi.mocked(useAboutInfo);
+
+// Mock tauri-commands for checkUpdate (still used directly in component)
+vi.mock("@/lib/tauri-commands", () => ({
+  checkUpdate: vi.fn().mockResolvedValue(null),
+}));
 
 // Mock clipboard plugin
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
@@ -29,8 +31,7 @@ const LOG_PATH = "/home/user/.local/share/mdownreview/app.log";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetLogPath.mockResolvedValue(LOG_PATH);
-  mockGetAppVersion.mockResolvedValue("0.2.2");
+  mockUseAboutInfo.mockReturnValue({ version: "0.2.2", logPath: LOG_PATH });
 });
 
 // ─── 14.4: AboutDialog ───────────────────────────────────────────────────────
@@ -52,16 +53,14 @@ describe("14.4 – AboutDialog", () => {
   });
 
   it("shows 'Loading…' before log path resolves", () => {
-    // Return promises that never resolve in this test
-    mockGetLogPath.mockReturnValue(new Promise(() => {}));
-    mockGetAppVersion.mockReturnValue(new Promise(() => {}));
+    mockUseAboutInfo.mockReturnValue({ version: "", logPath: "" });
 
     render(<AboutDialog onClose={vi.fn()} />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
   it("shows 'Unavailable' when getLogPath rejects", async () => {
-    mockGetLogPath.mockRejectedValue(new Error("no path"));
+    mockUseAboutInfo.mockReturnValue({ version: "0.2.2", logPath: "Unavailable" });
 
     await act(async () => {
       render(<AboutDialog onClose={vi.fn()} />);
@@ -97,8 +96,7 @@ describe("14.4 – AboutDialog", () => {
   });
 
   it("'Copy path' button is disabled when logPath is empty", () => {
-    mockGetLogPath.mockReturnValue(new Promise(() => {}));
-    mockGetAppVersion.mockReturnValue(new Promise(() => {}));
+    mockUseAboutInfo.mockReturnValue({ version: "", logPath: "" });
 
     render(<AboutDialog onClose={vi.fn()} />);
 
@@ -146,7 +144,7 @@ describe("14.4 – AboutDialog", () => {
   });
 
   it("shows canary badge when version has a numeric pre-release suffix", async () => {
-    mockGetAppVersion.mockResolvedValue("0.3.4-2");
+    mockUseAboutInfo.mockReturnValue({ version: "0.3.4-2", logPath: LOG_PATH });
     await act(async () => {
       render(<AboutDialog onClose={vi.fn()} />);
     });
@@ -155,7 +153,7 @@ describe("14.4 – AboutDialog", () => {
   });
 
   it("does not show canary badge for a stable version", async () => {
-    mockGetAppVersion.mockResolvedValue("0.3.4");
+    mockUseAboutInfo.mockReturnValue({ version: "0.3.4", logPath: LOG_PATH });
     await act(async () => {
       render(<AboutDialog onClose={vi.fn()} />);
     });

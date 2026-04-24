@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { installUpdate } from "@/lib/tauri-commands";
+import { useUpdateActions } from "@/lib/vm/use-update-actions";
 import { useUpdateState } from "@/store";
 import "@/styles/update-banner.css";
 
@@ -19,6 +19,7 @@ export function UpdateBanner() {
     setUpdateProgress,
     dismissUpdate,
   } = useUpdateState();
+  const { install } = useUpdateActions();
 
   // Listen for progress events from Rust install_update command
   useEffect(() => {
@@ -45,13 +46,7 @@ export function UpdateBanner() {
   }
 
   const handleInstall = async () => {
-    setUpdateStatus("downloading");
-    try {
-      await installUpdate();
-    } catch {
-      setUpdateProgress(0);
-      setUpdateStatus("available");
-    }
+    await install();
   };
 
   const handleRestart = async () => {

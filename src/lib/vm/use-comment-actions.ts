@@ -6,6 +6,7 @@ import {
   editComment as editCommentCmd,
   deleteComment as deleteCommentCmd,
   setCommentResolved,
+  computeAnchorHash,
   type CommentAnchor,
 } from "@/lib/tauri-commands";
 import { error } from "@/logger";
@@ -52,11 +53,16 @@ export function useCommentActions(): UseCommentActionsResult {
       document?: string
     ) => {
       try {
+        let resolvedAnchor = anchor;
+        if (anchor?.selected_text && !anchor.selected_text_hash) {
+          const hash = await computeAnchorHash(anchor.selected_text);
+          resolvedAnchor = { ...anchor, selected_text_hash: hash };
+        }
         await addCommentCmd(
           filePath,
           authorName || "Anonymous",
           text,
-          anchor,
+          resolvedAnchor,
           commentType,
           severity,
           document

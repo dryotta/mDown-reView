@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { getAppVersion, getLogPath, checkUpdate } from "@/lib/tauri-commands";
+import { checkUpdate } from "@/lib/tauri-commands";
+import { useAboutInfo } from "@/hooks/useAboutInfo";
 import { useStore, type UpdateChannel } from "@/store";
 import { useShallow } from "zustand/shallow";
 import "@/styles/about-dialog.css";
@@ -10,8 +11,7 @@ interface Props {
 }
 
 export function AboutDialog({ onClose }: Props) {
-  const [version, setVersion] = useState<string>("");
-  const [logPath, setLogPath] = useState<string>("");
+  const { version, logPath } = useAboutInfo();
   const [copied, setCopied] = useState(false);
 
   const { updateChannel, setUpdateChannel } = useStore(
@@ -20,15 +20,6 @@ export function AboutDialog({ onClose }: Props) {
       setUpdateChannel: s.setUpdateChannel,
     }))
   );
-
-  useEffect(() => {
-    getAppVersion()
-      .then((v) => setVersion(v))
-      .catch(() => setVersion("unknown"));
-    getLogPath()
-      .then((path) => setLogPath(path))
-      .catch(() => setLogPath("Unavailable"));
-  }, []);
 
   const handleCopy = async () => {
     await writeText(logPath);

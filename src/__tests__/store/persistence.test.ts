@@ -28,6 +28,7 @@ function getPersistedSnapshot() {
     recentItems: state.recentItems,
     tabs: state.tabs,
     activeTabPath: state.activeTabPath,
+    updateChannel: state.updateChannel,
   };
 }
 
@@ -87,7 +88,7 @@ describe("persistence partialize contract", () => {
     const snapshot = getPersistedSnapshot();
     const keys = Object.keys(snapshot).sort();
     expect(keys).toEqual(
-      ["activeTabPath", "authorName", "autoReveal", "commentsPaneVisible", "expandedFolders", "folderPaneWidth", "recentItems", "root", "tabs", "theme"].sort()
+      ["activeTabPath", "authorName", "autoReveal", "commentsPaneVisible", "expandedFolders", "folderPaneWidth", "recentItems", "root", "tabs", "theme", "updateChannel"].sort()
     );
   });
 
