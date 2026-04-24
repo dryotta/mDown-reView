@@ -619,7 +619,8 @@ nav {
   margin-top: 0.4rem;
 }
 
-.why-unsigned {
+.why-unsigned,
+.why-smartscreen {
   max-width: 560px;
   margin: 1rem auto 0;
   padding: 0.75rem 1rem;
@@ -629,14 +630,17 @@ nav {
   font-size: 0.85rem;
   color: var(--text-secondary);
 }
-.why-unsigned summary {
+.why-unsigned summary,
+.why-smartscreen summary {
   cursor: pointer;
   font-weight: 600;
   color: var(--text);
   list-style: revert;
 }
-.why-unsigned[open] summary { margin-bottom: 0.6rem; }
-.why-unsigned p + p { margin-top: 0.6rem; }
+.why-unsigned[open] summary,
+.why-smartscreen[open] summary { margin-bottom: 0.6rem; }
+.why-unsigned p + p,
+.why-smartscreen p + p { margin-top: 0.6rem; }
 
 /* macOS-specific blocks: visible by default (no-JS fallback shows them),
    hidden once the platform detection script has tagged <body> as non-Mac.
@@ -646,6 +650,12 @@ body.is-win .dmg-walkthrough,
 body.is-win .why-unsigned,
 body.is-other .dmg-walkthrough,
 body.is-other .why-unsigned {
+  display: none;
+}
+
+/* Windows-specific: SmartScreen explainer is hidden on macOS / unknown. */
+body.is-mac .why-smartscreen,
+body.is-other .why-smartscreen {
   display: none;
 }
 

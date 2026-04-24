@@ -159,6 +159,22 @@
             </div>
           </div>
 
+          <details class="why-smartscreen">
+            <summary>Why does Windows show "Unrecognized app"?</summary>
+            <p>
+              Windows SmartScreen flags new executables that haven't built a reputation yet.
+              mdownreview is a free, open-source app and we don't pay for an EV code-signing
+              certificate (~$300+/year). On first launch, click <strong>"More info"</strong>
+              in the SmartScreen dialog, then <strong>"Run anyway"</strong>. The warning
+              disappears after a few launches as the app builds local trust.
+            </p>
+            <p>
+              The auto-updater verifies updates with our own <strong>minisign</strong>
+              signing key (independent of Microsoft's reputation system) so updates are
+              cryptographically authenticated.
+            </p>
+          </details>
+
           <details class="why-unsigned">
             <summary>Why isn't this app signed?</summary>
             <p>
@@ -266,6 +282,25 @@
         ? 'is-win'
         : 'is-other';
     document.body.classList.add(osClass);
+
+    // Move the "Recommended" badge to the platform-appropriate tab.
+    // Default markup keeps the badge on the Script tab (safer for non-Windows + no-JS).
+    // On Windows, manual download is the recommended path (no PowerShell execution-policy
+    // friction), so move the badge to the Download tab.
+    if (osClass === 'is-win') {
+      const scriptTabBtn = document.querySelector('.tab-btn[data-tab="script"]');
+      const downloadTabBtn = document.querySelector('.tab-btn[data-tab="download"]');
+      const existingBadge = scriptTabBtn?.querySelector('.badge-recommended');
+      if (existingBadge && downloadTabBtn) {
+        existingBadge.remove();
+        const badge = document.createElement('span');
+        badge.className = 'badge-recommended';
+        badge.title = 'Direct download — recommended on Windows. Single .zip file, no PowerShell execution policy issues.';
+        badge.textContent = 'Recommended';
+        downloadTabBtn.appendChild(document.createTextNode(' '));
+        downloadTabBtn.appendChild(badge);
+      }
+    }
 
     // Set platform label in Download tab
     if (detected && PLATFORM_LABELS[detected]) {

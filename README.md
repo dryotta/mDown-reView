@@ -16,34 +16,37 @@
 
 ## Install
 
-### Script install (recommended)
+### macOS
 
-**macOS**
+**Script (recommended)** — handles Gatekeeper quarantine and adds the CLI to your PATH automatically:
+
 ```bash
 curl -LsSf https://dryotta.github.io/mdownreview/install.sh | sh
 ```
 
-**Windows (PowerShell)**
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://dryotta.github.io/mdownreview/install.ps1 | iex"
-```
-
 > ⚠️ Pipes remote code into your shell — use manual download below if blocked by security policy.
 
-### Manual download
-
-Download the latest release for your platform from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest).
-
-| Platform | Architecture | Artifact |
-|----------|-------------|----------|
-| Windows  | x64 (Intel/AMD) | `mdownreview-x.x.x-windows-x64.zip` |
-| Windows  | ARM64 | `mdownreview-x.x.x-windows-arm64.zip` |
-| macOS    | Apple Silicon | `mdownreview-x.x.x-macos-arm64.dmg` |
-
-After dragging `mdownreview.app` to `/Applications`, clear the Gatekeeper quarantine:
+**Manual download** — grab `mdownreview-x.x.x-macos-arm64.dmg` from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest) and clear the Gatekeeper quarantine:
 
 ```bash
 xattr -d com.apple.quarantine /Applications/mdownreview.app
+```
+
+### Windows
+
+**Manual download (recommended)** — grab the matching `.zip` from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest):
+
+| Architecture | Filename |
+|---|---|
+| Windows x64 (Intel/AMD) | `mdownreview-x.x.x-windows-x64.zip` |
+| Windows ARM64 | `mdownreview-x.x.x-windows-arm64.zip` |
+
+Extract and run `mdownreview.exe`. SmartScreen may show "unrecognized app" — click "More info" → "Run anyway".
+
+**Script** (alternative — uses PowerShell, may need execution policy bypass):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://dryotta.github.io/mdownreview/install.ps1 | iex"
 ```
 
 ### CLI Tool
