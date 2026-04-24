@@ -64,8 +64,8 @@ The `.dmg` ships with a custom layout (`tauri.conf.json` `bundle.macOS.dmg`): 66
 
 `tauri.conf.json` `bundle.windows.nsis.installerHooks` points at `src-tauri/installer/installer-hooks.nsh`. Two macros, **HKCU only — no UAC**:
 
-- `NSIS_HOOK_POSTINSTALL` — uses the EnVar plugin (bundled with Tauri's NSIS distribution) to add `$INSTDIR` to `HKCU\Environment\PATH` (dedupe + 8191-char cap + `WM_SETTINGCHANGE` broadcast handled by the plugin), then writes folder context-menu keys under `HKCU\Software\Classes\Directory\shell` and `Directory\Background\shell`.
-- `NSIS_HOOK_PREUNINSTALL` — reverses both: `EnVar::DeleteValue` on PATH and `DeleteRegKey` on the two context-menu trees.
+- `NSIS_HOOK_POSTINSTALL` — uses stock NSIS (`ReadRegStr` / `WriteRegExpandStr` on `HKCU\Environment`, with a `WM_SETTINGCHANGE` broadcast) to add `$INSTDIR` to per-user `PATH`. A small private macro `MdrFilterPath` walks the `;`-separated tokens and drops any case-insensitive match of `$INSTDIR` before the new entry is appended, so re-installing on top of an existing install does not duplicate the entry. Then writes folder context-menu keys under `HKCU\Software\Classes\Directory\shell` and `Directory\Background\shell`. No NSIS plugins required (the Tauri-bundled `makensis` does not ship `EnVar`).
+- `NSIS_HOOK_PREUNINSTALL` — reverses both: re-uses `MdrFilterPath` to strip `$INSTDIR` from PATH (collapses runs of `;`; `DeleteRegValue` if the result would be empty rather than writing `""`), broadcasts `WM_SETTINGCHANGE`, and `DeleteRegKey` on the two context-menu trees.
 
 The folder context menu is *also* exposed via the `register_folder_context` IPC command (below) so the UI can offer it as an opt-in toggle independent of the installer; the two writers target identical registry paths so they're idempotent.
 
