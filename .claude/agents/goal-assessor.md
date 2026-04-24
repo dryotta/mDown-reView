@@ -70,7 +70,7 @@ For each criterion from Step 1, determine: **met** or **unmet**, with evidence (
 Write requirement specs for the **next meaningful sprint** toward the goal — a coherent body of work that delivers visible progress, not just the smallest possible next step. Rules:
 - **Fresh from scratch** — do not copy from prior iterations or cached backlogs
 - **Evidence-based** — every requirement cites the specific file:line that needs to change
-- **Sprint-sized** — target 3–8 files worth of changes. If a complete feature slice requires Rust + TypeScript + tests + e2e, include all of it. Do not split work that naturally belongs together across iterations.
+- **Cohesive, not capped** — include everything that naturally belongs together to deliver a complete, coherent improvement. There is no file limit. A large refactor touching 20 files is one sprint if those files form a single logical change. Split only when the work is genuinely independent and can ship separately without leaving the codebase in a half-finished state.
 - **Parallelisable** — group requirements by which can be implemented independently so parallel agents can work on them simultaneously. Label each group: `[Group A — independent]`, `[Group B — depends on A]`, etc.
 - **Testable** — each requirement includes what a passing test would assert
 
