@@ -66,3 +66,13 @@ max_iterations: 50
 - Goal assessor confidence: 78%. 6 groups identified, 4 implemented (A event chokepoint, C test gaps + extractions, D criterion benches, E HTML assets to Rust). Group B (stale doc citations) and Group F (test-isolation hardening) deferred to next iteration.
 - Fix attempts: 1 (post-review: HtmlPreviewView setResolving(false) when filePath becomes undefined, per react-tauri-expert).
 - Summary: Created src/lib/tauri-events.ts as typed event chokepoint (mirrors tauri-commands.ts); 6 hooks/VMs migrated to listenEvent; meta-test enforces single-source rule. Ported resolve-html-assets.ts (112 lines, TS) to src-tauri/src/core/html_assets.rs + Tauri command (+17 cargo tests, eliminated N+1 IPC roundtrips per asset). Extracted parseFrontmatter + formatStepsForDisplay into testable lib/ modules. Added 14 CommentableBlocks unit tests. Added Criterion benches for the 3 new parsers (parsers_bench.rs) with budgets in docs/performance.md.
+
+## Iteration 7 - PASSED
+- Commits: 7304131, b8bea40
+- ITER_BASE_SHA: 541e0f3
+- CI: pending (in progress at commit b8bea40)
+- Local tests: all 5 suites passed (lint, tsc, cargo 174=125+34+13+2 fuzzy moved, vitest 725, e2e 40)
+- Expert review: 4/4 (architect APPROVED, react-tauri APPROVED, performance APPROVED, test-gap BLOCKED then resolved with +18 tests).
+- Goal assessor confidence: 85%. 5 groups identified, 4 implemented (A Rust debt: emit_to('main')+matching split+with_sidecar_or_create, B doc citations refresh + meta-test, C test hygiene + iter6 follow-ups, D SourceLine + useApplyTheme extractions). Group E (MarkdownViewer audit) deferred.
+- Fix attempts: 1 (post-review: 18 new tests for SourceLine branches, doc-citation helpers + drift self-test, mutate_sidecar_or_create error path).
+- Summary: Window-scoped update emits (rule 4). Split core/matching.rs 415->284 by extracting fuzzy.rs. Refactored add_comment to share with_sidecar_or_create + mutate_sidecar_or_create helpers (pure inner fn unit-testable without AppHandle). Refreshed 12 stale citations in docs/architecture.md + new doc-citations meta-test. Centralized vi.mock('@tauri-apps/api/core') (removed duplicate, replaced 2 inline factories with bare auto-mocks) + new ipc-mock-hygiene meta-test. Added tauri-events rejection-path test, html_assets edge tests, event-chokepoint negative self-test. Extracted SourceLine.tsx (SourceView 245->212) and useApplyTheme.ts (App.tsx 206->191).
