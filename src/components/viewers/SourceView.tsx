@@ -48,7 +48,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     handleAddSelectionComment,
     clearSelection,
   } = useSelectionToolbar();
-  const { collapsedLines, foldStartMap, toggleFold } = useFolding(lines, filePath);
+  const { collapsedLines, foldStartMap, toggleFold } = useFolding(content, filePath);
 
   // Reset selection when file changes
   useEffect(() => { clearSelection(); }, [filePath, clearSelection]);

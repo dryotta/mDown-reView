@@ -135,4 +135,27 @@ describe("useSearch", () => {
     });
     expect(searchInDocument).toHaveBeenCalledWith("test content", "test");
   });
+
+  // Regression: defensive guard against null/undefined IPC results.
+  // Without the Array.isArray guard in useSearch, matches.length / forEach
+  // would throw at consumers (e.g. SourceView's matchesByLine useMemo).
+  it("returns empty matches when IPC resolves null", async () => {
+    vi.mocked(searchInDocument).mockResolvedValueOnce(
+      null as unknown as Array<{ lineIndex: number; startCol: number; endCol: number }>
+    );
+    const { result } = renderHook(() => useSearch("any content"));
+    act(() => result.current.setQuery("foo"));
+    await act(async () => {});
+    expect(result.current.matches).toEqual([]);
+  });
+
+  it("returns empty matches when IPC resolves undefined", async () => {
+    vi.mocked(searchInDocument).mockResolvedValueOnce(
+      undefined as unknown as Array<{ lineIndex: number; startCol: number; endCol: number }>
+    );
+    const { result } = renderHook(() => useSearch("any content"));
+    act(() => result.current.setQuery("foo"));
+    await act(async () => {});
+    expect(result.current.matches).toEqual([]);
+  });
 });
