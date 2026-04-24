@@ -28,7 +28,7 @@ jobs:
         id: version
         run: |
           BASE=$(node -p "require('./package.json').version")
-          VERSION="${BASE}-canary.${GITHUB_RUN_NUMBER}"
+          VERSION="${BASE}-${GITHUB_RUN_NUMBER}"
           TAG="canary-${GITHUB_RUN_NUMBER}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
