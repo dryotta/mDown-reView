@@ -21,3 +21,11 @@ max_iterations: 30
 - Expert review: 6/6 approved, no blocks
 - Goal assessor confidence: 78%
 - Summary: Removed dead compute_document_path function (25 lines), unused TEXT_MAX_LENGTH constant, and 8 associated integration tests. Net -83 lines.
+
+## Iteration 3 — PASSED
+- Branch: auto-improve/loop-3-remove-dead-vm-barrel
+- PR: https://github.com/dryotta/mdownreview/pull/47
+- CI: passed (Test Linux, Build macOS-arm64, Build windows-x64)
+- Expert review: 6/6 approved; architect expert noted future iterations should tackle more substantial Rust-ward migration
+- Goal assessor confidence: 90%
+- Summary: Deleted dead vm barrel file (src/lib/vm/index.ts), un-exported UseCommentsResult and UseCommentActionsResult interfaces. Net -6 lines.
