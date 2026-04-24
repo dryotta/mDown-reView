@@ -36,6 +36,7 @@ function makeComment(overrides: Partial<MatchedComment> = {}): MatchedComment {
     text: "This is a comment",
     resolved: false,
     line: 1,
+    matchedLineNumber: 1,
     isOrphaned: false,
     ...overrides,
   };
