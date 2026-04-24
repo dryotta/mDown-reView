@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useStore } from "@/store/index";
-import type { UpdateStatus, UpdateChannel } from "@/store/index";
+import type { UpdateStatus } from "@/store/index";
 
 const initialState = useStore.getState();
 
