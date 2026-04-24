@@ -118,35 +118,19 @@ jobs:
         shell: bash
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
 
-      - name: Build CLI binary
+      - name: Stage CLI binary (build + copy to externalBin path)
         shell: bash
         run: |
           if [ -n "${{ matrix.tauri_args }}" ]; then
-            # Extract target from tauri_args (e.g. "--target aarch64-pc-windows-msvc")
             TARGET=$(echo "${{ matrix.tauri_args }}" | grep -oP '(?<=--target\s)\S+' || true)
             if [ -n "$TARGET" ]; then
-              cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml --target "$TARGET"
+              node scripts/stage-cli.mjs --release --target "$TARGET"
             else
-              cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml
+              node scripts/stage-cli.mjs --release
             fi
           else
-            cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml
+            node scripts/stage-cli.mjs --release
           fi
-
-      - name: Stage CLI for Tauri externalBin
-        shell: bash
-        run: |
-          mkdir -p src-tauri/binaries
-          if [[ "${{ matrix.os }}" == windows-* ]]; then
-            EXT=".exe"
-          else
-            EXT=""
-          fi
-          src=$(find ${{ matrix.target_dir }} -maxdepth 1 -name "mdownreview-cli${EXT}" 2>/dev/null | head -1)
-          [ -z "$src" ] && { echo "::error::CLI binary not found at ${{ matrix.target_dir }}/mdownreview-cli${EXT}"; exit 1; }
-          dest="src-tauri/binaries/mdownreview-cli-${{ matrix.rust_target }}${EXT}"
-          cp "$src" "$dest"
-          echo "Staged $src -> $dest"
 
       - name: Build Tauri app
         shell: bash
