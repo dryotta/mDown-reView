@@ -57,6 +57,7 @@ fn bench_get_file_comments(c: &mut Criterion) {
                 comment_type: None,
                 severity: None,
                 reply_to: None,
+                ..Default::default()
             }
         })
         .collect();

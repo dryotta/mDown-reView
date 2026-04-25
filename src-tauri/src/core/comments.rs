@@ -129,6 +129,7 @@ pub fn create_comment(
         comment_type: comment_type.map(|s| s.to_string()),
         severity: severity.map(|s| s.to_string()),
         reply_to: None,
+        ..Default::default()
     }
 }
 
@@ -155,6 +156,7 @@ pub fn create_reply(
         comment_type: None,
         severity: None,
         reply_to: Some(parent.id.clone()),
+        ..Default::default()
     }
 }
 
@@ -223,6 +225,7 @@ mod tests {
             comment_type: None,
             severity: None,
             reply_to: None,
+            ..Default::default()
         }
     }
 
@@ -244,6 +247,7 @@ mod tests {
             comment_type: None,
             severity: None,
             reply_to: reply_to.map(|s| s.to_string()),
+            ..Default::default()
         }
     }
 

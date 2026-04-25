@@ -50,6 +50,7 @@ fn synthetic_comments(lines: &[String], count: usize, stride: usize) -> Vec<Mrsf
                 comment_type: None,
                 severity: None,
                 reply_to: None,
+                ..Default::default()
             }
         })
         .collect()

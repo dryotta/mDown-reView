@@ -1,6 +1,6 @@
 //! Comment thread mutation commands (sidecar reads, writes, anchor hashing).
 
-use crate::core::types::{CommentAnchor, CommentThread, MrsfSidecar};
+use crate::core::types::{CommentAnchor, CommentThread, MrsfSidecar, MRSF_VERSION_WRITE};
 use tauri::Emitter;
 
 /// Payload emitted to the frontend after a mutation command modifies a sidecar.
@@ -40,7 +40,7 @@ pub fn mutate_sidecar_or_create(
     let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| MrsfSidecar {
-            mrsf_version: "1.0".to_string(),
+            mrsf_version: MRSF_VERSION_WRITE.to_string(),
             document: document_default.unwrap_or_else(|| {
                 std::path::Path::new(file_path)
                     .file_name()

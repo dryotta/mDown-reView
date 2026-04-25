@@ -78,6 +78,7 @@ mod tests {
                 comment_type: None,
                 severity: None,
                 reply_to: reply_to.map(|s| s.to_string()),
+                ..Default::default()
             },
             matched_line_number: 1,
             is_orphaned: false,

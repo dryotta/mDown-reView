@@ -184,6 +184,7 @@ mod tests {
             comment_type: None,
             severity: None,
             reply_to: None,
+            ..Default::default()
         }
     }
 

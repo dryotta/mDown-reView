@@ -75,6 +75,7 @@ fn make_mrsf_comment(id: &str) -> MrsfComment {
         comment_type: Some("suggestion".to_string()),
         severity: Some("high".to_string()),
         reply_to: None,
+        ..Default::default()
     }
 }
 
@@ -141,7 +142,7 @@ fn save_and_load_mrsf_yaml() {
 
     // Round-trip via load
     let loaded = load_sidecar(&file_path).unwrap().unwrap();
-    assert_eq!(loaded.mrsf_version, "1.0");
+    assert_eq!(loaded.mrsf_version, "1.1");
     assert_eq!(loaded.document, "test.md");
     assert_eq!(loaded.comments.len(), 2);
     assert_eq!(loaded.comments[0].id, "c1");
@@ -450,7 +451,7 @@ fn mutate_sidecar_or_create_creates_first_comment_sidecar() {
     assert_eq!(loaded.comments.len(), 1);
     assert_eq!(loaded.comments[0].id, "first-comment");
     assert_eq!(loaded.document, "doc.md");
-    assert_eq!(loaded.mrsf_version, "1.0");
+    assert_eq!(loaded.mrsf_version, "1.1");
 }
 
 #[test]

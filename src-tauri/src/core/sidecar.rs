@@ -1,4 +1,4 @@
-use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
+use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar, MRSF_VERSION_WRITE};
 use std::fmt;
 use std::path::Path;
 
@@ -79,7 +79,7 @@ pub fn save_sidecar(
     }
 
     let payload = MrsfSidecar {
-        mrsf_version: "1.0".to_string(),
+        mrsf_version: MRSF_VERSION_WRITE.to_string(),
         document: document.to_string(),
         comments: comments.to_vec(),
     };
@@ -211,6 +211,7 @@ mod tests {
             comment_type: None,
             severity: None,
             reply_to: None,
+            ..Default::default()
         }
     }
 
@@ -280,6 +281,23 @@ comments:
         let content = std::fs::read_to_string(&sidecar_path).unwrap();
         assert!(content.contains("mrsf_version"));
         assert!(content.contains("c1"));
+    }
+
+    #[test]
+    fn save_sidecar_emits_v1_1() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("test.md");
+        std::fs::write(&file_path, "# Test").unwrap();
+
+        let comments = vec![sample_comment("c1")];
+        save_sidecar(file_path.to_str().unwrap(), "test.md", &comments).unwrap();
+
+        let sidecar_path = tmp.path().join("test.md.review.yaml");
+        let content = std::fs::read_to_string(&sidecar_path).unwrap();
+        // Reload the YAML and verify the writer set v1.1.
+        let reloaded: crate::core::types::MrsfSidecar =
+            serde_yaml_ng::from_str(&content).unwrap();
+        assert_eq!(reloaded.mrsf_version, "1.1");
     }
 
     #[test]
