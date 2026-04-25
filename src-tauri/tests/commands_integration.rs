@@ -197,6 +197,67 @@ fn save_sidecar_empty_is_noop_when_no_sidecar() {
     );
 }
 
+/// C1 (iter-5 forward fix): the wire-side anchor enum used by `add_comment`
+/// must accept the tagged `{ kind: "file" }` shape (not just legacy flat
+/// `{ line: N }`), and a comment created with that shape must round-trip
+/// through the sidecar with `Anchor::File`. Previously the IPC param was
+/// typed `Option<CommentAnchor>` (line required) so file-anchored comments
+/// silently failed deserialisation and the renderer's `.catch(() => {})`
+/// hid the failure.
+#[test]
+fn add_comment_accepts_file_kind_anchor() {
+    use mdown_review_lib::commands::{mutate_sidecar_or_create, NewCommentAnchor};
+    use mdown_review_lib::core::types::Anchor;
+
+    // 1. The wire enum deserialises `{ "kind": "file" }`.
+    let parsed: NewCommentAnchor =
+        serde_json::from_value(serde_json::json!({ "kind": "file" })).expect("file-anchor JSON");
+    let (canonical, flat) = parsed.into_anchor_pair();
+    assert!(matches!(canonical, Anchor::File));
+    assert!(
+        flat.is_none(),
+        "File anchor must not produce flat line fields"
+    );
+
+    // 2. End-to-end via the same sidecar helper add_comment uses.
+    let dir = tempfile::tempdir().unwrap();
+    let file_path_buf = dir.path().join("doc.md");
+    std::fs::write(&file_path_buf, "alpha\nbeta\n").unwrap();
+    let file_path = file_path_buf.to_str().unwrap().to_string();
+
+    mutate_sidecar_or_create(&file_path, Some("doc.md".into()), |sidecar| {
+        let mut c = MrsfComment {
+            id: "file-anchored-1".into(),
+            author: "Tester".into(),
+            timestamp: "2026-04-25T12:00:00Z".into(),
+            text: "high-level file note".into(),
+            resolved: false,
+            anchor: canonical.clone(),
+            ..Default::default()
+        };
+        // Mirror add_comment's flat-field clearing for non-Line anchors.
+        c.line = None;
+        sidecar.comments.push(c);
+        Ok(())
+    })
+    .unwrap();
+
+    // 3. get_file_comments_inner returns the comment with Anchor::File.
+    let threads =
+        mdown_review_lib::commands::get_file_comments_inner(&file_path).expect("get_file_comments");
+    assert_eq!(threads.len(), 1, "expected one file-anchored thread");
+    let root = &threads[0].root.comment;
+    assert!(
+        matches!(root.anchor, Anchor::File),
+        "round-tripped anchor must be Anchor::File, got {:?}",
+        root.anchor
+    );
+    assert!(
+        root.line.is_none(),
+        "file-anchored comments must not carry a flat line value"
+    );
+}
+
 #[test]
 fn load_mrsf_json_fallback() {
     let dir = tempfile::tempdir().unwrap();

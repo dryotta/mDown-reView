@@ -41,7 +41,7 @@ Binary files are routed by `read_text_file` returning the sentinel error `binary
 
 - **Router:** `src/components/viewers/ViewerRouter.tsx`
 - **Concrete viewers:** `src/components/viewers/{MarkdownViewer,SourceView,EnhancedViewer,MermaidView,JsonTreeView,CsvTableView,HtmlPreviewView,KqlPlanView,ImageViewer,BinaryPlaceholder,HexView,TooLargePlaceholder,DeletedFileViewer}.tsx`
-- **Markdown helpers:** `src/components/viewers/markdown/{sanitizeSchema,rehype-footnote-prefix,rehype-katex-style,RemoteImagePlaceholder,useImgResolver,CommentableBlocks}.tsx`
+- **Markdown helpers:** `src/components/viewers/markdown/{sanitizeSchema,rehype-footnote-prefix,rehype-katex-style,RemoteImagePlaceholder,useImgResolver,CommentableBlocks,MarkdownComponentsMap,MarkdownInteractionLayer}.tsx`. `MarkdownViewer.tsx` is the lean shell (state + scroll-to-line wiring); `MarkdownComponentsMap.tsx` returns the memoised `components`/`remarkPlugins`/`rehypePlugins` triple consumed by `<ReactMarkdown>`; `MarkdownInteractionLayer.tsx` bridges per-block click/hover events to the comment store; `CommentableBlocks.tsx` defines the per-block `+` gutter button and the popover that hosts inline threads. The split was performed in iter 5 of #71 to drop `MarkdownViewer.tsx` from 454 → 306 LOC and put each concern under the 400-line architecture rule (rule 23).
 - **Overlays:** `src/components/viewers/{TableOfContents,SearchBar,ViewerToolbar,FrontmatterBlock,SkeletonLoader,ReadingWidthHandle}.tsx`
 - **State:** `src/store/viewerPrefs.ts` (per-document remote-image allowance — session-only — and per-filetype zoom — persisted via the rule-15 allowlist)
 - **Hooks:** `src/hooks/{useFileContent,useSourceHighlighting,useFolding,useScrollToLine,useSearch,useZoom,useGlobalShortcuts}.ts`

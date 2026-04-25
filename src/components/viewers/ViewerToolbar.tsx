@@ -83,10 +83,11 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
         <button
           className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
           onClick={onCommentOnFile}
-          title="Comment on file"
-          aria-label="Comment on file"
+          title="Comment on file (Ctrl+Shift+M)"
+          aria-label="Comment on file (Ctrl+Shift+M)"
         >
-          💬+
+          <span aria-hidden="true">💬</span>
+          <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
         </button>
       )}
       {trailing}

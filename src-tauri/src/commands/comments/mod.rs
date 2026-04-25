@@ -1,13 +1,18 @@
 //! Comment thread mutation commands (sidecar reads, writes, anchor hashing).
 //!
-//! Split into 4 submodules for the 400-LOC budget (architecture rule 23):
+//! Split into 5 submodules for the 400-LOC budget (architecture rule 23):
 //! - `mod.rs` — workspace guard + CRUD entry points
 //! - `badges.rs` — `get_file_badges`
 //! - `export.rs` — `export_review_summary`
+//! - `get.rs` — `get_file_comments` (typed-anchor dispatch + matching)
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
 use crate::core::mrsf_version::MRSF_VERSION_DEFAULT;
-use crate::core::types::{CommentAnchor, CommentThread, MrsfComment, MrsfSidecar};
+use crate::core::types::{
+    Anchor, CommentAnchor, CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor,
+    JsonPathAnchor, MrsfSidecar, WordRangePayload,
+};
+use serde::Deserialize;
 use std::path::Path;
 use tauri::{Emitter, State};
 
@@ -15,10 +20,12 @@ use crate::watcher::WatcherState;
 
 pub mod badges;
 pub mod export;
+pub mod get;
 pub mod update;
 
 pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
 pub use export::{export_review_summary, export_review_summary_inner};
+pub use get::{get_file_comments, get_file_comments_inner};
 pub use update::{update_comment, update_comment_apply, CommentPatch};
 
 /// Payload emitted to the frontend after a mutation command modifies a sidecar.
@@ -116,112 +123,108 @@ fn with_sidecar_or_create(
     Ok(())
 }
 
-/// Combined hot-path: load sidecar → match to file lines → build threads.
-/// Single IPC call for the GUI's most common operation.
-///
-/// Comments are partitioned by anchor variant: `Line`/`File` go through the
-/// existing `match_comments` batch algorithm (line-targeting heuristics);
-/// typed anchors (CSV cell, JSON path, HTML range/element, image rect,
-/// word range) are dispatched through [`crate::core::anchors::resolve_anchor`]
-/// against a single shared [`crate::core::anchors::LazyParsedDoc`] so the
-/// file is parsed at most once per call (lazily, only for the
-/// representations the present anchors actually need).
-///
-/// Workspace-allowlisted via [`enforce_workspace_path`] (advisory #5 / iter-4
-/// security blocker S2): rejects paths the user has not opened so a renderer
-/// cannot probe arbitrary files. The file body itself is read with a 10 MB
-/// cap (matching `read_text_file` and `SIDECAR_MAX_BYTES`) — anything larger
-/// degrades silently to empty bytes so all comments orphan, identical to the
-/// `NotFound` branch.
-#[tauri::command]
-pub fn get_file_comments(
-    state: State<'_, WatcherState>,
-    file_path: String,
-) -> Result<Vec<CommentThread>, String> {
-    enforce_workspace_path(&state, &file_path)?;
-    get_file_comments_inner(&file_path)
+// `get_file_comments` lives in [`get`] (split out to keep this file under
+// the architecture rule 23 LOC budget). Re-exported above so the IPC
+// registration in `lib.rs` stays unchanged.
+
+/// Wire-format anchor for `add_comment`. Accepts BOTH the legacy flat
+/// `{ line, ... }` shape used by line-anchored composers and the tagged
+/// `{ kind: "...", ... }` shape introduced for file-level + typed
+/// anchors (Group A/B). Untagged so the JS chokepoint (`addComment` in
+/// `lib/tauri-commands.ts`) does not have to convert.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum NewCommentAnchor {
+    Tagged(TaggedNewAnchor),
+    Legacy(CommentAnchor),
 }
 
-/// Pure helper for [`get_file_comments`]. Skips the workspace guard so
-/// integration tests can exercise the matcher / typed-anchor path without
-/// fabricating a `State<'_, WatcherState>`. The IPC layer must call the
-/// `#[tauri::command]` wrapper above, never this function directly.
-pub fn get_file_comments_inner(file_path: &str) -> Result<Vec<CommentThread>, String> {
-    use crate::core::anchors::{resolve_anchor, LazyParsedDoc, MatchOutcome};
-    use crate::core::types::{Anchor, MatchedComment};
+/// Tagged variant of [`NewCommentAnchor`]. Mirrors the TS `Anchor` union
+/// in `src/types/comments.ts` — discriminator is `kind`, payload fields
+/// are flattened alongside it (internally tagged).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaggedNewAnchor {
+    Line {
+        line: u32,
+        #[serde(default)]
+        end_line: Option<u32>,
+        #[serde(default)]
+        start_column: Option<u32>,
+        #[serde(default)]
+        end_column: Option<u32>,
+        #[serde(default)]
+        selected_text: Option<String>,
+        #[serde(default)]
+        selected_text_hash: Option<String>,
+    },
+    File,
+    ImageRect(ImageRectAnchor),
+    CsvCell(CsvCellAnchor),
+    JsonPath(JsonPathAnchor),
+    HtmlRange(HtmlRangeAnchor),
+    HtmlElement(HtmlElementAnchor),
+    WordRange(WordRangePayload),
+}
 
-    let sidecar = crate::core::sidecar::load_sidecar(file_path).map_err(|e| e.to_string())?;
-    let comments = match sidecar {
-        Some(s) => s.comments,
-        None => return Ok(vec![]),
-    };
-    if comments.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Read raw bytes once with a 10 MB cap (security blocker S1: docs/security.md
-    // rule 1 — every fs read must be bounded). NotFound (deleted/renamed),
-    // over-cap, and other errors all silently degrade to empty bytes so all
-    // comments orphan; cause is logged.
-    const MAX_BYTES: usize = 10 * 1024 * 1024;
-    let bytes = match std::fs::File::open(file_path) {
-        Ok(f) => {
-            use std::io::Read;
-            let mut buf = Vec::new();
-            match f.take((MAX_BYTES + 1) as u64).read_to_end(&mut buf) {
-                Ok(_) if buf.len() > MAX_BYTES => {
-                    tracing::warn!(
-                        "get_file_comments: {file_path} exceeds {MAX_BYTES}-byte cap; orphaning all comments"
-                    );
-                    Vec::new()
-                }
-                Ok(_) => buf,
-                Err(e) => {
-                    tracing::warn!("Could not read {file_path} for comment matching: {e}");
-                    Vec::new()
-                }
+impl NewCommentAnchor {
+    /// Convert into the canonical in-memory [`Anchor`] enum + a legacy
+    /// flat [`CommentAnchor`] (used by `create_comment` to populate the
+    /// MrsfComment's flat line fields). For non-Line variants, the flat
+    /// fields are left as the default — callers must not rely on them.
+    /// Exposed `pub` for integration tests of `add_comment`'s anchor
+    /// dispatch (the `#[tauri::command]` itself can't be invoked outside
+    /// a Tauri runtime).
+    pub fn into_anchor_pair(self) -> (Anchor, Option<CommentAnchor>) {
+        match self {
+            NewCommentAnchor::Legacy(c) => {
+                let anchor = Anchor::Line {
+                    line: c.line,
+                    end_line: c.end_line,
+                    start_column: c.start_column,
+                    end_column: c.end_column,
+                    selected_text: c.selected_text.clone(),
+                    selected_text_hash: c.selected_text_hash.clone(),
+                };
+                (anchor, Some(c))
             }
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => {
-            tracing::warn!("Could not open {file_path} for comment matching: {e}");
-            Vec::new()
-        }
-    };
-    let doc = LazyParsedDoc::new(bytes);
-
-    let mut line_or_file: Vec<MrsfComment> = Vec::new();
-    let mut typed: Vec<MrsfComment> = Vec::new();
-    for c in comments {
-        match c.anchor {
-            Anchor::Line { .. } | Anchor::File => line_or_file.push(c),
-            _ => typed.push(c),
+            NewCommentAnchor::Tagged(TaggedNewAnchor::Line {
+                line,
+                end_line,
+                start_column,
+                end_column,
+                selected_text,
+                selected_text_hash,
+            }) => {
+                let flat = CommentAnchor {
+                    line,
+                    end_line,
+                    start_column,
+                    end_column,
+                    selected_text: selected_text.clone(),
+                    selected_text_hash: selected_text_hash.clone(),
+                };
+                let anchor = Anchor::Line {
+                    line,
+                    end_line,
+                    start_column,
+                    end_column,
+                    selected_text,
+                    selected_text_hash,
+                };
+                (anchor, Some(flat))
+            }
+            NewCommentAnchor::Tagged(TaggedNewAnchor::File) => (Anchor::File, None),
+            NewCommentAnchor::Tagged(TaggedNewAnchor::ImageRect(p)) => (Anchor::ImageRect(p), None),
+            NewCommentAnchor::Tagged(TaggedNewAnchor::CsvCell(p)) => (Anchor::CsvCell(p), None),
+            NewCommentAnchor::Tagged(TaggedNewAnchor::JsonPath(p)) => (Anchor::JsonPath(p), None),
+            NewCommentAnchor::Tagged(TaggedNewAnchor::HtmlRange(p)) => (Anchor::HtmlRange(p), None),
+            NewCommentAnchor::Tagged(TaggedNewAnchor::HtmlElement(p)) => {
+                (Anchor::HtmlElement(p), None)
+            }
+            NewCommentAnchor::Tagged(TaggedNewAnchor::WordRange(p)) => (Anchor::WordRange(p), None),
         }
     }
-
-    // Line/File: existing line-targeting heuristics. Skip materializing
-    // `doc.lines()` entirely when there are no Line/File anchors — typed-only
-    // sidecars on multi-MB files do not need the line-split cache, and
-    // populating it would be the dominant cost (perf-expert iter-4 finding).
-    let mut matched = if line_or_file.is_empty() {
-        Vec::new()
-    } else {
-        let lines_str: Vec<&str> = doc.lines().iter().map(String::as_str).collect();
-        crate::core::matching::match_comments(&line_or_file, &lines_str)
-    };
-
-    // Typed anchors: per-comment dispatch with lazily-cached file parses.
-    for c in typed {
-        let outcome = resolve_anchor(&c.anchor, &doc);
-        matched.push(MatchedComment {
-            comment: c,
-            matched_line_number: 0,
-            is_orphaned: matches!(outcome, MatchOutcome::Orphan),
-            anchored_text: None,
-        });
-    }
-
-    Ok(crate::core::threads::group_into_threads(&matched))
 }
 
 /// Create a new comment, save to sidecar.
@@ -238,19 +241,46 @@ pub fn add_comment(
     file_path: String,
     author: String,
     text: String,
-    anchor: Option<CommentAnchor>,
+    anchor: Option<NewCommentAnchor>,
     comment_type: Option<String>,
     severity: Option<String>,
     document: Option<String>,
 ) -> Result<(), String> {
     enforce_workspace_path(&state, &file_path)?;
-    let comment = crate::core::comments::create_comment(
+    // Convert wire anchor → (canonical Anchor, optional flat legacy fields).
+    // For Line/Legacy we pass the flat shape into `create_comment` so the
+    // MrsfComment's legacy `line`/`selected_text` fields stay populated.
+    // For File/typed anchors we override `comment.anchor` after the fact —
+    // the flat fields stay None so downstream readers don't mistake a
+    // file-anchored comment for a line-1 one.
+    let (canonical, flat) = match anchor {
+        Some(a) => {
+            let (anc, flat) = a.into_anchor_pair();
+            (Some(anc), flat)
+        }
+        None => (None, None),
+    };
+    let mut comment = crate::core::comments::create_comment(
         &author,
         &text,
-        anchor,
+        flat,
         comment_type.as_deref(),
         severity.as_deref(),
     );
+    if let Some(canonical) = canonical {
+        // Non-Line canonical anchors override the create_comment default.
+        // For file/typed variants, also clear the flat line shadow so the
+        // resulting MrsfComment is internally consistent.
+        if !matches!(canonical, Anchor::Line { .. }) {
+            comment.line = None;
+            comment.end_line = None;
+            comment.start_column = None;
+            comment.end_column = None;
+            comment.selected_text = None;
+            comment.selected_text_hash = None;
+        }
+        comment.anchor = canonical;
+    }
     with_sidecar_or_create(&app, &file_path, document, |sidecar| {
         sidecar.comments.push(comment);
         Ok(())
@@ -334,98 +364,4 @@ pub fn delete_comment(
 #[tauri::command]
 pub fn compute_anchor_hash(text: String) -> String {
     crate::core::anchors::compute_selected_text_hash(&text)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::get_file_comments_inner;
-    use crate::core::anchors::LINES_INIT_COUNT;
-    use crate::core::sidecar::save_sidecar;
-    use crate::core::types::{Anchor, HtmlElementAnchor, ImageRectAnchor, MrsfComment};
-
-    fn typed_comment(id: &str, anchor: Anchor) -> MrsfComment {
-        MrsfComment {
-            id: id.into(),
-            author: "Test User (test)".into(),
-            timestamp: "2026-04-20T12:00:00-07:00".into(),
-            text: "typed".into(),
-            resolved: false,
-            anchor,
-            ..Default::default()
-        }
-    }
-
-    /// D1 perf guard: a sidecar containing ONLY typed anchors (no Line/File)
-    /// must NOT materialize `LazyParsedDoc::lines()`  the per-line UTF-8
-    /// split is the dominant cost on multi-MB files and is unused by these
-    /// typed resolvers (HtmlElement, ImageRect; CSV/JSON likewise).
-    /// `LINES_INIT_COUNT` is a thread-local so concurrent tests do not race.
-    #[test]
-    fn get_file_comments_only_typed_does_not_read_lines() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("doc.html");
-        std::fs::write(&file, b"<html><body>x</body></html>").unwrap();
-        let file_path = file.to_str().unwrap().to_string();
-
-        let html_c = typed_comment(
-            "c-html",
-            Anchor::HtmlElement(HtmlElementAnchor {
-                selector_path: "html > body".into(),
-                tag: "body".into(),
-                text_preview: "x".into(),
-            }),
-        );
-        let img_c = typed_comment(
-            "c-img",
-            Anchor::ImageRect(ImageRectAnchor {
-                x_pct: 10.0,
-                y_pct: 10.0,
-                w_pct: Some(20.0),
-                h_pct: Some(20.0),
-            }),
-        );
-        save_sidecar(&file_path, "doc.html", &[html_c, img_c]).unwrap();
-
-        LINES_INIT_COUNT.with(|c| c.set(0));
-        let _threads = get_file_comments_inner(&file_path).expect("ok");
-        assert_eq!(
-            LINES_INIT_COUNT.with(|c| c.get()),
-            0,
-            "typed-only sidecars must not materialize doc.lines()  \
-             D1 perf guard regressed"
-        );
-    }
-
-    /// Companion to the perf-guard test: when the sidecar contains a
-    /// Line/File anchor, the lines cache MUST be initialized exactly once.
-    /// Locks in the positive side of the conditional so a future refactor
-    /// that drops the line read entirely cannot pass silently.
-    #[test]
-    fn get_file_comments_with_line_anchor_initializes_lines_once() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("doc.md");
-        std::fs::write(&file, b"line one\nline two\nline three\n").unwrap();
-        let file_path = file.to_str().unwrap().to_string();
-
-        let line_c = typed_comment(
-            "c-line",
-            Anchor::Line {
-                line: 2,
-                end_line: None,
-                start_column: None,
-                end_column: None,
-                selected_text: Some("line two".into()),
-                selected_text_hash: None,
-            },
-        );
-        save_sidecar(&file_path, "doc.md", &[line_c]).unwrap();
-
-        LINES_INIT_COUNT.with(|c| c.set(0));
-        let _ = get_file_comments_inner(&file_path).expect("ok");
-        assert_eq!(
-            LINES_INIT_COUNT.with(|c| c.get()),
-            1,
-            "Line-anchor path must materialize lines exactly once"
-        );
-    }
 }

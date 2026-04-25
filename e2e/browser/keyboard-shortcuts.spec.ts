@@ -133,34 +133,26 @@ test.describe("F1 keyboard shortcuts", () => {
     expect(patch.data.resolved).toBe(true);
   });
 
-  test("Esc clears openInputId via closeOpenInput callback", async ({ page }) => {
+  test("Esc closes an open inline comment composer", async ({ page }) => {
     await setupKeyboardShortcutsMock(page);
     await page.goto("/");
     await page.locator(".folder-tree").getByText("sample.md").click();
     await expect(page.getByText("First unresolved")).toBeVisible();
 
-    // Seed the openInputId so the Esc handler has something to clear.
-    await page.evaluate(() => {
-      // Reach into the zustand store via the global it persists under.
-      const store = (window as unknown as {
-        __mdr_useStore__?: { setState: (s: unknown) => void; getState: () => Record<string, unknown> };
-      });
-      void store; // not exposed — go through a proxy below.
-    });
-    // Set the openInputId by clicking nothing first — simulate via direct dispatch.
-    await page.evaluate(() => {
-      // The slice setter is the IPC chokepoint; expose it via a global if needed.
-      // Fall back: poke the state from the React-rendered DOM is not available,
-      // so we simulate the user-visible observable: when an input is focused,
-      // pressing Esc should not crash. The slice no-ops gracefully when null.
-    });
+    // Open the file-level composer via the panel "+" so we have a
+    // textarea to dismiss. The composer mounts under .comment-input.
+    // (The viewer toolbar exposes a button with the same accessible
+    // name; scope to the comments panel to disambiguate.)
+    await page.locator(".comments-panel").getByRole("button", { name: /Comment on file/i }).click();
+    const textarea = page.locator(".comment-input textarea");
+    await expect(textarea).toBeVisible();
 
-    await page.locator("body").focus();
+    // Esc fires the textarea's onKeyDown handler, which clears the
+    // draft and unmounts the composer. There is no global Esc shortcut
+    // — that branch was removed in iter-5 (C2 forward fix).
+    await textarea.focus();
     await page.keyboard.press("Escape");
-    // No assertion error means the keyboard handler ran; the slice no-ops
-    // when openInputId is null. The full input-close flow is exercised in
-    // the unit tests (closeOpenInput callback test in useGlobalShortcuts).
-    await expect(page.locator(".app-layout")).toBeVisible();
+    await expect(textarea).toBeHidden();
   });
 
   test("Ctrl+Shift+M after selecting text triggers selection-toolbar add path", async ({ page }) => {
@@ -179,8 +171,7 @@ test.describe("F1 keyboard shortcuts", () => {
       const orig = EventTarget.prototype.dispatchEvent;
       EventTarget.prototype.dispatchEvent = function (ev: Event) {
         if (ev.type === "mouseup" && (ev as MouseEvent).bubbles) {
-          (w.__SYNTHETIC_MOUSEUPS__ as number)++;
-          w.__SYNTHETIC_MOUSEUPS__ = (w.__SYNTHETIC_MOUSEUPS__ as number) + 0; // re-assign to keep number
+          w.__SYNTHETIC_MOUSEUPS__ = (w.__SYNTHETIC_MOUSEUPS__ as number) + 1;
         }
         return orig.call(this, ev);
       };
@@ -210,7 +201,13 @@ test.describe("F1 keyboard shortcuts", () => {
 
     await page.locator("body").focus();
     await page.keyboard.press("Control+Shift+M");
-    await page.waitForTimeout(150);
+    // T1 (iter-5): replace the brittle 150ms sleep with a deterministic
+    // wait — the assertion below is on the synthetic-mouseup counter, so
+    // poll it instead of guessing.
+    await page.waitForFunction(() => {
+      const w = window as Record<string, unknown>;
+      return ((w.__SYNTHETIC_MOUSEUPS__ as number) ?? 0) >= 1;
+    });
 
     // The contract: App.tsx's callback ran (verified by the synthetic
     // mouseup it dispatches). Whether the SelectionToolbar/CommentInput

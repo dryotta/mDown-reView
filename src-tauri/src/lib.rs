@@ -227,7 +227,7 @@ pub fn run() {
                 commands::launch::get_log_path,
                 commands::launch::scan_review_files,
                 commands::fs::check_path_exists,
-                commands::comments::get_file_comments,
+                commands::comments::get::get_file_comments,
                 commands::comments::add_comment,
                 commands::comments::add_reply,
                 commands::comments::edit_comment,
