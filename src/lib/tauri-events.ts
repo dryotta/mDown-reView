@@ -20,7 +20,10 @@ export type { UnlistenFn };
 export interface EventPayloads {
   "file-changed": { path: string; kind: "content" | "review" | "deleted" };
   "comments-changed": { file_path: string };
-  "args-received": { files: string[]; folders: string[] };
+  // Signal-only: payload is intentionally empty. Frontend MUST call
+  // `get_launch_args` to drain the queued args. See useLaunchArgsBootstrap
+  // and src-tauri/src/lib.rs (single-instance handler).
+  "args-received": void;
   "update-progress": {
     event: "Started" | "Progress" | "Finished";
     content_length: number | null;

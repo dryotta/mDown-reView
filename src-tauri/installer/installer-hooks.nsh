@@ -85,6 +85,20 @@
   WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview" "" "Open with mdownreview"
   WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview" "Icon" "$INSTDIR\mdownreview.exe"
   WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview\command" "" '"$INSTDIR\mdownreview.exe" "%V"'
+
+  ; --- Override Tauri-generated file association open command (issue #36) ---
+  ; Tauri's default NSIS template registers the open verb as:
+  ;     "$INSTDIR\mdownreview.exe" "%1"
+  ; which makes Explorer launch ONE process per selected file when the user
+  ; multi-selects .md/.mdx files and presses Enter. We need %* (all args, raw)
+  ; instead so Explorer forwards every selected path in a SINGLE invocation,
+  ; which mdownreview-cli then funnels into one window via its single-instance
+  ; forwarding logic.
+  ;
+  ; The ProgID (FILECLASS) is the `name` field from tauri.conf.json's
+  ; fileAssociations entry — currently "Markdown File", shared by .md and .mdx.
+  ; If that name changes, this block must be updated to match.
+  WriteRegStr SHELL_CONTEXT "Software\Classes\Markdown File\shell\open\command" "" '"$INSTDIR\mdownreview.exe" %*'
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

@@ -3,51 +3,10 @@ pub mod core;
 pub mod update;
 pub mod watcher;
 
-use commands::LaunchArgsState;
-use std::sync::{Arc, Mutex};
+use commands::{parse_launch_args, push_pending, PendingArgsState};
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
-
-/// Parse CLI-style arguments into files and folders lists.
-/// Supports --folder <path>, --file <path>, and positional auto-detect.
-/// All paths are resolved relative to `cwd`.
-fn parse_args(args: &[String], cwd: &std::path::Path) -> (Vec<String>, Vec<String>) {
-    let mut files = Vec::new();
-    let mut folders = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        if arg == "--folder" {
-            i += 1;
-            if let Some(val) = args.get(i) {
-                let resolved = cwd.join(val);
-                if let Ok(canon) = std::fs::canonicalize(&resolved) {
-                    folders.push(canon.to_string_lossy().into_owned());
-                }
-            }
-        } else if arg == "--file" {
-            i += 1;
-            if let Some(val) = args.get(i) {
-                let resolved = cwd.join(val);
-                if let Ok(canon) = std::fs::canonicalize(&resolved) {
-                    files.push(canon.to_string_lossy().into_owned());
-                }
-            }
-        } else if !arg.starts_with('-') {
-            let resolved = cwd.join(arg);
-            if let Ok(canon) = std::fs::canonicalize(&resolved) {
-                match std::fs::metadata(&canon) {
-                    Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
-                    Ok(_) => files.push(canon.to_string_lossy().into_owned()),
-                    Err(_) => {}
-                }
-            }
-        }
-        i += 1;
-    }
-    (files, folders)
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -95,10 +54,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_single_instance::init(|app, argv, cwd| {
                 let cwd_path = std::path::PathBuf::from(&cwd);
-                let (files, folders) = parse_args(&argv[1..], &cwd_path);
-                let payload = serde_json::json!({ "files": files, "folders": folders });
+                let args = parse_launch_args(&argv[1..], &cwd_path);
+                if let Some(state) = app.try_state::<PendingArgsState>() {
+                    push_pending(&state, args);
+                }
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("args-received", payload);
+                    let _ = window.emit("args-received", ());
                 }
             })
         )
@@ -127,9 +88,9 @@ pub fn run() {
             // Parse CLI args: support --folder <path> and --file <path> flags
             let raw_args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_default();
-            let (files, folders) = parse_args(&raw_args, &cwd);
-            let launch_args = commands::LaunchArgs { files, folders };
-            let state: LaunchArgsState = Arc::new(Mutex::new(Some(launch_args)));
+            let launch_args = parse_launch_args(&raw_args, &cwd);
+            let state: PendingArgsState = PendingArgsState::default();
+            push_pending(&state, launch_args);
             app.manage(state);
 
             // ── Build application menu ────────────────────────────────────────
@@ -298,16 +259,10 @@ pub fn run() {
                 }
             }
             if !files.is_empty() || !folders.is_empty() {
-                let state = app_handle.state::<LaunchArgsState>();
-                let mut guard = state.lock().unwrap();
-                if guard.is_none() {
-                    drop(guard);
-                    let payload = serde_json::json!({ "files": files, "folders": folders });
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.emit("args-received", payload);
-                    }
-                } else {
-                    *guard = Some(commands::LaunchArgs { files, folders });
+                let state = app_handle.state::<PendingArgsState>();
+                push_pending(&state, commands::LaunchArgs { files, folders });
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.emit("args-received", ());
                 }
             }
         }

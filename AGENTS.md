@@ -129,7 +129,7 @@ src-tauri/src/
   watcher.rs                ← file system watcher (notify-debouncer-mini, 300 ms)
   lib.rs                    ← plugin registration, setup hook, panic hook
   core/                     ← anchors, atomic (write_atomic helper), comments, matching,
-                              onboarding (schema-versioned state), scanner, sidecar, threads, types
+                              onboarding (schema-versioned state), paths, scanner, sidecar, threads, types
   installer/installer-hooks.nsh ← NSIS POST/PREINSTALL hooks (HKCU PATH + folder context)
   dmg/                      ← DMG layout assets (background image, README.txt)
 

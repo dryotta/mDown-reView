@@ -68,13 +68,25 @@ cargo install --git https://github.com/dryotta/mdownreview.git --bin mdownreview
 
 **CLI subcommands:**
 ```bash
-mdownreview-cli read --folder .             # Show unresolved comments
-mdownreview-cli read --folder . --all       # Show all comments (incl. resolved)
-mdownreview-cli read --folder . --format json  # JSON output for scripting
-mdownreview-cli cleanup --folder . --dry-run   # Preview which sidecars would be deleted
-mdownreview-cli cleanup --folder .          # Delete fully-resolved sidecars
-mdownreview-cli resolve path/to/file.md.review.yaml <comment-id>  # Mark resolved
-mdownreview-cli respond path/to/file.md.review.yaml <comment-id> --response "Fixed"
+mdownreview-cli --help                         # aggregated help: top-level + every subcommand
+
+# read — show review comments
+mdownreview-cli read --folder .                                  # unresolved comments in folder
+mdownreview-cli read --folder . --include-resolved               # include resolved comments
+mdownreview-cli read --folder . --json                           # JSON envelope (array of {reviewFile,sourceFile,comments})
+mdownreview-cli read --folder . --file foo.md                    # single source-or-sidecar file
+mdownreview-cli read --file foo.md.review.yaml --json            # single file as JSON
+
+# respond — add a response and/or mark resolved
+mdownreview-cli respond path/to/file.md <comment-id> --response "Fixed"
+mdownreview-cli respond path/to/file.md <comment-id> --resolve
+mdownreview-cli respond path/to/file.md <comment-id> --response "Fixed" --resolve
+mdownreview-cli respond --folder . rel/path/file.md <comment-id> --response "ack"
+
+# cleanup — delete fully-resolved sidecars
+mdownreview-cli cleanup --folder . --dry-run                     # preview deletions
+mdownreview-cli cleanup --folder .                               # delete sidecars whose comments are all resolved
+mdownreview-cli cleanup --folder . --include-unresolved          # also delete sidecars with unresolved comments
 ```
 
 ### Why isn't this app signed?

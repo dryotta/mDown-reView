@@ -26,7 +26,7 @@ pub use comments::{
 };
 pub use fs::{check_path_exists, read_binary_file, read_dir, read_text_file};
 pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
-pub use launch::{get_launch_args, get_log_path, scan_review_files, LaunchArgsState};
+pub use launch::{get_launch_args, get_log_path, scan_review_files, parse_launch_args, push_pending, drain_pending, PendingArgsState};
 #[cfg(debug_assertions)]
 pub use launch::set_root_via_test;
 pub use search::{parse_kql, search_in_document, strip_json_comments, KqlPipelineStep, SearchMatch};

@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
-    read_binary_file, read_dir,
-    read_text_file, CommentsChangedEvent, LaunchArgs, LaunchArgsState,
+    drain_pending, push_pending, read_binary_file, read_dir,
+    read_text_file, CommentsChangedEvent, LaunchArgs, PendingArgsState,
     MrsfComment, MrsfSidecar,
     search_in_document,
 };
@@ -206,20 +206,15 @@ fn get_launch_args_returns_and_clears() {
         files: vec!["file.md".to_string()],
         folders: vec![],
     };
-    let state: LaunchArgsState = Arc::new(Mutex::new(Some(args)));
+    let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
+    push_pending(&state, args);
 
-    // First call returns the args
-    let result = {
-        let mut guard = state.lock().unwrap();
-        guard.take().unwrap_or_default()
-    };
+    // First drain returns the queued args.
+    let result = drain_pending(&state);
     assert_eq!(result.files, vec!["file.md"]);
 
-    // Second call returns empty (args cleared)
-    let result2 = {
-        let mut guard = state.lock().unwrap();
-        guard.take().unwrap_or_default()
-    };
+    // Second drain returns empty (queue cleared).
+    let result2 = drain_pending(&state);
     assert!(result2.files.is_empty());
     assert!(result2.folders.is_empty());
 }

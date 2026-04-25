@@ -1,0 +1,25 @@
+mrsf_version: "1.0"
+document: "threaded.md"
+comments:
+  - id: "t1"
+    author: "alice"
+    timestamp: "2025-02-01T00:00:00Z"
+    text: "Please double-check this branch"
+    resolved: false
+    line: 4
+    type: "issue"
+    severity: "high"
+    selected_text: "Line 4 has a known concern"
+    responses:
+      - author: "bob"
+        timestamp: "2025-02-01T01:00:00Z"
+        text: "Looking now"
+      - author: "bob"
+        timestamp: "2025-02-01T02:00:00Z"
+        text: "Fixed in patch"
+  - id: "t2"
+    author: "alice"
+    timestamp: "2025-02-01T03:00:00Z"
+    text: "Already addressed"
+    resolved: true
+    line: 2

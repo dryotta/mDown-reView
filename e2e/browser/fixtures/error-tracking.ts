@@ -24,6 +24,15 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
         {};
       const eventListeners: Record<string, number[]> = {};
       let nextId = 1;
+      // Queue of LaunchArgs values returned by successive `get_launch_args`
+      // calls. Empty queue ⇒ default empty LaunchArgs. Tests push entries via
+      // window.__TAURI_QUEUE_LAUNCH_ARGS__.
+      const launchArgsQueue: { files: string[]; folders: string[] }[] = [];
+      (window as Record<string, unknown>).__TAURI_QUEUE_LAUNCH_ARGS__ = (
+        values: { files: string[]; folders: string[] }[]
+      ) => {
+        launchArgsQueue.push(...values);
+      };
       (window as Record<string, unknown>).__TAURI_INTERNALS__ = {
         transformCallback(callback: (...args: unknown[]) => void, once: boolean): number {
           const id = nextId++;
@@ -38,10 +47,21 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             const { event, handler } = args as { event: string; handler: number };
             if (!eventListeners[event]) eventListeners[event] = [];
             eventListeners[event].push(handler);
-            return nextId++;
+            // Return the handler id as the eventId so unlisten can remove it.
+            return handler;
           }
           if (cmd === "plugin:event|unlisten") {
-            return nextId++;
+            const { event, eventId } = args as { event: string; eventId: number };
+            if (eventListeners[event]) {
+              eventListeners[event] = eventListeners[event].filter((h) => h !== eventId);
+            }
+            delete callbacks[eventId];
+            return undefined;
+          }
+          // Draining queue takes precedence so tests can drive multi-instance
+          // scenarios without writing a custom mock per test.
+          if (cmd === "get_launch_args" && launchArgsQueue.length > 0) {
+            return launchArgsQueue.shift();
           }
           const mock = (window as Record<string, unknown>).__TAURI_IPC_MOCK__ as
             | ((cmd: string, args: unknown) => Promise<unknown>)
@@ -71,6 +91,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "onboarding_state")
                 return { schema_version: 1, last_welcomed_version: null, last_seen_sections: [] };
               if (cmd === "onboarding_should_welcome") return false;
+              if (cmd === "get_launch_args") return { files: [], folders: [] };
               if (
                 cmd === "install_cli_shim" ||
                 cmd === "remove_cli_shim" ||
@@ -103,6 +124,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "onboarding_state")
             return { schema_version: 1, last_welcomed_version: null, last_seen_sections: [] };
           if (cmd === "onboarding_should_welcome") return false;
+          if (cmd === "get_launch_args") return { files: [], folders: [] };
           if (
             cmd === "install_cli_shim" ||
             cmd === "remove_cli_shim" ||

@@ -5,22 +5,85 @@ pub fn filter_unresolved(comments: &[MrsfComment]) -> Vec<&MrsfComment> {
     comments.iter().filter(|c| !c.resolved).collect()
 }
 
-/// Derive the source filename from a sidecar path.
-/// Strips .review.yaml or .review.json suffix.
-pub fn source_file_for(review_path: &str) -> String {
-    if let Some(stripped) = review_path.strip_suffix(".review.yaml") {
-        return std::path::Path::new(stripped)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| stripped.to_string());
+/// Format a single MRSF comment (raw YAML form, so unknown fields like
+/// `responses` are preserved) for verbose CLI text output.
+///
+/// Output shape (one comment, indented two spaces):
+/// ```text
+///   [RESOLVED] [<id>] line <line>  [<type>] (<severity>)  <author> · <timestamp>
+///     > <text line 1>
+///     > <text line 2>
+///     quoted: "<selected text, single-line, ≤80 chars>"
+///     <responder> (<ts>): <response text>
+/// ```
+/// `[RESOLVED] ` is only emitted when the comment is resolved AND the caller
+/// passed `include_resolved = true` (so unresolved-only output stays clean).
+pub fn format_comment_text_verbose(
+    comment: &serde_yaml_ng::Value,
+    include_resolved: bool,
+) -> String {
+    let id = comment.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    let line = comment
+        .get("line")
+        .and_then(|v| v.as_u64())
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "?".to_string());
+    let ctype = comment
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("comment");
+    let sev = comment
+        .get("severity")
+        .and_then(|v| v.as_str())
+        .unwrap_or("normal");
+    let author = comment
+        .get("author")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let ts = comment
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let text = comment.get("text").and_then(|v| v.as_str()).unwrap_or("");
+    let resolved = comment
+        .get("resolved")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let mut out = String::new();
+    let prefix = if resolved && include_resolved {
+        "[RESOLVED] "
+    } else {
+        ""
+    };
+    out.push_str(&format!(
+        "  {}[{}] line {}  [{}] ({})  {} · {}\n",
+        prefix, id, line, ctype, sev, author, ts
+    ));
+    for ln in text.lines() {
+        out.push_str(&format!("    > {}\n", ln));
     }
-    if let Some(stripped) = review_path.strip_suffix(".review.json") {
-        return std::path::Path::new(stripped)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| stripped.to_string());
+    if let Some(sel) = comment.get("selected_text").and_then(|v| v.as_str()) {
+        if !sel.is_empty() {
+            let one_line: String = sel.replace(['\n', '\r'], " ");
+            let truncated = if one_line.chars().count() > 80 {
+                let s: String = one_line.chars().take(77).collect();
+                format!("{}...", s)
+            } else {
+                one_line
+            };
+            out.push_str(&format!("    quoted: \"{}\"\n", truncated));
+        }
     }
-    review_path.to_string()
+    if let Some(responses) = comment.get("responses").and_then(|v| v.as_sequence()) {
+        for r in responses {
+            let r_author = r.get("author").and_then(|v| v.as_str()).unwrap_or("?");
+            let r_ts = r.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+            let r_text = r.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            out.push_str(&format!("    {} ({}): {}\n", r_author, r_ts, r_text));
+        }
+    }
+    out
 }
 
 /// Return current UTC time as ISO-8601 string with Z suffix.
@@ -205,24 +268,70 @@ mod tests {
     }
 
     #[test]
-    fn source_file_for_yaml() {
-        assert_eq!(
-            source_file_for("/path/to/file.md.review.yaml"),
-            "file.md"
-        );
+    fn format_comment_text_verbose_renders_header_and_body() {
+        let yaml = r#"
+id: c1
+author: alice
+timestamp: 2025-01-02T03:04:05Z
+text: "first line\nsecond line"
+resolved: false
+line: 7
+type: issue
+severity: high
+selected_text: "fn main() { foo(); }"
+"#;
+        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let out = format_comment_text_verbose(&v, false);
+        assert!(out.contains("[c1] line 7  [issue] (high)  alice · 2025-01-02T03:04:05Z"));
+        assert!(out.contains("    > first line"));
+        assert!(out.contains("    > second line"));
+        assert!(out.contains("quoted: \"fn main() { foo(); }\""));
+        assert!(!out.contains("[RESOLVED]"));
     }
 
     #[test]
-    fn source_file_for_json() {
-        assert_eq!(
-            source_file_for("/path/to/file.md.review.json"),
-            "file.md"
-        );
+    fn format_comment_text_verbose_resolved_prefix_only_with_include() {
+        let yaml = r#"
+id: c1
+author: a
+timestamp: t
+text: hi
+resolved: true
+"#;
+        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        assert!(format_comment_text_verbose(&v, true).contains("[RESOLVED] "));
+        assert!(!format_comment_text_verbose(&v, false).contains("[RESOLVED]"));
     }
 
     #[test]
-    fn source_file_for_no_suffix() {
-        assert_eq!(source_file_for("some_file"), "some_file");
+    fn format_comment_text_verbose_renders_responses() {
+        let yaml = r#"
+id: c1
+author: a
+timestamp: t
+text: hi
+resolved: false
+responses:
+  - author: bot
+    timestamp: t2
+    text: "ack"
+"#;
+        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let out = format_comment_text_verbose(&v, false);
+        assert!(out.contains("    bot (t2): ack"));
+    }
+
+    #[test]
+    fn format_comment_text_verbose_truncates_long_quoted() {
+        let long: String = "x".repeat(200);
+        let yaml = format!(
+            "id: c1\nauthor: a\ntimestamp: t\ntext: hi\nresolved: false\nselected_text: \"{}\"\n",
+            long
+        );
+        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        let out = format_comment_text_verbose(&v, false);
+        // 77 x's + "..." inside quotes
+        assert!(out.contains(&format!("\"{}...\"", "x".repeat(77))));
     }
 
     #[test]

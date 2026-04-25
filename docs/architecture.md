@@ -36,13 +36,13 @@ flowchart LR
 flowchart LR
     Comp["component / hook"] --> Wrapper["src/lib/tauri-commands.ts<br/>(typed wrapper — only<br/>non-test invoke importer)"]
     Wrapper -- "invoke()" --> Cmd["src-tauri/src/commands.rs<br/>(registered in shared_commands!)"]
-    Cmd --> Core["core/ — sidecar, matching,<br/>anchors, scanner, …"]
+    Cmd --> Core["core/ — sidecar, matching, anchors,<br/>paths, scanner, …"]
     Cmd -. "emit_to('main', …)" .-> Listener["useFileWatcher /<br/>App.tsx listeners"]
 ```
 
 1. Every Tauri IPC call goes through a typed wrapper in `src/lib/tauri-commands.ts`; production code never imports `invoke` directly. (`src/lib/tauri-commands.ts:1` is the only non-test `invoke` importer.)
 2. Every new Rust command ships with a matching typed TS wrapper; the wrapper's return type matches the Rust `Result<T, String>` unwrapped `T`. (`commands/comments.rs:109` ↔ `tauri-commands.ts:50`.)
-3. Every Rust command is registered in `shared_commands!` in `src-tauri/src/lib.rs:222-262`. Commands are grouped under `src-tauri/src/commands/<feature>.rs` (`src-tauri/src/commands/mod.rs:7-15`): `fs`, `comments`, `search`, `html`, `launch`, plus the iter-2 onboarding/platform-integration set (`onboarding` ×3, `cli_shim` ×3, `default_handler` ×2, `folder_context` ×3 — see [`docs/features/installation.md`](features/installation.md)).
+3. Every Rust command is registered in `shared_commands!` in `src-tauri/src/lib.rs:222-262`. Commands are grouped under `src-tauri/src/commands/<feature>.rs` (`src-tauri/src/commands/mod.rs:7-15`): `fs`, `comments`, `search`, `html`, `launch`, plus the iter-2 onboarding/platform-integration set (`onboarding` ×3, `cli_shim` ×3, `default_handler` ×2, `folder_context` ×3 — see [`docs/features/installation.md`](features/installation.md)). Path resolution shared by both the GUI and CLI binaries lives in `src-tauri/src/core/paths.rs`.
 4. All frontend logging goes through `src/logger.ts`; no file outside `src/logger.ts` and its test imports from `@tauri-apps/plugin-log`.
 5. Log prefix tags: frontend `[web]`, Rust `[rust]` or a subsystem like `[watcher]`. (`src/logger.ts:9-13`; `watcher.rs:93`.)
 6. `console.log`/`console.info` never appear in production frontend code. Diagnostic logging in watcher hooks goes through `@/logger` (`warn`/`debug`), not `console.*`. (`useFileWatcher.ts:45,57,61`.)
@@ -54,7 +54,7 @@ flowchart LR
 10. SHA-256 of `selected_text` is computed in Rust via `compute_anchor_hash`. (`commands/comments.rs:208`.)
 
 ### Commands vs events
-11. First-instance launch args come via the `get_launch_args` command on mount; second-instance via the `args-received` event. (`useLaunchArgsBootstrap.ts:14,21`; `lib.rs:101`; `commands/launch.rs:12`.)
+11. Launch args flow through a pending-args queue in Rust (`src-tauri/src/commands/launch.rs::PendingArgsState`). First-instance bootstrap, second-instance forwarding, and macOS `RunEvent::Opened` all push onto the queue. Frontend drains via `get_launch_args` IPC; the `args-received` event is signal-only (no payload). The IPC return type stays `LaunchArgs` (single struct with merged `files`/`folders` fields) — the queue is purely Rust-internal. (`useLaunchArgsBootstrap.ts:14,21`; `lib.rs:101`; `commands/launch.rs:15`.)
 12. The file watcher lives in Rust and emits `file-changed` with kinds `content | review | deleted`. (`watcher.rs:58,88-92`.) Debounce: rule 4 in [`docs/performance.md`](performance.md).
 13. The frontend never polls the filesystem; reactive reload uses watcher events routed through `useFileWatcher` → DOM `CustomEvent("mdownreview:file-changed")`. (`useFileWatcher.ts:51-73`.)
 14. Ghost-entry scanning uses a single Rust command. (`commands/launch.rs:26` `scan_review_files`.) Cap: rule 3 in [`docs/performance.md`](performance.md).

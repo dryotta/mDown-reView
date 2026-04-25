@@ -8,6 +8,7 @@ pub mod json;
 pub mod kql;
 pub mod matching;
 pub mod onboarding;
+pub mod paths;
 pub mod scanner;
 pub mod sidecar;
 pub mod threads;

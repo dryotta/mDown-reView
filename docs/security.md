@@ -25,7 +25,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 8. Malformed YAML/JSON surfaces as a typed error (`SidecarError::YamlParse` / `JsonParse`), not a panic. (`core/sidecar.rs:45,57`.)
 
 ### Launch-args & CLI handling
-9. The `LaunchArgsState` handler uses `.take()` so launch args are consumed exactly once. (`commands/launch.rs:12-17`.)
+9. The `get_launch_args` handler drains a pending-args queue (`PendingArgsState`) so each batch of launch args is consumed exactly once. (`commands/launch.rs:15-55`.)
 10. Single-instance emits `args-received` only when `get_webview_window("main")` is `Some`. (`lib.rs:95-102`.)
 11. CLI argument parsing canonicalizes every path via `std::fs::canonicalize` and silently drops paths that fail. (`lib.rs:24-44`.)
 
