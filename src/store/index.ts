@@ -1,6 +1,33 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
+import {
+  cliShimStatus as ipcCliShimStatus,
+  defaultHandlerStatus as ipcDefaultHandlerStatus,
+  folderContextStatus as ipcFolderContextStatus,
+  installCliShim as ipcInstallCliShim,
+  onboardingMarkWelcomed as ipcMarkWelcomed,
+  onboardingState as ipcOnboardingState,
+  registerFolderContext as ipcRegisterFolderContext,
+  removeCliShim as ipcRemoveCliShim,
+  setDefaultHandler as ipcSetDefaultHandler,
+  unregisterFolderContext as ipcUnregisterFolderContext,
+  type CliShimError,
+  type OnboardingState,
+} from "@/lib/tauri-commands";
+import {
+  createTabsSlice,
+  filterStaleTabs,
+  MAX_TABS,
+  type TabsSlice,
+  type Tab,
+  type FileMeta,
+} from "./tabs";
+import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
+import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
+
+export type { OnboardingState, Tab, TabsSlice, FileMeta };
+export { MAX_TABS, filterStaleTabs };
 
 // ── Recent items ──────────────────────────────────────────────────────────
 
@@ -24,23 +51,8 @@ interface WorkspaceSlice {
 }
 
 // ── Tabs slice ─────────────────────────────────────────────────────────────
-
-export interface Tab {
-  path: string;
-  scrollTop: number;
-}
-
-interface TabsSlice {
-  tabs: Tab[];
-  activeTabPath: string | null;
-  viewModeByTab: Record<string, "source" | "visual">;
-  openFile: (path: string) => void;
-  closeTab: (path: string) => void;
-  closeAllTabs: () => void;
-  setActiveTab: (path: string) => void;
-  setScrollTop: (path: string, scrollTop: number) => void;
-  setViewMode: (path: string, mode: "source" | "visual") => void;
-}
+// Defined in `./tabs.ts` (extracted to keep this file under the 500-line
+// shared-chokepoint cap — rule 23 in `docs/architecture.md`).
 
 // ── UI slice ──────────────────────────────────────────────────────────────
 
@@ -51,10 +63,13 @@ interface UISlice {
   folderPaneWidth: number;
   commentsPaneVisible: boolean;
   authorName: string;
+  /** Reading column width (CSS pixels). Persisted. Clamped to [400, 1600]. */
+  readingWidth: number;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
   toggleCommentsPane: () => void;
   setAuthorName: (name: string) => void;
+  setReadingWidth: (n: number) => void;
 }
 
 // ── Watcher slice ──────────────────────────────────────────────────────────
@@ -68,8 +83,6 @@ export interface GhostEntry {
 interface WatcherSlice {
   ghostEntries: GhostEntry[];
   setGhostEntries: (entries: GhostEntry[]) => void;
-  autoReveal: boolean;
-  toggleAutoReveal: () => void;
   lastSaveByPath: Record<string, number>;
   recordSave: (path: string) => void;
 }
@@ -99,25 +112,45 @@ interface RecentSlice {
   addRecentItem: (path: string, type: "file" | "folder") => void;
 }
 
-// ── Tab persistence helpers ────────────────────────────────────────────────
+// ── Onboarding slice ──────────────────────────────────────────────────────
 
-export function filterStaleTabs(
-  tabs: Tab[],
-  activeTabPath: string | null,
-  existsMap: Map<string, boolean>
-): { tabs: Tab[]; activeTabPath: string | null } {
-  const validTabs = tabs.filter((t) => existsMap.get(t.path) !== false);
-  const validPaths = new Set(validTabs.map((t) => t.path));
-  let newActiveTabPath = activeTabPath;
-  if (activeTabPath && !validPaths.has(activeTabPath)) {
-    newActiveTabPath = validTabs.length > 0 ? validTabs[0].path : null;
-  }
-  return { tabs: validTabs, activeTabPath: newActiveTabPath };
+export type OnboardingStatus = "pending" | "done" | "unsupported" | "error";
+
+export interface OnboardingStatuses {
+  cliShim: OnboardingStatus;
+  defaultHandler: OnboardingStatus;
+  folderContext: OnboardingStatus;
+}
+
+/** Section keys used as map keys in onboardingErrors. */
+export type OnboardingSectionKey = "cliShim" | "defaultHandler" | "folderContext";
+
+interface OnboardingSlice {
+  // Read state
+  onboardingStatuses: OnboardingStatuses;
+  onboardingState: OnboardingState | null;
+  onboardingErrors: Record<string, string>;
+  // Panel visibility (transient, not persisted)
+  welcomePanelOpen: boolean;
+  setupPanelOpen: boolean;
+  // Actions
+  refreshOnboarding: () => Promise<void>;
+  openWelcome: () => void;
+  closeWelcome: () => void;
+  openSetup: () => void;
+  closeSetup: () => void;
+  markOnboardingWelcomed: (version: string) => Promise<void>;
+  dismissOnboardingWelcome: () => void;
+  installCliShim: () => Promise<void>;
+  removeCliShim: () => Promise<void>;
+  setDefaultHandler: () => Promise<void>;
+  registerFolderContext: () => Promise<void>;
+  unregisterFolderContext: () => Promise<void>;
 }
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice;
+export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice & TabHistorySlice;
 
 
 export const useStore = create<Store>()(
@@ -135,54 +168,31 @@ export const useStore = create<Store>()(
         set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
       closeFolder: () => set({ root: null, expandedFolders: {} }),
 
-      // Tabs
-      tabs: [],
-      activeTabPath: null,
-      openFile: (path) => {
-        const existing = get().tabs.find((t) => t.path === path);
-        if (existing) {
-          set({ activeTabPath: path });
-        } else {
-          set((s) => ({ tabs: [...s.tabs, { path, scrollTop: 0 }], activeTabPath: path }));
-        }
-      },
-      closeTab: (path) => {
-        const tabs = get().tabs;
-        const idx = tabs.findIndex((t) => t.path === path);
-        if (idx === -1) return;
-        const newTabs = tabs.filter((t) => t.path !== path);
-        let newActive = get().activeTabPath;
-        if (newActive === path) {
-          newActive = newTabs[idx] ? newTabs[idx].path : newTabs[idx - 1]?.path ?? null;
-        }
-        const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
-        const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
-        set({ tabs: newTabs, activeTabPath: newActive, viewModeByTab: restViewModes, lastSaveByPath: restSaveByPath });
-      },
-      closeAllTabs: () => set({ tabs: [], activeTabPath: null, viewModeByTab: {}, lastSaveByPath: {} }),
-      setActiveTab: (path) => set({ activeTabPath: path }),
-      setScrollTop: (path, scrollTop) => {
-        const tab = get().tabs.find((t) => t.path === path);
-        if (!tab || tab.scrollTop === scrollTop) return;
-        set((s) => ({
-          tabs: s.tabs.map((t) => (t.path === path ? { ...t, scrollTop } : t)),
-        }));
-      },
-      viewModeByTab: {},
-      setViewMode: (path, mode) =>
-        set((s) => ({
-          viewModeByTab: { ...s.viewModeByTab, [path]: mode },
-        })),
+      // Tabs (delegated to ./tabs.ts)
+      ...createTabsSlice(set, get),
+
+      // ViewerPrefs (delegated to ./viewerPrefs.ts).
+      // - `allowedRemoteImageDocs` is intentionally NOT in `partialize` below:
+      //   trust decisions must not silently survive an app restart.
+      // - `zoomByFiletype` IS persisted (small bounded map, one entry per
+      //   filetype key) — see partialize.
+      ...createViewerPrefsSlice(set, get),
+
+      // TabHistory (delegated to ./tabHistory.ts) — per-window back/forward.
+      // Intentionally NOT added to `partialize` below (session-only).
+      ...createTabHistorySlice(set, get),
 
       // UI
       theme: "system",
       folderPaneWidth: 240,
       commentsPaneVisible: true,
       authorName: "",
+      readingWidth: 720,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
+      setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
 
       // Watcher
       ghostEntries: [],
@@ -194,8 +204,6 @@ export const useStore = create<Store>()(
         ) return;
         set({ ghostEntries: entries });
       },
-      autoReveal: true,
-      toggleAutoReveal: () => set((s) => ({ autoReveal: !s.autoReveal })),
       lastSaveByPath: {},
       recordSave: (path) =>
         set((s) => ({
@@ -222,6 +230,59 @@ export const useStore = create<Store>()(
           const updated = [newItem, ...filtered].slice(0, MAX_RECENT_ITEMS);
           return { recentItems: updated };
         }),
+
+      // Onboarding
+      onboardingStatuses: { cliShim: "pending", defaultHandler: "pending", folderContext: "pending" },
+      onboardingState: null,
+      onboardingErrors: {},
+      welcomePanelOpen: false,
+      setupPanelOpen: false,
+      refreshOnboarding: async () => {
+        const [cli, def, folder, state] = await Promise.allSettled([
+          ipcCliShimStatus(),
+          ipcDefaultHandlerStatus(),
+          ipcFolderContextStatus(),
+          ipcOnboardingState(),
+        ]);
+        // Refresh records errors for status reads that fail; it does NOT clear
+        // action errors (those are cleared by the action wrapper on success).
+        const errors: Record<string, string> = { ...get().onboardingErrors };
+        const mapStatus = (
+          r: PromiseSettledResult<string>,
+          key: OnboardingSectionKey,
+        ): OnboardingStatus => {
+          if (r.status === "rejected") {
+            errors[key] = formatOnboardingError(r.reason);
+            return "error";
+          }
+          if (r.value === "done") return "done";
+          if (r.value === "unsupported") return "unsupported";
+          return "pending";
+        };
+        set({
+          onboardingStatuses: {
+            cliShim: mapStatus(cli, "cliShim"),
+            defaultHandler: mapStatus(def, "defaultHandler"),
+            folderContext: mapStatus(folder, "folderContext"),
+          },
+          onboardingState: state.status === "fulfilled" ? state.value : get().onboardingState,
+          onboardingErrors: errors,
+        });
+      },
+      openWelcome: () => set({ welcomePanelOpen: true, setupPanelOpen: false }),
+      closeWelcome: () => set({ welcomePanelOpen: false }),
+      openSetup: () => set({ welcomePanelOpen: false, setupPanelOpen: true }),
+      closeSetup: () => set({ setupPanelOpen: false }),
+      markOnboardingWelcomed: async (version) => {
+        await ipcMarkWelcomed(version);
+        await useStore.getState().refreshOnboarding();
+      },
+      dismissOnboardingWelcome: () => set({ welcomePanelOpen: false }),
+      installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
+      removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
+      setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),
+      registerFolderContext: () => runOnboardingAction("folderContext", ipcRegisterFolderContext),
+      unregisterFolderContext: () => runOnboardingAction("folderContext", ipcUnregisterFolderContext),
     }),
     {
       name: "mdownreview-ui",
@@ -232,17 +293,25 @@ export const useStore = create<Store>()(
         commentsPaneVisible: state.commentsPaneVisible,
         root: state.root,
         expandedFolders: state.expandedFolders,
-        autoReveal: state.autoReveal,
         authorName: state.authorName,
+        readingWidth: state.readingWidth,
         recentItems: state.recentItems,
         tabs: state.tabs,
         activeTabPath: state.activeTabPath,
         updateChannel: state.updateChannel,
+        zoomByFiletype: state.zoomByFiletype,
       }),
       onRehydrateStorage: () => () => {
         queueMicrotask(() => {
-          const { tabs } = useStore.getState();
+          const { tabs, activeTabPath } = useStore.getState();
           if (tabs.length === 0) return;
+          // Enforce MAX_TABS immediately at rehydrate time so the cap holds
+          // even if every persisted file still exists (validatePersistedTabs
+          // also enforces it after the existence check).
+          if (tabs.length > MAX_TABS) {
+            const trimmed = filterStaleTabs(tabs, activeTabPath, new Map());
+            useStore.setState(trimmed);
+          }
           import("@/lib/tauri-commands").then(
             ({ checkPathExists }) => validatePersistedTabs(checkPathExists),
             () => {}
@@ -267,6 +336,65 @@ export async function validatePersistedTabs(
   );
   const result = filterStaleTabs(tabs, activeTabPath, existsMap);
   useStore.setState(result);
+}
+
+// ── Onboarding helpers ────────────────────────────────────────────────────
+
+function isCliShimError(r: unknown): r is CliShimError {
+  if (typeof r !== "object" || r === null || !("kind" in r)) return false;
+  const kind = (r as { kind: unknown }).kind;
+  return kind === "permission_denied" || kind === "io";
+}
+
+/** Convert any IPC rejection into a user-facing error string. */
+export function formatOnboardingError(reason: unknown): string {
+  if (isCliShimError(reason)) {
+    switch (reason.kind) {
+      case "permission_denied":
+        return `Permission denied — try \`sudo ln -sf ${reason.target} ${reason.path}\``;
+      case "io":
+        return reason.message;
+      default: {
+        const _exhaustive: never = reason;
+        return String(_exhaustive);
+      }
+    }
+  }
+  if (reason instanceof Error) return reason.message;
+  if (typeof reason === "string") return reason;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
+}
+
+/**
+ * Run a per-section onboarding command and chain a status refresh on settle.
+ * Mirrors `useMenuListeners` (`getState()` for actions) so action chaining
+ * stays inside the slice without re-invoking commands.
+ */
+async function runOnboardingAction(
+  sectionKey: OnboardingSectionKey,
+  action: () => Promise<void>,
+): Promise<void> {
+  try {
+    await action();
+    // Clear any prior error for this section on success.
+    const { onboardingErrors } = useStore.getState();
+    if (onboardingErrors[sectionKey]) {
+      const next = { ...onboardingErrors };
+      delete next[sectionKey];
+      useStore.setState({ onboardingErrors: next });
+    }
+  } catch (err) {
+    const { onboardingErrors } = useStore.getState();
+    useStore.setState({
+      onboardingErrors: { ...onboardingErrors, [sectionKey]: formatOnboardingError(err) },
+    });
+  } finally {
+    await useStore.getState().refreshOnboarding();
+  }
 }
 
 // Convenience selector for update state

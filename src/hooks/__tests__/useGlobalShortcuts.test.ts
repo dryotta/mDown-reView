@@ -4,12 +4,20 @@ import { renderHook } from "@testing-library/react";
 const mockCloseTab = vi.fn();
 const mockCloseAllTabs = vi.fn();
 const mockSetActiveTab = vi.fn();
+const mockBumpZoom = vi.fn();
+const mockBack = vi.fn();
+const mockForward = vi.fn();
 
 const storeState = {
   activeTabPath: "/a.md",
   closeTab: mockCloseTab,
   closeAllTabs: mockCloseAllTabs,
   setActiveTab: mockSetActiveTab,
+  bumpZoom: mockBumpZoom,
+  back: mockBack,
+  forward: mockForward,
+  zoomByFiletype: {} as Record<string, number>,
+  viewModeByTab: {} as Record<string, "source" | "visual">,
   tabs: [
     { path: "/a.md", title: "a" },
     { path: "/b.md", title: "b" },
@@ -33,20 +41,30 @@ const callbacks = {
   toggleCommentsPane: vi.fn(),
 };
 
-function fire(opts: { key: string; shift?: boolean; mod?: boolean }) {
+function fire(opts: { key: string; shift?: boolean; mod?: boolean; alt?: boolean; target?: EventTarget }) {
   const ev = new KeyboardEvent("keydown", {
     key: opts.key,
     shiftKey: !!opts.shift,
-    ctrlKey: opts.mod ?? true,
+    ctrlKey: opts.mod ?? (opts.alt ? false : true),
+    altKey: !!opts.alt,
     cancelable: true,
+    bubbles: true,
   });
-  window.dispatchEvent(ev);
+  if (opts.target) {
+    opts.target.dispatchEvent(ev);
+  } else {
+    window.dispatchEvent(ev);
+  }
   return ev;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   storeState.activeTabPath = "/a.md";
+  storeState.zoomByFiletype = {};
+  storeState.viewModeByTab = {};
+  mockBack.mockReturnValue(null);
+  mockForward.mockReturnValue(null);
 });
 
 describe("useGlobalShortcuts", () => {
@@ -97,7 +115,6 @@ describe("useGlobalShortcuts", () => {
   it("Ctrl+Shift+Tab moves to previous tab (wrapping)", () => {
     renderHook(() => useGlobalShortcuts(callbacks));
     fire({ key: "Tab", shift: true });
-    // active is /a.md (idx 0), prev wraps to /c.md
     expect(mockSetActiveTab).toHaveBeenCalledWith("/c.md");
   });
 
@@ -118,6 +135,108 @@ describe("useGlobalShortcuts", () => {
     const ev = new KeyboardEvent("keydown", { key: "o", ctrlKey: false, metaKey: false });
     window.dispatchEvent(ev);
     expect(callbacks.handleOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+= calls bumpZoom('in') for the active filetype", () => {
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "=" });
+    expect(mockBumpZoom).toHaveBeenCalledWith(".md", "in");
+  });
+
+  it("Ctrl+- calls bumpZoom('out')", () => {
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "-" });
+    expect(mockBumpZoom).toHaveBeenCalledWith(".md", "out");
+  });
+
+  it("Ctrl+0 calls bumpZoom('reset')", () => {
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "0" });
+    expect(mockBumpZoom).toHaveBeenCalledWith(".md", "reset");
+  });
+
+  it("zoom shortcuts use source filetype key when active tab is in source view", () => {
+    storeState.viewModeByTab = { "/a.md": "source" };
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "=" });
+    expect(mockBumpZoom.mock.calls[0][0]).toBe(".source");
+  });
+
+  it("zoom shortcuts are no-ops when no active tab", () => {
+    storeState.activeTabPath = "";
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "=" });
+    fire({ key: "0" });
+    expect(mockBumpZoom).not.toHaveBeenCalled();
+  });
+
+  // T5 — Alt+Left / Alt+Right back/forward branches.
+  describe("Alt+Left / Alt+Right (T5)", () => {
+    it("Alt+Left calls back(); switches tab when target returned (no history push)", () => {
+      mockBack.mockReturnValue("/b.md");
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "ArrowLeft", alt: true, mod: false });
+      expect(mockBack).toHaveBeenCalledOnce();
+      expect(mockSetActiveTab).toHaveBeenCalledWith("/b.md", { recordHistory: false });
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it("Alt+Left with no back target is a no-op", () => {
+      mockBack.mockReturnValue(null);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "ArrowLeft", alt: true, mod: false });
+      expect(mockBack).toHaveBeenCalledOnce();
+      expect(mockSetActiveTab).not.toHaveBeenCalled();
+      expect(ev.defaultPrevented).toBe(false);
+    });
+
+    it("Alt+Right calls forward()", () => {
+      mockForward.mockReturnValue("/c.md");
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "ArrowRight", alt: true, mod: false });
+      expect(mockForward).toHaveBeenCalledOnce();
+      expect(mockSetActiveTab).toHaveBeenCalledWith("/c.md", { recordHistory: false });
+    });
+
+    it("Ctrl+Alt+Left does NOT trigger back (modifier conflict)", () => {
+      mockBack.mockReturnValue("/b.md");
+      renderHook(() => useGlobalShortcuts(callbacks));
+      // alt=true, mod (ctrl)=true → modifier guard rejects.
+      fire({ key: "ArrowLeft", alt: true, mod: true });
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+  });
+
+  // B1 — editable-target guard.
+  describe("editable-target guard (B1)", () => {
+    it("ignores Ctrl+= when target is an INPUT", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      fire({ key: "=", target: input });
+      expect(mockBumpZoom).not.toHaveBeenCalled();
+      input.remove();
+    });
+
+    it("ignores Alt+Left when target is a TEXTAREA", () => {
+      mockBack.mockReturnValue("/b.md");
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ta = document.createElement("textarea");
+      document.body.appendChild(ta);
+      fire({ key: "ArrowLeft", alt: true, mod: false, target: ta });
+      expect(mockBack).not.toHaveBeenCalled();
+      ta.remove();
+    });
+
+    it("ignores Ctrl+W when target is contentEditable", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const div = document.createElement("div");
+      div.contentEditable = "true";
+      document.body.appendChild(div);
+      fire({ key: "w", target: div });
+      expect(mockCloseTab).not.toHaveBeenCalled();
+      div.remove();
+    });
   });
 
   it("removes listener on unmount", () => {

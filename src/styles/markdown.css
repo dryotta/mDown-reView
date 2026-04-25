@@ -1,6 +1,5 @@
 .markdown-viewer {
   padding: 20px 28px;
-  max-width: 860px;
   height: 100%;
 }
 
@@ -119,6 +118,49 @@
 .markdown-body a:hover {
   text-decoration: underline;
 }
+
+/* A5 — heading anchors injected by rehype-autolink-headings.
+ * Hidden by default; revealed on hover of the parent heading so they
+ * don't add visual noise to the reading flow. */
+.markdown-body :is(h1, h2, h3, h4, h5, h6) > a.heading-anchor {
+  margin-right: 4px;
+  color: var(--color-text-secondary, #6e7781);
+  font-weight: normal;
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 120ms ease;
+}
+
+.markdown-body :is(h1, h2, h3, h4, h5, h6):hover > a.heading-anchor,
+.markdown-body :is(h1, h2, h3, h4, h5, h6) > a.heading-anchor:focus {
+  opacity: 1;
+  text-decoration: none;
+}
+
+/* B1 — GitHub-style alerts. Class tokens are gated by sanitizeSchema. */
+.markdown-body .md-alert {
+  padding: 8px 16px;
+  margin: 0 0 16px;
+  border-left: 4px solid var(--color-blockquote-border);
+  background: var(--color-surface);
+  border-radius: 0 6px 6px 0;
+}
+.markdown-body .md-alert > :last-child { margin-bottom: 0; }
+.markdown-body .md-alert-title {
+  font-weight: 600;
+  margin: 0 0 4px;
+  text-transform: none;
+}
+.markdown-body .md-alert-note      { border-left-color: #0969da; }
+.markdown-body .md-alert-note      .md-alert-title { color: #0969da; }
+.markdown-body .md-alert-tip       { border-left-color: #1a7f37; }
+.markdown-body .md-alert-tip       .md-alert-title { color: #1a7f37; }
+.markdown-body .md-alert-important { border-left-color: #8250df; }
+.markdown-body .md-alert-important .md-alert-title { color: #8250df; }
+.markdown-body .md-alert-warning   { border-left-color: #9a6700; }
+.markdown-body .md-alert-warning   .md-alert-title { color: #9a6700; }
+.markdown-body .md-alert-caution   { border-left-color: #cf222e; }
+.markdown-body .md-alert-caution   .md-alert-title { color: #cf222e; }
 
 .markdown-body hr {
   border: none;

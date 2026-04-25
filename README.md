@@ -16,29 +16,38 @@
 
 ## Install
 
-Download the latest release for your platform from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest).
+### macOS
 
-### Desktop App (GUI)
+**Script (recommended)** — handles Gatekeeper quarantine and adds the CLI to your PATH automatically:
 
-| Platform | Architecture | Artifact |
-|----------|-------------|----------|
-| Windows  | x64 (Intel/AMD) | `mdownreview-x.x.x-windows-x64.zip` |
-| Windows  | ARM64 | `mdownreview-x.x.x-windows-arm64.zip` |
-| macOS    | Apple Silicon | `mdownreview-x.x.x-macos-arm64.dmg` |
-
-### Script install
-
-**macOS**
-```
+```bash
 curl -LsSf https://dryotta.github.io/mdownreview/install.sh | sh
 ```
 
-**Windows (PowerShell)**
-```
-powershell -ExecutionPolicy ByPass -c "irm https://dryotta.github.io/mdownreview/install.ps1 | iex"
+> ⚠️ Pipes remote code into your shell — use manual download below if blocked by security policy.
+
+**Manual download** — grab `mdownreview-x.x.x-macos-arm64.dmg` from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest) and clear the Gatekeeper quarantine:
+
+```bash
+xattr -d com.apple.quarantine /Applications/mdownreview.app
 ```
 
-> ⚠️ Pipes remote code into your shell — use direct download if blocked by security policy.
+### Windows
+
+**Manual download (recommended)** — grab the matching `.zip` from the [Releases page](https://github.com/dryotta/mdownreview/releases/latest):
+
+| Architecture | Filename |
+|---|---|
+| Windows x64 (Intel/AMD) | `mdownreview-x.x.x-windows-x64.zip` |
+| Windows ARM64 | `mdownreview-x.x.x-windows-arm64.zip` |
+
+Extract and run `mdownreview.exe`. SmartScreen may show "unrecognized app" — click "More info" → "Run anyway".
+
+**Script** (alternative — uses PowerShell, may need execution policy bypass):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://dryotta.github.io/mdownreview/install.ps1 | iex"
+```
 
 ### CLI Tool
 
@@ -59,20 +68,36 @@ cargo install --git https://github.com/dryotta/mdownreview.git --bin mdownreview
 
 **CLI subcommands:**
 ```bash
-mdownreview-cli read --folder .             # Show unresolved comments
-mdownreview-cli read --folder . --all       # Show all comments (incl. resolved)
-mdownreview-cli read --folder . --format json  # JSON output for scripting
-mdownreview-cli cleanup --folder . --dry-run   # Preview which sidecars would be deleted
-mdownreview-cli cleanup --folder .          # Delete fully-resolved sidecars
-mdownreview-cli resolve path/to/file.md.review.yaml <comment-id>  # Mark resolved
-mdownreview-cli respond path/to/file.md.review.yaml <comment-id> --response "Fixed"
+mdownreview-cli --help                         # aggregated help: top-level + every subcommand
+
+# read — show review comments
+mdownreview-cli read --folder .                                  # unresolved comments in folder
+mdownreview-cli read --folder . --include-resolved               # include resolved comments
+mdownreview-cli read --folder . --json                           # JSON envelope (array of {reviewFile,sourceFile,comments})
+mdownreview-cli read --folder . --file foo.md                    # single source-or-sidecar file
+mdownreview-cli read --file foo.md.review.yaml --json            # single file as JSON
+
+# respond — add a response and/or mark resolved
+mdownreview-cli respond path/to/file.md <comment-id> --response "Fixed"
+mdownreview-cli respond path/to/file.md <comment-id> --resolve
+mdownreview-cli respond path/to/file.md <comment-id> --response "Fixed" --resolve
+mdownreview-cli respond --folder . rel/path/file.md <comment-id> --response "ack"
+
+# cleanup — delete fully-resolved sidecars
+mdownreview-cli cleanup --folder . --dry-run                     # preview deletions
+mdownreview-cli cleanup --folder .                               # delete sidecars whose comments are all resolved
+mdownreview-cli cleanup --folder . --include-unresolved          # also delete sidecars with unresolved comments
 ```
+
+### Why isn't this app signed?
+
+mdownreview is open-source and not signed with an Apple Developer ID. The app and CLI are ad-hoc signed, which means macOS shows a Gatekeeper warning on first launch when downloaded via a browser. The script install above avoids this entirely. See [docs/features/installation.md](docs/features/installation.md) for the full story (including how this differs from the auto-updater's minisign signature).
 
 ## Agent Skills
 
 Install plugins for Claude, GitHub Copilot CLI, and other coding agents:
 
-```
+```text
 /plugin marketplace add dryotta/mdownreview-skills
 /plugin install mdownreview@mdownreview-skills
 ```
@@ -89,7 +114,7 @@ Install plugins for Claude, GitHub Copilot CLI, and other coding agents:
 **App** — mdownreview checks for updates automatically on launch and installs them in the background. No action needed.
 
 **Skills** — update to the latest version:
-```
+```text
 /plugin update mdownreview-skills
 ```
 

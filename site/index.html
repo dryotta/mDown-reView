@@ -119,7 +119,7 @@
         <div class="install-tabs">
           <div class="tab-bar">
             <button class="tab-btn active" data-tab="download">Download</button>
-            <button class="tab-btn" data-tab="script">Script</button>
+            <button class="tab-btn" data-tab="script">Script <span class="badge-recommended" title="One-line install. Handles macOS quarantine and adds the CLI to your PATH automatically.">Recommended</span></button>
           </div>
 
           <div class="tab-panel" id="tab-download">
@@ -132,6 +132,17 @@
             </div>
             <div class="other-platforms">
               Not your platform? <a href="https://github.com/dryotta/mdownreview/releases/latest">View all releases on GitHub →</a>
+            </div>
+            <div class="dmg-walkthrough">
+              <h4>After downloading the DMG (macOS)</h4>
+              <ol>
+                <li>Open the <code>.dmg</code> file.</li>
+                <li>Drag <strong>mdownreview.app</strong> to your <strong>Applications</strong> folder.</li>
+                <li>Open Terminal and clear the Gatekeeper quarantine:
+                  <pre class="install-code"><code class="language-bash">xattr -d com.apple.quarantine /Applications/mdownreview.app</code></pre>
+                </li>
+                <li>Double-click <strong>mdownreview</strong> in Applications. The app will launch.</li>
+              </ol>
             </div>
           </div>
 
@@ -147,6 +158,40 @@
               <p class="script-note">⚠️ Pipes remote code into your shell — use direct download if blocked by security policy.</p>
             </div>
           </div>
+
+          <details class="why-smartscreen">
+            <summary>Why does Windows show "Unrecognized app"?</summary>
+            <p>
+              Windows SmartScreen flags new executables that haven't built a reputation yet.
+              mdownreview is a free, open-source app and we don't pay for an EV code-signing
+              certificate (~$300+/year). On first launch, click <strong>"More info"</strong>
+              in the SmartScreen dialog, then <strong>"Run anyway"</strong>. The warning
+              disappears after a few launches as the app builds local trust.
+            </p>
+            <p>
+              The auto-updater verifies updates with our own <strong>minisign</strong>
+              signing key (independent of Microsoft's reputation system) so updates are
+              cryptographically authenticated.
+            </p>
+          </details>
+
+          <details class="why-unsigned">
+            <summary>Why isn't this app signed?</summary>
+            <p>
+              mdownreview is a free, open-source desktop app and we don't pay for an
+              Apple Developer ID ($99/yr). The app and its CLI are <strong>ad-hoc signed</strong>,
+              which means macOS won't trust them on first launch when downloaded via a
+              browser (it shows "app is damaged" or "from an unidentified developer").
+              The script installer above sidesteps this entirely — no quarantine is applied
+              when downloading via <code>curl</code>. If you prefer the DMG path, follow
+              the three-step walkthrough above to clear the quarantine flag once.
+            </p>
+            <p>
+              The app's auto-updater uses our own <strong>minisign</strong> signing key
+              (separate from Apple codesign) so updates are still cryptographically verified.
+              See <a href="https://github.com/dryotta/mdownreview/blob/main/docs/features/installation.md">docs/features/installation.md</a> for details.
+            </p>
+          </details>
 
         </div>
       </div>
@@ -229,6 +274,34 @@
 
     const detected = detectPlatform();
 
+    // Tag <body> with platform class so CSS can show/hide platform-specific blocks
+    // (e.g. .dmg-walkthrough and .why-unsigned are macOS-only).
+    const osClass = detected === 'mac-arm64'
+      ? 'is-mac'
+      : (detected === 'win-x64' || detected === 'win-arm64')
+        ? 'is-win'
+        : 'is-other';
+    document.body.classList.add(osClass);
+
+    // Move the "Recommended" badge to the platform-appropriate tab.
+    // Default markup keeps the badge on the Script tab (safer for non-Windows + no-JS).
+    // On Windows, manual download is the recommended path (no PowerShell execution-policy
+    // friction), so move the badge to the Download tab.
+    if (osClass === 'is-win') {
+      const scriptTabBtn = document.querySelector('.tab-btn[data-tab="script"]');
+      const downloadTabBtn = document.querySelector('.tab-btn[data-tab="download"]');
+      const existingBadge = scriptTabBtn?.querySelector('.badge-recommended');
+      if (existingBadge && downloadTabBtn) {
+        existingBadge.remove();
+        const badge = document.createElement('span');
+        badge.className = 'badge-recommended';
+        badge.title = 'Direct download — recommended on Windows. Single .zip file, no PowerShell execution policy issues.';
+        badge.textContent = 'Recommended';
+        downloadTabBtn.appendChild(document.createTextNode(' '));
+        downloadTabBtn.appendChild(badge);
+      }
+    }
+
     // Set platform label in Download tab
     if (detected && PLATFORM_LABELS[detected]) {
       document.getElementById('dl-platform-label').textContent = PLATFORM_LABELS[detected].platform;
@@ -240,6 +313,13 @@
       const showMac = detected === 'mac-arm64';
       document.getElementById('script-macos').style.display = showMac ? '' : 'none';
       document.getElementById('script-windows').style.display = showMac ? 'none' : '';
+    }
+
+    // Default to Script tab on macOS (handles quarantine + PATH automatically).
+    // Windows and unknown platforms keep the markup default (Download tab).
+    if (detected === 'mac-arm64') {
+      const scriptTab = document.querySelector('.tab-btn[data-tab="script"]');
+      if (scriptTab) scriptTab.click();
     }
 
     // ── Resolve latest release download URL ────────────────────────

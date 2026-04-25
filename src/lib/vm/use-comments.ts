@@ -5,6 +5,7 @@ import {
   type CommentThread,
   type MatchedComment,
 } from "@/lib/tauri-commands";
+import { useStore } from "@/store/index";
 import { info, error } from "@/logger";
 
 interface UseCommentsResult {
@@ -33,7 +34,10 @@ export function useComments(filePath: string | null): UseCommentsResult {
       setLoading(true);
       try {
         const result = await getFileComments(filePath);
-        if (!isCancelled()) setThreads(result);
+        if (!isCancelled()) {
+          setThreads(result);
+          useStore.getState().setLastCommentsReloadedAt(filePath, Date.now());
+        }
       } catch (e) {
         error(`[vm] Failed to load comments for ${filePath}: ${e}`);
         if (!isCancelled()) setThreads([]);

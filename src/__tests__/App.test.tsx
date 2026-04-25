@@ -34,6 +34,23 @@ vi.mock("@/lib/tauri-events", () => ({
 vi.mock("@/lib/tauri-commands", () => ({
   getLaunchArgs: vi.fn().mockResolvedValue({ files: [], folders: [] }),
   showOpenDialog: vi.fn().mockResolvedValue(null),
+  onboardingShouldWelcome: vi.fn().mockResolvedValue(false),
+  cliShimStatus: vi.fn().mockResolvedValue("missing"),
+  defaultHandlerStatus: vi.fn().mockResolvedValue("unknown"),
+  folderContextStatus: vi.fn().mockResolvedValue("missing"),
+  onboardingState: vi.fn().mockResolvedValue({
+    schema_version: 1,
+    last_welcomed_version: null,
+    last_seen_sections: [],
+  }),
+  onboardingMarkWelcomed: vi.fn().mockResolvedValue(undefined),
+  installCliShim: vi.fn().mockResolvedValue(undefined),
+  removeCliShim: vi.fn().mockResolvedValue(undefined),
+  setDefaultHandler: vi.fn().mockResolvedValue(undefined),
+  registerFolderContext: vi.fn().mockResolvedValue(undefined),
+  unregisterFolderContext: vi.fn().mockResolvedValue(undefined),
+  getAppVersion: vi.fn().mockResolvedValue("0.0.0-test"),
+  getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({
@@ -45,6 +62,9 @@ vi.mock("@/components/FolderTree/FolderTree", () => ({
 }));
 vi.mock("@/components/TabBar/TabBar", () => ({
   TabBar: () => <div data-testid="tab-bar" />,
+}));
+vi.mock("@/components/StatusBar/StatusBar", () => ({
+  StatusBar: () => <div data-testid="status-bar" />,
 }));
 vi.mock("@/components/viewers/ViewerRouter", () => ({
   ViewerRouter: ({ path }: { path: string }) => <div data-testid="viewer-router">{path}</div>,
@@ -68,14 +88,16 @@ vi.mock("@/components/UpdateBanner", () => ({
 vi.mock("@/components/WelcomeView", () => ({
   WelcomeView: () => <div data-testid="welcome-view" />,
 }));
+vi.mock("@/components/onboarding/FirstRunPanel", () => ({
+  FirstRunPanel: () => null,
+}));
+vi.mock("@/components/onboarding/SetupPanel", () => ({
+  SetupPanel: () => null,
+}));
 vi.mock("@/components/Icons", () => ({
   IconFile: () => <span data-testid="icon-file" />,
   IconFolder: () => <span data-testid="icon-folder" />,
   IconComment: () => <span data-testid="icon-comment" />,
-  IconSun: () => <span data-testid="icon-sun" />,
-  IconMoon: () => <span data-testid="icon-moon" />,
-  IconAuto: () => <span data-testid="icon-auto" />,
-  IconInfo: () => <span data-testid="icon-info" />,
 }));
 
 import { showOpenDialog } from "@/lib/tauri-commands";
@@ -121,14 +143,14 @@ function pressKey(opts: {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("App – toolbar rendering", () => {
-  it("renders Open File, Open Folder, Comments, theme, and About buttons", async () => {
+  it("renders Open File, Open Folder, and Comments buttons; Theme/About buttons removed", async () => {
     await renderApp();
 
     expect(screen.getByText("Open File")).toBeInTheDocument();
     expect(screen.getByText("Open Folder")).toBeInTheDocument();
     expect(screen.getByText("Comments")).toBeInTheDocument();
-    expect(screen.getByText("System")).toBeInTheDocument();
-    expect(screen.getByText("About")).toBeInTheDocument();
+    expect(screen.queryByText("System")).not.toBeInTheDocument();
+    expect(screen.queryByText("About")).not.toBeInTheDocument();
   });
 
   it("shows WelcomeView when no active tab", async () => {
@@ -310,38 +332,14 @@ describe("App – keyboard shortcuts", () => {
   });
 });
 
-describe("App – theme cycling", () => {
-  it("cycles theme: system → light → dark → system", async () => {
-    useStore.setState({ theme: "system" });
-    await renderApp();
-
-    const themeBtn = screen.getByText("System").closest("button")!;
-
-    act(() => {
-      fireEvent.click(themeBtn);
-    });
-    expect(useStore.getState().theme).toBe("light");
-
-    act(() => {
-      fireEvent.click(themeBtn);
-    });
-    expect(useStore.getState().theme).toBe("dark");
-
-    act(() => {
-      fireEvent.click(themeBtn);
-    });
-    expect(useStore.getState().theme).toBe("system");
-  });
-});
-
 describe("App – About dialog", () => {
-  it("opens About dialog when About button is clicked", async () => {
+  it("opens About dialog via menu-about event", async () => {
     await renderApp();
 
     expect(screen.queryByTestId("about-dialog")).not.toBeInTheDocument();
 
-    act(() => {
-      fireEvent.click(screen.getByText("About").closest("button")!);
+    await act(async () => {
+      eventHandlers["menu-about"]?.(undefined);
     });
 
     expect(screen.getByTestId("about-dialog")).toBeInTheDocument();
@@ -350,8 +348,8 @@ describe("App – About dialog", () => {
   it("closes About dialog via onClose callback", async () => {
     await renderApp();
 
-    act(() => {
-      fireEvent.click(screen.getByText("About").closest("button")!);
+    await act(async () => {
+      eventHandlers["menu-about"]?.(undefined);
     });
     expect(screen.getByTestId("about-dialog")).toBeInTheDocument();
 

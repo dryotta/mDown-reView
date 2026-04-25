@@ -1,4 +1,17 @@
 import "@/styles/viewer-toolbar.css";
+import type { ReactNode } from "react";
+import { ZoomControl } from "./ZoomControl";
+
+/**
+ * L5 — share the same prop shape as `ZoomControl`. Callers spread it directly
+ * into `<ZoomControl {...zoom} />` rather than re-wrapping.
+ */
+export interface ZoomProps {
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onReset: () => void;
+}
 
 interface Props {
   activeView: "source" | "visual";
@@ -7,10 +20,25 @@ interface Props {
   showWrapToggle?: boolean;
   wordWrap?: boolean;
   onToggleWrap?: () => void;
+  zoom?: ZoomProps;
+  /**
+   * Optional trailing slot rendered on the right edge of the toolbar.
+   * `EnhancedViewer` plugs `FileActionsBar` in here so the file actions stay
+   * pinned with the (sticky) toolbar instead of becoming a separate sibling
+   * row that would scroll independently.
+   */
+  trailing?: ReactNode;
 }
 
-export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap }: Props) {
-  if (hidden && !showWrapToggle) return null;
+/**
+ * View-mode toggle bar: source/visual tabs, optional wrap toggle, optional
+ * zoom controls. File-action buttons (reveal in folder, open in default app)
+ * live in `FileActionsBar` and are composed via the `trailing` slot by
+ * `EnhancedViewer`, or rendered above headerless media viewers by
+ * `ViewerRouter`.
+ */
+export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap, zoom, trailing }: Props) {
+  if (hidden && !showWrapToggle && !zoom && !trailing) return null;
 
   return (
     <div className="viewer-toolbar" role="toolbar" aria-label="View mode">
@@ -42,6 +70,8 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
           Wrap
         </button>
       )}
+      {zoom && <ZoomControl {...zoom} />}
+      {trailing}
     </div>
   );
 }

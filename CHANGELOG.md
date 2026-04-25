@@ -1,3 +1,28 @@
+## Unreleased
+
+### Breaking
+- `mdownreview-cli read --all` removed — use `--include-resolved` instead. (#36)
+- `mdownreview-cli resolve <file> <id>` subcommand removed — use `respond <file> <id> --resolve` (combinable with `--response`). (#36)
+- `mdownreview-cli read --json` envelope shape changed: each entry is now `{ reviewFile: { relative, absolute }, sourceFile: { relative, absolute }, comments: [...] }`. Folder scans return an array of envelopes; `--file` mode returns a single envelope. (#36)
+- `args-received` Tauri event no longer carries a payload (signal-only). Listeners must call `get_launch_args` to drain the pending-args queue. (#36)
+
+### Features
+- `mdownreview-cli read --json` (shorthand for `--format json`) and `read --file <path>` for single-file mode with surfaced errors. (#36)
+- `mdownreview-cli respond --resolve` (folds the old `resolve` subcommand into `respond`). (#36)
+- `mdownreview-cli respond --folder <root>` restricts file resolution to a root directory. (#36)
+- `mdownreview-cli cleanup --include-unresolved` also deletes sidecars containing unresolved comments. (#36)
+- `mdownreview-cli --help` (top-level) prints aggregated help: top-level usage followed by every subcommand's long help. (#36)
+
+### Fixes
+- macOS `RunEvent::Opened` no longer clobbers pending launch args — args now flow through a Rust-internal pending-args queue (`PendingArgsState`) drained by `get_launch_args`. (#36)
+- NSIS installer: file-association open verb now uses `%*` instead of `%1` so Explorer multi-select → Enter on .md/.mdx files forwards every selected path to a single mdownreview-cli invocation (one window, not N windows). (#36)
+
+### Known gaps
+- The NSIS multi-select fix is NSIS-only. MSI bundles (if produced) still register `%1` per Tauri defaults; multi-select via MSI installs is not yet covered.
+
+### Manual verification
+- After installing from the NSIS bundle: in Explorer, select 2+ `.md` files, press Enter → all selected files must open as tabs in the same mdownreview window.
+
 ## v0.3.4 — 2026-04-23
 
 ### Fixes

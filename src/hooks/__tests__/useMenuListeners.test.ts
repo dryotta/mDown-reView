@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useMenuListeners } from "../useMenuListeners";
+import { useStore } from "@/store";
 
 const mockUnlisten = vi.fn();
 const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -31,9 +32,9 @@ describe("useMenuListeners", () => {
     checkForUpdate: vi.fn(),
   };
 
-  it("subscribes to all 13 menu events", () => {
+  it("subscribes to all 15 menu events", () => {
     renderHook(() => useMenuListeners(callbacks));
-    expect(listeners.size).toBe(13);
+    expect(listeners.size).toBe(15);
     expect(listeners.has("menu-open-file")).toBe(true);
     expect(listeners.has("menu-open-folder")).toBe(true);
     expect(listeners.has("menu-close-folder")).toBe(true);
@@ -47,6 +48,8 @@ describe("useMenuListeners", () => {
     expect(listeners.has("menu-theme-dark")).toBe(true);
     expect(listeners.has("menu-about")).toBe(true);
     expect(listeners.has("menu-check-updates")).toBe(true);
+    expect(listeners.has("menu-help-welcome")).toBe(true);
+    expect(listeners.has("menu-help-setup")).toBe(true);
   });
 
   it("calls handleOpenFile on menu-open-file event", () => {
@@ -89,11 +92,27 @@ describe("useMenuListeners", () => {
     expect(callbacks.checkForUpdate).toHaveBeenCalledOnce();
   });
 
+  it("calls openWelcome on menu-help-welcome event", () => {
+    const openWelcome = vi.fn();
+    useStore.setState({ openWelcome } as Partial<ReturnType<typeof useStore.getState>>);
+    renderHook(() => useMenuListeners(callbacks));
+    listeners.get("menu-help-welcome")?.();
+    expect(openWelcome).toHaveBeenCalledOnce();
+  });
+
+  it("calls openSetup on menu-help-setup event", () => {
+    const openSetup = vi.fn();
+    useStore.setState({ openSetup } as Partial<ReturnType<typeof useStore.getState>>);
+    renderHook(() => useMenuListeners(callbacks));
+    listeners.get("menu-help-setup")?.();
+    expect(openSetup).toHaveBeenCalledOnce();
+  });
+
   it("cleans up all listeners on unmount", async () => {
     const { unmount } = renderHook(() => useMenuListeners(callbacks));
     unmount();
     await vi.waitFor(() => {
-      expect(mockUnlisten).toHaveBeenCalledTimes(13);
+      expect(mockUnlisten).toHaveBeenCalledTimes(15);
     });
   });
 });

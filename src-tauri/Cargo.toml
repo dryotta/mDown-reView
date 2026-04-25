@@ -24,7 +24,7 @@ path = "benches/generate_fixtures.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -47,6 +47,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["sync"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
@@ -54,6 +60,8 @@ tempfile = "3"
 serde_yaml_ng = "0.10"
 serde_json = "1"
 rand = "0.8"
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [[bench]]
 name = "sidecar_bench"

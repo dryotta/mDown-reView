@@ -99,6 +99,10 @@ jobs:
         shell: bash
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
 
+      - name: Stage CLI binary (build + copy to externalBin path)
+        shell: bash
+        run: node scripts/stage-cli.mjs --release --target "${{ matrix.rust_target }}"
+
       - name: Build Tauri app
         shell: bash
         run: |
@@ -108,6 +112,7 @@ jobs:
             npm run tauri:build
           fi
         env:
+          STAGE_CLI_TARGET: ${{ matrix.rust_target }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 

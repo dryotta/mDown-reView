@@ -39,7 +39,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 ### Hard caps
 1. File reads reject inputs above 10 MB. Threat-model canonical: rule 1 in [`docs/security.md`](security.md).
 2. Binary detection scans ≤ 512 bytes. Canonical: rule 2 in [`docs/security.md`](security.md).
-3. `scan_review_files` caps results at 10,000 entries and `walkdir` depth at 50. (`commands.rs:168`; `scanner.rs:12`.)
+3. `scan_review_files` caps results at 10,000 entries and `walkdir` depth at 50. (`commands/launch.rs:26`; `scanner.rs:12`.)
 
 ### Debounce windows
 4. File-watcher debounce is 300 ms; adjusting below 200 ms or above 500 ms requires a Criterion bench. (`watcher.rs:58`.)
@@ -56,33 +56,42 @@ Unique to performance. Rust-First is a charter meta-principle.
 11. `SourceView` runs Shiki once per file/theme change, not per line. (`useSourceHighlighting.ts:54`.)
 12. `useSourceHighlighting` uses `useDeferredValue` so highlighting never blocks typing or scrolling. (`useSourceHighlighting.ts:28`.)
 13. `useFileContent` renders "loading" only on initial mount or path change, not on same-file watcher reloads. (`useFileContent.ts:35`.)
+13a. `HexView` virtualizes rows when payload ≥ 32 KiB at 18-px row height; smaller files render in full. (`HexView.tsx` `VIRTUALIZE_THRESHOLD`, `ROW_HEIGHT`.)
 
 ### Rust hot paths
 14. Comment anchoring (`match_comments`) stays in Rust; no TypeScript re-implementation. (`core/matching.rs:12`, exposed via `get_file_comments`.)
 15. Levenshtein uses O(min(m,n)) memory — never a full m×n matrix. (`matching.rs:184-217`.)
 16. Fuzzy matching short-circuits identical/substring cases before computing Levenshtein. (`matching.rs:168-173`.)
-17. Sidecar mutations go through `with_sidecar_mut` (load → mutate → save → emit) — never from the frontend. (`commands.rs:33`.)
-18. Batch counts for N files are a single IPC call (`get_unresolved_counts`), not N calls. (`commands.rs:376`.)
+17. Sidecar mutations go through `with_sidecar_mut` (load → mutate → save → emit) — never from the frontend. (`commands/comments.rs:13`.)
+18. Batch counts for N files are a single IPC call (`get_unresolved_counts`), not N calls. (`commands/comments.rs:215`.)
+19. Line counting is amortized inside `read_text_file`: `content.lines().count()` runs once per read (`commands/fs.rs:107`) and the result is returned in `TextFileResult.line_count`. Frontend consumers (StatusBar) read it from the `fileMetaByPath` cache populated by `useFileContent` — they never recompute line counts in TS.
+
+### StatusBar timer
+20. `StatusBar` uses a single `setInterval(60_000ms)` to refresh "N min ago" labels and clears it on `activeTabPath` change or unmount (`StatusBar.tsx` effect). No timer per item, no leak across tab switches.
 
 ### Watcher efficiency
-19. The watcher thread owns its receiver exclusively via `.take()`; no double-start. (`watcher.rs:41-53`.)
-20. The watcher coalesces sync signals by draining with `try_recv` before calling `sync_dirs`. (`watcher.rs:117-124`.)
-21. `update_watched_files` uses `try_send(())` on its 1-slot channel so the frontend never blocks the watcher loop. (`watcher.rs:202`.)
+21. The watcher thread owns its receiver exclusively via `.take()`; no double-start. (`watcher.rs:41-53`.)
+22. The watcher coalesces sync signals by draining with `try_recv` before calling `sync_dirs`. (`watcher.rs:117-124`.)
+23. `update_watched_files` uses `try_send(())` on its 1-slot channel so the frontend never blocks the watcher loop. (`watcher.rs:202`.)
 
 ### Directory listing
-22. Directory listings sort once in Rust and return pre-sorted. (`commands.rs:97-102`.)
+24. Directory listings sort once in Rust and return pre-sorted. (`commands/fs.rs:60-64`.)
 
 ### Render short-circuits
-23. `setScrollTop` short-circuits when the value is unchanged. (`store/index.ts:162-167`.)
-24. `setGhostEntries` diffs old vs new and skips `set` on equality. (`store/index.ts:186-193`.)
+25. `setScrollTop` short-circuits when the value is unchanged. (`store/index.ts:162-167`.)
+26. `setGhostEntries` diffs old vs new and skips `set` on equality. (`store/index.ts:186-193`.)
+
+### Lazy-loaded heavy bundles
+27. `MarkdownViewer` lazy-imports `rehype-katex` (~150 KB minified, the `katex` chunk reaches ~76 KB gzipped after split) only when `HAS_MATH_RE.test(body)` matches: it requires balanced `$…$` or `$$…$$` and rejects currency (`$5`), spaced delimiters (`$ x $`, `$ x$`), and trailing space. Documents without math never download the KaTeX bundle. The regex contract is locked by `src/components/viewers/__tests__/has-math-re.test.ts`. (`MarkdownViewer.tsx` `HAS_MATH_RE`, `useState`+`import("rehype-katex")` block.)
+28. The KaTeX chunk is emitted as a separate file by Vite's code-splitter — confirmed by `dist/assets/katex-*.js` in the build output. Mermaid is lazy-loaded the same way via `MermaidView`.
 
 ### User expectations
-25. `MarkdownViewer` and `SourceView` display a "large file" warning above `SIZE_WARN_THRESHOLD` so users expect slower rendering instead of assuming a hang. (`MarkdownViewer.tsx:321,371-375`; `SourceView.tsx:113,128-132`.)
+29. `MarkdownViewer` and `SourceView` display a "large file" warning above `SIZE_WARN_THRESHOLD` so users expect slower rendering instead of assuming a hang. (`MarkdownViewer.tsx:321,371-375`; `SourceView.tsx:113,128-132`.)
 
 ## Gaps
 
 - No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.
-- `read_text_file` reads the file before checking size (`commands.rs:109-115`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
+- `read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
 - No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.
 - No JS bundle-size budget enforced in CI.
 - No benchmark for `read_dir` on a 1000-entry folder.

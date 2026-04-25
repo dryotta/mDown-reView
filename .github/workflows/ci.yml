@@ -53,9 +53,8 @@ jobs:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
 
-      - name: Build CLI binary (needed by integration tests)
-        working-directory: src-tauri
-        run: cargo build --bin mdownreview-cli
+      - name: Stage CLI binary (needed by integration tests + Tauri externalBin)
+        run: npm run stage:cli
 
       - name: Rust tests
         working-directory: src-tauri

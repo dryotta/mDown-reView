@@ -179,7 +179,7 @@ describe("6.4 – filter hides non-matching files", () => {
     });
   });
 
-  it("parent folders of matching files remain visible", async () => {
+  it("parent folders of matching files appear as group section headers", async () => {
     // Expand subdir first so child.md is cached
     renderTree();
     await waitFor(() => screen.getByText("subdir"));
@@ -192,9 +192,11 @@ describe("6.4 – filter hides non-matching files", () => {
     });
 
     await waitFor(() => {
+      // Filter mode: section header for the parent folder + the matching file
       expect(screen.getByText("subdir")).toBeInTheDocument();
       expect(screen.getByText("child.md")).toBeInTheDocument();
       expect(screen.queryByText("README.md")).not.toBeInTheDocument();
+      expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
     });
   });
 
@@ -286,5 +288,123 @@ describe("6.7 – onFileOpen", () => {
     fireEvent.click(screen.getByText("README.md").closest(".tree-entry")!);
 
     expect(onFileOpen).toHaveBeenCalledWith("/test/README.md");
+  });
+});
+
+// ─── 6.8: auto-reveal toggle removed ─────────────────────────────────────────
+
+describe("6.8 – auto-reveal toggle is gone", () => {
+  it("does not render any auto-reveal control", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("subdir"));
+    expect(screen.queryByTitle(/Auto-reveal/i)).toBeNull();
+  });
+});
+
+// ─── 6.9: optimistic toggle ──────────────────────────────────────────────────
+
+describe("6.9 – optimistic folder toggle", () => {
+  it("flips aria-expanded synchronously even when loadChildren never resolves", async () => {
+    // Make readDir(SUBFOLDER) hang forever; root still resolves so the tree mounts.
+    mockReadDir.mockImplementation((path: string) => {
+      if (path === FOLDER) return Promise.resolve(ROOT_ENTRIES);
+      return new Promise<DirEntry[]>(() => {}); // never resolves
+    });
+
+    renderTree();
+    await waitFor(() => screen.getByText("subdir"));
+
+    const subdirEntry = screen.getByText("subdir").closest(".tree-entry") as HTMLElement;
+    expect(subdirEntry.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(subdirEntry);
+
+    // No await for loadChildren — flip is immediate.
+    expect(subdirEntry.getAttribute("aria-expanded")).toBe("true");
+    expect(subdirEntry.querySelector(".tree-icon")?.textContent).toBe("▾");
+  });
+});
+
+// ─── 6.10: Other files section ───────────────────────────────────────────────
+
+describe("6.10 – Other files section", () => {
+  it("appears when a tab lives outside root and disappears when closed", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("subdir"));
+
+    expect(screen.queryByText(/Other files/)).not.toBeInTheDocument();
+
+    act(() => {
+      useStore.setState({
+        tabs: [{ path: "/elsewhere/outside.md", scrollTop: 0 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Other files \(1\)/)).toBeInTheDocument();
+      expect(screen.getByText("outside.md")).toBeInTheDocument();
+    });
+
+    act(() => {
+      useStore.setState({ tabs: [] });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Other files/)).not.toBeInTheDocument();
+    });
+  });
+});
+
+// ─── 6.11: grouped flat filter mode ──────────────────────────────────────────
+
+describe("6.11 – grouped flat filter view", () => {
+  it("renders one section header per parent folder and a flat list of matches", async () => {
+    // Two parents each holding matching files: /test (root) holds README.md and notes.txt;
+    // /test/subdir holds child.md. Filter "m" matches README.md, notes.txt -> wait, "m"
+    // only in README.md. Use a filter that finds 3 files in 2 folders.
+    mockReadDir.mockImplementation((path: string) => {
+      if (path === FOLDER)
+        return Promise.resolve([
+          { name: "subdir", path: SUBFOLDER, is_dir: true },
+          { name: "alpha.md", path: "/test/alpha.md", is_dir: false },
+          { name: "beta.md", path: "/test/beta.md", is_dir: false },
+        ]);
+      if (path === SUBFOLDER)
+        return Promise.resolve([{ name: "gamma.md", path: "/test/subdir/gamma.md", is_dir: false }]);
+      return Promise.resolve([]);
+    });
+
+    renderTree();
+    await waitFor(() => screen.getByText("alpha.md"));
+    // Expand subdir so its cache is populated
+    fireEvent.click(screen.getByText("subdir").closest(".tree-entry")!);
+    await waitFor(() => screen.getByText("gamma.md"));
+
+    fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+      target: { value: ".md" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("alpha.md")).toBeInTheDocument();
+      expect(screen.getByText("beta.md")).toBeInTheDocument();
+      expect(screen.getByText("gamma.md")).toBeInTheDocument();
+    });
+
+    // Two filter group section headers: one for the root (".") and one for "subdir".
+    const groupHeaders = document.querySelectorAll(".folder-tree-filter-group-header");
+    expect(groupHeaders.length).toBe(2);
+  });
+
+  it("renders 'No matches' when filter yields nothing", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+      target: { value: "no-such-file-anywhere-xyz" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("No matches")).toBeInTheDocument();
+    });
   });
 });

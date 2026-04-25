@@ -3,51 +3,10 @@ pub mod core;
 pub mod update;
 pub mod watcher;
 
-use commands::LaunchArgsState;
-use std::sync::{Arc, Mutex};
+use commands::{parse_launch_args, push_pending, PendingArgsState};
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
-
-/// Parse CLI-style arguments into files and folders lists.
-/// Supports --folder <path>, --file <path>, and positional auto-detect.
-/// All paths are resolved relative to `cwd`.
-fn parse_args(args: &[String], cwd: &std::path::Path) -> (Vec<String>, Vec<String>) {
-    let mut files = Vec::new();
-    let mut folders = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        if arg == "--folder" {
-            i += 1;
-            if let Some(val) = args.get(i) {
-                let resolved = cwd.join(val);
-                if let Ok(canon) = std::fs::canonicalize(&resolved) {
-                    folders.push(canon.to_string_lossy().into_owned());
-                }
-            }
-        } else if arg == "--file" {
-            i += 1;
-            if let Some(val) = args.get(i) {
-                let resolved = cwd.join(val);
-                if let Ok(canon) = std::fs::canonicalize(&resolved) {
-                    files.push(canon.to_string_lossy().into_owned());
-                }
-            }
-        } else if !arg.starts_with('-') {
-            let resolved = cwd.join(arg);
-            if let Ok(canon) = std::fs::canonicalize(&resolved) {
-                match std::fs::metadata(&canon) {
-                    Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
-                    Ok(_) => files.push(canon.to_string_lossy().into_owned()),
-                    Err(_) => {}
-                }
-            }
-        }
-        i += 1;
-    }
-    (files, folders)
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -95,10 +54,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_single_instance::init(|app, argv, cwd| {
                 let cwd_path = std::path::PathBuf::from(&cwd);
-                let (files, folders) = parse_args(&argv[1..], &cwd_path);
-                let payload = serde_json::json!({ "files": files, "folders": folders });
+                let args = parse_launch_args(&argv[1..], &cwd_path);
+                if let Some(state) = app.try_state::<PendingArgsState>() {
+                    push_pending(&state, args);
+                }
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("args-received", payload);
+                    let _ = window.emit("args-received", ());
                 }
             })
         )
@@ -127,9 +88,9 @@ pub fn run() {
             // Parse CLI args: support --folder <path> and --file <path> flags
             let raw_args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_default();
-            let (files, folders) = parse_args(&raw_args, &cwd);
-            let launch_args = commands::LaunchArgs { files, folders };
-            let state: LaunchArgsState = Arc::new(Mutex::new(Some(launch_args)));
+            let launch_args = parse_launch_args(&raw_args, &cwd);
+            let state: PendingArgsState = PendingArgsState::default();
+            push_pending(&state, launch_args);
             app.manage(state);
 
             // ── Build application menu ────────────────────────────────────────
@@ -173,9 +134,14 @@ pub fn run() {
                 .build()?;
 
             // Help menu
+            let help_welcome = MenuItem::with_id(app, "help-welcome", "Welcome…", true, None::<&str>)?;
+            let help_setup = MenuItem::with_id(app, "help-setup", "Setup…", true, None::<&str>)?;
             let about_item = MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
             let check_updates = MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
             let help_menu = SubmenuBuilder::new(app, "Help")
+                .item(&help_welcome)
+                .item(&help_setup)
+                .separator()
                 .item(&about_item)
                 .separator()
                 .item(&check_updates)
@@ -206,6 +172,8 @@ pub fn run() {
                     "theme-dark" => "menu-theme-dark",
                     "about" => "menu-about",
                     "check-updates" => "menu-check-updates",
+                    "help-welcome" => "menu-help-welcome",
+                    "help-setup" => "menu-help-setup",
                     _ => return,
                 };
                 let _ = window.emit(event_name, ());
@@ -222,27 +190,43 @@ pub fn run() {
     macro_rules! shared_commands {
         ($($extra:path),* $(,)?) => {
             tauri::generate_handler![
-                commands::read_dir,
-                commands::read_text_file,
-                commands::read_binary_file,
-                commands::resolve_html_assets,
-                commands::get_launch_args,
-                commands::get_log_path,
-                commands::scan_review_files,
-                commands::check_path_exists,
-                commands::get_file_comments,
-                commands::add_comment,
-                commands::add_reply,
-                commands::edit_comment,
-                commands::delete_comment,
-                commands::set_comment_resolved,
-                commands::compute_anchor_hash,
-                commands::get_unresolved_counts,
-                commands::search_in_document,
-                commands::compute_fold_regions,
-                commands::parse_kql,
-                commands::strip_json_comments,
+                commands::fs::read_dir,
+                commands::fs::read_text_file,
+                commands::fs::read_binary_file,
+                commands::fs::stat_file,
+                commands::system::reveal_in_folder,
+                commands::system::open_in_default_app,
+                commands::html::resolve_html_assets,
+                commands::launch::get_launch_args,
+                commands::launch::get_log_path,
+                commands::launch::scan_review_files,
+                commands::fs::check_path_exists,
+                commands::comments::get_file_comments,
+                commands::comments::add_comment,
+                commands::comments::add_reply,
+                commands::comments::edit_comment,
+                commands::comments::delete_comment,
+                commands::comments::set_comment_resolved,
+                commands::comments::compute_anchor_hash,
+                commands::comments::get_unresolved_counts,
+                commands::search::search_in_document,
+                commands::html::compute_fold_regions,
+                commands::search::parse_kql,
+                commands::search::strip_json_comments,
+                commands::onboarding::onboarding_state,
+                commands::onboarding::onboarding_mark_welcomed,
+                commands::onboarding::onboarding_should_welcome,
+                commands::cli_shim::cli_shim_status,
+                commands::cli_shim::install_cli_shim,
+                commands::cli_shim::remove_cli_shim,
+                commands::default_handler::default_handler_status,
+                commands::default_handler::set_default_handler,
+                commands::folder_context::folder_context_status,
+                commands::folder_context::register_folder_context,
+                commands::folder_context::unregister_folder_context,
                 watcher::update_watched_files,
+                commands::fs::update_tree_watched_dirs,
+                commands::remote_asset::fetch_remote_asset,
                 update::check_update,
                 update::install_update,
                 $($extra),*
@@ -252,7 +236,7 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     let app = app
-        .invoke_handler(shared_commands![commands::set_root_via_test])
+        .invoke_handler(shared_commands![commands::launch::set_root_via_test])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
@@ -280,16 +264,10 @@ pub fn run() {
                 }
             }
             if !files.is_empty() || !folders.is_empty() {
-                let state = app_handle.state::<LaunchArgsState>();
-                let mut guard = state.lock().unwrap();
-                if guard.is_none() {
-                    drop(guard);
-                    let payload = serde_json::json!({ "files": files, "folders": folders });
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.emit("args-received", payload);
-                    }
-                } else {
-                    *guard = Some(commands::LaunchArgs { files, folders });
+                let state = app_handle.state::<PendingArgsState>();
+                push_pending(&state, commands::LaunchArgs { files, folders });
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.emit("args-received", ());
                 }
             }
         }

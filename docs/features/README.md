@@ -16,6 +16,7 @@ One evergreen file per major user-facing feature area of mdownreview. The taxono
 | [viewer.md](viewer.md) | Markdown, source, Mermaid, JSON, CSV, HTML, image, and binary file viewing |
 | [comments.md](comments.md) | Inline review comments — selection, threads, MRSF sidecar persistence, re-anchoring |
 | [navigation.md](navigation.md) | Folder tree, tabs, workspace search |
+| [app-chrome.md](app-chrome.md) | Top toolbar, sticky viewer toolbar, status bar |
 | [watcher.md](watcher.md) | File-system watching, hot reload, ghost-entry detection |
 | [updates.md](updates.md) | Auto-update with stable and canary release channels |
 | [cli-and-associations.md](cli-and-associations.md) | CLI file-open and OS file associations |

@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 
 const mockUnlisten = vi.fn();
-const argsListeners: Array<(payload: { files: string[]; folders: string[] }) => void> = [];
+const argsListeners: Array<() => void> = [];
+const callOrder: string[] = [];
 const mockOpenFilesFromArgs = vi.fn();
 const mockGetState = vi.fn(() => ({ __isStoreState: true }));
 
 vi.mock("@/lib/tauri-events", () => ({
-  listenEvent: vi.fn((event: string, cb: (payload: { files: string[]; folders: string[] }) => void) => {
+  listenEvent: vi.fn((event: string, cb: () => void) => {
+    callOrder.push("listenEvent:" + event);
     if (event === "args-received") argsListeners.push(cb);
     return Promise.resolve(mockUnlisten);
   }),
@@ -15,7 +17,10 @@ vi.mock("@/lib/tauri-events", () => ({
 
 const mockGetLaunchArgs = vi.fn();
 vi.mock("@/lib/tauri-commands", () => ({
-  getLaunchArgs: () => mockGetLaunchArgs(),
+  getLaunchArgs: () => {
+    callOrder.push("getLaunchArgs");
+    return mockGetLaunchArgs();
+  },
 }));
 
 vi.mock("@/store", () => ({
@@ -30,6 +35,7 @@ vi.mock("@/logger", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   argsListeners.length = 0;
+  callOrder.length = 0;
 });
 
 async function flush() {
@@ -37,7 +43,20 @@ async function flush() {
 }
 
 describe("useLaunchArgsBootstrap", () => {
-  it("calls openFilesFromArgs with initial getLaunchArgs result", async () => {
+  it("attaches the args-received listener BEFORE issuing the initial getLaunchArgs", async () => {
+    mockGetLaunchArgs.mockResolvedValue({ files: [], folders: [] });
+
+    const { useLaunchArgsBootstrap } = await import("../useLaunchArgsBootstrap");
+    renderHook(() => useLaunchArgsBootstrap());
+    await flush();
+
+    // Order matters: a second-instance signal that races the initial fetch
+    // would be lost if the listener were registered after the await.
+    expect(callOrder[0]).toBe("listenEvent:args-received");
+    expect(callOrder[1]).toBe("getLaunchArgs");
+  });
+
+  it("calls openFilesFromArgs with the initial getLaunchArgs result", async () => {
     mockGetLaunchArgs.mockResolvedValueOnce({
       files: ["/a.md"],
       folders: ["/folder"],
@@ -55,27 +74,42 @@ describe("useLaunchArgsBootstrap", () => {
     );
   });
 
-  it("calls openFilesFromArgs again when args-received event fires", async () => {
+  it("skips openFilesFromArgs when the drain returns no files and no folders", async () => {
     mockGetLaunchArgs.mockResolvedValueOnce({ files: [], folders: [] });
 
     const { useLaunchArgsBootstrap } = await import("../useLaunchArgsBootstrap");
     renderHook(() => useLaunchArgsBootstrap());
     await flush();
 
+    expect(mockOpenFilesFromArgs).not.toHaveBeenCalled();
+  });
+
+  it("re-drains via getLaunchArgs when an args-received signal arrives", async () => {
+    // Initial drain returns empty; second-instance signal triggers a second drain.
+    mockGetLaunchArgs.mockResolvedValueOnce({ files: [], folders: [] });
+    mockGetLaunchArgs.mockResolvedValueOnce({ files: ["/x.md"], folders: ["/y"] });
+
+    const { useLaunchArgsBootstrap } = await import("../useLaunchArgsBootstrap");
+    renderHook(() => useLaunchArgsBootstrap());
+    await flush();
+
     expect(argsListeners.length).toBe(1);
+    expect(mockOpenFilesFromArgs).not.toHaveBeenCalled();
+
+    // args-received is signal-only — no payload.
+    argsListeners[0]();
+    await flush();
+
+    expect(mockGetLaunchArgs).toHaveBeenCalledTimes(2);
     expect(mockOpenFilesFromArgs).toHaveBeenCalledTimes(1);
-
-    argsListeners[0]({ files: ["/x.md"], folders: ["/y"] });
-
-    expect(mockOpenFilesFromArgs).toHaveBeenCalledTimes(2);
-    expect(mockOpenFilesFromArgs).toHaveBeenLastCalledWith(
+    expect(mockOpenFilesFromArgs).toHaveBeenCalledWith(
       ["/x.md"],
       ["/y"],
       { __isStoreState: true },
     );
   });
 
-  it("does not call openFilesFromArgs from initial result if unmounted before resolve", async () => {
+  it("applies the initial drain's result even if the component unmounted before it resolved (queue was already shifted, so dropping the result would lose user data)", async () => {
     let resolve!: (v: { files: string[]; folders: string[] }) => void;
     mockGetLaunchArgs.mockReturnValueOnce(
       new Promise((r) => { resolve = r; }),
@@ -88,7 +122,12 @@ describe("useLaunchArgsBootstrap", () => {
     resolve({ files: ["/a.md"], folders: [] });
     await flush();
 
-    expect(mockOpenFilesFromArgs).not.toHaveBeenCalled();
+    expect(mockOpenFilesFromArgs).toHaveBeenCalledTimes(1);
+    expect(mockOpenFilesFromArgs).toHaveBeenCalledWith(
+      ["/a.md"],
+      [],
+      { __isStoreState: true },
+    );
   });
 
   it("unsubscribes from args-received on unmount", async () => {

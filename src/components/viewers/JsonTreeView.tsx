@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { stripJsonComments } from "@/lib/tauri-commands";
+import { useZoom } from "@/hooks/useZoom";
 import "../../styles/json-tree.css";
 
 interface JsonTreeViewProps {
@@ -106,6 +107,7 @@ function JsonNode({ value, keyName, depth }: JsonNodeProps) {
 }
 
 export function JsonTreeView({ content }: JsonTreeViewProps) {
+  const { zoom } = useZoom(".json");
   // null = still parsing, { ok: true, value } = parsed, { ok: false } = error.
   // The useEffect below only transitions to "ok"/"error", never back to "loading",
   // so subsequent content reloads keep the previous parse visible until ready.
@@ -136,14 +138,14 @@ export function JsonTreeView({ content }: JsonTreeViewProps) {
   }, [content]);
 
   if (state.status === "loading") {
-    return <div className="json-tree" aria-busy="true" />;
+    return <div className="json-tree" aria-busy="true" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }} />;
   }
   if (state.status === "error") {
     return <div className="json-error">Invalid JSON: Could not parse content</div>;
   }
 
   return (
-    <div className="json-tree">
+    <div className="json-tree" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
       <JsonNode value={state.value} depth={0} />
     </div>
   );

@@ -24,7 +24,23 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
         {};
       const eventListeners: Record<string, number[]> = {};
       let nextId = 1;
+      // Queue of LaunchArgs values returned by successive `get_launch_args`
+      // calls. Empty queue ⇒ default empty LaunchArgs. Tests push entries via
+      // window.__TAURI_QUEUE_LAUNCH_ARGS__.
+      const launchArgsQueue: { files: string[]; folders: string[] }[] = [];
+      (window as Record<string, unknown>).__TAURI_QUEUE_LAUNCH_ARGS__ = (
+        values: { files: string[]; folders: string[] }[]
+      ) => {
+        launchArgsQueue.push(...values);
+      };
       (window as Record<string, unknown>).__TAURI_INTERNALS__ = {
+        convertFileSrc(filePath: string, protocol: string = "asset"): string {
+          // Mirrors the @tauri-apps/api implementation but doesn't depend on
+          // the OS detection used in production builds. Audio/Video viewers
+          // call this synchronously during render so it MUST exist on the
+          // mock or the component throws.
+          return `https://${protocol}.localhost/${encodeURIComponent(filePath)}`;
+        },
         transformCallback(callback: (...args: unknown[]) => void, once: boolean): number {
           const id = nextId++;
           callbacks[id] = { callback, once };
@@ -38,16 +54,39 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             const { event, handler } = args as { event: string; handler: number };
             if (!eventListeners[event]) eventListeners[event] = [];
             eventListeners[event].push(handler);
-            return nextId++;
+            // Return the handler id as the eventId so unlisten can remove it.
+            return handler;
           }
           if (cmd === "plugin:event|unlisten") {
-            return nextId++;
+            const { event, eventId } = args as { event: string; eventId: number };
+            if (eventListeners[event]) {
+              eventListeners[event] = eventListeners[event].filter((h) => h !== eventId);
+            }
+            delete callbacks[eventId];
+            return undefined;
+          }
+          // Draining queue takes precedence so tests can drive multi-instance
+          // scenarios without writing a custom mock per test.
+          if (cmd === "get_launch_args" && launchArgsQueue.length > 0) {
+            return launchArgsQueue.shift();
           }
           const mock = (window as Record<string, unknown>).__TAURI_IPC_MOCK__ as
             | ((cmd: string, args: unknown) => Promise<unknown>)
             | undefined;
           if (typeof mock === "function") {
             const result = await mock(cmd, args ?? {});
+            // read_text_file changed shape from `string` to `{ content, size_bytes, line_count }`.
+            // Tests authored before that change still return a plain string — wrap it transparently
+            // so the existing specs keep working without per-file edits.
+            if (cmd === "read_text_file" && typeof result === "string") {
+              return {
+                content: result,
+                size_bytes: new TextEncoder().encode(result).length,
+                line_count: result.length === 0
+                  ? 0
+                  : result.split("\n").length - (result.endsWith("\n") ? 1 : 0),
+              };
+            }
             // If the test mock returned null, apply safe defaults for
             // infrastructure commands that were added after the test was written.
             if (result === null) {
@@ -55,12 +94,34 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "get_file_comments") return [];
               if (cmd === "scan_review_files") return [];
               if (cmd === "update_watched_files") return undefined;
+              if (cmd === "update_tree_watched_dirs") return undefined;
               if (cmd === "check_update") return null;
               if (cmd === "install_update") return null;
               if (cmd === "search_in_document") return [];
               if (cmd === "compute_fold_regions") return [];
               if (cmd === "parse_kql") return [];
               if (cmd === "strip_json_comments") return (args as { text?: string })?.text ?? "";
+              if (cmd === "read_text_file") return { content: "", size_bytes: 0, line_count: 0 };
+              // Onboarding (iter 2 + iter 3) — keep welcome auto-show OFF by default.
+              if (
+                cmd === "cli_shim_status" ||
+                cmd === "default_handler_status" ||
+                cmd === "folder_context_status"
+              )
+                return "missing";
+              if (cmd === "onboarding_state")
+                return { schema_version: 1, last_welcomed_version: null, last_seen_sections: [] };
+              if (cmd === "onboarding_should_welcome") return false;
+              if (cmd === "get_launch_args") return { files: [], folders: [] };
+              if (
+                cmd === "install_cli_shim" ||
+                cmd === "remove_cli_shim" ||
+                cmd === "set_default_handler" ||
+                cmd === "register_folder_context" ||
+                cmd === "unregister_folder_context" ||
+                cmd === "onboarding_mark_welcomed"
+              )
+                return undefined;
             }
             return result;
           }
@@ -69,12 +130,33 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "get_file_comments") return [];
           if (cmd === "scan_review_files") return [];
           if (cmd === "update_watched_files") return undefined;
+          if (cmd === "update_tree_watched_dirs") return undefined;
           if (cmd === "check_update") return null;
           if (cmd === "install_update") return null;
           if (cmd === "search_in_document") return [];
           if (cmd === "compute_fold_regions") return [];
           if (cmd === "parse_kql") return [];
           if (cmd === "strip_json_comments") return (args as { text?: string })?.text ?? "";
+          if (cmd === "read_text_file") return { content: "", size_bytes: 0, line_count: 0 };
+          if (
+            cmd === "cli_shim_status" ||
+            cmd === "default_handler_status" ||
+            cmd === "folder_context_status"
+          )
+            return "missing";
+          if (cmd === "onboarding_state")
+            return { schema_version: 1, last_welcomed_version: null, last_seen_sections: [] };
+          if (cmd === "onboarding_should_welcome") return false;
+          if (cmd === "get_launch_args") return { files: [], folders: [] };
+          if (
+            cmd === "install_cli_shim" ||
+            cmd === "remove_cli_shim" ||
+            cmd === "set_default_handler" ||
+            cmd === "register_folder_context" ||
+            cmd === "unregister_folder_context" ||
+            cmd === "onboarding_mark_welcomed"
+          )
+            return undefined;
           return null;
         },
       };

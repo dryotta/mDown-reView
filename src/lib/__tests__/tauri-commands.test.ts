@@ -64,6 +64,16 @@ describe("openExternalUrl", () => {
     expect(openUrl).toHaveBeenCalledWith("http://example.com");
   });
 
+  it("forwards mailto: URLs to plugin openUrl", async () => {
+    await openExternalUrl("mailto:user@example.com");
+    expect(openUrl).toHaveBeenCalledWith("mailto:user@example.com");
+  });
+
+  it("forwards tel: URLs to plugin openUrl", async () => {
+    await openExternalUrl("tel:+15555550123");
+    expect(openUrl).toHaveBeenCalledWith("tel:+15555550123");
+  });
+
   it("rejects file:// URLs without calling plugin", async () => {
     await expect(openExternalUrl("file:///etc/passwd")).rejects.toThrow(/Blocked/);
     expect(openUrl).not.toHaveBeenCalled();
@@ -71,6 +81,16 @@ describe("openExternalUrl", () => {
 
   it("rejects javascript: URLs without calling plugin", async () => {
     await expect(openExternalUrl("javascript:alert(1)")).rejects.toThrow(/Blocked/);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects data: URLs without calling plugin", async () => {
+    await expect(openExternalUrl("data:text/html,<script>alert(1)</script>")).rejects.toThrow(/Blocked/);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects vbscript: URLs without calling plugin", async () => {
+    await expect(openExternalUrl("vbscript:msgbox(1)")).rejects.toThrow(/Blocked/);
     expect(openUrl).not.toHaveBeenCalled();
   });
 
@@ -218,3 +238,151 @@ describe("installUpdate", () => {
     await expect(installUpdate()).rejects.toThrow("bundle fetch failed");
   });
 });
+
+describe("onboarding & platform-integration wrappers", () => {
+  async function getInvoke() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    return m;
+  }
+
+  it("onboardingState calls onboarding_state with no args", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce({
+      schema_version: 1,
+      last_welcomed_version: null,
+      last_seen_sections: [],
+    });
+    const { onboardingState } = await import("../tauri-commands");
+    const r = await onboardingState();
+    expect(m).toHaveBeenCalledWith("onboarding_state");
+    expect(r.schema_version).toBe(1);
+  });
+
+  it("onboardingMarkWelcomed forwards version", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { onboardingMarkWelcomed } = await import("../tauri-commands");
+    await onboardingMarkWelcomed("0.3.4");
+    expect(m).toHaveBeenCalledWith("onboarding_mark_welcomed", { version: "0.3.4" });
+  });
+
+  it("cliShimStatus returns the status string from invoke", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce("done");
+    const { cliShimStatus } = await import("../tauri-commands");
+    const r = await cliShimStatus();
+    expect(m).toHaveBeenCalledWith("cli_shim_status");
+    expect(r).toBe("done");
+  });
+
+  it("cliShimStatus propagates invoke errors", async () => {
+    const m = await getInvoke();
+    m.mockRejectedValueOnce(new Error("ipc dead"));
+    const { cliShimStatus } = await import("../tauri-commands");
+    await expect(cliShimStatus()).rejects.toThrow("ipc dead");
+  });
+
+  it("installCliShim calls install_cli_shim", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { installCliShim } = await import("../tauri-commands");
+    await installCliShim();
+    expect(m).toHaveBeenCalledWith("install_cli_shim");
+  });
+
+  it("removeCliShim calls remove_cli_shim", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { removeCliShim } = await import("../tauri-commands");
+    await removeCliShim();
+    expect(m).toHaveBeenCalledWith("remove_cli_shim");
+  });
+
+  it("defaultHandlerStatus returns status string", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce("unknown");
+    const { defaultHandlerStatus } = await import("../tauri-commands");
+    const r = await defaultHandlerStatus();
+    expect(m).toHaveBeenCalledWith("default_handler_status");
+    expect(r).toBe("unknown");
+  });
+
+  it("setDefaultHandler calls set_default_handler", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { setDefaultHandler } = await import("../tauri-commands");
+    await setDefaultHandler();
+    expect(m).toHaveBeenCalledWith("set_default_handler");
+  });
+
+  it("folderContextStatus returns status string", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce("missing");
+    const { folderContextStatus } = await import("../tauri-commands");
+    const r = await folderContextStatus();
+    expect(m).toHaveBeenCalledWith("folder_context_status");
+    expect(r).toBe("missing");
+  });
+
+  it("registerFolderContext calls register_folder_context", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { registerFolderContext } = await import("../tauri-commands");
+    await registerFolderContext();
+    expect(m).toHaveBeenCalledWith("register_folder_context");
+  });
+
+  it("unregisterFolderContext calls unregister_folder_context", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { unregisterFolderContext } = await import("../tauri-commands");
+    await unregisterFolderContext();
+    expect(m).toHaveBeenCalledWith("unregister_folder_context");
+  });
+});
+
+describe("system integration wrappers (Section E)", () => {
+  async function getInvoke() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    return m;
+  }
+
+  it("revealInFolder forwards path to reveal_in_folder", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { revealInFolder } = await import("../tauri-commands");
+    await revealInFolder("/ws/sample.bin");
+    expect(m).toHaveBeenCalledWith("reveal_in_folder", { path: "/ws/sample.bin" });
+  });
+
+  it("openInDefaultApp forwards path to open_in_default_app", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { openInDefaultApp } = await import("../tauri-commands");
+    await openInDefaultApp("/ws/sample.bin");
+    expect(m).toHaveBeenCalledWith("open_in_default_app", { path: "/ws/sample.bin" });
+  });
+
+  it("statFile forwards path to stat_file and returns the FileStat", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce({ size_bytes: 4242 });
+    const { statFile } = await import("../tauri-commands");
+    const result = await statFile("/ws/foo.bin");
+    expect(m).toHaveBeenCalledWith("stat_file", { path: "/ws/foo.bin" });
+    expect(result).toEqual({ size_bytes: 4242 });
+  });
+
+  it("revealInFolder propagates rejection (typed SystemError)", async () => {
+    const m = await getInvoke();
+    m.mockRejectedValueOnce({ kind: "PathOutsideWorkspace" });
+    const { revealInFolder } = await import("../tauri-commands");
+    await expect(revealInFolder("/etc/shadow")).rejects.toMatchObject({
+      kind: "PathOutsideWorkspace",
+    });
+  });
+});
+

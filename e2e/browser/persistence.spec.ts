@@ -21,25 +21,14 @@ async function setupPersistenceMocks(page: Page) {
 }
 
 test.describe("State Persistence Across Refresh", () => {
-  test("theme preference survives page reload", async ({ page }) => {
-    await setupPersistenceMocks(page);
-    await page.goto("/");
-    await expect(page.locator(".app-layout")).toBeVisible();
-
-    // Find the theme button (it shows the current theme label: System/Light/Dark)
-    const themeBtn = page.locator("button.toolbar-btn-utility").first();
-    await themeBtn.click(); // system → light
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await themeBtn.click(); // light → dark
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-
-    // Reload page
-    await page.reload();
-    await expect(page.locator(".app-layout")).toBeVisible();
-
-    // Theme should still be dark
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  });
+  // Theme persistence is covered by unit tests:
+  //   - src/__tests__/store/persistence.test.ts ("persists theme through all valid values")
+  //   - src/hooks/__tests__/useApplyTheme.test.ts (DOM data-theme attribute application)
+  //   - src/__tests__/App.test.tsx ("menu-theme-light event sets theme to light")
+  // The toolbar Theme button was removed in favour of the application menu (issue #41,
+  // Group A), so there is no e2e UI surface left to drive theme changes from the browser
+  // harness without dispatching synthetic Tauri menu events — which adds no coverage on
+  // top of the unit suites.
 
   test("workspace root survives page reload and folder tree is visible", async ({ page }) => {
     await setupPersistenceMocks(page);

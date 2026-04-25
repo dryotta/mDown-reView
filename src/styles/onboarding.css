@@ -1,0 +1,227 @@
+/* Onboarding: FirstRunPanel, SetupPanel, SectionShell.
+   Reuses --color-* tokens from app.css; no new theme. */
+
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.onboarding-panel {
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.onboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.onboarding-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.onboarding-close {
+  border: none;
+  background: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--color-muted);
+  line-height: 1;
+}
+
+.onboarding-close:hover {
+  color: var(--color-text);
+}
+
+.onboarding-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.onboarding-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.onboarding-footer-links {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.onboarding-footer-links a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.onboarding-footer-links a:hover {
+  text-decoration: underline;
+}
+
+.onboarding-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ── SectionShell ───────────────────────────────────────────────────────── */
+
+.section-shell {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+}
+
+.section-shell summary.section-shell-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.section-shell summary.section-shell-summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-shell-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.section-shell-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.section-shell-description {
+  font-size: 13px;
+  color: var(--color-muted);
+  margin: 6px 0 0 0;
+  line-height: 1.4;
+}
+
+.section-shell-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.section-shell-btn {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.section-shell-btn:hover:not(:disabled) {
+  background: var(--color-tab-hover);
+}
+
+.section-shell-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.section-shell-btn-primary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.section-shell-btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.section-shell-help {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.section-shell-help code {
+  background: var(--color-code-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.section-shell-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(207, 34, 46, 0.12);
+  border: 1px solid rgba(207, 34, 46, 0.4);
+  color: var(--color-badge, #cf222e);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Status pill */
+.section-shell-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.section-shell-pill-done {
+  background: rgba(46, 160, 67, 0.16);
+  color: #2ea043;
+  border-color: rgba(46, 160, 67, 0.4);
+}
+
+.section-shell-pill-pending {
+  background: var(--color-surface);
+  color: var(--color-muted);
+  border-color: var(--color-border);
+}
+
+.section-shell-pill-unsupported {
+  background: var(--color-surface);
+  color: var(--color-muted);
+  border-color: var(--color-border);
+  opacity: 0.7;
+}
+
+.section-shell-pill-error {
+  background: rgba(207, 34, 46, 0.16);
+  color: var(--color-badge, #cf222e);
+  border-color: rgba(207, 34, 46, 0.4);
+}

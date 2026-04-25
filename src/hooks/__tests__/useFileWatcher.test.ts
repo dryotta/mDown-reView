@@ -20,7 +20,6 @@ describe("WatcherSlice", () => {
   beforeEach(() => {
     useStore.setState({
       ghostEntries: [],
-      autoReveal: true,
       lastSaveByPath: {},
     });
   });
@@ -36,17 +35,6 @@ describe("WatcherSlice", () => {
     ];
     useStore.getState().setGhostEntries(entries);
     expect(useStore.getState().ghostEntries).toEqual(entries);
-  });
-
-  it("autoReveal defaults to true", () => {
-    expect(useStore.getState().autoReveal).toBe(true);
-  });
-
-  it("toggleAutoReveal toggles", () => {
-    useStore.getState().toggleAutoReveal();
-    expect(useStore.getState().autoReveal).toBe(false);
-    useStore.getState().toggleAutoReveal();
-    expect(useStore.getState().autoReveal).toBe(true);
   });
 
   it("lastSaveByPath defaults to empty object", () => {
@@ -79,7 +67,6 @@ describe("useFileWatcher debounced deletion scan", () => {
       tabs: [],
       lastSaveByPath: {},
       ghostEntries: [],
-      autoReveal: true,
     });
   });
 
@@ -187,7 +174,6 @@ describe("useFileWatcher save-loop suppression", () => {
       tabs: [{ path: "/workspace/file.md", scrollTop: 0 }],
       lastSaveByPath: {},
       ghostEntries: [],
-      autoReveal: true,
     });
   });
 

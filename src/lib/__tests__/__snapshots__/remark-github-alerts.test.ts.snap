@@ -1,0 +1,455 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`remark-github-alerts > leaves a non-matching blockquote untouched 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        {
+          "position": {
+            "end": {
+              "column": 17,
+              "line": 2,
+              "offset": 37,
+            },
+            "start": {
+              "column": 3,
+              "line": 1,
+              "offset": 2,
+            },
+          },
+          "type": "text",
+          "value": "Just a plain quote
+with two lines",
+        },
+      ],
+      "position": {
+        "end": {
+          "column": 17,
+          "line": 2,
+          "offset": 37,
+        },
+        "start": {
+          "column": 3,
+          "line": 1,
+          "offset": 2,
+        },
+      },
+      "type": "paragraph",
+    },
+  ],
+  "position": {
+    "end": {
+      "column": 17,
+      "line": 2,
+      "offset": 37,
+    },
+    "start": {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "blockquote",
+}
+`;
+
+exports[`remark-github-alerts > rewrites [!CAUTION] blockquote into md-alert div + title 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        {
+          "type": "text",
+          "value": "Caution",
+        },
+      ],
+      "data": {
+        "hName": "p",
+        "hProperties": {
+          "className": [
+            "md-alert-title",
+          ],
+        },
+      },
+      "type": "paragraph",
+    },
+    {
+      "children": [
+        {
+          "position": {
+            "end": {
+              "column": 16,
+              "line": 3,
+              "offset": 44,
+            },
+            "start": {
+              "column": 3,
+              "line": 1,
+              "offset": 2,
+            },
+          },
+          "type": "text",
+          "value": "Body line one
+Body line two",
+        },
+      ],
+      "position": {
+        "end": {
+          "column": 16,
+          "line": 3,
+          "offset": 44,
+        },
+        "start": {
+          "column": 3,
+          "line": 1,
+          "offset": 2,
+        },
+      },
+      "type": "paragraph",
+    },
+  ],
+  "data": {
+    "hName": "div",
+    "hProperties": {
+      "className": [
+        "md-alert",
+        "md-alert-caution",
+      ],
+    },
+  },
+  "position": {
+    "end": {
+      "column": 16,
+      "line": 3,
+      "offset": 44,
+    },
+    "start": {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "blockquote",
+}
+`;
+
+exports[`remark-github-alerts > rewrites [!IMPORTANT] blockquote into md-alert div + title 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        {
+          "type": "text",
+          "value": "Important",
+        },
+      ],
+      "data": {
+        "hName": "p",
+        "hProperties": {
+          "className": [
+            "md-alert-title",
+          ],
+        },
+      },
+      "type": "paragraph",
+    },
+    {
+      "children": [
+        {
+          "position": {
+            "end": {
+              "column": 16,
+              "line": 3,
+              "offset": 46,
+            },
+            "start": {
+              "column": 3,
+              "line": 1,
+              "offset": 2,
+            },
+          },
+          "type": "text",
+          "value": "Body line one
+Body line two",
+        },
+      ],
+      "position": {
+        "end": {
+          "column": 16,
+          "line": 3,
+          "offset": 46,
+        },
+        "start": {
+          "column": 3,
+          "line": 1,
+          "offset": 2,
+        },
+      },
+      "type": "paragraph",
+    },
+  ],
+  "data": {
+    "hName": "div",
+    "hProperties": {
+      "className": [
+        "md-alert",
+        "md-alert-important",
+      ],
+    },
+  },
+  "position": {
+    "end": {
+      "column": 16,
+      "line": 3,
+      "offset": 46,
+    },
+    "start": {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "blockquote",
+}
+`;
+
+exports[`remark-github-alerts > rewrites [!NOTE] blockquote into md-alert div + title 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        {
+          "type": "text",
+          "value": "Note",
+        },
+      ],
+      "data": {
+        "hName": "p",
+        "hProperties": {
+          "className": [
+            "md-alert-title",
+          ],
+        },
+      },
+      "type": "paragraph",
+    },
+    {
+      "children": [
+        {
+          "position": {
+            "end": {
+              "column": 16,
+              "line": 3,
+              "offset": 41,
+            },
+            "start": {
+              "column": 3,
+              "line": 1,
+              "offset": 2,
+            },
+          },
+          "type": "text",
+          "value": "Body line one
+Body line two",
+        },
+      ],
+      "position": {
+        "end": {
+          "column": 16,
+          "line": 3,
+          "offset": 41,
+        },
+        "start": {
+          "column": 3,
+          "line": 1,
+          "offset": 2,
+        },
+      },
+      "type": "paragraph",
+    },
+  ],
+  "data": {
+    "hName": "div",
+    "hProperties": {
+      "className": [
+        "md-alert",
+        "md-alert-note",
+      ],
+    },
+  },
+  "position": {
+    "end": {
+      "column": 16,
+      "line": 3,
+      "offset": 41,
+    },
+    "start": {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "blockquote",
+}
+`;
+
+exports[`remark-github-alerts > rewrites [!TIP] blockquote into md-alert div + title 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        {
+          "type": "text",
+          "value": "Tip",
+        },
+      ],
+      "data": {
+        "hName": "p",
+        "hProperties": {
+          "className": [
+            "md-alert-title",
+          ],
+        },
+      },
+      "type": "paragraph",
+    },
+    {
+      "children": [
+        {
+          "position": {
+            "end": {
+              "column": 16,
+              "line": 3,
+              "offset": 40,
+            },
+            "start": {
+              "column": 3,
+              "line": 1,
+              "offset": 2,
+            },
+          },
+          "type": "text",
+          "value": "Body line one
+Body line two",
+        },
+      ],
+      "position": {
+        "end": {
+          "column": 16,
+          "line": 3,
+          "offset": 40,
+        },
+        "start": {
+          "column": 3,
+          "line": 1,
+          "offset": 2,
+        },
+      },
+      "type": "paragraph",
+    },
+  ],
+  "data": {
+    "hName": "div",
+    "hProperties": {
+      "className": [
+        "md-alert",
+        "md-alert-tip",
+      ],
+    },
+  },
+  "position": {
+    "end": {
+      "column": 16,
+      "line": 3,
+      "offset": 40,
+    },
+    "start": {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "blockquote",
+}
+`;
+
+exports[`remark-github-alerts > rewrites [!WARNING] blockquote into md-alert div + title 1`] = `
+{
+  "children": [
+    {
+      "children": [
+        {
+          "type": "text",
+          "value": "Warning",
+        },
+      ],
+      "data": {
+        "hName": "p",
+        "hProperties": {
+          "className": [
+            "md-alert-title",
+          ],
+        },
+      },
+      "type": "paragraph",
+    },
+    {
+      "children": [
+        {
+          "position": {
+            "end": {
+              "column": 16,
+              "line": 3,
+              "offset": 44,
+            },
+            "start": {
+              "column": 3,
+              "line": 1,
+              "offset": 2,
+            },
+          },
+          "type": "text",
+          "value": "Body line one
+Body line two",
+        },
+      ],
+      "position": {
+        "end": {
+          "column": 16,
+          "line": 3,
+          "offset": 44,
+        },
+        "start": {
+          "column": 3,
+          "line": 1,
+          "offset": 2,
+        },
+      },
+      "type": "paragraph",
+    },
+  ],
+  "data": {
+    "hName": "div",
+    "hProperties": {
+      "className": [
+        "md-alert",
+        "md-alert-warning",
+      ],
+    },
+  },
+  "position": {
+    "end": {
+      "column": 16,
+      "line": 3,
+      "offset": 44,
+    },
+    "start": {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "blockquote",
+}
+`;

@@ -47,6 +47,8 @@ export function useMenuListeners({
       listenEvent("menu-theme-dark", () => setTheme("dark")),
       listenEvent("menu-about", () => setAboutOpen(true)),
       listenEvent("menu-check-updates", () => { checkForUpdate(); }),
+      listenEvent("menu-help-welcome", () => useStore.getState().openWelcome()),
+      listenEvent("menu-help-setup", () => useStore.getState().openSetup()),
     ];
     return () => {
       pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));

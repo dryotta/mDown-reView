@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
-    read_binary_file, read_dir,
-    read_text_file, CommentsChangedEvent, LaunchArgs, LaunchArgsState,
+    drain_pending, push_pending, read_binary_file, read_dir,
+    read_text_file, stat_file_inner, CommentsChangedEvent, LaunchArgs, PendingArgsState,
     MrsfComment, MrsfSidecar,
     search_in_document,
 };
@@ -18,7 +18,19 @@ fn read_text_file_returns_utf8_content() {
     let path = tmp.path().to_str().unwrap().to_string();
     let result = read_text_file(path);
     assert!(result.is_ok());
-    assert!(result.unwrap().contains("Hello, world!"));
+    assert!(result.unwrap().content.contains("Hello, world!"));
+}
+
+#[test]
+fn read_text_file_returns_size_and_line_count() {
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    // 3 lines, each terminated with \n → 3 lines per str::lines
+    tmp.write_all(b"alpha\nbeta\ngamma\n").unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    let result = read_text_file(path).unwrap();
+    assert_eq!(result.content, "alpha\nbeta\ngamma\n");
+    assert_eq!(result.size_bytes, 17);
+    assert_eq!(result.line_count, 3);
 }
 
 #[test]
@@ -206,20 +218,15 @@ fn get_launch_args_returns_and_clears() {
         files: vec!["file.md".to_string()],
         folders: vec![],
     };
-    let state: LaunchArgsState = Arc::new(Mutex::new(Some(args)));
+    let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
+    push_pending(&state, args);
 
-    // First call returns the args
-    let result = {
-        let mut guard = state.lock().unwrap();
-        guard.take().unwrap_or_default()
-    };
+    // First drain returns the queued args.
+    let result = drain_pending(&state);
     assert_eq!(result.files, vec!["file.md"]);
 
-    // Second call returns empty (args cleared)
-    let result2 = {
-        let mut guard = state.lock().unwrap();
-        guard.take().unwrap_or_default()
-    };
+    // Second drain returns empty (queue cleared).
+    let result2 = drain_pending(&state);
     assert!(result2.files.is_empty());
     assert!(result2.folders.is_empty());
 }
@@ -516,4 +523,57 @@ fn mutate_sidecar_or_create_uses_filename_default_when_document_default_is_none(
     let loaded = load_sidecar(&file_path).unwrap().unwrap();
     assert_eq!(loaded.document, "notes.md");
     assert_eq!(loaded.comments.len(), 1);
+}
+
+//  stat_file 
+
+/// Helper: build a WatcherState that allowlists `dir`. Mirrors the pattern
+/// from `commands/system.rs` tests.
+fn watcher_state_allowing(dir: &std::path::Path) -> mdown_review_lib::watcher::WatcherState {
+    let canonical = std::fs::canonicalize(dir).unwrap();
+    let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+    let state = mdown_review_lib::watcher::WatcherState::new(tx);
+    state
+        .set_tree_watched_dirs(
+            canonical.to_string_lossy().into_owned(),
+            vec![canonical.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+    state
+}
+
+#[test]
+fn stat_file_returns_size_in_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let file = canonical.join("hello.bin");
+    std::fs::write(&file, b"hello").unwrap();
+    let state = watcher_state_allowing(dir.path());
+    let result = stat_file_inner(file.to_str().unwrap(), &state).unwrap();
+    assert_eq!(result.size_bytes, 5);
+}
+
+#[test]
+fn stat_file_returns_err_for_missing_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let missing = canonical.join("nope.bin");
+    let state = watcher_state_allowing(dir.path());
+    let result = stat_file_inner(missing.to_str().unwrap(), &state);
+    assert!(result.is_err());
+}
+
+#[test]
+fn stat_file_rejects_path_outside_workspace() {
+    // Workspace = dir A; stat'd file lives in dir B → must be rejected with
+    // the canonical "path not in workspace" error.
+    let workspace = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_canonical = std::fs::canonicalize(outside.path()).unwrap();
+    let outside_file = outside_canonical.join("secret.bin");
+    std::fs::write(&outside_file, b"secret").unwrap();
+
+    let state = watcher_state_allowing(workspace.path());
+    let result = stat_file_inner(outside_file.to_str().unwrap(), &state);
+    assert_eq!(result.unwrap_err(), "path not in workspace");
 }
