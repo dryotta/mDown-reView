@@ -62,7 +62,7 @@ flowchart LR
 14. Ghost-entry scanning uses a single Rust command. (`commands/launch.rs:26` `scan_review_files`.) Cap: rule 3 in [`docs/performance.md`](performance.md).
 
 ### State boundaries
-15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `authorName`, `readingWidth`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`. `ghostEntries`, `lastSaveByPath`, `lastFileReloadedAt`, `lastCommentsReloadedAt`, `viewModeByTab`, `fileMetaByPath`, `updateStatus`, comments, and scroll values are never persisted. (`store/index.ts` `partialize`; tabs slice `store/tabs.ts:39-58`.)
+15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `authorName`, `readingWidth`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`. `ghostEntries`, `lastSaveByPath`, `lastFileReloadedAt`, `lastCommentsReloadedAt`, `viewModeByTab`, `fileMetaByPath`, `updateStatus`, comments, scroll values, and `viewerPrefsSlice (allowedRemoteImageDocs)` are never persisted — trust decisions like remote-image allowance must not silently survive an app restart. (`store/index.ts` `partialize`; tabs slice `store/tabs.ts:39-58`; viewerPrefs slice `store/viewerPrefs.ts`.)
 16. Cross-slice state changes from a single user action group into one store action. (`store/index.ts:149-161` `closeTab`.)
 17. `lib/` never imports `components/` or `hooks/`; `lib/vm/` is the only place `lib/` reads `@/store`. (Grep-verified: `@/components` / `@/hooks` in `src/lib/` → 0; `@/store` → only `src/lib/vm/use-comment-actions.ts:2`.)
 

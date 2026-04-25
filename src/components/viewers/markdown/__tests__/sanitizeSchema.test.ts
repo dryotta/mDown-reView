@@ -66,4 +66,37 @@ describe("sanitizeSchema", () => {
     expect(out).toMatch(/width=("100"|100)/);
     expect(out).toMatch(/height=("50"|50)/);
   });
+
+  it("preserves <video controls src> with allowed attrs", () => {
+    const out = sanitize('<video controls src="./demo.mp4" width="320"></video>');
+    expect(out).toContain("<video");
+    expect(out).toContain("controls");
+    expect(out).toContain('src="./demo.mp4"');
+    expect(out).toMatch(/width=("320"|320)/);
+  });
+
+  it("preserves <audio controls src>", () => {
+    const out = sanitize('<audio controls src="./clip.mp3"></audio>');
+    expect(out).toContain("<audio");
+    expect(out).toContain("controls");
+    expect(out).toContain('src="./clip.mp3"');
+  });
+
+  it("strips on* handlers from <video>", () => {
+    const out = sanitize(
+      '<video src="./x.mp4" controls onerror="alert(1)" onplay="alert(2)"></video>',
+    );
+    expect(out).not.toMatch(/onerror/i);
+    expect(out).not.toMatch(/onplay/i);
+    expect(out).toContain("<video");
+  });
+
+  it("preserves <source src> inside <video>", () => {
+    const out = sanitize(
+      '<video controls><source src="./demo.webm" type="video/webm" /></video>',
+    );
+    expect(out).toContain("<source");
+    expect(out).toContain('src="./demo.webm"');
+    expect(out).toContain('type="video/webm"');
+  });
 });

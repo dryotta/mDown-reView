@@ -127,13 +127,23 @@ export function useImgResolver(filePath: string | null): { img: ImgComponent } {
 }
 
 /**
- * Returns true if `body` contains any `![alt](https?://...)` markdown image
- * reference. Used by MarkdownViewer to decide whether to surface the
+ * Returns true if `body` contains any remote (http/https) image reference —
+ * either markdown `![alt](https?://…)` syntax or a raw `<img src="https?://…">`
+ * tag. Used by MarkdownViewer to decide whether to surface the
  * "Allow remote images for this document" banner.
  *
- * Pragmatic heuristic — does not parse the AST. Cheap to compute on each
- * render of a single string.
+ * Strips fenced code blocks (```…```) and inline code (`…`) first so a
+ * documentation snippet that quotes a remote-image URL inside a code span
+ * does NOT trip the banner. Pragmatic heuristic — does not parse the AST.
  */
 export function hasRemoteImageReferences(body: string): boolean {
-  return /!\[[^\]]*\]\((\s*)https?:\/\//i.test(body);
+  // Order matters: strip fenced blocks before inline ticks so the inline
+  // regex does not chew across a fence.
+  const stripped = body
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`[^`\n]*`/g, "");
+  return (
+    /!\[[^\]]*\]\(\s*https?:\/\//i.test(stripped) ||
+    /<img\b[^>]*\bsrc\s*=\s*["']https?:\/\//i.test(stripped)
+  );
 }

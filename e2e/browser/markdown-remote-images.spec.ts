@@ -22,15 +22,22 @@ async function setupMocks(page: Page): Promise<void> {
         if (cmd === "fetch_remote_asset") {
           (w.__FETCH_REMOTE_CALLS__ as string[]).push((args as { url: string }).url);
           // 1×1 transparent PNG
-          const png = [
+          const png = new Uint8Array([
             0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
             0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
             0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
             0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
             0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
             0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-          ];
-          return { bytes: png, content_type: "image/png" };
+          ]);
+          // Wire format: [u32 BE: ct_len][ct_bytes][payload]
+          const ct = new TextEncoder().encode("image/png");
+          const buf = new ArrayBuffer(4 + ct.byteLength + png.byteLength);
+          const view = new DataView(buf);
+          view.setUint32(0, ct.byteLength, false);
+          new Uint8Array(buf, 4, ct.byteLength).set(ct);
+          new Uint8Array(buf, 4 + ct.byteLength).set(png);
+          return buf;
         }
         return null;
       };

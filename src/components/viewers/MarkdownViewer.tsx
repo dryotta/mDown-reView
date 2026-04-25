@@ -7,8 +7,9 @@ import rehypeSanitize from "rehype-sanitize";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import { getSharedHighlighter } from "@/lib/shiki";
 import { openExternalUrl } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
-import { resolveRelative, dirname } from "@/lib/path-utils";
+import { warn, info } from "@/logger";
+import { resolveWorkspacePath, dirname } from "@/lib/path-utils";
+import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 import { sanitizeSchema } from "./markdown/sanitizeSchema";
 import { hasRemoteImageReferences } from "./markdown/useImgResolver";
 import { lazyWithSuspense } from "./lazy";
@@ -98,7 +99,7 @@ const MD_COMPONENTS: Record<string, unknown> = {
       if (el.type === "code") {
         const { className, children: codeChildren } = el.props;
         const lang = /language-([\w-]+)/.exec(className ?? "")?.[1];
-        if (lang === "mermaid") {
+        if (lang?.toLowerCase() === "mermaid") {
           const source = String(codeChildren ?? "").replace(/\n$/, "");
           return <MermaidEmbed content={source} />;
         }
@@ -127,11 +128,10 @@ const MD_COMPONENTS: Record<string, unknown> = {
 // Defense-in-depth: scheme classifiers for the anchor handler. `openExternalUrl`
 // already enforces an allowlist, but we should not even call it for known-bad
 // schemes — keeps blocking visible at the call site and avoids a logged warn
-// per click.
-const EXTERNAL_LINK_SCHEME = /^(https?|mailto|tel):/i;
-const BLOCKED_LINK_SCHEME = /^(javascript|file|data|vbscript):/i;
+// per click. Hoisted to `@/lib/url-policy` so MarkdownViewer, HtmlPreviewView,
+// and the openExternalUrl chokepoint share one definition.
 
-function makeAnchorComponent(filePath: string) {
+function makeAnchorComponent(filePath: string, workspaceRoot: string) {
   const baseDir = filePath ? dirname(filePath) : "";
   return function MarkdownAnchor({
     href,
@@ -155,11 +155,22 @@ function makeAnchorComponent(filePath: string) {
         openExternalUrl(href).catch(() => {});
         return;
       }
-      // Case 4: workspace-relative path — open inside the app.
+      // Case 4: workspace-relative path — open inside the app, but ONLY if
+      // the resolved target is contained within the workspace root. Defends
+      // against `[x](/etc/passwd)` and `[x](../../../../etc/passwd)`.
       e.preventDefault();
       if (!baseDir) return;
-      const resolved = resolveRelative(baseDir, href);
-      useStore.getState().openFile(resolved);
+      const resolved = resolveWorkspacePath(workspaceRoot, baseDir, href);
+      if (!resolved) {
+        warn(`MarkdownViewer: dropped link outside workspace: ${href}`);
+        return;
+      }
+      useStore.getState().openFile(resolved.path);
+      if (resolved.fragment) {
+        // Fragment scroll on the freshly opened tab is deferred — the new
+        // viewer mounts after a tick. Logging keeps the behaviour visible.
+        info(`MarkdownViewer: link fragment "#${resolved.fragment}" not yet scrolled`);
+      }
     };
     return (
       <a href={href} onClick={handleClick} {...props}>
@@ -196,10 +207,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   // Stable img resolver — only changes when filePath/allowance changes.
   const { img } = useImgResolver(filePath);
+  const workspaceRoot = useStore((s) => s.root) ?? "";
   const components = useMemo(() => {
-    const a = makeAnchorComponent(filePath);
+    const a = makeAnchorComponent(filePath, workspaceRoot);
     return { ...MD_COMPONENTS, a, img };
-  }, [filePath, img]);
+  }, [filePath, img, workspaceRoot]);
 
   // A1 banner: only when the doc has remote-image refs AND the user hasn't
   // already opted in for this filePath.

@@ -6,7 +6,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 
 1. **Local-only, offline-first trust model.** No outbound calls except the signed updater check and user-initiated `openUrl` links. The IPC surface is local-trust only.
 2. **Custom IPC commands replace `tauri-plugin-fs` scope.** File access is intentionally unscoped at the plugin layer and gated by command-level guards (size, binary, canonicalization). Every custom command enforces its own bounds.
-3. **Rendered content is structurally sanitized by default.** Markdown renders without `rehype-raw`; any `dangerouslySetInnerHTML` is paired with an explicit sanitizer or produces output from a library whose output is known-safe.
+3. **Rendered content is structurally sanitized by default.** Markdown renders through `rehype-raw` paired with `rehype-sanitize` configured by `src/components/viewers/markdown/sanitizeSchema.ts` — the schema is the canonical XSS boundary (script/iframe/object/embed/form structurally dropped, on* handlers stripped, inline `style` not allow-listed). Any `dangerouslySetInnerHTML` outside the markdown pipeline is paired with an explicit sanitizer or produces output from a library whose output is known-safe.
 4. **Atomic writes, never partial sidecars.** Comment persistence uses temp-write + rename so a crash or watcher race never leaves a half-written `.review.yaml`. The only acceptable failure is "no write".
 5. **Fail closed, log, continue.** Command handlers return `Result<_, String>` and log; React renders behind `ErrorBoundary`; the Rust panic hook logs before propagating; promise rejections route to the log. A viewer never crashes to a blank window on malformed input.
 

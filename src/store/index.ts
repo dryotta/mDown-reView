@@ -173,7 +173,7 @@ export const useStore = create<Store>()(
       // ViewerPrefs (delegated to ./viewerPrefs.ts) — per-document, session-only.
       // Intentionally NOT added to `partialize` below: trust decisions (e.g.
       // remote-image allowance) must not silently survive an app restart.
-      ...createViewerPrefsSlice(set, get),
+      ...createViewerPrefsSlice(set),
 
       // UI
       theme: "system",

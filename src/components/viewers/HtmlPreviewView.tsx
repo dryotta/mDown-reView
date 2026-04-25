@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { resolveHtmlAssets, openExternalUrl } from "@/lib/tauri-commands";
-import { dirname, resolveRelative } from "@/lib/path-utils";
+import { dirname, resolveWorkspacePath } from "@/lib/path-utils";
+import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
 import { warn } from "@/logger";
-
-const EXTERNAL_SCHEME = /^(https?|mailto|tel):/i;
-const BLOCKED_SCHEME = /^(javascript|file|data|vbscript):/i;
 
 interface Props {
   content: string;
@@ -20,6 +18,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const readingContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const readingWidth = useStore((s) => s.readingWidth);
+  const workspaceRoot = useStore((s) => s.root) ?? "";
   const baseDir = filePath ? dirname(filePath) : undefined;
   // Security: never combine allow-same-origin + allow-scripts (iframe escape).
   // Safe mode: allow-same-origin only (for CSS/fonts, no script execution).
@@ -96,21 +95,26 @@ export function HtmlPreviewView({ content, filePath }: Props) {
               const href = anchor.getAttribute("href");
               if (!href) return;
               if (href.startsWith("#")) return; // in-iframe anchor
-              if (BLOCKED_SCHEME.test(href)) {
+              if (BLOCKED_LINK_SCHEME.test(href)) {
                 event.preventDefault();
                 warn(`HtmlPreviewView: blocked iframe link scheme: ${href}`);
                 return;
               }
-              if (EXTERNAL_SCHEME.test(href)) {
+              if (EXTERNAL_LINK_SCHEME.test(href)) {
                 event.preventDefault();
                 openExternalUrl(href).catch(() => {});
                 return;
               }
-              // Workspace-relative path → open in app
+              // Workspace-relative path → open in app, but only when the
+              // resolved target is contained within the workspace root.
               event.preventDefault();
               if (!baseDir) return;
-              const resolved = resolveRelative(baseDir, href);
-              useStore.getState().openFile(resolved);
+              const resolved = resolveWorkspacePath(workspaceRoot, baseDir, href);
+              if (!resolved) {
+                warn(`HtmlPreviewView: dropped iframe link outside workspace: ${href}`);
+                return;
+              }
+              useStore.getState().openFile(resolved.path);
             });
           }}
         />

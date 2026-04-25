@@ -30,6 +30,10 @@ const ADDED_TAGS: string[] = [
   "mark",
   "figure",
   "figcaption",
+  // A4: media tags. Defense-in-depth: src goes through defaultSchema's
+  // protocol allowlist (no `javascript:`/`vbscript:`).
+  "video",
+  "audio",
 ];
 
 export const sanitizeSchema: Schema = {
@@ -42,6 +46,7 @@ export const sanitizeSchema: Schema = {
     // `<source>` inside `<picture>` / `<video>` / `<audio>` — minimum useful set.
     source: [
       ...(baseAttributes.source ?? []),
+      "src",
       "srcSet",
       "media",
       "type",
@@ -59,6 +64,28 @@ export const sanitizeSchema: Schema = {
       "align",
       "srcSet",
       "sizes",
+    ],
+    // A4: media tags — a small attribute set covering playback ergonomics
+    // without admitting any scriptable surface.
+    video: [
+      "src",
+      "controls",
+      "width",
+      "height",
+      "muted",
+      "loop",
+      "poster",
+      "preload",
+      "autoplay",
+      "playsinline",
+    ],
+    audio: [
+      "src",
+      "controls",
+      "loop",
+      "muted",
+      "preload",
+      "autoplay",
     ],
     // Allow `class` on the autolink-headings anchor and code blocks (Shiki/
     // language- markers). defaultSchema already permits className on a few

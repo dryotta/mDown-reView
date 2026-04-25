@@ -133,10 +133,21 @@ describe("hasRemoteImageReferences", () => {
   it("detects a markdown image with an http URL", () => {
     expect(hasRemoteImageReferences("![x](http://example.com/i.png)")).toBe(true);
   });
+  it("detects a raw <img> tag with an https src", () => {
+    expect(hasRemoteImageReferences('<img src="https://example.com/x.png" />')).toBe(true);
+  });
   it("returns false when only local images are referenced", () => {
     expect(hasRemoteImageReferences("![x](./i.png) and ![y](/abs/i.png)")).toBe(false);
   });
   it("returns false for empty body", () => {
     expect(hasRemoteImageReferences("")).toBe(false);
+  });
+  it("ignores remote-image refs inside fenced code blocks", () => {
+    const body = "```md\n![x](https://example.com/i.png)\n```\n";
+    expect(hasRemoteImageReferences(body)).toBe(false);
+  });
+  it("ignores remote-image refs inside inline code", () => {
+    const body = "Use `![x](https://example.com/i.png)` to embed.";
+    expect(hasRemoteImageReferences(body)).toBe(false);
   });
 });
