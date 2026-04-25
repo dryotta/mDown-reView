@@ -53,6 +53,9 @@ jobs:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
 
+      - name: Stage CLI binary (needed by Tauri externalBin during cargo test)
+        run: npm run stage:cli
+
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
@@ -130,6 +133,11 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri:build -- --target aarch64-pc-windows-msvc
         env:
+          # Tell stage-cli.mjs (called by tauri:build) to cross-build the CLI
+          # for arm64 — otherwise it stages for the host (x86_64) triple and
+          # the Tauri build script's externalBin existence check fails.
+          STAGE_CLI_TARGET: aarch64-pc-windows-msvc
+          STAGE_CLI_PROFILE: release
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
@@ -161,6 +169,9 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: Stage CLI binary (needed by Tauri externalBin during cargo build)
+        run: npm run stage:cli
 
       - name: Build debug binary
         working-directory: src-tauri
