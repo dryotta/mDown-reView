@@ -19,7 +19,13 @@ use super::{
     MrsfComment, Reaction,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `Default` is derived purely as the base for struct-update syntax in
+/// [`From<MrsfComment> for MrsfCommentRepr`] — this lets the per-variant
+/// arms enumerate only the fields they actually populate (rather than
+/// repeating ~12 `None`s per arm). All required `String` / `bool` fields
+/// default to empty/false, which is harmless because every conversion
+/// path overwrites them.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(super) struct MrsfCommentRepr {
     pub id: String,
     pub author: String,
@@ -147,6 +153,13 @@ impl From<AnchorRepr> for Anchor {
     }
 }
 
+/// Single error builder for every (kind, payload_count) mismatch. Tests
+/// only assert on the `"anchor_kind/payload mismatch"` substring, so the
+/// detail is purely diagnostic.
+fn mismatch(detail: impl AsRef<str>) -> String {
+    format!("anchor_kind/payload mismatch: {}", detail.as_ref())
+}
+
 /// Deserialise: pick the Anchor variant from the wire repr. Validates that
 /// the discriminator and payload match. Returns a typed serde error on
 /// mismatch so `serde_json::from_str` propagates it as a parse failure.
@@ -166,114 +179,55 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
         .filter(|x| **x)
         .count();
 
-        match r.anchor_kind.as_deref() {
-            // No discriminator → legacy v1.0 line anchor (bytes unchanged).
-            // Stray payload siblings without a matching discriminator are
-            // a schema violation.
-            None => {
-                if payload_count > 0 {
-                    return Err("anchor_kind/payload mismatch: payload \
-                        present without anchor_kind"
-                        .into());
-                }
-                Ok(Anchor::Line {
-                    line: r.line.unwrap_or(0),
-                    end_line: r.end_line,
-                    start_column: r.start_column,
-                    end_column: r.end_column,
-                    selected_text: r.selected_text.clone(),
-                    selected_text_hash: r.selected_text_hash.clone(),
+        let line_anchor = || Anchor::Line {
+            line: r.line.unwrap_or(0),
+            end_line: r.end_line,
+            start_column: r.start_column,
+            end_column: r.end_column,
+            selected_text: r.selected_text.clone(),
+            selected_text_hash: r.selected_text_hash.clone(),
+        };
+
+        // Macro-free lookup: typed variants must have `payload_count == 1`
+        // AND the matching payload populated. Anything else is a schema
+        // violation; v1.0 (no discriminator) and `line`/`file` must have
+        // zero payload siblings.
+        match (r.anchor_kind.as_deref(), payload_count) {
+            (None, 0) => Ok(line_anchor()),
+            (None, _) => Err(mismatch("payload present without anchor_kind")),
+            (Some("line"), 0) => Ok(line_anchor()),
+            (Some("line"), _) => Err(mismatch("anchor_kind=line with payload sibling")),
+            (Some("file"), 0) => Ok(Anchor::File),
+            (Some("file"), _) => Err(mismatch("anchor_kind=file with payload sibling")),
+            (Some("image_rect"), 1) => r
+                .image_rect
+                .clone()
+                .map(Anchor::ImageRect)
+                .ok_or_else(|| mismatch("anchor_kind=image_rect but image_rect field missing")),
+            (Some("csv_cell"), 1) => r
+                .csv_cell
+                .clone()
+                .map(Anchor::CsvCell)
+                .ok_or_else(|| mismatch("anchor_kind=csv_cell but csv_cell field missing")),
+            (Some("json_path"), 1) => r
+                .json_path
+                .clone()
+                .map(Anchor::JsonPath)
+                .ok_or_else(|| mismatch("anchor_kind=json_path but json_path field missing")),
+            (Some("html_range"), 1) => r
+                .html_range
+                .clone()
+                .map(Anchor::HtmlRange)
+                .ok_or_else(|| mismatch("anchor_kind=html_range but html_range field missing")),
+            (Some("html_element"), 1) => {
+                r.html_element.clone().map(Anchor::HtmlElement).ok_or_else(|| {
+                    mismatch("anchor_kind=html_element but html_element field missing")
                 })
             }
-            Some("line") => {
-                if payload_count > 0 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=line with payload sibling"
-                        .into());
-                }
-                Ok(Anchor::Line {
-                    line: r.line.unwrap_or(0),
-                    end_line: r.end_line,
-                    start_column: r.start_column,
-                    end_column: r.end_column,
-                    selected_text: r.selected_text.clone(),
-                    selected_text_hash: r.selected_text_hash.clone(),
-                })
+            (Some(kind @ ("image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element")), _) => {
+                Err(mismatch(format!("anchor_kind={kind} with wrong payload sibling count")))
             }
-            Some("file") => {
-                if payload_count > 0 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=file with payload sibling"
-                        .into());
-                }
-                Ok(Anchor::File)
-            }
-            Some("image_rect") => {
-                if payload_count != 1 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=image_rect with multiple payload siblings"
-                        .into());
-                }
-                r.image_rect.clone().map(Anchor::ImageRect).ok_or_else(|| {
-                    "anchor_kind/payload mismatch: anchor_kind=image_rect \
-                     but image_rect field missing"
-                        .into()
-                })
-            }
-            Some("csv_cell") => {
-                if payload_count != 1 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=csv_cell with multiple payload siblings"
-                        .into());
-                }
-                r.csv_cell.clone().map(Anchor::CsvCell).ok_or_else(|| {
-                    "anchor_kind/payload mismatch: anchor_kind=csv_cell but \
-                     csv_cell field missing"
-                        .into()
-                })
-            }
-            Some("json_path") => {
-                if payload_count != 1 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=json_path with multiple payload siblings"
-                        .into());
-                }
-                r.json_path.clone().map(Anchor::JsonPath).ok_or_else(|| {
-                    "anchor_kind/payload mismatch: anchor_kind=json_path but \
-                     json_path field missing"
-                        .into()
-                })
-            }
-            Some("html_range") => {
-                if payload_count != 1 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=html_range with multiple payload siblings"
-                        .into());
-                }
-                r.html_range.clone().map(Anchor::HtmlRange).ok_or_else(|| {
-                    "anchor_kind/payload mismatch: anchor_kind=html_range \
-                     but html_range field missing"
-                        .into()
-                })
-            }
-            Some("html_element") => {
-                if payload_count != 1 {
-                    return Err("anchor_kind/payload mismatch: \
-                        anchor_kind=html_element with multiple payload siblings"
-                        .into());
-                }
-                r.html_element
-                    .clone()
-                    .map(Anchor::HtmlElement)
-                    .ok_or_else(|| {
-                        "anchor_kind/payload mismatch: anchor_kind=html_element \
-                         but html_element field missing"
-                            .into()
-                    })
-            }
-            Some(other) => Err(format!(
-                "anchor_kind/payload mismatch: unknown anchor_kind `{other}`"
-            )),
+            (Some(other), _) => Err(mismatch(format!("unknown anchor_kind `{other}`"))),
         }
     }
 }
@@ -315,162 +269,83 @@ impl From<MrsfComment> for MrsfCommentRepr {
         let has_v1_1_markers = c.anchor_history.as_ref().is_some_and(|h| !h.is_empty())
             || c.reactions.is_some();
 
-        // For `Anchor::Line` we authoritatively use the flat in-memory
-        // fields (`c.line`, `c.end_line`, …) — this preserves caller
-        // mutations to those fields and keeps backwards-compatibility with
-        // iter-1 construction patterns. For every other variant the flat
-        // line fields are dropped from the wire form (the variant payload
-        // is the only source of truth).
-        let (
-            anchor_kind,
-            line,
-            end_line,
-            start_column,
-            end_column,
-            selected_text,
-            selected_text_hash,
-            image_rect,
-            csv_cell,
-            json_path,
-            html_range,
-            html_element,
-        ) = match c.anchor {
-            Anchor::Line { .. } => {
-                // v1.0 byte-identity path: omit `anchor_kind` entirely when
-                // no v1.1 markers are present.
-                let kind = if has_v1_1_markers {
-                    Some("line".to_string())
-                } else {
-                    None
-                };
-                (
-                    kind,
-                    c.line,
-                    c.end_line,
-                    c.start_column,
-                    c.end_column,
-                    c.selected_text.clone(),
-                    c.selected_text_hash.clone(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-            }
-            Anchor::File => (
-                Some("file".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            Anchor::ImageRect(p) => (
-                Some("image_rect".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(p),
-                None,
-                None,
-                None,
-                None,
-            ),
-            Anchor::CsvCell(p) => (
-                Some("csv_cell".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(p),
-                None,
-                None,
-                None,
-            ),
-            Anchor::JsonPath(p) => (
-                Some("json_path".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(p),
-                None,
-                None,
-            ),
-            Anchor::HtmlRange(p) => (
-                Some("html_range".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(p),
-                None,
-            ),
-            Anchor::HtmlElement(p) => (
-                Some("html_element".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(p),
-            ),
-        };
-
-        MrsfCommentRepr {
+        // `base` carries every comment-level field that's variant-agnostic.
+        // Per-arm `MrsfCommentRepr { ..base }` then overlays only the
+        // anchor-specific fields. This collapses ~165 LOC of 12-tuple
+        // matching into one short match.
+        //
+        // Partial-move discipline: `base` consumes the agnostic fields of
+        // `c`; the variant arms below access only the *remaining* fields
+        // (`c.anchor`, plus — for the Line arm — `c.line`, `c.end_line`,
+        // `c.start_column`, `c.end_column`, `c.selected_text`,
+        // `c.selected_text_hash`). Rust's disjoint-field move rules
+        // permit this.
+        let base = MrsfCommentRepr {
             id: c.id,
             author: c.author,
             timestamp: c.timestamp,
             text: c.text,
             resolved: c.resolved,
-            line,
-            end_line,
-            start_column,
-            end_column,
-            selected_text,
             anchored_text: c.anchored_text,
-            selected_text_hash,
             commit: c.commit,
             comment_type: c.comment_type,
             severity: c.severity,
             reply_to: c.reply_to,
-            anchor_kind,
-            image_rect,
-            csv_cell,
-            json_path,
-            html_range,
-            html_element,
             anchor_history: c
                 .anchor_history
                 .map(|v| v.into_iter().map(Into::into).collect()),
             reactions: c.reactions,
+            ..Default::default()
+        };
+
+        match c.anchor {
+            Anchor::Line { .. } => MrsfCommentRepr {
+                // v1.0 byte-identity path: omit `anchor_kind` entirely
+                // when no v1.1 markers are present. With v1.1 markers
+                // we must emit `"line"` so readers can distinguish from
+                // a stray flat-line decode.
+                anchor_kind: if has_v1_1_markers {
+                    Some("line".to_string())
+                } else {
+                    None
+                },
+                line: c.line,
+                end_line: c.end_line,
+                start_column: c.start_column,
+                end_column: c.end_column,
+                selected_text: c.selected_text,
+                selected_text_hash: c.selected_text_hash,
+                ..base
+            },
+            Anchor::File => MrsfCommentRepr {
+                anchor_kind: Some("file".into()),
+                ..base
+            },
+            Anchor::ImageRect(p) => MrsfCommentRepr {
+                anchor_kind: Some("image_rect".into()),
+                image_rect: Some(p),
+                ..base
+            },
+            Anchor::CsvCell(p) => MrsfCommentRepr {
+                anchor_kind: Some("csv_cell".into()),
+                csv_cell: Some(p),
+                ..base
+            },
+            Anchor::JsonPath(p) => MrsfCommentRepr {
+                anchor_kind: Some("json_path".into()),
+                json_path: Some(p),
+                ..base
+            },
+            Anchor::HtmlRange(p) => MrsfCommentRepr {
+                anchor_kind: Some("html_range".into()),
+                html_range: Some(p),
+                ..base
+            },
+            Anchor::HtmlElement(p) => MrsfCommentRepr {
+                anchor_kind: Some("html_element".into()),
+                html_element: Some(p),
+                ..base
+            },
         }
     }
 }
