@@ -593,6 +593,7 @@ mod f0_iter1 {
     };
     use mdown_review_lib::core::sidecar::{load_sidecar, save_sidecar};
     use mdown_review_lib::core::severity::Severity;
+    use mdown_review_lib::core::types::Anchor;
 
     #[test]
     fn update_comment_add_reaction_appends_and_is_idempotent() {
@@ -662,6 +663,112 @@ mod f0_iter1 {
         )
         .unwrap_err();
         assert!(err.contains("not found"), "got: {err}");
+    }
+
+    #[test]
+    fn move_anchor_pushes_history_and_swaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("doc.md");
+        std::fs::write(&file, "x\n").unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+        save_sidecar(&file_path, "doc.md", &[make_mrsf_comment("c1")]).unwrap();
+
+        // Capture the prior anchor (Line 10 from `make_mrsf_comment`) before
+        // applying the patch so the history assertion has something concrete
+        // to compare against.
+        let before = load_sidecar(&file_path).unwrap().unwrap();
+        let prev_anchor = before.comments[0].anchor.clone();
+        assert!(matches!(prev_anchor, Anchor::Line { line: 10, .. }));
+
+        let new_anchor = Anchor::File;
+        let mutated = update_comment_apply(
+            &file_path,
+            "c1",
+            CommentPatch::MoveAnchor {
+                new_anchor: new_anchor.clone(),
+            },
+        )
+        .unwrap();
+        assert!(mutated, "MoveAnchor with a different anchor must mutate");
+
+        let after = load_sidecar(&file_path).unwrap().unwrap();
+        assert_eq!(after.comments[0].anchor, new_anchor);
+        let history = after.comments[0]
+            .anchor_history
+            .as_ref()
+            .expect("history populated");
+        assert_eq!(history.last().cloned(), Some(prev_anchor));
+    }
+
+    #[test]
+    fn move_anchor_no_op_when_equal_returns_false() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("doc.md");
+        std::fs::write(&file, "x\n").unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+        save_sidecar(&file_path, "doc.md", &[make_mrsf_comment("c1")]).unwrap();
+
+        let same_anchor = load_sidecar(&file_path).unwrap().unwrap().comments[0]
+            .anchor
+            .clone();
+
+        let mutated = update_comment_apply(
+            &file_path,
+            "c1",
+            CommentPatch::MoveAnchor {
+                new_anchor: same_anchor,
+            },
+        )
+        .unwrap();
+        assert!(!mutated, "MoveAnchor with equal anchor must be a no-op");
+
+        // History must remain untouched (`None`) — the no-op path must not
+        // pollute it.
+        let after = load_sidecar(&file_path).unwrap().unwrap();
+        assert!(after.comments[0].anchor_history.is_none());
+    }
+
+    #[test]
+    fn move_anchor_patch_serde_round_trip_uses_tagged_anchor_repr() {
+        // Wire shape contract: the new MoveAnchor IPC payload must serialise
+        // as `{kind:"move_anchor",data:{new_anchor:{anchor_kind:"...",anchor_data:...}}}`
+        // — i.e. reuse `AnchorRepr`'s tagged form rather than inventing a new
+        // shape. Round-trips both Line and File to cover the unit-variant
+        // and payload-variant arms of `AnchorRepr`.
+        let line_patch = CommentPatch::MoveAnchor {
+            new_anchor: Anchor::Line {
+                line: 7,
+                end_line: None,
+                start_column: None,
+                end_column: None,
+                selected_text: None,
+                selected_text_hash: None,
+            },
+        };
+        let json = serde_json::to_string(&line_patch).unwrap();
+        assert!(json.contains(r#""kind":"move_anchor""#), "got: {json}");
+        assert!(json.contains(r#""anchor_kind":"line""#), "got: {json}");
+        assert!(json.contains(r#""new_anchor""#), "got: {json}");
+        let parsed: CommentPatch = serde_json::from_str(&json).unwrap();
+        match parsed {
+            CommentPatch::MoveAnchor {
+                new_anchor: Anchor::Line { line: 7, .. },
+            } => {}
+            other => panic!("round-trip lost variant: {other:?}"),
+        }
+
+        let file_patch = CommentPatch::MoveAnchor {
+            new_anchor: Anchor::File,
+        };
+        let json = serde_json::to_string(&file_patch).unwrap();
+        assert!(json.contains(r#""anchor_kind":"file""#), "got: {json}");
+        let parsed: CommentPatch = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            CommentPatch::MoveAnchor {
+                new_anchor: Anchor::File
+            }
+        ));
     }
 
     #[test]

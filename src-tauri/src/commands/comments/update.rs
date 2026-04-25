@@ -1,15 +1,14 @@
 //! `update_comment` — consolidated patch surface for per-comment mutations.
 
 use super::{enforce_workspace_path, CommentsChangedEvent};
-use crate::core::types::Reaction;
+use crate::core::types::{Anchor, Reaction};
 use crate::watcher::WatcherState;
 use tauri::{Emitter, State};
 
 /// Patch payloads for `update_comment`. Discriminated enum (serde adjacent
-/// `kind`/`data` tags) so the TS side can branch cleanly. `MoveAnchor`
-/// will land alongside the `Anchor` enum refactor in a follow-up commit
-/// (advisory #1) — until then `update_comment` accepts only the variants
-/// that don't depend on the new anchor representation.
+/// `kind`/`data` tags) so the TS side can branch cleanly. Every per-comment
+/// mutation flows through this enum so the IPC surface stays a single
+/// chokepoint.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum CommentPatch {
@@ -21,6 +20,12 @@ pub enum CommentPatch {
     /// legacy `set_comment_resolved` IPC command was removed in iter 2 to
     /// keep `update_comment` as the single per-comment mutation entry.
     SetResolved { resolved: bool },
+    /// Replace the canonical `anchor` and push the prior value through the
+    /// `push_anchor_history` chokepoint (FIFO-clamped at 3). Equal-anchor
+    /// applies are a no-op so re-anchoring with the same value doesn't
+    /// pollute history or fire `comments-changed`. Reuses the tagged
+    /// `AnchorRepr` wire format via `{ new_anchor: Anchor }`.
+    MoveAnchor { new_anchor: Anchor },
 }
 
 /// Apply a [`CommentPatch`] to a single comment.
@@ -82,6 +87,18 @@ pub fn update_comment_apply(
                 false
             } else {
                 comment.resolved = resolved;
+                true
+            }
+        }
+        CommentPatch::MoveAnchor { new_anchor } => {
+            // Equal-anchor no-op: skip both the history push and the
+            // save+emit cycle. Otherwise swap and route the prior value
+            // through `push_anchor_history` (single FIFO-clamp chokepoint).
+            if comment.anchor == new_anchor {
+                false
+            } else {
+                let prev = std::mem::replace(&mut comment.anchor, new_anchor);
+                comment.push_anchor_history(prev);
                 true
             }
         }
