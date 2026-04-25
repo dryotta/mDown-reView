@@ -79,6 +79,31 @@ pub fn set_author(app: AppHandle, name: String) -> Result<String, ConfigError> {
     set_author_at(&path, &name)
 }
 
+/// OS-user fallback when no author has been configured yet. Reads
+/// `USERNAME` (Windows) or `USER` (macOS / Linux). No `whoami` crate —
+/// the env-var path covers every supported target and keeps the binary
+/// lean. Returns `"anonymous"` when neither var is set.
+pub fn default_author() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "anonymous".into())
+}
+
+/// Pure helper: read author from `path`, falling back to the OS-user
+/// resolver `default_author()` (or any closure of the same shape, for
+/// tests). Never fails — load failures are absorbed by `load_at`'s
+/// `Default` policy.
+pub fn get_author_at_with<F: FnOnce() -> String>(path: &Path, fallback: F) -> String {
+    let state = load_at(path);
+    state.author.unwrap_or_else(fallback)
+}
+
+#[tauri::command]
+pub fn get_author(app: AppHandle) -> Result<String, ConfigError> {
+    let path = default_path(&app)?;
+    Ok(get_author_at_with(&path, default_author))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +169,33 @@ mod tests {
         assert_eq!(stored, "Alice");
         let state = crate::core::onboarding::load_at(&path);
         assert_eq!(state.author.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn get_author_returns_persisted_value() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("onboarding.json");
+        set_author_at(&path, "Reviewer-2").unwrap();
+        let v = get_author_at_with(&path, || "should-not-call".into());
+        assert_eq!(v, "Reviewer-2");
+    }
+
+    #[test]
+    fn get_author_falls_back_to_supplied_default() {
+        // No author persisted → the closure is consulted.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("onboarding.json");
+        let v = get_author_at_with(&path, || "fallback-user".into());
+        assert_eq!(v, "fallback-user");
+    }
+
+    #[test]
+    fn default_author_returns_non_empty() {
+        // Smoke test for the OS-user resolver: at least one of USERNAME /
+        // USER is set on every supported runner, OR we fall through to
+        // "anonymous". Never panics, never empty.
+        let v = default_author();
+        assert!(!v.is_empty());
     }
 
     #[test]

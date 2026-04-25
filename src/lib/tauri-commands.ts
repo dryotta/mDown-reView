@@ -299,6 +299,11 @@ export type ConfigError =
 export const setAuthor = (name: string): Promise<string> =>
   invoke<string>("set_author", { name });
 
+/** Read the persisted display name. Falls back to the OS user (USERNAME /
+ *  USER env var) and finally to `"anonymous"` on the Rust side — never
+ *  rejects on validation. */
+export const getAuthor = (): Promise<string> => invoke<string>("get_author");
+
 // ── Document search ──────────────────────────────────────────────────────
 
 export interface SearchMatch {

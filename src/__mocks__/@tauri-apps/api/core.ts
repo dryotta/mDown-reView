@@ -71,6 +71,7 @@ export const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Pro
     if (cmd === "export_review_summary") return "";
     if (cmd === "update_comment") return undefined;
     if (cmd === "set_author") return "";
+    if (cmd === "get_author") return "Test User";
     return undefined;
   },
 );

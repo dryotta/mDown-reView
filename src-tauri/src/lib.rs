@@ -213,6 +213,7 @@ pub fn run() {
                 commands::comments::badges::get_file_badges,
                 commands::comments::export::export_review_summary,
                 commands::config::set_author,
+                commands::config::get_author,
                 commands::search::search_in_document,
                 commands::html::compute_fold_regions,
                 commands::search::parse_kql,

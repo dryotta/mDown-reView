@@ -9,6 +9,7 @@ import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
+import { useAuthor } from "@/lib/vm/useAuthor";
 import { FirstRunPanel } from "@/components/onboarding/FirstRunPanel";
 import { SetupPanel } from "@/components/onboarding/SetupPanel";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
@@ -17,11 +18,12 @@ import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
-import { IconFile, IconFolder, IconComment } from "@/components/Icons";
+import { IconFile, IconFolder, IconComment, IconSettings } from "@/components/Icons";
 import "@/styles/app.css";
 
 export default function App() {
@@ -48,6 +50,7 @@ export default function App() {
   useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
@@ -65,6 +68,10 @@ export default function App() {
 
   // Onboarding: refresh status, maybe auto-show welcome, re-poll on focus
   useOnboardingBootstrap();
+
+  // Hydrate the persisted display name from disk so new comments get the
+  // OS-user fallback even before the user opens Settings (AC #71/F7).
+  useAuthor();
 
   // Background update check — 5 s delay, non-blocking
   useEffect(() => {
@@ -112,6 +119,14 @@ export default function App() {
           >
             <IconComment /> Comments
           </button>
+          <button
+            className="toolbar-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <IconSettings /> Settings
+          </button>
         </div>
         <ErrorBoundary>
           <TabBar />
@@ -158,6 +173,7 @@ export default function App() {
       </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       <FirstRunPanel />
       <SetupPanel />
     </div>
