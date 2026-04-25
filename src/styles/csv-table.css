@@ -47,3 +47,19 @@
   margin-left: 4px;
   font-size: 10px;
 }
+
+.csv-table td {
+  position: relative;
+}
+.csv-cell-badge-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.csv-cell-composer {
+  margin-top: 4px;
+  min-width: 240px;
+}

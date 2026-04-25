@@ -84,7 +84,7 @@ function renderVisualView(
     case "markdown":
       return <MarkdownViewer content={content} filePath={filePath} fileSize={fileSize} />;
     case "json":
-      return <JsonTreeView content={content} />;
+      return <JsonTreeView content={content} path={path} />;
     case "csv":
       return <CsvTableView content={content} path={path} />;
     case "html":
