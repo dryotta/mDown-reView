@@ -25,6 +25,7 @@ type InvokeResult =
   | KqlPipelineStep[]
   | Record<string, number>
   | TextFileResult
+  | { bytes: number[]; content_type: string }
   | "file"
   | "dir"
   | "missing"

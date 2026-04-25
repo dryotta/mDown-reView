@@ -30,7 +30,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 11. CLI argument parsing canonicalizes every path via `std::fs::canonicalize` and silently drops paths that fail. (`commands/launch.rs:68-125`; sidecar resolution under `core/paths.rs::resolve_sidecar` adds stricter folder-root containment.)
 
 ### Markdown rendering safety
-12. No `rehype-raw` in markdown rendering; only `remarkGfm` and `rehypeSlug`. (`MarkdownViewer.tsx:387-388`.)
+12. Markdown rendering uses `rehype-raw` (to admit inline HTML for GitHub-style `<details>`/`<sub>`/`<kbd>` etc.) ONLY when paired with `rehype-sanitize` configured by the schema in `src/components/viewers/markdown/sanitizeSchema.ts`. The schema is the canonical XSS boundary: `script`/`iframe`/`object`/`embed`/`form` are absent from `tagNames` (and so dropped); `on*` event handler attributes are absent from per-tag and `*` attribute lists (and so stripped); `style` is not allow-listed. Plugin order in `MarkdownViewer.tsx` MUST be `rehypeRaw` → `rehypeSanitize(sanitizeSchema)` → downstream plugins so user HTML cannot piggy-back through later transforms.
 13. Markdown anchor clicks open only `http(s)` URLs, blocking `file://`, `javascript:`, etc. (`MarkdownViewer.tsx:146-148`.)
 14. Local image `src` is piped through `convertFileSrc` so the WebView loads via `asset:`, never raw `file://`. (`MarkdownViewer.tsx:302-309`.)
 15. Mermaid runs with `securityLevel: "strict"`. (`MermaidView.tsx:21`.)

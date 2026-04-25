@@ -119,6 +119,24 @@
   text-decoration: underline;
 }
 
+/* A5 — heading anchors injected by rehype-autolink-headings.
+ * Hidden by default; revealed on hover of the parent heading so they
+ * don't add visual noise to the reading flow. */
+.markdown-body :is(h1, h2, h3, h4, h5, h6) > a.heading-anchor {
+  margin-right: 4px;
+  color: var(--color-text-secondary, #6e7781);
+  font-weight: normal;
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 120ms ease;
+}
+
+.markdown-body :is(h1, h2, h3, h4, h5, h6):hover > a.heading-anchor,
+.markdown-body :is(h1, h2, h3, h4, h5, h6) > a.heading-anchor:focus {
+  opacity: 1;
+  text-decoration: none;
+}
+
 .markdown-body hr {
   border: none;
   border-top: 1px solid var(--color-border);

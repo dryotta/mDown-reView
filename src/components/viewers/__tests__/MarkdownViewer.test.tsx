@@ -10,6 +10,10 @@ vi.mock("@/lib/tauri-commands", async () => ({
   ...(await vi.importActual<typeof import("@/lib/tauri-commands")>("@/lib/tauri-commands")),
   openExternalUrl: vi.fn().mockResolvedValue(undefined),
   convertAssetUrl: (src: string) => convertAssetUrlMock(src),
+  fetchRemoteAsset: vi.fn().mockResolvedValue({
+    bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    contentType: "image/png",
+  }),
 }));
 
 vi.mock("@/logger");
@@ -169,17 +173,19 @@ describe("10.3 – image src transformation", () => {
     });
   });
 
-  it("http image passes through without transformation", async () => {
+  it("https image is blocked by default and renders as a placeholder", async () => {
     convertAssetUrlMock.mockClear();
 
     const content = `![alt](https://example.com/img.png)`;
     render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
 
     await waitFor(() => {
-      const img = document.querySelector("img");
-      expect(img).toBeInTheDocument();
+      const placeholder = document.querySelector("[data-remote-image-placeholder]");
+      expect(placeholder).toBeInTheDocument();
     });
-    // convertAssetUrl should NOT be called for http URLs
+    // No <img> element should be rendered for the blocked remote image.
+    expect(document.querySelector("img")).not.toBeInTheDocument();
+    // convertAssetUrl is for local paths only — must not be called for https.
     expect(convertAssetUrlMock).not.toHaveBeenCalledWith("https://example.com/img.png");
   });
 });
