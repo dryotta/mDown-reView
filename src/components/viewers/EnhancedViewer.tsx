@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState } from "react";
 import { useStore } from "@/store";
-import { getFileCategory, hasVisualization, getDefaultView } from "@/lib/file-types";
+import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey } from "@/lib/file-types";
+import { useZoom } from "@/hooks/useZoom";
 import { ViewerToolbar } from "./ViewerToolbar";
 import { MarkdownViewer } from "./MarkdownViewer";
 import { SourceView } from "./SourceView";
@@ -38,6 +39,10 @@ export function EnhancedViewer({ content, path, filePath, fileSize }: Props) {
   };
 
   const showSource = viewMode === "source" || !canVisualize;
+  // Zoom key tracks the active sub-view so source-mode zoom is independent of
+  // visual-mode zoom for the same document (#65 D1/D2/D3).
+  const filetypeKey = getFiletypeKey(path, showSource ? "source" : "visual");
+  const { zoom, zoomIn, zoomOut, reset } = useZoom(filetypeKey);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -48,6 +53,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize }: Props) {
         showWrapToggle={showSource}
         wordWrap={wordWrap}
         onToggleWrap={() => setWordWrap(!wordWrap)}
+        zoom={{ value: zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
       />
       {showSource ? (
         <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} />

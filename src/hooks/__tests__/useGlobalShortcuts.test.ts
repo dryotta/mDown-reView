@@ -4,12 +4,16 @@ import { renderHook } from "@testing-library/react";
 const mockCloseTab = vi.fn();
 const mockCloseAllTabs = vi.fn();
 const mockSetActiveTab = vi.fn();
+const mockSetZoom = vi.fn();
 
 const storeState = {
   activeTabPath: "/a.md",
   closeTab: mockCloseTab,
   closeAllTabs: mockCloseAllTabs,
   setActiveTab: mockSetActiveTab,
+  setZoom: mockSetZoom,
+  zoomByFiletype: {} as Record<string, number>,
+  viewModeByTab: {} as Record<string, "source" | "visual">,
   tabs: [
     { path: "/a.md", title: "a" },
     { path: "/b.md", title: "b" },
@@ -47,6 +51,8 @@ function fire(opts: { key: string; shift?: boolean; mod?: boolean }) {
 beforeEach(() => {
   vi.clearAllMocks();
   storeState.activeTabPath = "/a.md";
+  storeState.zoomByFiletype = {};
+  storeState.viewModeByTab = {};
 });
 
 describe("useGlobalShortcuts", () => {
@@ -118,6 +124,46 @@ describe("useGlobalShortcuts", () => {
     const ev = new KeyboardEvent("keydown", { key: "o", ctrlKey: false, metaKey: false });
     window.dispatchEvent(ev);
     expect(callbacks.handleOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+= zooms in the active filetype", () => {
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "=" });
+    expect(mockSetZoom).toHaveBeenCalledTimes(1);
+    const [filetype, zoom] = mockSetZoom.mock.calls[0];
+    expect(filetype).toBe(".md");
+    expect(zoom).toBeCloseTo(1.1, 5);
+  });
+
+  it("Ctrl+- zooms out the active filetype", () => {
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "-" });
+    expect(mockSetZoom).toHaveBeenCalledOnce();
+    const [filetype, zoom] = mockSetZoom.mock.calls[0];
+    expect(filetype).toBe(".md");
+    expect(zoom).toBeCloseTo(1 / 1.1, 5);
+  });
+
+  it("Ctrl+0 resets the active filetype zoom to 1.0", () => {
+    storeState.zoomByFiletype = { ".md": 2.5 };
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "0" });
+    expect(mockSetZoom).toHaveBeenCalledWith(".md", 1.0);
+  });
+
+  it("zoom shortcuts use source filetype key when active tab is in source view", () => {
+    storeState.viewModeByTab = { "/a.md": "source" };
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "=" });
+    expect(mockSetZoom.mock.calls[0][0]).toBe(".source");
+  });
+
+  it("zoom shortcuts are no-ops when no active tab", () => {
+    storeState.activeTabPath = "";
+    renderHook(() => useGlobalShortcuts(callbacks));
+    fire({ key: "=" });
+    fire({ key: "0" });
+    expect(mockSetZoom).not.toHaveBeenCalled();
   });
 
   it("removes listener on unmount", () => {

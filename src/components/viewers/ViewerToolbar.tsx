@@ -1,4 +1,12 @@
 import "@/styles/viewer-toolbar.css";
+import { ZoomControl } from "./ZoomControl";
+
+export interface ZoomProps {
+  value: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onReset: () => void;
+}
 
 interface Props {
   activeView: "source" | "visual";
@@ -7,10 +15,11 @@ interface Props {
   showWrapToggle?: boolean;
   wordWrap?: boolean;
   onToggleWrap?: () => void;
+  zoom?: ZoomProps;
 }
 
-export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap }: Props) {
-  if (hidden && !showWrapToggle) return null;
+export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap, zoom }: Props) {
+  if (hidden && !showWrapToggle && !zoom) return null;
 
   return (
     <div className="viewer-toolbar" role="toolbar" aria-label="View mode">
@@ -41,6 +50,14 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
         >
           Wrap
         </button>
+      )}
+      {zoom && (
+        <ZoomControl
+          zoom={zoom.value}
+          onZoomIn={zoom.onZoomIn}
+          onZoomOut={zoom.onZoomOut}
+          onReset={zoom.onReset}
+        />
       )}
     </div>
   );

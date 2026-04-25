@@ -1,10 +1,21 @@
 import { useEffect } from "react";
 import { useStore } from "@/store";
+import { getFiletypeKey, getFileCategory, getDefaultView } from "@/lib/file-types";
+import { ZOOM_DEFAULT, ZOOM_STEP } from "@/store/viewerPrefs";
 
 interface ShortcutCallbacks {
   handleOpenFile: () => void;
   handleOpenFolder: () => void;
   toggleCommentsPane: () => void;
+}
+
+/** Resolve the filetype key the active viewer would use (#65 D1/D2/D3). */
+function activeFiletypeKey(): string | null {
+  const { activeTabPath, viewModeByTab } = useStore.getState();
+  if (!activeTabPath) return null;
+  const cat = getFileCategory(activeTabPath);
+  const view = viewModeByTab?.[activeTabPath] ?? getDefaultView(cat);
+  return getFiletypeKey(activeTabPath, view);
 }
 
 /**
@@ -77,6 +88,33 @@ export function useGlobalShortcuts({
           ? (idx - 1 + tabs.length) % tabs.length
           : (idx + 1) % tabs.length;
         setActiveTab(tabs[nextIdx].path);
+        return;
+      }
+      // Zoom shortcuts (#65 D1/D2/D3). Routes to the per-filetype zoom of the
+      // active viewer. `=`/`+` zoom in (Shift+= produces `+` on US layouts;
+      // accept either), `-`/`_` zoom out, `0` reset.
+      if (e.key === "=" || e.key === "+") {
+        const key = activeFiletypeKey();
+        if (!key) return;
+        e.preventDefault();
+        const { zoomByFiletype, setZoom } = useStore.getState();
+        setZoom(key, (zoomByFiletype[key] ?? ZOOM_DEFAULT) * ZOOM_STEP);
+        return;
+      }
+      if (e.key === "-" || e.key === "_") {
+        const key = activeFiletypeKey();
+        if (!key) return;
+        e.preventDefault();
+        const { zoomByFiletype, setZoom } = useStore.getState();
+        setZoom(key, (zoomByFiletype[key] ?? ZOOM_DEFAULT) / ZOOM_STEP);
+        return;
+      }
+      if (!e.shiftKey && e.key === "0") {
+        const key = activeFiletypeKey();
+        if (!key) return;
+        e.preventDefault();
+        useStore.getState().setZoom(key, ZOOM_DEFAULT);
+        return;
       }
     };
     window.addEventListener("keydown", handler);

@@ -4,6 +4,7 @@ import { dirname, resolveWorkspacePath } from "@/lib/path-utils";
 import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
+import { useZoom } from "@/hooks/useZoom";
 import { warn } from "@/logger";
 
 interface Props {
@@ -19,6 +20,10 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const readingWidth = useStore((s) => s.readingWidth);
   const workspaceRoot = useStore((s) => s.root) ?? "";
+  // Per-filetype zoom (#65 D1/D2/D3). Applied to the wrapping container only;
+  // iframe srcdoc has its own root font sizing. Keeps banner/buttons in scale
+  // with the surrounding chrome but does not reach into the document body.
+  const { zoom } = useZoom(".html");
   const baseDir = filePath ? dirname(filePath) : undefined;
   // Security: never combine allow-same-origin + allow-scripts (iframe escape).
   // Safe mode: allow-same-origin only (for CSS/fonts, no script execution).
@@ -47,7 +52,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   }, [content, filePath]);
 
   return (
-    <div className="html-preview" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div className="html-preview" data-zoom={zoom} style={{ display: "flex", flexDirection: "column", height: "100%", fontSize: `${zoom * 100}%` }}>
       <div className="html-preview-banner" style={{ padding: "6px 12px", background: "var(--color-warning-bg, #fff3cd)", borderBottom: "1px solid var(--color-warning-border, #ffc107)", fontSize: 12 }}>
         ⚠ Sandboxed preview — scripts and external resources disabled
         {resolving && <span style={{ marginLeft: 8 }}>⏳ Resolving local images…</span>}

@@ -41,3 +41,32 @@
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
+
+.viewer-toolbar-zoom {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+/* When wrap toggle is also present, the wrap button claims margin-left: auto;
+   the zoom group then sits flush after it. */
+.viewer-toolbar-wrap ~ .viewer-toolbar-zoom {
+  margin-left: 4px;
+}
+
+.viewer-toolbar-zoom-btn {
+  min-width: 22px;
+  padding: 2px 6px;
+}
+
+.viewer-toolbar-zoom-value {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

@@ -58,6 +58,29 @@ export function getFileCategory(path: string): FileCategory {
   return CATEGORY_MAP[ext] ?? "text";
 }
 
+/**
+ * Canonical filetype key used by the per-filetype zoom store
+ * (`zoomByFiletype`). Several extensions collapse to one key (`.md` covers
+ * both md/mdx; `.image` covers all bitmap/vector image extensions); the
+ * `source` view of a visualizable file uses `.source` so source-mode zoom is
+ * independent of visual-mode zoom for the same document.
+ */
+export function getFiletypeKey(path: string, viewMode?: "source" | "visual"): string {
+  const cat = getFileCategory(path);
+  if (cat === "image") return ".image";
+  const view = viewMode ?? getDefaultView(cat);
+  if (view === "source") return ".source";
+  switch (cat) {
+    case "markdown": return ".md";
+    case "json": return ".json";
+    case "csv": return ".csv";
+    case "html": return ".html";
+    case "mermaid": return ".mmd";
+    case "kql": return ".kql";
+    default: return ".source";
+  }
+}
+
 export function hasVisualization(category: FileCategory): boolean {
   return VISUALIZABLE.has(category);
 }
