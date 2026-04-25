@@ -46,6 +46,14 @@ export interface HtmlElementAnchor {
   text_preview: string;
 }
 
+export interface WordRangeAnchor {
+  start_word: number;
+  end_word: number;
+  line: number;
+  snippet: string;
+  line_text_hash: string;
+}
+
 /**
  * Tagged anchor union. `kind` matches the Rust serde wire `anchor_kind`
  * exactly (snake_case). Payload fields are inlined per variant.
@@ -65,7 +73,8 @@ export type Anchor =
   | ({ kind: "csv_cell" } & CsvCellAnchor)
   | ({ kind: "json_path" } & JsonPathAnchor)
   | ({ kind: "html_range" } & HtmlRangeAnchor)
-  | ({ kind: "html_element" } & HtmlElementAnchor);
+  | ({ kind: "html_element" } & HtmlElementAnchor)
+  | ({ kind: "word_range" } & WordRangeAnchor);
 
 export interface Reaction {
   user: string;
@@ -111,12 +120,13 @@ export interface MrsfComment {
   // Only present on v1.1 non-line anchors and on v1.1 line anchors with
   // additional v1.1 markers (history/reactions). `deriveAnchor` reads this
   // alongside the per-variant payload siblings below.
-  anchor_kind?: "line" | "file" | "image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element";
+  anchor_kind?: "line" | "file" | "image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element" | "word_range";
   image_rect?: ImageRectAnchor;
   csv_cell?: CsvCellAnchor;
   json_path?: JsonPathAnchor;
   html_range?: HtmlRangeAnchor;
   html_element?: HtmlElementAnchor;
+  word_range?: WordRangeAnchor;
   anchor_history?: Anchor[];
   reactions?: Reaction[];
 }
@@ -148,6 +158,9 @@ export function deriveAnchor(c: MrsfComment): Anchor {
       break;
     case "html_element":
       if (c.html_element) return { kind: "html_element", ...c.html_element };
+      break;
+    case "word_range":
+      if (c.word_range) return { kind: "word_range", ...c.word_range };
       break;
     case "line":
     case undefined:

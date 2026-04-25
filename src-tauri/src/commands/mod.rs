@@ -16,6 +16,7 @@ pub mod onboarding;
 pub mod remote_asset;
 pub mod search;
 pub mod system;
+pub mod word_tokens;
 
 // ── Re-export core types so existing code (lib.rs, tests) still compiles ──
 pub use crate::core::types::{
@@ -39,6 +40,7 @@ pub use launch::set_root_via_test;
 pub use remote_asset::fetch_remote_asset;
 pub use search::{parse_kql, search_in_document, strip_json_comments, KqlPipelineStep, SearchMatch};
 pub use system::{open_in_default_app, reveal_in_folder, SystemError};
+pub use word_tokens::tokenize_words;
 
 /// True for `<file>.review.yaml` / `<file>.review.json` sidecar names.
 /// Shared by `fs::read_dir` (filtering) and `launch::set_root_via_test`.

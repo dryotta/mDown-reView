@@ -211,6 +211,82 @@ describe("installUpdate", () => {
   });
 });
 
+describe("tokenizeWords", () => {
+  it("calls invoke('tokenize_words', { text }) and returns the spans", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce([
+      { start: 0, end: 5, text: "hello" },
+      { start: 6, end: 11, text: "world" },
+    ]);
+    const { tokenizeWords } = await import("../tauri-commands");
+    const spans = await tokenizeWords("hello world");
+    expect(m).toHaveBeenCalledWith("tokenize_words", { text: "hello world" });
+    expect(spans).toEqual([
+      { start: 0, end: 5, text: "hello" },
+      { start: 6, end: 11, text: "world" },
+    ]);
+  });
+
+  it("returns an empty array when invoke resolves with []", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce([]);
+    const { tokenizeWords } = await import("../tauri-commands");
+    const spans = await tokenizeWords("");
+    expect(m).toHaveBeenCalledWith("tokenize_words", { text: "" });
+    expect(spans).toEqual([]);
+  });
+});
+
+describe("deriveAnchor — WordRange (Group D-wire, iter 3)", () => {
+  it("derives a word_range Anchor from the flat word_range payload sibling", async () => {
+    const { deriveAnchor } = await import("@/types/comments");
+    const a = deriveAnchor({
+      id: "c1",
+      author: "a",
+      timestamp: "t",
+      text: "x",
+      resolved: false,
+      anchor_kind: "word_range",
+      word_range: {
+        start_word: 2,
+        end_word: 5,
+        line: 7,
+        snippet: "the quick brown",
+        line_text_hash: "a".repeat(64),
+      },
+    });
+    expect(a.kind).toBe("word_range");
+    if (a.kind === "word_range") {
+      expect(a.start_word).toBe(2);
+      expect(a.end_word).toBe(5);
+      expect(a.line).toBe(7);
+      expect(a.snippet).toBe("the quick brown");
+      expect(a.line_text_hash.length).toBe(64);
+    }
+  });
+
+  it("falls through to derived line anchor when word_range payload is missing", async () => {
+    const { deriveAnchor } = await import("@/types/comments");
+    const a = deriveAnchor({
+      id: "c1",
+      author: "a",
+      timestamp: "t",
+      text: "x",
+      resolved: false,
+      anchor_kind: "word_range",
+      line: 9,
+    });
+    // Missing payload: deriveAnchor's switch breaks out and falls back to
+    // the flat-line constructor (matches the established sibling pattern).
+    expect(a.kind).toBe("line");
+    if (a.kind === "line") expect(a.line).toBe(9);
+  });
+});
+
 describe("onboarding & platform-integration wrappers", () => {
   async function getInvoke() {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -394,6 +470,25 @@ describe("F0 IPC surface", () => {
       filePath: "/ws/a.md",
       commentId: "c2",
       patch: { kind: "set_resolved", data: { resolved: false } },
+    });
+  });
+
+  it("updateComment dispatches move_anchor with tagged Anchor payload", async () => {
+    // Wire-shape contract: the tagged `{kind, anchor_kind, ...}` Anchor must
+    // pass through unchanged so the Rust `AnchorRepr` deserialiser accepts
+    // it. Asserting the exact patch object guards against an over-eager
+    // wrapper introducing accidental field reshaping.
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    const { updateComment } = await import("../tauri-commands");
+    await updateComment("/ws/a.md", "c3", {
+      kind: "move_anchor",
+      data: { new_anchor: { kind: "file" } },
+    });
+    expect(invoke).toHaveBeenCalledWith("update_comment", {
+      filePath: "/ws/a.md",
+      commentId: "c3",
+      patch: { kind: "move_anchor", data: { new_anchor: { kind: "file" } } },
     });
   });
 

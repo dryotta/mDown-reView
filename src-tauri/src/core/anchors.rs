@@ -56,6 +56,15 @@ pub fn resolve_html_element(_anchor: &Anchor) -> MatchOutcome {
     MatchOutcome::FileLevel
 }
 
+/// Stub matcher for [`Anchor::WordRange`]. Iter 3 ships only the wire
+/// variant + Rust tokenizer; the real word-anchored heuristic (UAX #29
+/// stream + fuzzy-on-line-text-hash recovery) is deferred to iter 4. Until
+/// then the resolver returns `FileLevel`, matching the rung the other
+/// typed-variant stubs use.
+pub fn resolve_word_range(_anchor: &Anchor) -> MatchOutcome {
+    MatchOutcome::FileLevel
+}
+
 /// Compute SHA-256 hash of selected text, returned as lowercase hex string.
 pub fn compute_selected_text_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
@@ -229,7 +238,7 @@ mod tests {
 
     use crate::core::types::{
         Anchor, CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor,
-        JsonPathAnchor,
+        JsonPathAnchor, WordRangePayload,
     };
 
     #[test]
@@ -283,5 +292,17 @@ mod tests {
             text_preview: "".into(),
         });
         assert_eq!(resolve_html_element(&a), MatchOutcome::FileLevel);
+    }
+
+    #[test]
+    fn resolve_word_range_returns_file_level() {
+        let a = Anchor::WordRange(WordRangePayload {
+            start_word: 0,
+            end_word: 1,
+            line: 1,
+            snippet: "hello world".into(),
+            line_text_hash: "0".repeat(64),
+        });
+        assert_eq!(resolve_word_range(&a), MatchOutcome::FileLevel);
     }
 }

@@ -231,6 +231,7 @@ pub fn run() {
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,
                 commands::remote_asset::fetch_remote_asset,
+                commands::word_tokens::tokenize_words,
                 update::check_update,
                 update::install_update,
                 $($extra),*

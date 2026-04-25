@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     Anchor, CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor, JsonPathAnchor,
-    MrsfComment, Reaction,
+    MrsfComment, Reaction, WordRangePayload,
 };
 
 /// `Default` is derived purely as the base for struct-update syntax in
@@ -67,6 +67,8 @@ pub(super) struct MrsfCommentRepr {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub html_element: Option<HtmlElementAnchor>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub word_range: Option<WordRangePayload>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub anchor_history: Option<Vec<AnchorRepr>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reactions: Option<Vec<Reaction>>,
@@ -86,6 +88,7 @@ pub(super) enum AnchorRepr {
     JsonPath(JsonPathAnchor),
     HtmlRange(HtmlRangeAnchor),
     HtmlElement(HtmlElementAnchor),
+    WordRange(WordRangePayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -128,13 +131,16 @@ impl From<Anchor> for AnchorRepr {
             Anchor::JsonPath(p) => AnchorRepr::JsonPath(p),
             Anchor::HtmlRange(p) => AnchorRepr::HtmlRange(p),
             Anchor::HtmlElement(p) => AnchorRepr::HtmlElement(p),
+            Anchor::WordRange(p) => AnchorRepr::WordRange(p),
         }
     }
 }
 
-impl From<AnchorRepr> for Anchor {
-    fn from(r: AnchorRepr) -> Self {
-        match r {
+impl TryFrom<AnchorRepr> for Anchor {
+    type Error = String;
+
+    fn try_from(r: AnchorRepr) -> Result<Self, Self::Error> {
+        Ok(match r {
             AnchorRepr::Line(p) => Anchor::Line {
                 line: p.line,
                 end_line: p.end_line,
@@ -149,7 +155,11 @@ impl From<AnchorRepr> for Anchor {
             AnchorRepr::JsonPath(p) => Anchor::JsonPath(p),
             AnchorRepr::HtmlRange(p) => Anchor::HtmlRange(p),
             AnchorRepr::HtmlElement(p) => Anchor::HtmlElement(p),
-        }
+            AnchorRepr::WordRange(mut p) => {
+                p.sanitize()?;
+                Anchor::WordRange(p)
+            }
+        })
     }
 }
 
@@ -174,6 +184,7 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
             r.json_path.is_some(),
             r.html_range.is_some(),
             r.html_element.is_some(),
+            r.word_range.is_some(),
         ]
         .iter()
         .filter(|x| **x)
@@ -224,7 +235,14 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
                     mismatch("anchor_kind=html_element but html_element field missing")
                 })
             }
-            (Some(kind @ ("image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element")), _) => {
+            (Some("word_range"), 1) => {
+                let mut p = r.word_range.clone().ok_or_else(|| {
+                    mismatch("anchor_kind=word_range but word_range field missing")
+                })?;
+                p.sanitize()?;
+                Ok(Anchor::WordRange(p))
+            }
+            (Some(kind @ ("image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element" | "word_range")), _) => {
                 Err(mismatch(format!("anchor_kind={kind} with wrong payload sibling count")))
             }
             (Some(other), _) => Err(mismatch(format!("unknown anchor_kind `{other}`"))),
@@ -257,7 +275,8 @@ impl TryFrom<MrsfCommentRepr> for MrsfComment {
             anchor,
             anchor_history: r
                 .anchor_history
-                .map(|v| v.into_iter().map(Into::into).collect()),
+                .map(|v| v.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>())
+                .transpose()?,
             reactions: r.reactions,
         })
     }
@@ -344,6 +363,11 @@ impl From<MrsfComment> for MrsfCommentRepr {
             Anchor::HtmlElement(p) => MrsfCommentRepr {
                 anchor_kind: Some("html_element".into()),
                 html_element: Some(p),
+                ..base
+            },
+            Anchor::WordRange(p) => MrsfCommentRepr {
+                anchor_kind: Some("word_range".into()),
+                word_range: Some(p),
                 ..base
             },
         }

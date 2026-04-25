@@ -118,7 +118,7 @@ fn discriminator_payload_mismatch_is_rejected() {
 /// — every typed variant must reject its discriminator without payload.
 #[test]
 fn discriminator_missing_payload_rejected_for_all_typed_variants() {
-    for kind in ["image_rect", "csv_cell", "json_path", "html_range", "html_element"] {
+    for kind in ["image_rect", "csv_cell", "json_path", "html_range", "html_element", "word_range"] {
         let body = format!(
             r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"{kind}"}}"#
         );
@@ -174,6 +174,36 @@ fn anchor_history_caps_at_three_fifo() {
     assert_eq!(lines, vec![2, 3, 4]);
 }
 
+/// Stronger sibling of `anchor_history_caps_at_three_fifo`: push 5 to make
+/// sure the FIFO eviction loop evicts *both* over-cap entries (not just the
+/// most-recent overflow). Guards against an off-by-one regression where a
+/// `if h.len() == CAP` check would let the second overflow through.
+#[test]
+fn push_anchor_history_clamps_at_three_with_five_pushes() {
+    let mut c = MrsfComment::default();
+    for i in 1..=5u32 {
+        c.push_anchor_history(Anchor::Line {
+            line: i,
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            selected_text: None,
+            selected_text_hash: None,
+        });
+    }
+    let h = c.anchor_history.as_ref().unwrap();
+    assert_eq!(h.len(), 3);
+    let lines: Vec<u32> = h
+        .iter()
+        .map(|a| match a {
+            Anchor::Line { line, .. } => *line,
+            _ => panic!("expected Line"),
+        })
+        .collect();
+    // history[0] is the 3rd push, history[2] is the 5th — oldest two evicted.
+    assert_eq!(lines, vec![3, 4, 5]);
+}
+
 #[test]
 fn v1_0_byte_identity_fixture() {
     let raw = include_str!("../../../tests/fixtures/mrsf/v1.0/byte_identity.yaml");
@@ -208,4 +238,106 @@ fn legacy_line_constructor_keeps_flat_and_anchor_in_sync() {
         }
         _ => panic!("expected Line"),
     }
+}
+
+// ── Group D-wire (iter 3): WordRange anchor ─────────────────────────────────
+//
+// `WordRange` is a v1.1-only typed variant with security-validated payload
+// (snippet ≤ 4 KB, no NUL, bidi/ZW chars stripped on ingest, hash regex).
+
+const VALID_HASH: &str = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+
+fn word_range_body(snippet: &str, hash: &str) -> String {
+    format!(
+        r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"word_range","word_range":{{"start_word":2,"end_word":4,"line":3,"snippet":{},"line_text_hash":"{}"}}}}"#,
+        serde_json::to_string(snippet).unwrap(),
+        hash,
+    )
+}
+
+#[test]
+fn word_range_round_trip() {
+    let body = word_range_body("hello world", VALID_HASH);
+    let c = parse_one(&wrap_comment(&body));
+    match &c.anchor {
+        Anchor::WordRange(p) => {
+            assert_eq!(p.start_word, 2);
+            assert_eq!(p.end_word, 4);
+            assert_eq!(p.line, 3);
+            assert_eq!(p.snippet, "hello world");
+            assert_eq!(p.line_text_hash, VALID_HASH);
+        }
+        _ => panic!("expected WordRange"),
+    }
+    let re = serde_json::to_string(&c).unwrap();
+    assert!(re.contains(r#""anchor_kind":"word_range""#));
+    assert!(re.contains(r#""word_range""#));
+    assert!(re.contains(r#""start_word":2"#));
+    // No flat line legacy field for typed variants.
+    assert!(!re.contains(r#""line":0"#));
+}
+
+#[test]
+fn word_range_oversize_snippet_rejected() {
+    let huge = "a".repeat(4097); // 4 KB + 1 byte
+    let body = word_range_body(&huge, VALID_HASH);
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
+    assert!(res.is_err(), "4097-byte snippet must be rejected");
+    let err = res.unwrap_err().to_string();
+    assert!(err.contains("snippet exceeds"), "unexpected error: {err}");
+}
+
+#[test]
+fn word_range_nul_in_snippet_rejected() {
+    let body = word_range_body("hello\0world", VALID_HASH);
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
+    assert!(res.is_err(), "NUL in snippet must be rejected");
+    let err = res.unwrap_err().to_string();
+    assert!(err.contains("NUL"), "unexpected error: {err}");
+}
+
+#[test]
+fn word_range_strips_bidi_chars() {
+    // U+202E (RLO) + U+200B (ZWSP) interleaved with normal text.
+    let body = word_range_body("he\u{202E}llo\u{200B} world", VALID_HASH);
+    let c = parse_one(&wrap_comment(&body));
+    match &c.anchor {
+        Anchor::WordRange(p) => assert_eq!(p.snippet, "hello world"),
+        _ => panic!("expected WordRange"),
+    }
+}
+
+#[test]
+fn word_range_invalid_hash_rejected() {
+    // Wrong length.
+    let body = word_range_body("ok", "deadbeef");
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
+    assert!(res.is_err(), "short hash must be rejected");
+    // Non-hex char.
+    let bad = "z".to_string() + &VALID_HASH[1..];
+    let body = word_range_body("ok", &bad);
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
+    assert!(res.is_err(), "non-hex hash must be rejected");
+    // Uppercase rejected (regex requires lowercase).
+    let upper = VALID_HASH.to_uppercase();
+    let body = word_range_body("ok", &upper);
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
+    assert!(res.is_err(), "uppercase hash must be rejected");
+}
+
+#[test]
+fn word_range_promotes_to_v1_1() {
+    use crate::core::mrsf_version::mrsf_version_for;
+    use crate::core::types::WordRangePayload;
+    let c = MrsfComment {
+        anchor: Anchor::WordRange(WordRangePayload {
+            start_word: 0,
+            end_word: 1,
+            line: 1,
+            snippet: "x".into(),
+            line_text_hash: VALID_HASH.into(),
+        }),
+        ..Default::default()
+    };
+    assert_eq!(mrsf_version_for(&[c]), "1.1");
 }

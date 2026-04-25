@@ -35,6 +35,7 @@ export type {
   MrsfComment,
   MrsfSidecar,
   Reaction,
+  WordRangeAnchor,
 } from "@/types/comments";
 import type { MrsfComment } from "@/types/comments";
 import type { Anchor } from "@/types/comments";
@@ -261,6 +262,21 @@ export const parseKql = (query: string): Promise<KqlPipelineStep[]> =>
 
 export const stripJsonComments = (text: string): Promise<string> =>
   invoke<string>("strip_json_comments", { text });
+
+// ── UAX #29 word tokeniser (Rust core, used by WordRange anchor) ─────────
+//
+// Single source of truth for word-stream offsets shared between the
+// renderer (selection/highlight) and the Rust matcher (anchor resolution).
+// Byte offsets are into the original UTF-8 input.
+
+export interface WordSpan {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export const tokenizeWords = (text: string): Promise<WordSpan[]> =>
+  invoke<WordSpan[]>("tokenize_words", { text });
 
 // ── Remote asset fetcher (bounded HTTPS image proxy) ─────────────────────
 // Renderer hands a remote URL to Rust; Rust returns a single binary blob

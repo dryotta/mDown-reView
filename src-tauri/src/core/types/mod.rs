@@ -19,13 +19,20 @@ pub struct LaunchArgs {
 
 // ── MRSF v1.1 anchor enum ──────────────────────────────────────────────────
 //
-// Tagged anchor type. Wire format is hand-rolled in `serde.rs`: the v1.0
-// `Line` shape stays flat (no `anchor_kind`), while every other variant is
-// emitted as `anchor_kind` + matching payload object.
+// Tagged anchor type. Wire format is hand-rolled in `wire.rs`: the v1.0
+// `Line` shape stays flat at the comment level (no `anchor_kind`), while
+// every other variant is emitted as `anchor_kind` + matching payload object.
+//
+// `Serialize`/`Deserialize` are routed through `wire::AnchorRepr` (tagged
+// `anchor_kind` + `anchor_data`) so standalone `Anchor` payloads — e.g. the
+// `CommentPatch::MoveAnchor { new_anchor }` IPC field — share the exact
+// same on-the-wire shape that `anchor_history` entries use. The comment-
+// level flat-line representation lives in `wire::MrsfCommentRepr`.
 //
 // Intentionally NOT `Default` — every construction site must pick a variant
 // explicitly. Use [`MrsfComment::new_legacy_line`] for legacy line callers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "wire::AnchorRepr", into = "wire::AnchorRepr")]
 pub enum Anchor {
     Line {
         line: u32,
@@ -41,6 +48,7 @@ pub enum Anchor {
     JsonPath(JsonPathAnchor),
     HtmlRange(HtmlRangeAnchor),
     HtmlElement(HtmlElementAnchor),
+    WordRange(WordRangePayload),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,6 +97,77 @@ pub struct HtmlElementAnchor {
     pub selector_path: String,
     pub tag: String,
     pub text_preview: String,
+}
+
+/// v1.1 word-range anchor payload (Group D-wire, iter 3). Targets a contiguous
+/// run of UAX #29 word tokens on a single line. `start_word` / `end_word` are
+/// 0-based indices into the line's word stream produced by
+/// [`crate::core::word_tokens::tokenize_words`]; `snippet` is a small
+/// human-readable preview and `line_text_hash` is the lowercase-hex sha256 of
+/// the anchored line at capture time (used by the resolver to detect drift).
+///
+/// Hardening lives in [`WordRangePayload::sanitize`], called at the wire→domain
+/// conversion boundary so attackers can't smuggle bidi confusables, oversize
+/// blobs, NUL bytes, or non-hex hashes into in-memory anchors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WordRangePayload {
+    pub start_word: u32,
+    pub end_word: u32,
+    pub line: u32,
+    pub snippet: String,
+    pub line_text_hash: String,
+}
+
+/// Hard cap on the on-wire `snippet` byte length (NOT char count). Bytes are
+/// the right unit because every multi-byte char would otherwise let an
+/// attacker store ~4× more text than the budget implies.
+pub const WORD_RANGE_SNIPPET_MAX_BYTES: usize = 4096;
+
+impl WordRangePayload {
+    /// Strip-on-ingest sanitisation + validation. Mutates `snippet` to remove
+    /// bidi/zero-width chars (lossy is acceptable per security pre-consult),
+    /// then asserts the hardening limits (snippet ≤ 4 KB, no NUL, hash matches
+    /// `^[0-9a-f]{64}$`). Run from [`wire`] at the wire→domain boundary.
+    pub fn sanitize(&mut self) -> Result<(), String> {
+        self.snippet = strip_bidi_zw(&self.snippet);
+        if self.snippet.len() > WORD_RANGE_SNIPPET_MAX_BYTES {
+            return Err(format!(
+                "word_range snippet exceeds {WORD_RANGE_SNIPPET_MAX_BYTES} byte cap ({} bytes)",
+                self.snippet.len()
+            ));
+        }
+        if self.snippet.contains('\0') {
+            return Err("word_range snippet contains NUL byte".to_string());
+        }
+        static HASH_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = HASH_RE.get_or_init(|| regex::Regex::new(r"^[0-9a-f]{64}$").unwrap());
+        if !re.is_match(&self.line_text_hash) {
+            return Err(format!(
+                "word_range line_text_hash must match ^[0-9a-f]{{64}}$ (got `{}`)",
+                self.line_text_hash
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Strip Unicode bidi-override and zero-width formatting chars: U+202A-202E
+/// (LRO/RLO/PDF/LRE/RLE), U+2066-2069 (LRI/RLI/FSI/PDI), U+200B-200D
+/// (ZWSP/ZWNJ/ZWJ), U+FEFF (BOM). These are the classic "Trojan Source"
+/// confusables that let attackers visually misrepresent stored text.
+fn strip_bidi_zw(s: &str) -> String {
+    s.chars()
+        .filter(|&c| {
+            !matches!(
+                c,
+                '\u{202A}'..='\u{202E}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{200B}'..='\u{200D}'
+                    | '\u{FEFF}'
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
