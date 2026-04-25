@@ -18,7 +18,7 @@ The markdown anchor handler classifies clicks into four cases: in-document `#anc
 
 A single Shiki highlighter instance is shared across viewers — see the Shiki singleton rule in [`docs/design-patterns.md`](../design-patterns.md). The table of contents, selection toolbar, and viewer toolbar are composable overlays, not viewer-specific code.
 
-`CsvTableView`, `JsonTreeView`, and `MermaidView` are commentable surfaces — see [`comments.md`](./comments.md) §"Structured-viewer entry points" for their per-viewer entry points and the typed anchors they produce.
+`CsvTableView`, `JsonTreeView`, `MermaidView`, and `ImageViewer` are commentable surfaces — see [`comments.md`](./comments.md) §"Structured-viewer entry points" for their per-viewer entry points and the typed anchors they produce.
 
 Markdown and HTML preview render inside a centred `.reading-width` column whose width is clamped to `--reading-width` (default 720 px, persisted in `uiSlice.readingWidth`, clamped to `[400, 1600]` by `setReadingWidth`). The viewer toolbar (Source / Visual / Wrap) is sticky-positioned at the top of its scroll container so it stays in view while the body scrolls. Two `ReadingWidthHandle` instances (left and right edges) let the user drag either side of the column outward to grow width symmetrically — a centred-column resize, not an asymmetric drag. The handle writes `--reading-width` to the container during pointermove (no React re-renders mid-drag) and only commits to the Zustand store on pointerup, so the resize stays at 60 fps regardless of body size.
 

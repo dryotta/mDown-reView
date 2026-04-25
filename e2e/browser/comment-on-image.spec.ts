@@ -122,7 +122,7 @@ test.describe("Iter 8 Group A — comment-on-image", () => {
 
     // Click roughly in the middle of the displayed image. The mocked PNG is
     // 400×400 natural, so clicking at the image's bbox centre yields
-    // x_pct ≈ 50, y_pct ≈ 50 regardless of the canvas size.
+    // x_pct ≈ 0.5, y_pct ≈ 0.5 regardless of the canvas size.
     const ib = await img.boundingBox();
     expect(ib).not.toBeNull();
     const cx = ib!.x + ib!.width * 0.5;
@@ -141,10 +141,11 @@ test.describe("Iter 8 Group A — comment-on-image", () => {
     const last = calls[calls.length - 1];
     expect(last.text).toBe("centre of the image");
     expect(last.anchor?.kind).toBe("image_rect");
-    expect(last.anchor?.x_pct).toBeGreaterThan(40);
-    expect(last.anchor?.x_pct).toBeLessThan(60);
-    expect(last.anchor?.y_pct).toBeGreaterThan(40);
-    expect(last.anchor?.y_pct).toBeLessThan(60);
+    // Coordinates are 0..1 fractions (matches Rust image_rect resolver contract).
+    expect(last.anchor?.x_pct).toBeGreaterThan(0.4);
+    expect(last.anchor?.x_pct).toBeLessThan(0.6);
+    expect(last.anchor?.y_pct).toBeGreaterThan(0.4);
+    expect(last.anchor?.y_pct).toBeLessThan(0.6);
     // Single-point pin — no rect dimensions.
     expect(last.anchor?.w_pct).toBeUndefined();
     expect(last.anchor?.h_pct).toBeUndefined();
@@ -171,9 +172,9 @@ test.describe("Iter 8 Group A — comment-on-image", () => {
     expect(mb).not.toBeNull();
     const markerCenterX = mb!.x + mb!.width / 2;
     const markerCenterY = mb!.y + mb!.height / 2;
-    const reloadedXPct = ((markerCenterX - ib2!.x) / ib2!.width) * 100;
-    const reloadedYPct = ((markerCenterY - ib2!.y) / ib2!.height) * 100;
-    expect(Math.abs(reloadedXPct - savedXPct)).toBeLessThan(1);
-    expect(Math.abs(reloadedYPct - savedYPct)).toBeLessThan(1);
+    const reloadedXPct = (markerCenterX - ib2!.x) / ib2!.width;
+    const reloadedYPct = (markerCenterY - ib2!.y) / ib2!.height;
+    expect(Math.abs(reloadedXPct - savedXPct)).toBeLessThan(0.01);
+    expect(Math.abs(reloadedYPct - savedYPct)).toBeLessThan(0.01);
   });
 });

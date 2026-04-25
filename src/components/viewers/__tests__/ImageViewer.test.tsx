@@ -181,7 +181,7 @@ describe("ImageViewer (iter 8 A) — image_rect comments", () => {
     const [filePath, text, anchor] = addCommentMock.mock.calls[0];
     expect(filePath).toBe("/photos/test.png");
     expect(text).toBe("look here");
-    expect(anchor).toEqual({ kind: "image_rect", x_pct: 25, y_pct: 50 });
+    expect(anchor).toEqual({ kind: "image_rect", x_pct: 0.25, y_pct: 0.5 });
     expect(anchor as Record<string, unknown>).not.toHaveProperty("w_pct");
     expect(anchor as Record<string, unknown>).not.toHaveProperty("h_pct");
   });
@@ -195,7 +195,7 @@ describe("ImageViewer (iter 8 A) — image_rect comments", () => {
     const canvas = container.querySelector(".image-viewer-canvas") as HTMLDivElement;
 
     // Drag from (40, 60) to (120, 160) inside the 200×200 image.
-    // Expected: x_pct=20, y_pct=30, w_pct=40, h_pct=50.
+    // Expected (0..1 fractions): x_pct=0.20, y_pct=0.30, w_pct=0.40, h_pct=0.50.
     fireEvent.pointerDown(canvas, { clientX: 40, clientY: 60, pointerId: 1, button: 0 });
     fireEvent.pointerMove(canvas, { clientX: 120, clientY: 160, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 120, clientY: 160, pointerId: 1, button: 0 });
@@ -207,10 +207,10 @@ describe("ImageViewer (iter 8 A) — image_rect comments", () => {
     await waitFor(() => expect(addCommentMock).toHaveBeenCalledTimes(1));
     const anchor = addCommentMock.mock.calls[0][2] as Record<string, number>;
     expect(anchor.kind).toBe("image_rect");
-    expect(anchor.x_pct).toBeCloseTo(20, 5);
-    expect(anchor.y_pct).toBeCloseTo(30, 5);
-    expect(anchor.w_pct).toBeCloseTo(40, 5);
-    expect(anchor.h_pct).toBeCloseTo(50, 5);
+    expect(anchor.x_pct).toBeCloseTo(0.2, 5);
+    expect(anchor.y_pct).toBeCloseTo(0.3, 5);
+    expect(anchor.w_pct).toBeCloseTo(0.4, 5);
+    expect(anchor.h_pct).toBeCloseTo(0.5, 5);
   });
 
   it("clicks an existing image_rect marker → setFocusedThread is called", async () => {
@@ -225,7 +225,7 @@ describe("ImageViewer (iter 8 A) — image_rect comments", () => {
             resolved: false,
             line: 0,
             anchor_kind: "image_rect",
-            image_rect: { x_pct: 25, y_pct: 50 },
+            image_rect: { x_pct: 0.25, y_pct: 0.5 },
           },
           replies: [],
         },
@@ -279,5 +279,25 @@ describe("ImageViewer (iter 8 A) — image_rect comments", () => {
     const textarea = await screen.findByRole("textbox");
     fireEvent.keyDown(textarea, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+  });
+
+  it("pointercancel mid-drag does NOT open the composer (canceled gesture)", async () => {
+    const { container } = render(<ImageViewer path="/photos/test.png" />);
+    const img = (await screen.findByRole("img")) as HTMLImageElement;
+    setupImageGeometry(container, img);
+
+    fireEvent.click(screen.getByRole("button", { name: /comment mode/i }));
+    const canvas = container.querySelector(".image-viewer-canvas") as HTMLDivElement;
+
+    fireEvent.pointerDown(canvas, { clientX: 40, clientY: 60, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 120, pointerId: 1 });
+    // Touch interrupt / capture loss / app switch — gesture is aborted.
+    fireEvent.pointerCancel(canvas, { clientX: 80, clientY: 120, pointerId: 1 });
+
+    // No composer popover, no addComment.
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(addCommentMock).not.toHaveBeenCalled();
+    // Drawing-feedback overlay must also clear.
+    expect(container.querySelector(".image-viewer-draw-preview")).toBeNull();
   });
 });
