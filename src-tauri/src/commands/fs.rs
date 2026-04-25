@@ -126,6 +126,26 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
+/// Lightweight `stat`: returns just the byte size of a file, with no content
+/// read. Used by viewers (BinaryPlaceholder, TooLargePlaceholder) that need
+/// to display a size without paying the I/O cost of `read_binary_file`. No
+/// 10 MB cap — over-cap files are exactly the case we want to surface.
+#[derive(serde::Serialize, Debug)]
+pub struct FileStat {
+    pub size_bytes: u64,
+}
+
+#[tauri::command]
+pub fn stat_file(path: String) -> Result<FileStat, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    Ok(FileStat {
+        size_bytes: meta.len(),
+    })
+}
+
 /// Update the set of directories whose direct children should produce
 /// `folder-changed` events (root + currently-expanded folders in the tree pane).
 ///

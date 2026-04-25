@@ -31,18 +31,21 @@ flowchart TD
     Router -- ".html" --> HV["HtmlPreviewView"]
     Router -- "image" --> IV["ImageViewer<br/>(via convertFileSrc)"]
     Router -- "other text<br/>(.ts, .rs, .py, …)" --> SV["SourceView<br/>(line anchors + folding + search)"]
-    Router -- "binary or > 10 MB" --> BP["BinaryPlaceholder"]
+    Router -- "binary" --> BP["BinaryPlaceholder<br/>(icon + size + hex toggle)"]
+    Router -- "> 10 MB" --> TLP["TooLargePlaceholder<br/>(open-in-default CTA)"]
 ```
+
+Binary files are routed by `read_text_file` returning the sentinel error `binary_file` (or `file_too_large`), at which point `useFileContent` issues a follow-up `stat_file` IPC to learn the byte size and surfaces it through the placeholder. `BinaryPlaceholder` shows a category-specific icon (archive / audio / video / pdf / font / executable / image / other), the inferred MIME hint, the formatted size, and four actions: open in default app, reveal in folder, copy path, and — for files under 1 MiB — toggle a hex preview. `HexView` reads the file via `read_binary_file`, decodes the base64 to a `Uint8Array`, and renders a 16-bytes-per-row offset/hex/ASCII dump; rendering is virtualised with a fixed 18-px row height once the buffer is ≥ 32 KiB so even the 1 MiB upper bound stays smooth. `TooLargePlaceholder` is the single-CTA variant for files above the 10 MB hard cap, since reading them into memory is intentionally not supported. The `reveal_in_folder` and `open_in_default_app` Rust commands enforce the workspace allowlist (rule 28 in [`docs/security.md`](../security.md)) before spawning any OS handler.
 
 ## Key source
 
 - **Router:** `src/components/viewers/ViewerRouter.tsx`
-- **Concrete viewers:** `src/components/viewers/{MarkdownViewer,SourceView,EnhancedViewer,MermaidView,JsonTreeView,CsvTableView,HtmlPreviewView,KqlPlanView,ImageViewer,BinaryPlaceholder,DeletedFileViewer}.tsx`
+- **Concrete viewers:** `src/components/viewers/{MarkdownViewer,SourceView,EnhancedViewer,MermaidView,JsonTreeView,CsvTableView,HtmlPreviewView,KqlPlanView,ImageViewer,BinaryPlaceholder,HexView,TooLargePlaceholder,DeletedFileViewer}.tsx`
 - **Markdown helpers:** `src/components/viewers/markdown/{sanitizeSchema,rehype-footnote-prefix,rehype-katex-style,RemoteImagePlaceholder,useImgResolver,CommentableBlocks}.tsx`
 - **Overlays:** `src/components/viewers/{TableOfContents,SearchBar,ViewerToolbar,FrontmatterBlock,SkeletonLoader,ReadingWidthHandle}.tsx`
 - **State:** `src/store/viewerPrefs.ts` (per-document remote-image allowance — session-only — and per-filetype zoom — persisted via the rule-15 allowlist)
 - **Hooks:** `src/hooks/{useFileContent,useSourceHighlighting,useFolding,useScrollToLine,useSearch,useZoom,useGlobalShortcuts}.ts`
-- **Rust backend:** `src-tauri/src/commands/fs.rs` (`read_text_file`, `read_binary_file`, `check_path_exists`), `src-tauri/src/commands/remote_asset.rs` (bounded HTTPS image proxy)
+- **Rust backend:** `src-tauri/src/commands/fs.rs` (`read_text_file`, `read_binary_file`, `stat_file`, `check_path_exists`), `src-tauri/src/commands/remote_asset.rs` (bounded HTTPS image proxy), `src-tauri/src/commands/system.rs` (`reveal_in_folder`, `open_in_default_app` — workspace-allowlisted)
 
 ## Related rules
 
@@ -50,4 +53,5 @@ flowchart TD
 - Render-cost and Shiki singleton — [`docs/design-patterns.md`](../design-patterns.md) + [`docs/performance.md`](../performance.md).
 - Markdown XSS posture (`rehype-raw` + `rehype-sanitize` pairing, Mermaid sandboxing) — rule 12 in [`docs/security.md`](../security.md).
 - Bounded remote-asset fetcher — rule 27 in [`docs/security.md`](../security.md).
+- Workspace allowlist for OS-handler IPC (`reveal_in_folder`, `open_in_default_app`) — rule 28 in [`docs/security.md`](../security.md).
 - UI-visible viewer changes require browser e2e in `e2e/browser/` — rule 7 in [`docs/test-strategy.md`](../test-strategy.md).

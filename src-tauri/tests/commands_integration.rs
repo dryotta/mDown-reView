@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
     drain_pending, push_pending, read_binary_file, read_dir,
-    read_text_file, CommentsChangedEvent, LaunchArgs, PendingArgsState,
+    read_text_file, stat_file, CommentsChangedEvent, LaunchArgs, PendingArgsState,
     MrsfComment, MrsfSidecar,
     search_in_document,
 };
@@ -523,4 +523,21 @@ fn mutate_sidecar_or_create_uses_filename_default_when_document_default_is_none(
     let loaded = load_sidecar(&file_path).unwrap().unwrap();
     assert_eq!(loaded.document, "notes.md");
     assert_eq!(loaded.comments.len(), 1);
+}
+
+//  stat_file 
+
+#[test]
+fn stat_file_returns_size_in_bytes() {
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    tmp.write_all(b"hello").unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    let result = stat_file(path).unwrap();
+    assert_eq!(result.size_bytes, 5);
+}
+
+#[test]
+fn stat_file_returns_err_for_missing_path() {
+    let result = stat_file("/nonexistent/path/xyz.bin".to_string());
+    assert!(result.is_err());
 }

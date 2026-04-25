@@ -1,32 +1,90 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+
+vi.mock("@tauri-apps/api/core");
+vi.mock("@/logger");
+
+vi.mock("../HexView", () => ({
+  HexView: ({ path }: { path: string }) => (
+    <div data-testid="hex-view-mock" data-path={path}>HEX</div>
+  ),
+}));
+
+import { invoke } from "@tauri-apps/api/core";
 import { BinaryPlaceholder } from "../BinaryPlaceholder";
 
-// ─── 12.2: BinaryPlaceholder ──────────────────────────────────────────────────
+const invokeMock = invoke as ReturnType<typeof vi.fn>;
 
-describe("12.2 – BinaryPlaceholder", () => {
-  it("renders 'cannot be displayed' message", () => {
-    render(<BinaryPlaceholder path="/docs/image.png" />);
-    expect(screen.getByText(/cannot be displayed/i)).toBeInTheDocument();
+const writeText = vi.fn().mockResolvedValue(undefined);
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText }));
+
+beforeEach(() => {
+  invokeMock.mockClear();
+  invokeMock.mockResolvedValue(undefined);
+  writeText.mockClear();
+});
+
+describe("BinaryPlaceholder — Section E", () => {
+  it("renders all four action buttons", () => {
+    render(<BinaryPlaceholder path="/ws/sample.bin" size={512} />);
+    expect(screen.getByRole("button", { name: /open in default app/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reveal in folder/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /copy path/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show as hex/i })).toBeInTheDocument();
   });
 
-  it("renders the file name", () => {
-    render(<BinaryPlaceholder path="/docs/image.png" />);
-    expect(screen.getByText("image.png")).toBeInTheDocument();
+  it("renders the file name, MIME hint and human-readable size", () => {
+    render(<BinaryPlaceholder path="/ws/song.mp3" size={2 * 1024 * 1024} />);
+    expect(screen.getByText("song.mp3")).toBeInTheDocument();
+    expect(screen.getByText("audio/mpeg")).toBeInTheDocument();
+    expect(screen.getByText(/2\.0+ MB/)).toBeInTheDocument();
   });
 
-  it("renders file name from nested path", () => {
-    render(<BinaryPlaceholder path="/some/deep/path/photo.jpg" />);
-    expect(screen.getByText("photo.jpg")).toBeInTheDocument();
+  it("picks an icon by category", () => {
+    render(<BinaryPlaceholder path="/ws/archive.zip" size={100} />);
+    expect(screen.getByTestId("binary-icon-archive")).toBeInTheDocument();
   });
 
-  it("renders size when provided", () => {
-    render(<BinaryPlaceholder path="/docs/video.mp4" size={2048} />);
-    expect(screen.getByText(/2\.0 KB/)).toBeInTheDocument();
+  it("disables 'Show as hex' when size ≥ 1 MB", () => {
+    render(<BinaryPlaceholder path="/ws/big.bin" size={1024 * 1024} />);
+    expect(screen.getByRole("button", { name: /show as hex/i })).toBeDisabled();
   });
 
-  it("does not render size when omitted", () => {
-    render(<BinaryPlaceholder path="/docs/image.png" />);
-    expect(document.querySelector(".binary-size")).not.toBeInTheDocument();
+  it("disables 'Show as hex' when size is unknown", () => {
+    render(<BinaryPlaceholder path="/ws/unknown.bin" />);
+    expect(screen.getByRole("button", { name: /show as hex/i })).toBeDisabled();
+  });
+
+  it("enables 'Show as hex' when size < 1 MB", () => {
+    render(<BinaryPlaceholder path="/ws/tiny.bin" size={1024} />);
+    expect(screen.getByRole("button", { name: /show as hex/i })).toBeEnabled();
+  });
+
+  it("clicking 'Open in default app' invokes open_in_default_app", () => {
+    render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
+    fireEvent.click(screen.getByRole("button", { name: /open in default app/i }));
+    expect(invokeMock).toHaveBeenCalledWith("open_in_default_app", { path: "/ws/sample.bin" });
+  });
+
+  it("clicking 'Reveal in folder' invokes reveal_in_folder", () => {
+    render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
+    fireEvent.click(screen.getByRole("button", { name: /reveal in folder/i }));
+    expect(invokeMock).toHaveBeenCalledWith("reveal_in_folder", { path: "/ws/sample.bin" });
+  });
+
+  it("clicking 'Copy path' delegates to the clipboard plugin", async () => {
+    const { findByRole } = render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
+    fireEvent.click(await findByRole("button", { name: /copy path/i }));
+    // Two microtasks: dynamic import resolution + writeText invocation.
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("/ws/sample.bin");
+    });
+  });
+
+  it("clicking 'Show as hex' switches to HexView", () => {
+    render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
+    fireEvent.click(screen.getByRole("button", { name: /show as hex/i }));
+    expect(screen.getByTestId("hex-view-mock")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open in default app/i })).not.toBeInTheDocument();
   });
 });

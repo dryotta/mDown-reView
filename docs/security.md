@@ -54,6 +54,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 
 ### Remote asset fetching
 27. `fetch_remote_asset` enforces five bounds before returning bytes to the renderer: (a) URL must parse and use scheme `https` (`http`, `file`, `javascript`, `data` rejected); (b) connect + read timeouts are 10 s each via a single shared `reqwest::Client`; (c) body is streamed and aborted on overflow at an 8 MB cap; (d) `Content-Type` (sans parameters) must match the image allowlist `image/{png,jpeg,gif,webp,svg+xml,avif}`; (e) HTTP status must equal 200. Bytes are handed to the frontend and converted to a `blob:` URL — the CSP `img-src`/`connect-src` directives are never widened to permit remote origins. (`commands/remote_asset.rs`.)
+28. `reveal_in_folder` and `open_in_default_app` only accept paths that pass the workspace allowlist before any OS handler is spawned: the input is canonicalised and matched against `WatcherState.watched_paths` (open-tab files) or any `tree_watched_dirs` ancestor — anything outside (including `..` traversals or symlinks pointing out of the workspace) is rejected with `SystemError::PathOutsideWorkspace`. Per-platform spawns use fixed argv (Windows `explorer /select,<path>`; macOS `open -R <path>` / `open <path>`; Linux `xdg-open <path>`) — no shell is invoked and no user-controlled flag string is concatenated. (`commands/system.rs`.)
 
 ### Cross-doc references
 - IPC chokepoint: rule 1 in [`docs/architecture.md`](architecture.md).
