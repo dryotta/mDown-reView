@@ -26,7 +26,10 @@ function TabItem({
       ref={tabRef}
       className={`tab${isActive ? " active" : ""}`}
       title={path}
-      onClick={() => setActiveTab(path)}
+      onClick={() => {
+        // History recording (B2) is centralized in `tabs.setActiveTab`.
+        setActiveTab(path);
+      }}
       role="tab"
       aria-selected={isActive}
     >

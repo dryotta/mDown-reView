@@ -4,15 +4,20 @@ import { useFileContent } from "@/hooks/useFileContent";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewer } from "./ImageViewer";
+import { AudioViewer, getAudioMime } from "./AudioViewer";
+import { VideoViewer, getVideoMime } from "./VideoViewer";
+import { PdfViewer } from "./PdfViewer";
 import { BinaryPlaceholder } from "./BinaryPlaceholder";
+import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
+import { FileActionsBar } from "./FileActionsBar";
 
 interface Props {
   path: string;
 }
 
 export function ViewerRouter({ path }: Props) {
-  const { status, content, error } = useFileContent(path);
+  const { status, content, error, sizeBytes } = useFileContent(path);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const setScrollTop = useStore((s) => s.setScrollTop);
@@ -92,42 +97,90 @@ export function ViewerRouter({ path }: Props) {
 
   if (status === "loading") {
     return (
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
+      <div ref={scrollRef} className="viewer-scroll-region">
         <SkeletonLoader />
       </div>
     );
   }
 
+  // R1+R2+R3 — every routed viewer is keyed on `path`. A path change forces
+  // unmount+remount, which: (a) drops PdfViewer's stale `loadError`, (b) stops
+  // audio/video playback that would otherwise continue after a tab switch,
+  // (c) resets HexView byte state without an explicit `setBytes(null)` effect.
   if (status === "image") {
     return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <ImageViewer path={path} />
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} />
+        </div>
+        <ImageViewer key={path} path={path} />
       </div>
     );
   }
 
-  if (status === "binary" || status === "too_large") {
+  if (status === "audio") {
     return (
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
-        <BinaryPlaceholder path={path} />
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} mime={getAudioMime(path)} />
+        </div>
+        <AudioViewer key={path} path={path} />
+      </div>
+    );
+  }
+
+  if (status === "video") {
+    return (
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} mime={getVideoMime(path)} />
+        </div>
+        <VideoViewer key={path} path={path} />
+      </div>
+    );
+  }
+
+  if (status === "pdf") {
+    return (
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} />
+        </div>
+        <PdfViewer key={path} path={path} />
+      </div>
+    );
+  }
+
+  if (status === "too_large") {
+    return (
+      <div className="viewer-scroll-region">
+        <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
+      </div>
+    );
+  }
+
+  if (status === "binary") {
+    return (
+      <div className="viewer-media-container">
+        <BinaryPlaceholder key={path} path={path} size={sizeBytes} />
       </div>
     );
   }
 
   if (status === "error") {
     if (isGhost) {
-      return <DeletedFileViewer filePath={path} />;
+      return <DeletedFileViewer key={path} filePath={path} />;
     }
     return (
-      <div style={{ padding: 20, color: "var(--color-badge)" }}>
+      <div className="viewer-error">
         Error loading file: {error}
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }} onScroll={handleScroll}>
-      <EnhancedViewer content={content!} path={path} filePath={path} fileSize={fileSize} />
+    <div ref={scrollRef} className="viewer-scroll-region" onScroll={handleScroll}>
+      <EnhancedViewer key={path} content={content!} path={path} filePath={path} fileSize={fileSize} />
     </div>
   );
 }

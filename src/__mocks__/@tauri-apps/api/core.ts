@@ -25,6 +25,7 @@ type InvokeResult =
   | KqlPipelineStep[]
   | Record<string, number>
   | TextFileResult
+  | ArrayBuffer
   | "file"
   | "dir"
   | "missing"
@@ -50,6 +51,17 @@ export const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Pro
   async (cmd) => {
     if (cmd === "get_launch_args") {
       return launchArgsQueue.length > 0 ? launchArgsQueue.shift()! : EMPTY_LAUNCH_ARGS;
+    }
+    if (cmd === "fetch_remote_asset") {
+      // Default: empty 1×1 png-like blob in the prefix-encoded shape
+      // (`[u32 BE: ct_len][ct_bytes][payload]`). Tests that care about
+      // payload override this via mockResolvedValueOnce / mockImplementation.
+      const ct = new TextEncoder().encode("image/png");
+      const buf = new ArrayBuffer(4 + ct.byteLength);
+      const view = new DataView(buf);
+      view.setUint32(0, ct.byteLength, false);
+      new Uint8Array(buf, 4).set(ct);
+      return buf;
     }
     return undefined;
   },

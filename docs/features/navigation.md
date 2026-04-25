@@ -12,14 +12,16 @@ Clicking a file opens it in a tab — or reuses an existing tab if the file is a
 
 Search is incremental and debounced. The query runs through `useSearch`, which coordinates a Rust scan for file-name matches with an in-memory filter for file-content hits. Results drive a filtered view of the tree without mutating the tree's source of truth.
 
+Tab back/forward (Alt+Left, Alt+Right — #65 C1) is a session-only history stack centralized in `tabHistorySlice` (`src/store/tabHistory.ts`). The chokepoint is in `tabsSlice`: every `openFile()` and `setActiveTab()` call automatically calls `pushHistory(prevPath)` so all tab-switching paths (sidebar click, tab click, in-doc link click) record history without per-call wiring. Back/forward themselves opt out of that auto-push by passing `{ recordHistory: false }` so they don't scribble into the forward stack. The history is intentionally NOT persisted (rule 15 in [`docs/architecture.md`](../architecture.md)). The global keyboard handler (`useGlobalShortcuts`) gates every shortcut behind an `isEditableTarget` guard so Alt+Arrow does not steal focus from inputs, contentEditable regions, or text areas.
+
 The folder tree updates live: `useTreeWatcher` registers the root and currently-expanded folders with the Rust watcher, and `useFolderChildren` listens for `folder-changed` events to refresh cached `read_dir` entries — so files created or deleted on disk appear in the tree without the user pressing F5. The tab bar additionally surfaces an "Other files" section that lists open tabs whose paths fall outside the current workspace root, so files opened via the OS shell or CLI remain reachable while a different workspace is open.
 
 ## Key source
 
 - **Tree:** `src/components/FolderTree/FolderTree.tsx`
 - **Tabs:** `src/components/TabBar/TabBar.tsx`
-- **Hooks:** `src/hooks/useSearch.ts`, `src/hooks/useTreeWatcher.ts`, `src/hooks/useFolderChildren.ts`
-- **Store slices:** `src/store/index.ts` — `workspaceSlice`, `uiSlice`; `src/store/tabs.ts` — `tabsSlice` + `MAX_TABS`
+- **Store slices:** `src/store/index.ts` — `workspaceSlice`, `uiSlice`; `src/store/tabs.ts` — `tabsSlice` + `MAX_TABS`; `src/store/tabHistory.ts` — `tabHistorySlice` (back/forward, session-only)
+- **Hooks:** `src/hooks/useSearch.ts`, `src/hooks/useTreeWatcher.ts`, `src/hooks/useFolderChildren.ts`, `src/hooks/useGlobalShortcuts.ts`
 - **Rust commands:** `src-tauri/src/commands/fs.rs` — `read_dir`, `update_tree_watched_dirs`; `src-tauri/src/commands/launch.rs` — `scan_review_files`; `src-tauri/src/watcher.rs` — `update_watched_files`
 
 ## Related rules

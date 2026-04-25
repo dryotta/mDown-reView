@@ -193,6 +193,9 @@ pub fn run() {
                 commands::fs::read_dir,
                 commands::fs::read_text_file,
                 commands::fs::read_binary_file,
+                commands::fs::stat_file,
+                commands::system::reveal_in_folder,
+                commands::system::open_in_default_app,
                 commands::html::resolve_html_assets,
                 commands::launch::get_launch_args,
                 commands::launch::get_log_path,
@@ -223,6 +226,7 @@ pub fn run() {
                 commands::folder_context::unregister_folder_context,
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,
+                commands::remote_asset::fetch_remote_asset,
                 update::check_update,
                 update::install_update,
                 $($extra),*

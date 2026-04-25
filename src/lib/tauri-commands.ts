@@ -1,5 +1,7 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { warn } from "@/logger";
+import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 
 // ── Asset URL chokepoint ───────────────────────────────────────────────────
 // All conversion of absolute filesystem paths to webview-loadable asset URLs
@@ -58,6 +60,29 @@ export const readTextFile = (path: string): Promise<TextFileResult> =>
 
 export const readBinaryFile = (path: string): Promise<string> =>
   invoke<string>("read_binary_file", { path });
+
+export interface FileStat {
+  size_bytes: number;
+}
+
+export const statFile = (path: string): Promise<FileStat> =>
+  invoke<FileStat>("stat_file", { path });
+
+// ── System integration: reveal in folder / open in default app ────────────
+// Both commands are workspace-allowlisted in Rust (`commands/system.rs`):
+// the path must be in an open tab or inside an open workspace folder.
+// On rejection the IPC throws a `SystemError` discriminated by `kind`.
+
+export type SystemError =
+  | { kind: "PathOutsideWorkspace" }
+  | { kind: "IoError"; message: string }
+  | { kind: "Unsupported" };
+
+export const revealInFolder = (path: string): Promise<void> =>
+  invoke<void>("reveal_in_folder", { path });
+
+export const openInDefaultApp = (path: string): Promise<void> =>
+  invoke<void>("open_in_default_app", { path });
 
 export const resolveHtmlAssets = (html: string, htmlDir: string): Promise<string> =>
   invoke<string>("resolve_html_assets", { html, htmlDir });
@@ -200,6 +225,37 @@ export const parseKql = (query: string): Promise<KqlPipelineStep[]> =>
 export const stripJsonComments = (text: string): Promise<string> =>
   invoke<string>("strip_json_comments", { text });
 
+// ── Remote asset fetcher (bounded HTTPS image proxy) ─────────────────────
+// Renderer hands a remote URL to Rust; Rust returns a single binary blob
+// (`tauri::ipc::Response`) so the payload bytes do NOT bloat through JSON
+// number-array encoding (~3-4× per byte). Wire format:
+//   [u32 BE: ct_len][ct_bytes (UTF-8 mime)][payload bytes]
+// Frontend converts payload → blob URL so the CSP `img-src` stays locked.
+// Bounds enforced in Rust (`commands/remote_asset.rs`): https-only, 8 MB
+// cap, 10 s timeout, image/* content-type allowlist, status 200, redirects
+// capped at 5 hops + https-only-per-hop, semaphore-capped concurrency.
+
+export interface RemoteAssetResponse {
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export async function fetchRemoteAsset(url: string): Promise<RemoteAssetResponse> {
+  const ab = await invoke<ArrayBuffer>("fetch_remote_asset", { url });
+  // Defensive parse — a malformed (e.g. < 4 byte) blob would otherwise throw
+  // an opaque DataView range error.
+  if (ab.byteLength < 4) throw new Error("fetch_remote_asset: response too short");
+  const view = new DataView(ab);
+  const ctLen = view.getUint32(0, false); // big-endian
+  if (4 + ctLen > ab.byteLength) {
+    throw new Error("fetch_remote_asset: content-type length out of range");
+  }
+  const ctBytes = new Uint8Array(ab, 4, ctLen);
+  const contentType = new TextDecoder().decode(ctBytes);
+  const bytes = new Uint8Array(ab, 4 + ctLen);
+  return { bytes, contentType };
+}
+
 // ── Update channel commands ───────────────────────────────────────────────
 
 export interface UpdateInfo {
@@ -236,8 +292,14 @@ export const copyToClipboard = (text: string): Promise<void> => {
   return import("@tauri-apps/plugin-clipboard-manager").then((m) => m.writeText(text));
 };
 
+// Defense-in-depth: enforce a scheme allowlist before delegating to the OS
+// opener. Acceptable: http(s), mailto, tel. Everything else (and notably
+// javascript:/file:/data:/vbscript:) is rejected with a logged warning.
+// Scheme regexes are shared with viewer link handlers via `@/lib/url-policy`.
+
 export const openExternalUrl = (url: string): Promise<void> => {
-  if (!/^https?:\/\//i.test(url)) {
+  if (BLOCKED_LINK_SCHEME.test(url) || !EXTERNAL_LINK_SCHEME.test(url)) {
+    warn(`openExternalUrl: blocked URL scheme: ${url}`);
     return Promise.reject(new Error(`Blocked URL scheme: ${url}`));
   }
   return import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url));

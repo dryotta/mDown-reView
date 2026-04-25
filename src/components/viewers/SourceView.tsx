@@ -12,6 +12,7 @@ import { useSourceLineModel, type SearchMatchInLine } from "@/hooks/useSourceLin
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
+import { useZoom } from "@/hooks/useZoom";
 import "@/styles/source-viewer.css";
 
 interface Props {
@@ -26,6 +27,9 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Source view uses its own filetype key so source-mode zoom is independent
+  // of visual-mode zoom for the same document (#65 D1/D2/D3).
+  const { zoom } = useZoom(".source");
   const { query, setQuery, matches, currentIndex, next, prev } = useSearch(content);
   const sourceLinesRef = useRef<HTMLDivElement>(null);
 
@@ -130,7 +134,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
   return (
-    <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} style={{ position: "relative" }}>
+    <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", fontSize: `${zoom * 100}%` }}>
       {searchOpen && (
         <SearchBar
           query={query}

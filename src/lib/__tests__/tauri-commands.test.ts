@@ -64,6 +64,16 @@ describe("openExternalUrl", () => {
     expect(openUrl).toHaveBeenCalledWith("http://example.com");
   });
 
+  it("forwards mailto: URLs to plugin openUrl", async () => {
+    await openExternalUrl("mailto:user@example.com");
+    expect(openUrl).toHaveBeenCalledWith("mailto:user@example.com");
+  });
+
+  it("forwards tel: URLs to plugin openUrl", async () => {
+    await openExternalUrl("tel:+15555550123");
+    expect(openUrl).toHaveBeenCalledWith("tel:+15555550123");
+  });
+
   it("rejects file:// URLs without calling plugin", async () => {
     await expect(openExternalUrl("file:///etc/passwd")).rejects.toThrow(/Blocked/);
     expect(openUrl).not.toHaveBeenCalled();
@@ -71,6 +81,16 @@ describe("openExternalUrl", () => {
 
   it("rejects javascript: URLs without calling plugin", async () => {
     await expect(openExternalUrl("javascript:alert(1)")).rejects.toThrow(/Blocked/);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects data: URLs without calling plugin", async () => {
+    await expect(openExternalUrl("data:text/html,<script>alert(1)</script>")).rejects.toThrow(/Blocked/);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects vbscript: URLs without calling plugin", async () => {
+    await expect(openExternalUrl("vbscript:msgbox(1)")).rejects.toThrow(/Blocked/);
     expect(openUrl).not.toHaveBeenCalled();
   });
 
@@ -320,6 +340,49 @@ describe("onboarding & platform-integration wrappers", () => {
     const { unregisterFolderContext } = await import("../tauri-commands");
     await unregisterFolderContext();
     expect(m).toHaveBeenCalledWith("unregister_folder_context");
+  });
+});
+
+describe("system integration wrappers (Section E)", () => {
+  async function getInvoke() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    return m;
+  }
+
+  it("revealInFolder forwards path to reveal_in_folder", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { revealInFolder } = await import("../tauri-commands");
+    await revealInFolder("/ws/sample.bin");
+    expect(m).toHaveBeenCalledWith("reveal_in_folder", { path: "/ws/sample.bin" });
+  });
+
+  it("openInDefaultApp forwards path to open_in_default_app", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce(undefined);
+    const { openInDefaultApp } = await import("../tauri-commands");
+    await openInDefaultApp("/ws/sample.bin");
+    expect(m).toHaveBeenCalledWith("open_in_default_app", { path: "/ws/sample.bin" });
+  });
+
+  it("statFile forwards path to stat_file and returns the FileStat", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce({ size_bytes: 4242 });
+    const { statFile } = await import("../tauri-commands");
+    const result = await statFile("/ws/foo.bin");
+    expect(m).toHaveBeenCalledWith("stat_file", { path: "/ws/foo.bin" });
+    expect(result).toEqual({ size_bytes: 4242 });
+  });
+
+  it("revealInFolder propagates rejection (typed SystemError)", async () => {
+    const m = await getInvoke();
+    m.mockRejectedValueOnce({ kind: "PathOutsideWorkspace" });
+    const { revealInFolder } = await import("../tauri-commands");
+    await expect(revealInFolder("/etc/shadow")).rejects.toMatchObject({
+      kind: "PathOutsideWorkspace",
+    });
   });
 });
 

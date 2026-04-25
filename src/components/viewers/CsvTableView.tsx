@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import Papa from "papaparse";
 import { extname } from "@/lib/path-utils";
+import { useZoom } from "@/hooks/useZoom";
 import "@/styles/csv-table.css";
 
 interface CsvTableViewProps {
@@ -13,6 +14,7 @@ type SortDirection = "asc" | "desc" | null;
 export function CsvTableView({ content, path }: CsvTableViewProps) {
   const [sortColumn, setSortColumn] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const { zoom } = useZoom(".csv");
 
   const { headers, rows } = useMemo(() => {
     if (!content.trim()) {
@@ -85,7 +87,7 @@ export function CsvTableView({ content, path }: CsvTableViewProps) {
   }
 
   return (
-    <div className="csv-table-container">
+    <div className="csv-table-container" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
       <table className="csv-table">
         <thead>
           <tr>

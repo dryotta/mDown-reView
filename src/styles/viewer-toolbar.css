@@ -41,3 +41,157 @@
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
+
+.viewer-toolbar-zoom {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+/* When wrap toggle is also present, the wrap button claims margin-left: auto;
+   the zoom group then sits flush after it. */
+.viewer-toolbar-wrap ~ .viewer-toolbar-zoom {
+  margin-left: 4px;
+}
+
+.viewer-toolbar-zoom-btn {
+  min-width: 22px;
+  padding: 2px 6px;
+}
+
+.viewer-toolbar-zoom-value {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* G4 / L1 — reveal/open file actions, pinned to the right edge of the
+   toolbar. When no other right-aligned group (wrap, zoom) precedes it,
+   claims the margin-left:auto itself; otherwise sits flush after them.
+   Used both inside the `.viewer-toolbar` row and as the standalone
+   `FileActionsBar` above headerless media viewers (audio, video, pdf). */
+.file-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+
+.file-actions-bar__mime {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-right: 4px;
+}
+
+/* When rendered as the only row above a viewer (audio/video/pdf), pad +
+   border match the toolbar. */
+.viewer-actions-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  flex-shrink: 0;
+}
+
+.viewer-actions-row .file-actions-bar {
+  padding: 0;
+}
+
+/* Container shared by media viewers (audio/video/pdf). */
+.viewer-media-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.viewer-media-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.viewer-media-body--centered {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+}
+
+.viewer-media-body audio {
+  width: 100%;
+  max-width: 640px;
+}
+
+.viewer-media-body video {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.pdf-viewer {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.pdf-viewer-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  color: var(--color-muted);
+  gap: 8px;
+}
+
+.pdf-viewer-error__title {
+  font-weight: 600;
+}
+
+.pdf-viewer-error__filename {
+  font-size: 13px;
+}
+
+.viewer-toolbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+}
+
+.viewer-toolbar-icon-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* L1 — `EnhancedViewer` flex column. The toolbar (with FileActionsBar in
+   its `trailing` slot) is the single sticky element inside it. */
+.enhanced-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* L5 — shared scroll/error containers used by `ViewerRouter`. */
+.viewer-scroll-region {
+  flex: 1;
+  overflow: auto;
+}
+
+.viewer-error {
+  padding: 20px;
+  color: var(--color-badge);
+}

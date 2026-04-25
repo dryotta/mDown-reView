@@ -23,6 +23,8 @@ import {
   type Tab,
   type FileMeta,
 } from "./tabs";
+import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
+import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
 
 export type { OnboardingState, Tab, TabsSlice, FileMeta };
 export { MAX_TABS, filterStaleTabs };
@@ -148,7 +150,7 @@ interface OnboardingSlice {
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice;
+export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice & TabHistorySlice;
 
 
 export const useStore = create<Store>()(
@@ -168,6 +170,17 @@ export const useStore = create<Store>()(
 
       // Tabs (delegated to ./tabs.ts)
       ...createTabsSlice(set, get),
+
+      // ViewerPrefs (delegated to ./viewerPrefs.ts).
+      // - `allowedRemoteImageDocs` is intentionally NOT in `partialize` below:
+      //   trust decisions must not silently survive an app restart.
+      // - `zoomByFiletype` IS persisted (small bounded map, one entry per
+      //   filetype key) — see partialize.
+      ...createViewerPrefsSlice(set, get),
+
+      // TabHistory (delegated to ./tabHistory.ts) — per-window back/forward.
+      // Intentionally NOT added to `partialize` below (session-only).
+      ...createTabHistorySlice(set, get),
 
       // UI
       theme: "system",
@@ -286,6 +299,7 @@ export const useStore = create<Store>()(
         tabs: state.tabs,
         activeTabPath: state.activeTabPath,
         updateChannel: state.updateChannel,
+        zoomByFiletype: state.zoomByFiletype,
       }),
       onRehydrateStorage: () => () => {
         queueMicrotask(() => {

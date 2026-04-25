@@ -26,6 +26,34 @@ impl WatcherState {
         }
     }
 
+    /// Defense-in-depth allowlist for system-level commands (open / reveal):
+    /// a path is considered "known to the user" if it is either currently
+    /// open in a tab (`watched_paths`) or sits inside an open workspace folder
+    /// (`tree_watched_dirs`). Both lookups operate on canonical forms so a
+    /// symlink trick cannot escape the workspace boundary.
+    ///
+    /// Returns `false` for paths that fail to canonicalize (deleted files,
+    /// permission errors) — callers should fail closed.
+    pub fn is_path_allowed(&self, path: &Path) -> bool {
+        let canonical = match std::fs::canonicalize(path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        if let Ok(watched) = self.watched_paths.lock() {
+            if watched.contains(&canonical) {
+                return true;
+            }
+        }
+        if let Ok(dirs) = self.tree_watched_dirs.lock() {
+            for dir in dirs.iter() {
+                if canonical.starts_with(dir) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Replace the set of tree-watched dirs after validating each entry.
     /// Inputs are canonicalized internally — frontend may pass any absolute
     /// form (Windows `C:\...` or Unix `/...`); we normalize to the OS canonical

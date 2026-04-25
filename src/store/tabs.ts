@@ -49,10 +49,10 @@ export interface TabsSlice {
   lastCommentsReloadedAt: Record<string, number>;
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
-  openFile: (path: string) => void;
+  openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
-  setActiveTab: (path: string) => void;
+  setActiveTab: (path: string, opts?: { recordHistory?: boolean }) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
   setViewMode: (path: string, mode: "source" | "visual") => void;
   setLastFileReloadedAt: (path: string, ts: number) => void;
@@ -107,7 +107,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     lastCommentsReloadedAt: {},
     fileMetaByPath: {},
 
-    openFile: (path) => {
+    openFile: (path, opts) => {
+      const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
       const existing = get().tabs.find((t) => t.path === path);
       if (existing) {
@@ -115,6 +116,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           activeTabPath: path,
           tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
         }));
+        if (recordHistory) get().pushHistory(path);
         return;
       }
       // Evict LRU non-active tab if at capacity.
@@ -146,6 +148,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
         activeTabPath: path,
       });
+      if (recordHistory) get().pushHistory(path);
     },
 
     closeTab: (path) => {
@@ -184,12 +187,14 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         lastCommentsReloadedAt: {},
       }),
 
-    setActiveTab: (path) => {
+    setActiveTab: (path, opts) => {
+      const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
       set((s) => ({
         activeTabPath: path,
         tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
       }));
+      if (recordHistory) get().pushHistory(path);
     },
 
     setScrollTop: (path, scrollTop) => {

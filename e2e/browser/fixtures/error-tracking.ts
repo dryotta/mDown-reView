@@ -34,6 +34,13 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
         launchArgsQueue.push(...values);
       };
       (window as Record<string, unknown>).__TAURI_INTERNALS__ = {
+        convertFileSrc(filePath: string, protocol: string = "asset"): string {
+          // Mirrors the @tauri-apps/api implementation but doesn't depend on
+          // the OS detection used in production builds. Audio/Video viewers
+          // call this synchronously during render so it MUST exist on the
+          // mock or the component throws.
+          return `https://${protocol}.localhost/${encodeURIComponent(filePath)}`;
+        },
         transformCallback(callback: (...args: unknown[]) => void, once: boolean): number {
           const id = nextId++;
           callbacks[id] = { callback, once };
