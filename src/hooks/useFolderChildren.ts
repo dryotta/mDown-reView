@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
 import { listenEvent } from "@/lib/tauri-events";
+import { warn } from "@/logger";
 
 export type { DirEntry };
 
@@ -51,7 +52,9 @@ export function useFolderChildren(root: string | null) {
             return next;
           })
         )
-        .catch(() => {});
+        .catch((err) =>
+          warn(`[useFolderChildren] folder-changed refresh failed: ${err}`)
+        );
     });
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});

@@ -27,7 +27,9 @@ impl WatcherState {
     }
 
     /// Replace the set of tree-watched dirs after validating each entry.
-    /// Caller must send already-canonical absolute paths inside `root`.
+    /// Inputs are canonicalized internally — frontend may pass any absolute
+    /// form (Windows `C:\...` or Unix `/...`); we normalize to the OS canonical
+    /// form (e.g. `\\?\C:\...` on Windows) before storing.
     pub fn set_tree_watched_dirs(&self, root: String, dirs: Vec<String>) -> Result<(), String> {
         if dirs.len() > MAX_TREE_WATCHED_DIRS {
             return Err(format!(
@@ -38,9 +40,6 @@ impl WatcherState {
         }
         let canonical_root =
             std::fs::canonicalize(&root).map_err(|e| format!("invalid root {}: {}", root, e))?;
-        if canonical_root != PathBuf::from(&root) {
-            return Err(format!("root must be canonical: {}", root));
-        }
         if !canonical_root.is_dir() {
             return Err(format!("root is not a directory: {}", root));
         }
@@ -49,9 +48,6 @@ impl WatcherState {
         for d in &dirs {
             let canonical =
                 std::fs::canonicalize(d).map_err(|e| format!("invalid dir {}: {}", d, e))?;
-            if canonical != PathBuf::from(d) {
-                return Err(format!("dir must be canonical: {}", d));
-            }
             if !canonical.is_dir() {
                 return Err(format!("not a directory: {}", d));
             }
@@ -318,128 +314,5 @@ pub(crate) fn classify_event(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::mpsc::sync_channel;
-
-    fn make_state() -> WatcherState {
-        let (tx, _rx) = sync_channel(1);
-        WatcherState::new(tx)
-    }
-
-    #[test]
-    fn update_tree_watched_dirs_canonicalizes_and_rejects_outside_root() {
-        let root_dir = tempfile::tempdir().unwrap();
-        let outside_dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root_dir.path()).unwrap();
-        let outside = std::fs::canonicalize(outside_dir.path()).unwrap();
-        let state = make_state();
-
-        let err = state
-            .set_tree_watched_dirs(
-                root.to_string_lossy().into_owned(),
-                vec![outside.to_string_lossy().into_owned()],
-            )
-            .unwrap_err();
-        assert!(err.contains("outside root"), "unexpected error: {}", err);
-
-        // Sanity: a dir inside root is accepted.
-        let inside = root.join("sub");
-        std::fs::create_dir(&inside).unwrap();
-        let inside_canonical = std::fs::canonicalize(&inside).unwrap();
-        state
-            .set_tree_watched_dirs(
-                root.to_string_lossy().into_owned(),
-                vec![inside_canonical.to_string_lossy().into_owned()],
-            )
-            .expect("inside-root dir should be accepted");
-    }
-
-    #[test]
-    fn update_tree_watched_dirs_rejects_over_cap() {
-        let root_dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root_dir.path()).unwrap();
-        let dirs: Vec<String> = (0..MAX_TREE_WATCHED_DIRS + 1)
-            .map(|i| {
-                root.join(format!("d{}", i))
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-        let state = make_state();
-
-        let err = state
-            .set_tree_watched_dirs(root.to_string_lossy().into_owned(), dirs)
-            .unwrap_err();
-        assert!(err.contains("too many"), "unexpected error: {}", err);
-    }
-
-    #[test]
-    fn update_tree_watched_dirs_rejects_non_directory() {
-        let root_dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root_dir.path()).unwrap();
-        let file_path = root.join("file.txt");
-        std::fs::write(&file_path, "hi").unwrap();
-        let file_canonical = std::fs::canonicalize(&file_path).unwrap();
-        let state = make_state();
-
-        let err = state
-            .set_tree_watched_dirs(
-                root.to_string_lossy().into_owned(),
-                vec![file_canonical.to_string_lossy().into_owned()],
-            )
-            .unwrap_err();
-        assert!(
-            err.contains("not a directory"),
-            "unexpected error: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn folder_changed_emitted_for_writes_in_watched_dir() {
-        let root_dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root_dir.path()).unwrap();
-        let mut tree_dirs = HashSet::new();
-        tree_dirs.insert(root.clone());
-        let watched_paths = HashSet::new();
-
-        // Simulate a notify event for a new file inside the watched dir.
-        let new_file = root.join("new.md");
-        std::fs::write(&new_file, "x").unwrap();
-        let new_file_canonical = std::fs::canonicalize(&new_file).unwrap();
-
-        let (file_event, folder_dir) =
-            classify_event(&new_file_canonical, &watched_paths, &tree_dirs);
-        assert!(
-            file_event.is_none(),
-            "file-changed must not fire for non-watched file"
-        );
-        assert_eq!(
-            folder_dir.as_deref(),
-            Some(root.as_path()),
-            "folder-changed must use the canonical dir from tree_dirs"
-        );
-    }
-
-    #[test]
-    fn file_changed_still_fires_for_watched_paths_independently() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("a.md");
-        std::fs::write(&file, "x").unwrap();
-        let canonical = std::fs::canonicalize(&file).unwrap();
-
-        let mut watched_paths = HashSet::new();
-        watched_paths.insert(canonical.clone());
-        // Empty tree_dirs — folder-changed should NOT fire even though parent exists.
-        let tree_dirs = HashSet::new();
-
-        let (file_event, folder_dir) = classify_event(&canonical, &watched_paths, &tree_dirs);
-        let ev = file_event.expect("file-changed should fire for watched path");
-        assert_eq!(ev.kind, "content");
-        assert!(
-            folder_dir.is_none(),
-            "folder-changed must not fire when parent is not in tree_dirs"
-        );
-    }
-}
+#[path = "watcher_tests.rs"]
+mod tests;

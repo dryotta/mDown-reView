@@ -111,9 +111,10 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
 /// Update the set of directories whose direct children should produce
 /// `folder-changed` events (root + currently-expanded folders in the tree pane).
 ///
-/// `root` and every entry in `dirs` MUST already be canonical absolute paths,
-/// must exist and be directories, and every dir must be contained within `root`.
-/// At most [`crate::watcher::MAX_TREE_WATCHED_DIRS`] entries per call.
+/// `root` and every entry in `dirs` are canonicalized internally; callers may
+/// pass any absolute form. Each entry must exist and be a directory, and every
+/// dir must be contained within `root`. At most
+/// [`crate::watcher::MAX_TREE_WATCHED_DIRS`] entries per call.
 #[tauri::command]
 pub fn update_tree_watched_dirs(
     root: String,

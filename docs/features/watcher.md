@@ -6,7 +6,7 @@ While the user reviews files, mdownreview watches the workspace on disk. When a 
 
 ## How it works
 
-The Rust watcher (`notify-debouncer-mini`, canonical window defined in [`docs/performance.md`](../performance.md)) observes only the files and directories the UI has registered via `update_watched_files`. Events are debounced, deduplicated, then emitted as Tauri events addressed to the main window (never broadcast — per rule 4 in [`docs/architecture.md`](../architecture.md)).
+The Rust watcher (`notify-debouncer-mini`, canonical window defined in [`docs/performance.md`](../performance.md)) observes only the files and directories the UI has registered. There are two registration surfaces: `update_watched_files` for file-level watches that drive review-sidecar reloads, and `update_tree_watched_dirs(root, dirs)` for folder-level watches over the workspace root and currently-expanded folder-tree dirs (capped at `MAX_TREE_WATCHED_DIRS = 1024`). Events are debounced, deduplicated, then emitted as Tauri events addressed to the main window (never broadcast — per rule 4 in [`docs/architecture.md`](../architecture.md)). Two distinct events are emitted: `file-changed` (kind `content | review | deleted`) for watched file paths, and `folder-changed` (`{ path: string }` carrying the canonical directory) when a watched directory's listing changes.
 
 On the React side, `useFileWatcher` installs one listener per visible tab and cleans it up on unmount. Rehydration uses the commands path (`read_text_file`, `check_path_exists`), not the event path, so bootstrap is deterministic even if events arrive before React's first `useEffect`.
 
@@ -33,9 +33,9 @@ sequenceDiagram
 
 ## Key source
 
-- **Rust watcher:** `src-tauri/src/watcher.rs`
-- **Rust command:** `src-tauri/src/watcher.rs` — `update_watched_files`; `src-tauri/src/commands/launch.rs` — `scan_review_files`
-- **Hook:** `src/hooks/useFileWatcher.ts`
+- **Rust watcher:** `src-tauri/src/watcher.rs` — `update_watched_files`, `set_tree_watched_dirs`, `MAX_TREE_WATCHED_DIRS`, `classify_event`
+- **Rust command:** `src-tauri/src/watcher.rs` — `update_watched_files`; `src-tauri/src/commands/fs.rs` — `update_tree_watched_dirs`; `src-tauri/src/commands/launch.rs` — `scan_review_files`
+- **Hook:** `src/hooks/useFileWatcher.ts`, `src/hooks/useTreeWatcher.ts`, `src/hooks/useFolderChildren.ts`
 - **Store interactions:** `watcherSlice` in `src/store/index.ts`
 
 ## Related rules

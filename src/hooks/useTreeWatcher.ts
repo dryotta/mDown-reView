@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { updateTreeWatchedDirs } from "@/lib/tauri-commands";
 import { computeWatchedDirs } from "@/lib/folder-tree";
+import { warn } from "@/logger";
 
 const DEBOUNCE_MS = 100;
 
@@ -26,7 +27,9 @@ export function useTreeWatcher(
     lastSentRef.current = key;
 
     const t = setTimeout(() => {
-      updateTreeWatchedDirs(root, dirs).catch(() => {});
+      updateTreeWatchedDirs(root, dirs).catch((err) =>
+        warn(`[useTreeWatcher] tree watcher sync failed: ${err}`)
+      );
     }, DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [root, expandedFolders]);
