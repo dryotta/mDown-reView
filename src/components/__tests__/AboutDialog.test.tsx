@@ -112,7 +112,7 @@ describe("14.4 – AboutDialog", () => {
       render(<AboutDialog onClose={onClose} />);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "×" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -175,5 +175,46 @@ describe("14.4 – AboutDialog", () => {
     });
 
     expect(mockCheckForUpdate).toHaveBeenCalledWith("canary");
+  });
+
+  // ─── native <dialog> migration (iter 3) ────────────────────────────────
+
+  it("opens as a modal dialog on mount", async () => {
+    await act(async () => {
+      render(<AboutDialog onClose={vi.fn()} />);
+    });
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    expect(dialog.open).toBe(true);
+  });
+
+  it("Esc key closes the dialog (cancel event)", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      render(<AboutDialog onClose={onClose} />);
+    });
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    fireEvent(dialog, new Event("cancel", { cancelable: true, bubbles: false }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("backdrop click (target === dialog) closes", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      render(<AboutDialog onClose={onClose} />);
+    });
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    // Click the dialog element itself (the backdrop area).
+    fireEvent.click(dialog);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("clicking inside the dialog body does NOT close", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      render(<AboutDialog onClose={onClose} />);
+    });
+    // Click on the heading — child of dialog, not the dialog itself.
+    fireEvent.click(screen.getByText("mdownreview"));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
