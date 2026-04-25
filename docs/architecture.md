@@ -52,7 +52,7 @@ flowchart LR
 ### MRSF ownership (Rust is the source of truth)
 7. MRSF sidecar read/write/serde/reparenting lives in Rust (`src-tauri/src/core/sidecar/`, `core/comments.rs`); TypeScript never parses or serializes sidecars.
 8. Sidecar-mutating commands emit `comments-changed` after save. (`commands/comments/mod.rs` `with_sidecar_mut`; atomic write via `core/atomic.rs::write_atomic`.)
-9. Anchor resolution is a two-path Rust pipeline in `get_file_comments`: (a) `Line`/`File` anchors follow the 4-step re-anchoring algorithm in `core/matching.rs`; (b) typed anchors (`ImageRect`, `CsvCell`, `JsonPath`, `HtmlRange`, `HtmlElement`, `WordRange`) dispatch through `resolve_anchor(&Anchor, &mut LazyParsedDoc)` in `core/anchors/mod.rs` with `OnceCell` lazy parse caching — one parse per file per `get_file_comments` call regardless of comment count. (`commands/comments/mod.rs`; `core/anchors/mod.rs`.)
+9. Anchor resolution is a two-path Rust pipeline in `get_file_comments`: (a) `Line`/`File` anchors follow the 4-step re-anchoring algorithm in `core/matching.rs`; (b) typed anchors (`ImageRect`, `CsvCell`, `JsonPath`, `HtmlRange`, `HtmlElement`, `WordRange`) dispatch through `resolve_anchor(&Anchor, &LazyParsedDoc)` in `core/anchors/mod.rs` with `OnceCell` lazy parse caching (interior mutability — no `&mut` needed) — one parse per file per `get_file_comments` call regardless of comment count. (`commands/comments/mod.rs`; `core/anchors/mod.rs`.)
 10. SHA-256 of `selected_text` is computed in Rust via `compute_anchor_hash`. (`commands/comments/mod.rs`.)
 
 ### Commands vs events

@@ -347,3 +347,67 @@ describe("CommentThread - Markdown rendering", () => {
     expect(commentText?.tagName).toBe("DIV");
   });
 });
+
+// ─── Move button gating (iter-4 P1) ────────────────────────────────────────────
+//
+// Move-anchor mode targets a source line. Line/File anchors map cleanly; typed
+// anchors (CSV cell, JSON path, HTML range/element, image rect, word range)
+// would silently demote to Line on commit, losing payload information. The
+// button must be hidden on those root comments.
+
+describe("CommentThread - Move button anchor-kind gating", () => {
+  it("shows Move button for line-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ anchor: { kind: "line", line: 1 } })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+  });
+
+  it("shows Move button for file-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ anchor: { kind: "file" } })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+  });
+
+  it("hides Move button for csv_cell-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({
+          anchor: {
+            kind: "csv_cell",
+            row_idx: 1,
+            col_idx: 2,
+            col_header: "name",
+          },
+        })}
+        filePath="/test/file.csv"
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+  });
+
+  it("hides Move button for html_range-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({
+          anchor: {
+            kind: "html_range",
+            selector_path: "p",
+            start_offset: 0,
+            end_offset: 5,
+            selected_text: "hello",
+          },
+        })}
+        filePath="/test/file.html"
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+  });
+});

@@ -1084,7 +1084,7 @@ mod f0_iter1 {
 // ─
 
 mod wave1c_typed_dispatch {
-    use mdown_review_lib::commands::get_file_comments;
+    use mdown_review_lib::commands::comments::get_file_comments_inner as get_file_comments;
     use mdown_review_lib::core::sidecar::save_sidecar;
     use mdown_review_lib::core::types::{Anchor, CsvCellAnchor, MrsfComment};
 
@@ -1119,7 +1119,7 @@ mod wave1c_typed_dispatch {
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
-        let threads = get_file_comments(file_path).expect("get_file_comments ok");
+        let threads = get_file_comments(&file_path).expect("get_file_comments ok");
         assert_eq!(threads.len(), 1, "exactly one root thread");
         let root = &threads[0].root;
         assert!(
@@ -1152,7 +1152,7 @@ mod wave1c_typed_dispatch {
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
-        let threads = get_file_comments(file_path).expect("get_file_comments ok");
+        let threads = get_file_comments(&file_path).expect("get_file_comments ok");
         assert_eq!(threads.len(), 1);
         assert!(
             threads[0].root.is_orphaned,

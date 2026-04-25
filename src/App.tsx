@@ -124,6 +124,12 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      {isMoveAnchorMode && (
+        <div className="move-anchor-banner" role="status" aria-live="polite" data-testid="move-anchor-banner">
+          Click a line to move the comment.{" "}
+          <button onClick={() => useStore.getState().setMoveAnchorTarget(null)}>Cancel</button>
+        </div>
+      )}
       <ErrorBoundary>
       <div className="toolbar">
         <div className="toolbar-btn-group">

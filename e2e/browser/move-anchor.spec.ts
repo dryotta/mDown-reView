@@ -99,7 +99,15 @@ test.describe("Move-anchor UI", () => {
     const targetLine = page.locator("[data-source-line='5']").first();
     await targetLine.click();
 
-    await page.waitForTimeout(300);
+    // Wait for the IPC mock to record the call (replaces a flaky fixed sleep).
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            ((window as Record<string, unknown>).__UPDATE_COMMENT_CALLS__ as unknown[]).length,
+        ),
+      )
+      .toBeGreaterThan(0);
 
     const calls = await page.evaluate(
       () => (window as Record<string, unknown>).__UPDATE_COMMENT_CALLS__,
@@ -150,5 +158,33 @@ test.describe("Move-anchor UI", () => {
     await expect(page.getByTestId("move-anchor-banner")).not.toBeVisible();
     await expect(page.locator("body.mode-move-anchor")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Move", exact: true })).toBeVisible();
+  });
+
+  test("Missed click does not exit move mode", async ({ page }) => {
+    // Iter-4 P3: a click outside any [data-source-line] must NOT cancel
+    // move mode. Only Esc, Cancel, or a real line-click exit the mode.
+    await setupMoveAnchorMock(page, [SAMPLE_COMMENT]);
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("sample.md").click();
+    await expect(page.getByText("Anchor me elsewhere")).toBeVisible();
+
+    await page.getByRole("button", { name: "Move", exact: true }).click();
+    await expect(page.getByTestId("move-anchor-banner")).toBeVisible();
+
+    // Click somewhere known to have no [data-source-line] / [data-line-idx]
+    // ancestor — the toolbar background (away from any button) is safe.
+    await page.locator(".toolbar").click({ position: { x: 2, y: 2 }, force: true });
+
+    // No update_comment IPC must have fired.
+    const calls = await page.evaluate(
+      () => (window as Record<string, unknown>).__UPDATE_COMMENT_CALLS__,
+    );
+    expect((calls as unknown[]).length).toBe(0);
+
+    // Mode still active: banner present, body class present, action button
+    // still labelled "Cancel move".
+    await expect(page.getByTestId("move-anchor-banner")).toBeVisible();
+    await expect(page.locator("body.mode-move-anchor")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Cancel move", exact: true })).toBeVisible();
   });
 });

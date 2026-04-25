@@ -53,7 +53,7 @@ Tests pick the lowest layer that can prove the claim — the pyramid widens down
 8. Every anchor-line code path (exact/line/fuzzy/orphan) has an assertion in Rust unit tests and a round-trip MRSF test.
 
 ### IPC mock hygiene
-9. Every browser E2E spec mocks the eleven canonical init commands: `get_launch_args`, `read_dir`, `read_text_file`, `load_review_comments`, `save_review_comments`, `check_path_exists`, `get_log_path`, `get_file_badges`, `get_file_comments`, `scan_review_files`, `update_watched_files`. (`e2e/browser/fixtures/error-tracking.ts:53-66`.)
+9. Every browser E2E spec mocks the eleven canonical init commands: `get_launch_args`, `read_dir`, `read_text_file`, `load_review_comments`, `save_review_comments`, `check_path_exists`, `get_log_path`, `get_file_badges`, `get_file_comments`, `scan_review_files`, `update_watched_files`. (`e2e/browser/fixtures/error-tracking.ts:93-148` — defaults applied across the per-test-mock and fallback branches.)
 10. Safe-default fallbacks (`{}`/`[]`/`undefined`) exist for bootstrap safety only; tests whose outcome depends on a value set it explicitly.
 11. IPC `invoke` mock return types are `InvokeResult`-typed so TypeScript catches mock drift. (`src/__mocks__/@tauri-apps/api/core.ts:11-25`.)
 12. The `invoke` mock resets between tests (`vi.mocked(invoke).mockReset()` in `beforeEach`); mock reuse leaks IPC expectations.

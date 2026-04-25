@@ -411,3 +411,52 @@ fn try_from_anchor_repr_line_clamps_selected_text() {
         _ => panic!("expected Line in history"),
     }
 }
+
+#[test]
+fn try_from_anchor_repr_html_range_clamps_selected_text() {
+    // AnchorRepr::HtmlRange direct-path (in `anchor_history`) must clamp
+    // selected_text the same way the MrsfCommentRepr path does. iter-3
+    // closed only the latter; this guards the symmetric blind spot.
+    let long = "a".repeat(5000);
+    let body = format!(
+        r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"line":1,"anchor_history":[{{"anchor_kind":"html_range","anchor_data":{{"selector_path":"p","start_offset":0,"end_offset":5,"selected_text":"{}"}}}}]}}"#,
+        long
+    );
+    let c = parse_one(&wrap_comment(&body));
+    let history = c.anchor_history.as_ref().expect("anchor_history present");
+    assert_eq!(history.len(), 1);
+    match &history[0] {
+        Anchor::HtmlRange(p) => {
+            assert_eq!(
+                p.selected_text.chars().count(),
+                4096,
+                "AnchorRepr::HtmlRange selected_text must clamp to 4096 chars"
+            );
+        }
+        _ => panic!("expected HtmlRange in history"),
+    }
+}
+
+#[test]
+fn try_from_anchor_repr_html_element_clamps_text_preview() {
+    // AnchorRepr::HtmlElement direct-path (in `anchor_history`) must clamp
+    // text_preview to SELECTED_TEXT_MAX_LENGTH. Same blind spot as HtmlRange.
+    let long = "a".repeat(5000);
+    let body = format!(
+        r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"line":1,"anchor_history":[{{"anchor_kind":"html_element","anchor_data":{{"selector_path":"p","tag":"p","text_preview":"{}"}}}}]}}"#,
+        long
+    );
+    let c = parse_one(&wrap_comment(&body));
+    let history = c.anchor_history.as_ref().expect("anchor_history present");
+    assert_eq!(history.len(), 1);
+    match &history[0] {
+        Anchor::HtmlElement(p) => {
+            assert_eq!(
+                p.text_preview.chars().count(),
+                4096,
+                "AnchorRepr::HtmlElement text_preview must clamp to 4096 chars"
+            );
+        }
+        _ => panic!("expected HtmlElement in history"),
+    }
+}

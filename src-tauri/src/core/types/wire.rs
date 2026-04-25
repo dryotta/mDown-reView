@@ -155,8 +155,14 @@ impl TryFrom<AnchorRepr> for Anchor {
             AnchorRepr::ImageRect(p) => Anchor::ImageRect(p),
             AnchorRepr::CsvCell(p) => Anchor::CsvCell(p),
             AnchorRepr::JsonPath(p) => Anchor::JsonPath(p),
-            AnchorRepr::HtmlRange(p) => Anchor::HtmlRange(p),
-            AnchorRepr::HtmlElement(p) => Anchor::HtmlElement(p),
+            AnchorRepr::HtmlRange(mut p) => {
+                p.selected_text = crate::core::anchors::truncate_selected_text(&p.selected_text);
+                Anchor::HtmlRange(p)
+            }
+            AnchorRepr::HtmlElement(mut p) => {
+                p.text_preview = crate::core::anchors::truncate_selected_text(&p.text_preview);
+                Anchor::HtmlElement(p)
+            }
             AnchorRepr::WordRange(mut p) => {
                 p.sanitize()?;
                 Anchor::WordRange(p)

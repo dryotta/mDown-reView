@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { useStore } from "@/store";
 import type { MatchedComment } from "@/lib/tauri-commands";
+import { deriveAnchor } from "@/types/comments";
 import "@/styles/comments.css";
 
 // --- Type/severity badge maps ---
@@ -32,6 +33,12 @@ function CommentItem({ comment, variant, filePath, onStartReply }: {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
   const isMoveActive = useStore((s) => s.moveAnchorTarget === comment.id);
+  // Move-anchor mode targets a source line. Only Line and File anchors map
+  // cleanly onto a clicked line; typed anchors (image rect, csv cell, etc.)
+  // would silently demote to Line on commit, which loses information. Hide
+  // the button entirely for those — users edit/delete to re-anchor instead.
+  const anchorKind = deriveAnchor(comment).kind;
+  const canMoveAnchor = anchorKind === "line" || anchorKind === "file";
 
   const handleSaveEdit = () => {
     if (editText.trim()) {
@@ -99,7 +106,7 @@ function CommentItem({ comment, variant, filePath, onStartReply }: {
             </button>
           )
         )}
-        {variant === "root" && (
+        {variant === "root" && canMoveAnchor && (
           <button
             className="comment-action-btn"
             onClick={() => {

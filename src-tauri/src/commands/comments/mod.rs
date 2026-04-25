@@ -122,12 +122,31 @@ fn with_sidecar_or_create(
 /// against a single shared [`crate::core::anchors::LazyParsedDoc`] so the
 /// file is parsed at most once per call (lazily, only for the
 /// representations the present anchors actually need).
+///
+/// Workspace-allowlisted via [`enforce_workspace_path`] (advisory #5 / iter-4
+/// security blocker S2): rejects paths the user has not opened so a renderer
+/// cannot probe arbitrary files. The file body itself is read with a 10 MB
+/// cap (matching `read_text_file` and `SIDECAR_MAX_BYTES`) — anything larger
+/// degrades silently to empty bytes so all comments orphan, identical to the
+/// `NotFound` branch.
 #[tauri::command]
-pub fn get_file_comments(file_path: String) -> Result<Vec<CommentThread>, String> {
+pub fn get_file_comments(
+    state: State<'_, WatcherState>,
+    file_path: String,
+) -> Result<Vec<CommentThread>, String> {
+    enforce_workspace_path(&state, &file_path)?;
+    get_file_comments_inner(&file_path)
+}
+
+/// Pure helper for [`get_file_comments`]. Skips the workspace guard so
+/// integration tests can exercise the matcher / typed-anchor path without
+/// fabricating a `State<'_, WatcherState>`. The IPC layer must call the
+/// `#[tauri::command]` wrapper above, never this function directly.
+pub fn get_file_comments_inner(file_path: &str) -> Result<Vec<CommentThread>, String> {
     use crate::core::anchors::{resolve_anchor, LazyParsedDoc, MatchOutcome};
     use crate::core::types::{Anchor, MatchedComment};
 
-    let sidecar = crate::core::sidecar::load_sidecar(&file_path).map_err(|e| e.to_string())?;
+    let sidecar = crate::core::sidecar::load_sidecar(file_path).map_err(|e| e.to_string())?;
     let comments = match sidecar {
         Some(s) => s.comments,
         None => return Ok(vec![]),
@@ -136,13 +155,32 @@ pub fn get_file_comments(file_path: String) -> Result<Vec<CommentThread>, String
         return Ok(vec![]);
     }
 
-    // Read raw bytes once. NotFound (deleted/renamed) silently degrades to
-    // empty bytes so all comments orphan; other errors are logged.
-    let bytes = match std::fs::read(&file_path) {
-        Ok(b) => b,
+    // Read raw bytes once with a 10 MB cap (security blocker S1: docs/security.md
+    // rule 1 — every fs read must be bounded). NotFound (deleted/renamed),
+    // over-cap, and other errors all silently degrade to empty bytes so all
+    // comments orphan; cause is logged.
+    const MAX_BYTES: usize = 10 * 1024 * 1024;
+    let bytes = match std::fs::File::open(file_path) {
+        Ok(f) => {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            match f.take((MAX_BYTES + 1) as u64).read_to_end(&mut buf) {
+                Ok(_) if buf.len() > MAX_BYTES => {
+                    tracing::warn!(
+                        "get_file_comments: {file_path} exceeds {MAX_BYTES}-byte cap; orphaning all comments"
+                    );
+                    Vec::new()
+                }
+                Ok(_) => buf,
+                Err(e) => {
+                    tracing::warn!("Could not read {file_path} for comment matching: {e}");
+                    Vec::new()
+                }
+            }
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => {
-            tracing::warn!("Could not read {file_path} for comment matching: {e}");
+            tracing::warn!("Could not open {file_path} for comment matching: {e}");
             Vec::new()
         }
     };

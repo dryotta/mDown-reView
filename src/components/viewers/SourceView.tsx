@@ -36,7 +36,6 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
 
   const { threads } = useComments(filePath);
   const { addComment, commitMoveAnchor } = useCommentActions();
-  const moveAnchorTarget = useStore((s) => s.moveAnchorTarget);
 
   const lines = useMemo(() => content.split("\n"), [content]);
 
@@ -146,20 +145,16 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
         // Source view is 0-indexed in DOM; commenter API is 1-indexed.
         const line = lineIdx + 1;
         void commitMoveAnchor(filePath, moveTarget, { kind: "line", line });
+        useStore.getState().setMoveAnchorTarget(null);
+        e.stopPropagation();
       }
     }
-    useStore.getState().setMoveAnchorTarget(null);
-    e.stopPropagation();
+    // Missed click (no [data-line-idx] under target, or NaN) → leave move
+    // mode active. Esc / Cancel button still cancels.
   }, [commitMoveAnchor, filePath]);
 
   return (
     <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", fontSize: `${zoom * 100}%` }}>
-      {moveAnchorTarget !== null && (
-        <div className="move-anchor-banner" role="status" aria-live="polite" data-testid="move-anchor-banner">
-          Click a line to move the comment.{" "}
-          <button onClick={() => useStore.getState().setMoveAnchorTarget(null)}>Cancel</button>
-        </div>
-      )}
       {searchOpen && (
         <SearchBar
           query={query}

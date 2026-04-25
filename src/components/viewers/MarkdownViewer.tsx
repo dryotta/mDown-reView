@@ -241,7 +241,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   const { threads } = useComments(filePath);
   const { addComment, commitMoveAnchor } = useCommentActions();
-  const moveAnchorTarget = useStore((s) => s.moveAnchorTarget);
 
   const { threadsByLine, commentCountByLine } = useThreadsByLine(threads);
 
@@ -364,10 +363,12 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
         const line = parseInt(lineNumStr, 10);
         if (line > 0) {
           void commitMoveAnchor(filePath, moveTarget, { kind: "line", line });
+          useStore.getState().setMoveAnchorTarget(null);
+          e.stopPropagation();
         }
       }
-      useStore.getState().setMoveAnchorTarget(null);
-      e.stopPropagation();
+      // No clickable line under the cursor → leave move mode active so a
+      // missed click does not silently exit. Esc / Cancel button still cancels.
       return;
     }
 
@@ -390,12 +391,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   return (
     <div className="markdown-viewer" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
-      {moveAnchorTarget !== null && (
-        <div className="move-anchor-banner" role="status" aria-live="polite" data-testid="move-anchor-banner">
-          Click a line to move the comment.{" "}
-          <button onClick={() => useStore.getState().setMoveAnchorTarget(null)}>Cancel</button>
-        </div>
-      )}
       <div
         className="reading-width"
         ref={readingContainerRef}

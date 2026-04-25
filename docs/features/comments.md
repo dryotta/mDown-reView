@@ -16,6 +16,8 @@ Beyond the v1.0 `Line` anchor, MRSF v1.1 adds six non-line variants for content 
 
 The UI surface is a selection toolbar that appears on text selection, a comment input, a threaded reply view, and an aggregated panel that summarises unresolved counts across the workspace. Line-gutter indicators in `SourceView` make every anchored comment discoverable at a glance.
 
+To re-anchor an existing comment, click **Move** on a Line/File-anchored thread: the body switches to crosshair cursor and a sticky banner ("Click a line to move the comment.") appears at the top of the app; clicking any source line in `MarkdownViewer` or `SourceView` re-anchors via `update_comment` (`CommentPatch::MoveAnchor`), and pressing Esc or the banner's Cancel button exits move mode without changes. Missed clicks (anywhere outside a renderable source line) leave move mode active so a stray click never silently cancels. The button is hidden on typed-anchor threads (CSV cell, JSON path, HTML, image rect, word range) where re-anchoring to a Line would lose payload information — edit/delete those instead.
+
 ### Author identity
 
 New comments are stamped with a display name configured in the **Settings** dialog (gear button in the top toolbar). The value is persisted to `OnboardingState.author` in the app config directory via the `set_author` Tauri command, with strict validation (≤128 bytes, no control characters, no newlines) returning a typed `ConfigError` discriminator on rejection.
