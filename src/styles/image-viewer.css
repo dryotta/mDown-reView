@@ -6,3 +6,60 @@
 .image-viewer img {
   display: block;
 }
+
+/* Comment-mode toggle: highlight when active. */
+.image-viewer-comment-toggle.is-active {
+  background: var(--color-accent, #0969da);
+  color: #fff;
+  border-color: var(--color-accent, #0969da);
+}
+
+/* Existing image_rect thread markers — siblings of <img> inside the canvas,
+   absolutely positioned. Pin variant is a circular numbered marker; rect
+   variant is a translucent overlay covering the rect bounds. */
+.image-viewer-marker {
+  background: rgba(9, 105, 218, 0.85);
+  color: #fff;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.image-viewer-marker.is-rect {
+  background: rgba(9, 105, 218, 0.18);
+  border: 2px solid rgba(9, 105, 218, 0.85);
+  border-radius: 2px;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+.image-viewer-marker.is-rect .image-viewer-marker-label {
+  background: rgba(9, 105, 218, 0.85);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 0 0 4px 0;
+}
+
+/* Drawing-feedback rectangle while dragging in comment mode. */
+.image-viewer-draw-preview {
+  background: rgba(9, 105, 218, 0.12);
+  border: 1px dashed rgba(9, 105, 218, 0.85);
+  z-index: 4;
+}
+
+/* Inline composer popover. */
+.image-viewer-composer {
+  min-width: 280px;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
