@@ -2,6 +2,19 @@ use sha2::{Digest, Sha256};
 
 use crate::core::types::Anchor;
 
+mod csv_cell;
+mod html;
+mod image_rect;
+mod json_path;
+mod word_range;
+
+pub use csv_cell::resolve as resolve_csv_cell;
+pub use html::resolve_element as resolve_html_element;
+pub use html::resolve_range as resolve_html_range;
+pub use image_rect::resolve as resolve_image_rect;
+pub use json_path::resolve as resolve_json_path;
+pub use word_range::resolve as resolve_word_range;
+
 /// MRSF §6.2: max selected_text length
 pub const SELECTED_TEXT_MAX_LENGTH: usize = 4096;
 
@@ -29,40 +42,6 @@ pub fn resolve_line(anchor: &Anchor) -> MatchOutcome {
 /// Resolve a File anchor — always exact (whole-file scope).
 pub fn resolve_file(_anchor: &Anchor) -> MatchOutcome {
     MatchOutcome::Exact
-}
-
-// B-wave: real heuristics land in iter <n>.
-pub fn resolve_image_rect(_anchor: &Anchor) -> MatchOutcome {
-    MatchOutcome::FileLevel
-}
-
-// B-wave: real heuristics land in iter <n>.
-pub fn resolve_csv_cell(_anchor: &Anchor) -> MatchOutcome {
-    MatchOutcome::FileLevel
-}
-
-// B-wave: real heuristics land in iter <n>.
-pub fn resolve_json_path(_anchor: &Anchor) -> MatchOutcome {
-    MatchOutcome::FileLevel
-}
-
-// B-wave: real heuristics land in iter <n>.
-pub fn resolve_html_range(_anchor: &Anchor) -> MatchOutcome {
-    MatchOutcome::FileLevel
-}
-
-// B-wave: real heuristics land in iter <n>.
-pub fn resolve_html_element(_anchor: &Anchor) -> MatchOutcome {
-    MatchOutcome::FileLevel
-}
-
-/// Stub matcher for [`Anchor::WordRange`]. Iter 3 ships only the wire
-/// variant + Rust tokenizer; the real word-anchored heuristic (UAX #29
-/// stream + fuzzy-on-line-text-hash recovery) is deferred to iter 4. Until
-/// then the resolver returns `FileLevel`, matching the rung the other
-/// typed-variant stubs use.
-pub fn resolve_word_range(_anchor: &Anchor) -> MatchOutcome {
-    MatchOutcome::FileLevel
 }
 
 /// Compute SHA-256 hash of selected text, returned as lowercase hex string.
