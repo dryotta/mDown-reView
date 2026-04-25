@@ -54,6 +54,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize }: Props) {
         wordWrap={wordWrap}
         onToggleWrap={() => setWordWrap(!wordWrap)}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
+        path={filePath}
       />
       {showSource ? (
         <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} />

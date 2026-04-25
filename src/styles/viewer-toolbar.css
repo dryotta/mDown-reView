@@ -70,3 +70,34 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* G4 — reveal/open file actions, pinned to the right edge of the toolbar.
+   When no other right-aligned group (wrap, zoom) precedes it, claims the
+   margin-left:auto itself; otherwise sits flush after them. */
+.viewer-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding-left: 4px;
+}
+
+.viewer-toolbar-wrap ~ .viewer-toolbar-actions,
+.viewer-toolbar-zoom ~ .viewer-toolbar-actions {
+  margin-left: 4px;
+}
+
+.viewer-toolbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+}
+
+.viewer-toolbar-icon-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}

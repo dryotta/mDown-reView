@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { SkeletonLoader } from "./SkeletonLoader";
@@ -10,9 +10,26 @@ import { PdfViewer } from "./PdfViewer";
 import { BinaryPlaceholder } from "./BinaryPlaceholder";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
+import { ViewerToolbar } from "./ViewerToolbar";
 
 interface Props {
   path: string;
+}
+
+/**
+ * G4 — wrap viewers that don't already render a `ViewerToolbar` (image,
+ * audio, video, pdf) in a column flex with a slim action toolbar at the top
+ * exposing reveal/open. EnhancedViewer renders its own toolbar internally,
+ * BinaryPlaceholder/TooLarge/Deleted have their own action surfaces, so they
+ * are not wrapped here.
+ */
+function withActionToolbar(path: string, child: ReactNode): ReactNode {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <ViewerToolbar activeView="visual" onViewChange={() => {}} hidden path={path} />
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{child}</div>
+    </div>
+  );
 }
 
 export function ViewerRouter({ path }: Props) {
@@ -104,32 +121,32 @@ export function ViewerRouter({ path }: Props) {
 
   if (status === "image") {
     return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <ImageViewer path={path} />
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {withActionToolbar(path, <ImageViewer path={path} />)}
       </div>
     );
   }
 
   if (status === "audio") {
     return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <AudioViewer path={path} />
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {withActionToolbar(path, <AudioViewer path={path} />)}
       </div>
     );
   }
 
   if (status === "video") {
     return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <VideoViewer path={path} />
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {withActionToolbar(path, <VideoViewer path={path} />)}
       </div>
     );
   }
 
   if (status === "pdf") {
     return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <PdfViewer path={path} />
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {withActionToolbar(path, <PdfViewer path={path} />)}
       </div>
     );
   }
