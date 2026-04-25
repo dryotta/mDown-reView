@@ -146,7 +146,9 @@ impl TryFrom<AnchorRepr> for Anchor {
                 end_line: p.end_line,
                 start_column: p.start_column,
                 end_column: p.end_column,
-                selected_text: p.selected_text,
+                selected_text: p
+                    .selected_text
+                    .map(|s| crate::core::anchors::truncate_selected_text(&s)),
                 selected_text_hash: p.selected_text_hash,
             },
             AnchorRepr::File => Anchor::File,
@@ -195,7 +197,10 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
             end_line: r.end_line,
             start_column: r.start_column,
             end_column: r.end_column,
-            selected_text: r.selected_text.clone(),
+            selected_text: r
+                .selected_text
+                .as_deref()
+                .map(crate::core::anchors::truncate_selected_text),
             selected_text_hash: r.selected_text_hash.clone(),
         };
 
@@ -225,11 +230,13 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
                 .clone()
                 .map(Anchor::JsonPath)
                 .ok_or_else(|| mismatch("anchor_kind=json_path but json_path field missing")),
-            (Some("html_range"), 1) => r
-                .html_range
-                .clone()
-                .map(Anchor::HtmlRange)
-                .ok_or_else(|| mismatch("anchor_kind=html_range but html_range field missing")),
+            (Some("html_range"), 1) => {
+                let mut p = r.html_range.clone().ok_or_else(|| {
+                    mismatch("anchor_kind=html_range but html_range field missing")
+                })?;
+                p.selected_text = crate::core::anchors::truncate_selected_text(&p.selected_text);
+                Ok(Anchor::HtmlRange(p))
+            }
             (Some("html_element"), 1) => {
                 r.html_element.clone().map(Anchor::HtmlElement).ok_or_else(|| {
                     mismatch("anchor_kind=html_element but html_element field missing")

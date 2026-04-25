@@ -909,7 +909,6 @@ mod f0_iter1 {
             "update_comment",
             "export_review_summary",
             "get_file_badges",
-            "get_unresolved_counts",
         ] {
             let err = check_workspace_for(cmd, &state, outside_str).unwrap_err();
             assert_eq!(

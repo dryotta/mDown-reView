@@ -341,3 +341,4 @@ fn word_range_promotes_to_v1_1() {
     };
     assert_eq!(mrsf_version_for(&[c]), "1.1");
 }
+

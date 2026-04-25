@@ -6,10 +6,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use tauri::State;
 
-/// Maximum number of paths accepted in a single `get_file_badges` /
-/// `get_unresolved_counts` call. Mirrors `MAX_TREE_WATCHED_DIRS` in
-/// `watcher.rs` to bound the cost of a single IPC round-trip
-/// (bug-hunter #11).
+/// Maximum number of paths accepted in a single `get_file_badges` call.
+/// Mirrors `MAX_TREE_WATCHED_DIRS` in `watcher.rs` to bound the cost of a
+/// single IPC round-trip (bug-hunter #11).
 pub const MAX_BADGE_PATHS: usize = 1000;
 
 /// Per-file badge: count of unresolved threads + max severity across them.
@@ -29,9 +28,9 @@ pub fn get_file_badges(
     Ok(get_file_badges_inner(&state, &file_paths))
 }
 
-/// Validates the input length cap shared by `get_file_badges` and
-/// `get_unresolved_counts`. Public so integration tests can exercise the
-/// cap without having to fabricate a `State<'_, WatcherState>`.
+/// Validates the input length cap for `get_file_badges`. Public so
+/// integration tests can exercise the cap without having to fabricate a
+/// `State<'_, WatcherState>`.
 pub fn enforce_badge_input_cap(file_paths: &[String]) -> Result<(), String> {
     if file_paths.len() > MAX_BADGE_PATHS {
         Err("too many paths".to_string())
@@ -92,34 +91,4 @@ pub fn get_file_badges_inner(
         }
     }
     out
-}
-
-/// Batch: count unresolved comments for each file path. Retained for
-/// backward-compat with TabBar / FolderTree until they migrate to
-/// `get_file_badges`.
-#[tauri::command]
-pub fn get_unresolved_counts(
-    state: State<'_, WatcherState>,
-    file_paths: Vec<String>,
-) -> Result<HashMap<String, u32>, String> {
-    enforce_badge_input_cap(&file_paths)?;
-    let mut counts = HashMap::new();
-    for file_path in file_paths {
-        if !state.is_path_or_parent_allowed(Path::new(&file_path)) {
-            continue;
-        }
-        match crate::core::sidecar::load_sidecar(&file_path) {
-            Ok(Some(sidecar)) => {
-                let unresolved = sidecar.comments.iter().filter(|c| !c.resolved).count() as u32;
-                if unresolved > 0 {
-                    counts.insert(file_path, unresolved);
-                }
-            }
-            Ok(None) => {}
-            Err(e) => {
-                tracing::warn!("Could not load sidecar for {file_path}: {e}");
-            }
-        }
-    }
-    Ok(counts)
 }

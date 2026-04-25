@@ -2,7 +2,7 @@
 //!
 //! Split into 4 submodules for the 400-LOC budget (architecture rule 23):
 //! - `mod.rs` — workspace guard + CRUD entry points
-//! - `badges.rs` — `get_file_badges`, `get_unresolved_counts`
+//! - `badges.rs` — `get_file_badges`
 //! - `export.rs` — `export_review_summary`
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
@@ -17,7 +17,7 @@ pub mod badges;
 pub mod export;
 pub mod update;
 
-pub use badges::{get_file_badges, get_file_badges_inner, get_unresolved_counts, FileBadge};
+pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
 pub use export::{export_review_summary, export_review_summary_inner};
 pub use update::{update_comment, update_comment_apply, CommentPatch};
 
