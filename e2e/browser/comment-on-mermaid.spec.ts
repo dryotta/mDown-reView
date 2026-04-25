@@ -19,7 +19,7 @@ const MMD = "graph TD\n  A[Start]\n  B[End]\n  A --> B\n";
 interface AddCommentArgs {
   filePath: string;
   text: string;
-  anchor: { kind?: string; line?: number } | null;
+  anchor: { kind?: string; line?: number; selected_text?: string; selected_text_hash?: string } | null;
 }
 
 async function setupMermaidMocks(page: Page) {
@@ -125,7 +125,14 @@ test.describe("Iter 7 Group F — comment-on-mermaid-node", () => {
     const calls = await readAddCommentCalls(page);
     const last = calls[calls.length - 1];
     expect(last.text).toBe("explain start node");
-    expect(last.anchor).toEqual({ kind: "line", line: 2 });
+    expect(last.anchor).toEqual({
+      kind: "line",
+      line: 2,
+      selected_text: "  A[Start]",
+      // selected_text_hash is computed in use-comment-actions for line-shaped
+      // anchors. Mock returns a fixed value (see compute_anchor_hash).
+      selected_text_hash: "deadbeef",
+    });
 
     // Badge appears on the same node.
     await expect(page.locator(".mermaid-overlay-parent .tree-comment-badge")).toBeVisible();

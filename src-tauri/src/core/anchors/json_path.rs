@@ -5,49 +5,105 @@ use crate::core::types::JsonPathAnchor;
 /// `"$"`) to RFC 6901 JSON Pointer (`"/a/b/2/c"`). Predicates of the form
 /// `[id=42]` are dropped (heuristic: locate by structural path only). Per
 /// RFC 6901, `~` and `/` inside segment names are escaped to `~0` / `~1`.
+///
+/// D2 — keys containing `.`, `[`, or `]` are emitted by the TypeScript
+/// authoring layer as JSON-string-escaped bracket segments
+/// (`parent["a.b"]`). When such a segment is encountered, decode the inner
+/// JSON-escaped key and append it as a single pointer segment (still
+/// applying RFC-6901 `~`/`/` escaping).
 fn dot_to_pointer(path: &str) -> String {
     let mut out = String::new();
     let trimmed = path.strip_prefix('$').unwrap_or(path);
-    let trimmed = trimmed.strip_prefix('.').unwrap_or(trimmed);
-    for raw_seg in trimmed.split('.') {
-        if raw_seg.is_empty() {
+    let bytes = trimmed.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c == '.' {
+            i += 1;
             continue;
         }
-        // Split into name + zero or more bracket parts: "b[2]" → ["b","2"].
-        let mut parts: Vec<String> = Vec::new();
-        if let Some(bi) = raw_seg.find('[') {
-            let (name, brackets) = raw_seg.split_at(bi);
-            if !name.is_empty() {
-                parts.push(name.to_string());
+        if c == '[' {
+            // Bracket segment. May be:
+            //   ["..."]   → quoted key (D2 escape syntax)
+            //   [42]      → numeric index
+            //   [k=v]     → predicate (dropped)
+            let end = match find_matching_bracket(bytes, i) {
+                Some(e) => e,
+                None => break,
+            };
+            let inner = &trimmed[i + 1..end];
+            if let Some(decoded) = decode_quoted_key(inner) {
+                push_segment(&mut out, &decoded);
+            } else if !inner.contains('=') {
+                push_segment(&mut out, inner);
             }
-            let mut rest = brackets;
-            while let Some(start) = rest.find('[') {
-                let after = &rest[start + 1..];
-                if let Some(end) = after.find(']') {
-                    let inner = &after[..end];
-                    if !inner.contains('=') {
-                        parts.push(inner.to_string());
-                    }
-                    rest = &after[end + 1..];
-                } else {
-                    break;
-                }
-            }
-        } else {
-            parts.push(raw_seg.to_string());
+            i = end + 1;
+            continue;
         }
-        for p in parts {
-            out.push('/');
-            for ch in p.chars() {
-                match ch {
-                    '~' => out.push_str("~0"),
-                    '/' => out.push_str("~1"),
-                    c => out.push(c),
-                }
+        // Identifier segment: read up to next `.` or `[`.
+        let start = i;
+        while i < bytes.len() {
+            let ch = bytes[i] as char;
+            if ch == '.' || ch == '[' {
+                break;
             }
+            i += 1;
+        }
+        if start < i {
+            let name = &trimmed[start..i];
+            push_segment(&mut out, name);
         }
     }
     out
+}
+
+/// Find the index of the `]` that closes the `[` at `start`, respecting
+/// JSON-string quoting so `["a]b"]` is treated as one segment.
+fn find_matching_bracket(bytes: &[u8], start: usize) -> Option<usize> {
+    debug_assert!(bytes.get(start).copied() == Some(b'['));
+    let mut i = start + 1;
+    let mut in_string = false;
+    let mut escaped = false;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+        } else if c == ']' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// If `inner` is a JSON-string-escaped key (starts with `"`, ends with
+/// `"`), parse it via `serde_json` and return the decoded string.
+fn decode_quoted_key(inner: &str) -> Option<String> {
+    let trimmed = inner.trim();
+    if !(trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2) {
+        return None;
+    }
+    serde_json::from_str::<String>(trimmed).ok()
+}
+
+/// Append a single decoded segment to `out`, applying RFC-6901 escaping.
+fn push_segment(out: &mut String, segment: &str) {
+    out.push('/');
+    for ch in segment.chars() {
+        match ch {
+            '~' => out.push_str("~0"),
+            '/' => out.push_str("~1"),
+            c => out.push(c),
+        }
+    }
 }
 
 /// Resolve a [`JsonPathAnchor`] against a parsed `serde_json::Value`. If
@@ -131,5 +187,38 @@ mod tests {
             resolve(&anchor("$.items[1].id", Some("2")), Some(&d)),
             MatchOutcome::Exact
         );
+    }
+
+    // D2 — keys containing `.`, `[`, or `]` round-trip through the
+    // `parent["a.b"]` JSON-string escape syntax.
+    #[test]
+    fn quoted_key_with_dot_resolves() {
+        let d = serde_json::json!({ "a.b": 1, "x[y]": 2 });
+        assert_eq!(dot_to_pointer("[\"a.b\"]"), "/a.b");
+        assert_eq!(
+            resolve(&anchor("[\"a.b\"]", Some("1")), Some(&d)),
+            MatchOutcome::Exact
+        );
+        assert_eq!(
+            resolve(&anchor("[\"x[y]\"]", Some("2")), Some(&d)),
+            MatchOutcome::Exact
+        );
+    }
+
+    #[test]
+    fn quoted_key_nested_after_parent() {
+        let d = serde_json::json!({ "outer": { "in.ner": "v" } });
+        assert_eq!(dot_to_pointer("outer[\"in.ner\"]"), "/outer/in.ner");
+        assert_eq!(
+            resolve(&anchor("outer[\"in.ner\"]", Some("v")), Some(&d)),
+            MatchOutcome::Exact
+        );
+    }
+
+    #[test]
+    fn quoted_key_with_slash_applies_rfc6901_escape() {
+        // The decoded key contains `/`, which must be re-escaped to `~1`
+        // in the JSON Pointer.
+        assert_eq!(dot_to_pointer("[\"a/b\"]"), "/a~1b");
     }
 }

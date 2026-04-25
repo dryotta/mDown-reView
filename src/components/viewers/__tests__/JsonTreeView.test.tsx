@@ -247,4 +247,54 @@ describe("JsonTreeView — Group C iter 7 (commentable paths)", () => {
     const [, , anchor] = addCommentMock.mock.calls[0];
     expect((anchor as { scalar_text: string }).scalar_text.length).toBe(200);
   });
+
+  // D2 — object keys containing `.`, `[`, or `]` are escaped via the
+  // `parent["a.b"]` JSON-string syntax so the Rust resolver can decode the
+  // segment unambiguously.
+  it("D2 — keys containing '.' or '[' use JSON-string-escaped bracket segments", async () => {
+    const content = JSON.stringify({ "a.b": 1, "x[y]": 2 });
+    const { container } = render(<JsonTreeView content={content} path="/d.json" />);
+    await screen.findByText(/2 keys/);
+    const paths = Array.from(container.querySelectorAll("[data-json-path]"))
+      .map((el) => el.getAttribute("data-json-path"));
+    expect(paths).toContain('["a.b"]');
+    expect(paths).toContain('["x[y]"]');
+    // The dot-notation form must NOT appear as a child path.
+    expect(paths).not.toContain("a.b");
+  });
+
+  it("D2 — escaped path is round-trippable through addComment", async () => {
+    const content = JSON.stringify({ "a.b": "v" });
+    const { container } = render(<JsonTreeView content={content} path="/d.json" />);
+    await screen.findByText(/1 keys/);
+    const node = container.querySelector('[data-json-path=\'["a.b"]\']')!;
+    const addBtn = node.querySelector(":scope > .json-node-row > button.json-path-add") as HTMLButtonElement;
+    fireEvent.click(addBtn);
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "comment" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(addCommentMock).toHaveBeenCalledTimes(1));
+    const [, , anchor] = addCommentMock.mock.calls[0];
+    expect((anchor as { json_path: string }).json_path).toBe('["a.b"]');
+  });
+
+  // D3 — the `+` button used to be `visibility: hidden`, which removed it
+  // from the accessibility tree and made it unreachable by Tab. After the
+  // CSS fix, the button is a native `<button>` (tabIndex 0 implicit) and
+  // can be focused programmatically, putting it in the tab order. That is
+  // enough to assert keyboard reachability — `:focus-visible` styling is
+  // visual and not asserted here (jsdom does not match `:focus-visible`).
+  it("D3 — '+' button on a scalar leaf is keyboard-focusable (in the tab order)", async () => {
+    const content = JSON.stringify({ s: "v" });
+    const { container } = render(<JsonTreeView content={content} path="/d.json" />);
+    await screen.findByText(/1 keys/);
+    const node = container.querySelector('[data-json-path="s"]')!;
+    const addBtn = node.querySelector(":scope > .json-node-row > button.json-path-add") as HTMLButtonElement;
+    expect(addBtn).toBeTruthy();
+    expect(addBtn.tagName).toBe("BUTTON");
+    // Native buttons must NOT be removed from the tab order via tabIndex=-1.
+    expect(addBtn.tabIndex).toBeGreaterThanOrEqual(0);
+    addBtn.focus();
+    expect(document.activeElement).toBe(addBtn);
+  });
 });

@@ -38,7 +38,20 @@ function arraySegment(_item: unknown, idx: number): string {
   return `[${idx}]`;
 }
 
+/**
+ * Concatenate `parent` with `key` to form the next dot-notation path.
+ *
+ * D2 — keys containing `.`, `[`, or `]` are ambiguous in dot notation. For
+ * those, emit a JSON-string-escaped bracket segment (`parent["a.b"]`) which
+ * the Rust resolver (`json_path::dot_to_pointer`) decodes back to a single
+ * RFC-6901 segment. Plain keys keep the existing `parent.key` form so the
+ * common case stays human-readable.
+ */
 function objectSegment(parent: string, key: string): string {
+  const needsEscape = /[.\[\]]/.test(key);
+  if (needsEscape) {
+    return `${parent}[${JSON.stringify(key)}]`;
+  }
   return parent === "" ? key : `${parent}.${key}`;
 }
 

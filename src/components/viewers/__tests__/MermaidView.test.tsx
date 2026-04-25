@@ -103,7 +103,43 @@ describe("MermaidView", () => {
     const callArgs = addCommentMock.mock.calls[0];
     expect(callArgs[0]).toBe("/diagram.mmd");
     expect(callArgs[1]).toBe("explain start");
-    expect(callArgs[2]).toEqual({ kind: "line", line: 2 });
+    expect(callArgs[2]).toEqual({ kind: "line", line: 2, selected_text: "  A[Start] --> B[End]" });
+  });
+
+  it("D1 — selected_text is truncated to 256 chars when the mapped source line is longer", async () => {
+    const fakeSvg = `
+      <svg>
+        <g class="node" id="mermaid-x-flowchart-A-0"><text>Start</text></g>
+      </svg>
+    `;
+    (mermaid.render as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ svg: fakeSvg });
+
+    // Build a source line longer than 256 chars containing the `A` token on line 2.
+    const longTail = "x".repeat(400);
+    const content = `graph TD\n  A[Start] --> B; ${longTail}\n`;
+    render(<MermaidView content={content} path="/diagram.mmd" />);
+
+    const aNode = await waitFor(() => {
+      const n = document.querySelector('g.node[id="mermaid-x-flowchart-A-0"]') as SVGGElement | null;
+      if (!n) throw new Error("node not yet rendered");
+      return n;
+    });
+    await waitFor(() => {
+      expect(aNode.getAttribute("data-source-line")).toBe("2");
+    });
+
+    fireEvent.click(aNode);
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "long" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(addCommentMock).toHaveBeenCalledTimes(1);
+    });
+    const anchor = addCommentMock.mock.calls[0][2] as { kind: string; line: number; selected_text: string };
+    expect(anchor.kind).toBe("line");
+    expect(anchor.line).toBe(2);
+    expect(anchor.selected_text.length).toBe(256);
   });
 
   it("F1 — node with no source mapping falls back to file-level (anchor undefined)", async () => {
@@ -174,7 +210,7 @@ describe("MermaidView", () => {
     });
     const callArgs = addCommentMock.mock.calls[0];
     expect(callArgs[0]).toBe("/diagram.mmd");
-    expect(callArgs[2]).toEqual({ kind: "line", line: 3 });
+    expect(callArgs[2]).toEqual({ kind: "line", line: 3, selected_text: "  Beta --> Charlie" });
   });
 
   it("F1 — comment UI is hidden when no path is provided (markdown-embed mode)", async () => {

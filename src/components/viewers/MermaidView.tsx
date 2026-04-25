@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useId, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo } from "react";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { useStore } from "@/store";
@@ -78,6 +78,10 @@ export function MermaidView({ content, path }: Props) {
   const [scale, setScale] = useState(1);
   const [overlays, setOverlays] = useState<NodeOverlay[]>([]);
   const [composer, setComposer] = useState<ComposerState | null>(null);
+  // Bumped by the ResizeObserver below; an additional dep on the layout
+  // effect that walks the SVG so node-overlay rects get recomputed when the
+  // container resizes (e.g. window resize, sidebar toggle, font-size change).
+  const [layoutTick, setLayoutTick] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayParentRef = useRef<HTMLDivElement>(null);
   const reactId = useId();
@@ -135,7 +139,11 @@ export function MermaidView({ content, path }: Props) {
   // re-render — even when the svg string hasn't changed — wiping those
   // mutations. Setting it ourselves keeps the DOM stable across renders so
   // attributes set in the walk effect persist.
-  useEffect(() => {
+  // D1 — useLayoutEffect (paired with the walk effect below). Both must
+  // run before browser paint and in declaration order, so the SVG is
+  // injected first and only then walked. Using `useEffect` here would let
+  // the walk run against an empty container.
+  useLayoutEffect(() => {
     const wrapper = containerRef.current;
     if (!wrapper) return;
     if (svg) {
@@ -153,7 +161,10 @@ export function MermaidView({ content, path }: Props) {
   // shift). The path-less embed mode skips wiring entirely.
   // The actual setState calls are wrapped in an async IIFE to avoid the
   // react-hooks/set-state-in-effect lint rule (mirrors use-comments.ts).
-  useEffect(() => {
+  // D1 — useLayoutEffect so the SVG walk + position computation runs
+  // synchronously before browser paint, eliminating a one-frame flash where
+  // overlays appear at stale positions.
+  useLayoutEffect(() => {
     let cancelled = false;
     let cleanups: Array<() => void> = [];
 
@@ -215,19 +226,40 @@ export function MermaidView({ content, path }: Props) {
       cleanups.forEach((c) => c());
       cleanups = [];
     };
-  }, [svg, content, scale, filePath]);
+  }, [svg, content, scale, filePath, layoutTick]);
+
+  // D1 — observe size changes on the SVG container and bump `layoutTick`
+  // so the layout effect above re-walks the SVG and re-computes overlay
+  // rects. Without this, resizing the panel leaves badges at stale
+  // coordinates until the next zoom/svg change.
+  useEffect(() => {
+    const wrapper = containerRef.current;
+    if (!wrapper || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      setLayoutTick((t) => t + 1);
+    });
+    ro.observe(wrapper);
+    return () => ro.disconnect();
+  }, [svg]);
 
   const handleComposerSave = useCallback(
     (text: string) => {
       if (!filePath || !composer) return;
       // F1 — emit `kind:"line"` when the heuristic mapped to a source line;
       // omit the anchor (file-level fallback) when mapping returned null.
-      const anchor: Anchor | undefined =
-        composer.line === null ? undefined : { kind: "line", line: composer.line };
+      // D1 — when we have a mapped source line, also include the matched
+      // source-line text (capped at 256 chars) as `selected_text` so the
+      // anchor survives line renumbering / re-ordering via fuzzy match in
+      // the Rust resolver.
+      let anchor: Anchor | undefined;
+      if (composer.line !== null) {
+        const sourceLine = (content.split("\n")[composer.line - 1] ?? "").slice(0, 256);
+        anchor = { kind: "line", line: composer.line, selected_text: sourceLine };
+      }
       addComment(filePath, text, anchor).catch(() => {});
       setComposer(null);
     },
-    [filePath, composer, addComment],
+    [filePath, composer, addComment, content],
   );
 
   const handleExportSvg = useCallback(() => {
