@@ -62,14 +62,15 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<Command, SystemError> 
 }
 
 /// Build the OS-specific open-in-default-app command without spawning.
+///
+/// **Windows is intentionally absent** — see [`open_in_default_app`]. We used
+/// to spawn `cmd /c start "" <path>` here, but `cmd.exe` re-parses
+/// metacharacters (`&`, `^`, `%VAR%`) inside quoted args, breaking the
+/// workspace allowlist guarantee. Windows now goes through
+/// `tauri-plugin-opener::open_path` (ShellExecuteW under the hood), which
+/// opens the path verbatim with no shell expansion.
 pub(crate) fn build_open_command(path: &Path) -> Result<Command, SystemError> {
-    if cfg!(target_os = "windows") {
-        // `cmd /c start "" "<path>"` — empty title is required so a quoted
-        // path is treated as a path, not a window title.
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/c").arg("start").arg("").arg(path);
-        Ok(cmd)
-    } else if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") {
         let mut cmd = Command::new("open");
         cmd.arg(path);
         Ok(cmd)
@@ -78,6 +79,7 @@ pub(crate) fn build_open_command(path: &Path) -> Result<Command, SystemError> {
         cmd.arg(path);
         Ok(cmd)
     } else {
+        // Windows + anything else: callers must dispatch via plugin-opener.
         Err(SystemError::Unsupported)
     }
 }
@@ -103,8 +105,12 @@ pub fn reveal_in_folder(
 
 /// Open the file at `path` with the OS-registered default application.
 ///
-/// Workspace-allowlisted. Uses native `start` / `open` / `xdg-open` so the OS
-/// handles MIME → app dispatch — we do not look up the handler ourselves.
+/// Workspace-allowlisted. On macOS / Linux uses native `open` / `xdg-open`.
+/// On Windows we route through `tauri-plugin-opener::open_path` (which calls
+/// `ShellExecuteW` directly) instead of spawning `cmd /c start` — the latter
+/// re-parses `&`, `^`, and `%VAR%` inside quoted args, which would let a
+/// malicious path bypass the allowlist guarantee even after the
+/// `is_path_allowed` check.
 #[tauri::command]
 pub fn open_in_default_app(
     path: String,
@@ -115,9 +121,20 @@ pub fn open_in_default_app(
         tracing::warn!("[system] open_in_default_app rejected: path outside workspace");
         return Err(SystemError::PathOutsideWorkspace);
     }
-    let mut cmd = build_open_command(p)?;
-    cmd.spawn().map_err(SystemError::io)?;
-    Ok(())
+    #[cfg(target_os = "windows")]
+    {
+        // `tauri_plugin_opener::open_path` calls ShellExecuteW with the path
+        // as a verbatim argument — no shell expansion, no re-parsing.
+        tauri_plugin_opener::open_path(p, None::<&str>)
+            .map_err(|e| SystemError::IoError { message: e.to_string() })?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = build_open_command(p)?;
+        cmd.spawn().map_err(SystemError::io)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -157,11 +174,17 @@ mod tests {
     #[test]
     fn build_open_command_uses_platform_binary() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
+        // Windows is routed via tauri-plugin-opener (see open_in_default_app)
+        // and therefore returns Unsupported here — there is intentionally no
+        // `Command` shape to assert.
+        if cfg!(target_os = "windows") {
+            let res = build_open_command(tmp.path());
+            assert!(matches!(res, Err(SystemError::Unsupported)));
+            return;
+        }
         let cmd = build_open_command(tmp.path()).expect("supported platform");
         let prog = cmd_program(&cmd);
-        if cfg!(target_os = "windows") {
-            assert_eq!(prog, "cmd");
-        } else if cfg!(target_os = "macos") {
+        if cfg!(target_os = "macos") {
             assert_eq!(prog, "open");
         } else if cfg!(target_os = "linux") {
             assert_eq!(prog, "xdg-open");

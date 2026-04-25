@@ -6,12 +6,9 @@ import {
   formatBytes,
   type BinaryIconCategory,
 } from "@/lib/file-types";
-import {
-  copyToClipboard,
-  openInDefaultApp,
-  revealInFolder,
-} from "@/lib/tauri-commands";
+import { copyToClipboard } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
+import { FileActionsBar } from "./FileActionsBar";
 import { HexView } from "./HexView";
 
 interface Props {
@@ -105,19 +102,7 @@ export function BinaryPlaceholder({ path, size }: Props) {
   const mime = getMimeHint(path);
   const sizeOk = size !== undefined && size < HEX_MAX_BYTES;
 
-  const handleOpen = () => {
-    void openInDefaultApp(path).catch((e) =>
-      warn(`openInDefaultApp failed: ${String(e)}`),
-    );
-  };
-  const handleReveal = () => {
-    void revealInFolder(path).catch((e) =>
-      warn(`revealInFolder failed: ${String(e)}`),
-    );
-  };
   const handleCopy = () => {
-    // navigator.clipboard for renderer-only fallback; the Tauri plugin wrapper
-    // covers the desktop path. Try the plugin first (matches link-copy UX).
     void copyToClipboard(path).catch((e) =>
       warn(`copyToClipboard failed: ${String(e)}`),
     );
@@ -146,12 +131,7 @@ export function BinaryPlaceholder({ path, size }: Props) {
         <p className="binary-size">{formatBytes(size)}</p>
       )}
       <div className="binary-actions">
-        <button type="button" onClick={handleOpen}>
-          Open in default app
-        </button>
-        <button type="button" onClick={handleReveal}>
-          Reveal in folder
-        </button>
+        <FileActionsBar path={path} />
         <button type="button" onClick={handleCopy}>
           Copy path
         </button>

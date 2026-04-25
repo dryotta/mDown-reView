@@ -51,7 +51,7 @@ test.describe("Viewer toolbar reveal/open actions (#65 G4)", () => {
     await expect(page.locator(".markdown-viewer")).toBeVisible();
 
     await page.getByRole("button", { name: /reveal in folder/i }).first().click();
-    await page.getByRole("button", { name: /open externally/i }).first().click();
+    await page.getByRole("button", { name: /open in default app/i }).first().click();
 
     const calls = await getCalls(page);
     const reveal = calls.find(
@@ -75,7 +75,7 @@ test.describe("Viewer toolbar reveal/open actions (#65 G4)", () => {
     await expect(page.locator(".image-viewer")).toBeVisible();
 
     await page.getByRole("button", { name: /reveal in folder/i }).first().click();
-    await page.getByRole("button", { name: /open externally/i }).first().click();
+    await page.getByRole("button", { name: /open in default app/i }).first().click();
 
     const calls = await getCalls(page);
     const reveal = calls.find(

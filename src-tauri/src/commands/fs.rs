@@ -130,14 +130,36 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
 /// read. Used by viewers (BinaryPlaceholder, TooLargePlaceholder) that need
 /// to display a size without paying the I/O cost of `read_binary_file`. No
 /// 10 MB cap — over-cap files are exactly the case we want to surface.
+///
+/// Workspace-allowlisted: mirrors `commands/system.rs::reveal_in_folder` so a
+/// malicious renderer cannot probe arbitrary paths (e.g. `~/.ssh/id_rsa`)
+/// for existence/size. The path must be inside an open workspace folder or
+/// an open tab.
 #[derive(serde::Serialize, Debug)]
 pub struct FileStat {
     pub size_bytes: u64,
 }
 
 #[tauri::command]
-pub fn stat_file(path: String) -> Result<FileStat, String> {
-    let meta = std::fs::metadata(&path).map_err(|e| {
+pub fn stat_file(
+    path: String,
+    state: tauri::State<'_, crate::watcher::WatcherState>,
+) -> Result<FileStat, String> {
+    stat_file_inner(&path, &state)
+}
+
+/// Inner implementation, decoupled from `tauri::State` so unit/integration
+/// tests can construct a plain `WatcherState` and call this directly without
+/// spinning up a full `tauri::App`.
+pub fn stat_file_inner(
+    path: &str,
+    state: &crate::watcher::WatcherState,
+) -> Result<FileStat, String> {
+    if !state.is_path_allowed(std::path::Path::new(path)) {
+        tracing::warn!("[fs] stat_file rejected: path outside workspace");
+        return Err("path not in workspace".into());
+    }
+    let meta = std::fs::metadata(path).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;

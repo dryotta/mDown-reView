@@ -72,7 +72,6 @@ export function ImageViewer({ path }: Props) {
     const canvas = canvasRef.current;
     const displayed = dimensions;
     if (!canvas || !displayed) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- bounds change with zoom
     setPan((p) => {
       const next = clampPan(p, { w: canvas.clientWidth, h: canvas.clientHeight }, displayed, zoom);
       return next.x === p.x && next.y === p.y ? p : next;

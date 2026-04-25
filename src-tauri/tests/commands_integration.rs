@@ -1,6 +1,6 @@
 use mdown_review_lib::commands::{
     drain_pending, push_pending, read_binary_file, read_dir,
-    read_text_file, stat_file, CommentsChangedEvent, LaunchArgs, PendingArgsState,
+    read_text_file, stat_file_inner, CommentsChangedEvent, LaunchArgs, PendingArgsState,
     MrsfComment, MrsfSidecar,
     search_in_document,
 };
@@ -527,17 +527,53 @@ fn mutate_sidecar_or_create_uses_filename_default_when_document_default_is_none(
 
 //  stat_file 
 
+/// Helper: build a WatcherState that allowlists `dir`. Mirrors the pattern
+/// from `commands/system.rs` tests.
+fn watcher_state_allowing(dir: &std::path::Path) -> mdown_review_lib::watcher::WatcherState {
+    let canonical = std::fs::canonicalize(dir).unwrap();
+    let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+    let state = mdown_review_lib::watcher::WatcherState::new(tx);
+    state
+        .set_tree_watched_dirs(
+            canonical.to_string_lossy().into_owned(),
+            vec![canonical.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+    state
+}
+
 #[test]
 fn stat_file_returns_size_in_bytes() {
-    let mut tmp = tempfile::NamedTempFile::new().unwrap();
-    tmp.write_all(b"hello").unwrap();
-    let path = tmp.path().to_str().unwrap().to_string();
-    let result = stat_file(path).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let file = canonical.join("hello.bin");
+    std::fs::write(&file, b"hello").unwrap();
+    let state = watcher_state_allowing(dir.path());
+    let result = stat_file_inner(file.to_str().unwrap(), &state).unwrap();
     assert_eq!(result.size_bytes, 5);
 }
 
 #[test]
 fn stat_file_returns_err_for_missing_path() {
-    let result = stat_file("/nonexistent/path/xyz.bin".to_string());
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let missing = canonical.join("nope.bin");
+    let state = watcher_state_allowing(dir.path());
+    let result = stat_file_inner(missing.to_str().unwrap(), &state);
     assert!(result.is_err());
+}
+
+#[test]
+fn stat_file_rejects_path_outside_workspace() {
+    // Workspace = dir A; stat'd file lives in dir B → must be rejected with
+    // the canonical "path not in workspace" error.
+    let workspace = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_canonical = std::fs::canonicalize(outside.path()).unwrap();
+    let outside_file = outside_canonical.join("secret.bin");
+    std::fs::write(&outside_file, b"secret").unwrap();
+
+    let state = watcher_state_allowing(workspace.path());
+    let result = stat_file_inner(outside_file.to_str().unwrap(), &state);
+    assert_eq!(result.unwrap_err(), "path not in workspace");
 }

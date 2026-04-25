@@ -1,35 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewer } from "./ImageViewer";
-import { AudioViewer } from "./AudioViewer";
-import { VideoViewer } from "./VideoViewer";
+import { AudioViewer, getAudioMime } from "./AudioViewer";
+import { VideoViewer, getVideoMime } from "./VideoViewer";
 import { PdfViewer } from "./PdfViewer";
 import { BinaryPlaceholder } from "./BinaryPlaceholder";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
-import { ViewerToolbar } from "./ViewerToolbar";
+import { FileActionsBar } from "./FileActionsBar";
 
 interface Props {
   path: string;
-}
-
-/**
- * G4 — wrap viewers that don't already render a `ViewerToolbar` (image,
- * audio, video, pdf) in a column flex with a slim action toolbar at the top
- * exposing reveal/open. EnhancedViewer renders its own toolbar internally,
- * BinaryPlaceholder/TooLarge/Deleted have their own action surfaces, so they
- * are not wrapped here.
- */
-function withActionToolbar(path: string, child: ReactNode): ReactNode {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <ViewerToolbar activeView="visual" onViewChange={() => {}} hidden path={path} />
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{child}</div>
-    </div>
-  );
 }
 
 export function ViewerRouter({ path }: Props) {
@@ -113,74 +97,90 @@ export function ViewerRouter({ path }: Props) {
 
   if (status === "loading") {
     return (
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
+      <div ref={scrollRef} className="viewer-scroll-region">
         <SkeletonLoader />
       </div>
     );
   }
 
+  // R1+R2+R3 — every routed viewer is keyed on `path`. A path change forces
+  // unmount+remount, which: (a) drops PdfViewer's stale `loadError`, (b) stops
+  // audio/video playback that would otherwise continue after a tab switch,
+  // (c) resets HexView byte state without an explicit `setBytes(null)` effect.
   if (status === "image") {
     return (
-      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {withActionToolbar(path, <ImageViewer path={path} />)}
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} />
+        </div>
+        <ImageViewer key={path} path={path} />
       </div>
     );
   }
 
   if (status === "audio") {
     return (
-      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {withActionToolbar(path, <AudioViewer path={path} />)}
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} mime={getAudioMime(path)} />
+        </div>
+        <AudioViewer key={path} path={path} />
       </div>
     );
   }
 
   if (status === "video") {
     return (
-      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {withActionToolbar(path, <VideoViewer path={path} />)}
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} mime={getVideoMime(path)} />
+        </div>
+        <VideoViewer key={path} path={path} />
       </div>
     );
   }
 
   if (status === "pdf") {
     return (
-      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        {withActionToolbar(path, <PdfViewer path={path} />)}
+      <div className="viewer-media-container">
+        <div className="viewer-actions-row">
+          <FileActionsBar path={path} />
+        </div>
+        <PdfViewer key={path} path={path} />
       </div>
     );
   }
 
   if (status === "too_large") {
     return (
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <TooLargePlaceholder path={path} size={sizeBytes} />
+      <div className="viewer-scroll-region">
+        <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
       </div>
     );
   }
 
   if (status === "binary") {
     return (
-      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <BinaryPlaceholder path={path} size={sizeBytes} />
+      <div className="viewer-media-container">
+        <BinaryPlaceholder key={path} path={path} size={sizeBytes} />
       </div>
     );
   }
 
   if (status === "error") {
     if (isGhost) {
-      return <DeletedFileViewer filePath={path} />;
+      return <DeletedFileViewer key={path} filePath={path} />;
     }
     return (
-      <div style={{ padding: 20, color: "var(--color-badge)" }}>
+      <div className="viewer-error">
         Error loading file: {error}
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }} onScroll={handleScroll}>
-      <EnhancedViewer content={content!} path={path} filePath={path} fileSize={fileSize} />
+    <div ref={scrollRef} className="viewer-scroll-region" onScroll={handleScroll}>
+      <EnhancedViewer key={path} content={content!} path={path} filePath={path} fileSize={fileSize} />
     </div>
   );
 }

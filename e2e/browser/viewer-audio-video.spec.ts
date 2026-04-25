@@ -40,9 +40,8 @@ test.describe("Media viewers (#65 F1/F2)", () => {
     expect(src).not.toBeNull();
     expect((src ?? "").length).toBeGreaterThan(0);
 
-    // Header surfaces filename + MIME hint.
-    await expect(page.locator(".audio-viewer-header")).toContainText("song.mp3");
-    await expect(page.locator(".audio-viewer-header")).toContainText("audio/mpeg");
+    // L4 — filename + MIME live in the FileActionsBar above the player.
+    await expect(page.locator(".file-actions-bar__mime")).toContainText("audio/mpeg");
   });
 
   test("opens .mp4 in VideoViewer with native <video> controls", async ({ page }) => {
@@ -59,7 +58,6 @@ test.describe("Media viewers (#65 F1/F2)", () => {
     expect(src).not.toBeNull();
     expect((src ?? "").length).toBeGreaterThan(0);
 
-    await expect(page.locator(".video-viewer-header")).toContainText("clip.mp4");
-    await expect(page.locator(".video-viewer-header")).toContainText("video/mp4");
+    await expect(page.locator(".file-actions-bar__mime")).toContainText("video/mp4");
   });
 });

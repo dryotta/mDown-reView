@@ -56,6 +56,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 11. `SourceView` runs Shiki once per file/theme change, not per line. (`useSourceHighlighting.ts:54`.)
 12. `useSourceHighlighting` uses `useDeferredValue` so highlighting never blocks typing or scrolling. (`useSourceHighlighting.ts:28`.)
 13. `useFileContent` renders "loading" only on initial mount or path change, not on same-file watcher reloads. (`useFileContent.ts:35`.)
+13a. `HexView` virtualizes rows when payload ≥ 32 KiB at 18-px row height; smaller files render in full. (`HexView.tsx` `VIRTUALIZE_THRESHOLD`, `ROW_HEIGHT`.)
 
 ### Rust hot paths
 14. Comment anchoring (`match_comments`) stays in Rust; no TypeScript re-implementation. (`core/matching.rs:12`, exposed via `get_file_comments`.)

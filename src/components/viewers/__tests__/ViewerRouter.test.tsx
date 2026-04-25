@@ -23,12 +23,14 @@ vi.mock("../AudioViewer", () => ({
   AudioViewer: ({ path }: { path: string }) => (
     <div data-testid="audio-viewer" data-path={path}>AudioViewer</div>
   ),
+  getAudioMime: (p: string) => (p.endsWith(".mp3") ? "audio/mpeg" : "audio/*"),
 }));
 
 vi.mock("../VideoViewer", () => ({
   VideoViewer: ({ path }: { path: string }) => (
     <div data-testid="video-viewer" data-path={path}>VideoViewer</div>
   ),
+  getVideoMime: (p: string) => (p.endsWith(".mp4") ? "video/mp4" : "video/*"),
 }));
 
 vi.mock("../PdfViewer", () => ({

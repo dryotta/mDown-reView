@@ -57,10 +57,11 @@ export function HexView({ path }: Props) {
   const [viewportHeight, setViewportHeight] = useState(400);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // R3 — relies on `key={path}` at the parent (BinaryPlaceholder/ViewerRouter)
+  // to remount this component on path change, so an explicit
+  // `setBytes(null)` reset effect is no longer required.
   useEffect(() => {
     let cancelled = false;
-    setBytes(null); // eslint-disable-line react-hooks/set-state-in-effect
-    setError(null);
     readBinaryFile(path)
       .then((b64) => {
         if (cancelled) return;

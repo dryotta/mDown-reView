@@ -1,63 +1,36 @@
-import { extname } from "@/lib/path-utils";
+import { basename } from "@/lib/path-utils";
+import { getMimeHint } from "@/lib/file-types";
 import { convertAssetUrl } from "@/lib/tauri-commands";
 
 interface Props {
   path: string;
 }
 
-const MIME_MAP: Record<string, string> = {
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".mov": "video/quicktime",
-  ".mkv": "video/x-matroska",
-};
-
 /**
  * Native HTML5 video viewer (#65 F2). Same loading model as AudioViewer:
  * `convertAssetUrl` produces an `asset://` URL the webview can stream
- * directly. Native controls only — no custom player chrome.
+ * directly. Native controls only — no custom player chrome. Filename + MIME
+ * are surfaced by the `FileActionsBar` rendered above in `ViewerRouter`.
  */
 export function VideoViewer({ path }: Props) {
-  const filename = path.split(/[\\/]/).pop() || path;
-  const mime = MIME_MAP[extname(path)] ?? "video/*";
   const src = convertAssetUrl(path);
 
   return (
-    <div
-      className="video-viewer"
-      style={{ display: "flex", flexDirection: "column", height: "100%" }}
-    >
-      <div
-        className="video-viewer-header"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "8px 12px",
-          borderBottom: "1px solid var(--color-border, #d0d7de)",
-          fontSize: 13,
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>{filename}</span>
-        <span style={{ color: "var(--color-muted, #656d76)" }}>{mime}</span>
-      </div>
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 16,
-          overflow: "auto",
-        }}
-      >
-        <video
-          controls
-          preload="metadata"
-          src={src}
-          style={{ maxWidth: "100%", maxHeight: "100%" }}
-        />
-      </div>
+    <div className="video-viewer viewer-media-body viewer-media-body--centered">
+      <video controls preload="metadata" src={src} />
     </div>
   );
+}
+
+/** Resolve the MIME hint for a video path, falling back to `video/*` for
+ *  unknown extensions. Exported so `ViewerRouter` can pass the same hint
+ *  into `FileActionsBar`. */
+export function getVideoMime(path: string): string {
+  const hint = getMimeHint(path);
+  return hint === "application/octet-stream" ? "video/*" : hint;
+}
+
+/** Exported for tests + parity with old API. */
+export function getVideoFilename(path: string): string {
+  return basename(path);
 }
