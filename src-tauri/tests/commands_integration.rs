@@ -18,7 +18,19 @@ fn read_text_file_returns_utf8_content() {
     let path = tmp.path().to_str().unwrap().to_string();
     let result = read_text_file(path);
     assert!(result.is_ok());
-    assert!(result.unwrap().contains("Hello, world!"));
+    assert!(result.unwrap().content.contains("Hello, world!"));
+}
+
+#[test]
+fn read_text_file_returns_size_and_line_count() {
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    // 3 lines, each terminated with \n → 3 lines per str::lines
+    tmp.write_all(b"alpha\nbeta\ngamma\n").unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    let result = read_text_file(path).unwrap();
+    assert_eq!(result.content, "alpha\nbeta\ngamma\n");
+    assert_eq!(result.size_bytes, 17);
+    assert_eq!(result.line_count, 3);
 }
 
 #[test]

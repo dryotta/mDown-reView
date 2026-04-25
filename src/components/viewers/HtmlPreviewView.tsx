@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { resolveHtmlAssets } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
+import { ReadingWidthHandle } from "./ReadingWidthHandle";
+import { useStore } from "@/store";
 
 interface Props {
   content: string;
@@ -11,6 +13,8 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const [unsafeMode, setUnsafeMode] = useState(false);
   const [resolvedContent, setResolvedContent] = useState(content);
   const [resolving, setResolving] = useState(false);
+  const readingContainerRef = useRef<HTMLDivElement>(null);
+  const readingWidth = useStore((s) => s.readingWidth);
   // Security: never combine allow-same-origin + allow-scripts (iframe escape).
   // Safe mode: allow-same-origin only (for CSS/fonts, no script execution).
   // Unsafe mode: allow-scripts only (scripts run sandboxed, cannot access parent).
@@ -51,12 +55,24 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           {unsafeMode ? "Disable scripts" : "Enable scripts"}
         </button>
       </div>
-      <iframe
-        srcDoc={resolvedContent}
-        sandbox={sandbox}
-        title="HTML preview"
-        style={{ width: "100%", border: "none", minHeight: 400, flex: 1, background: "white" }}
-      />
+      <div
+        className="reading-width"
+        ref={readingContainerRef}
+        style={{
+          ["--reading-width" as string]: `${readingWidth}px`,
+          flex: 1,
+          display: "flex",
+          minHeight: 0,
+        }}
+      >
+        <iframe
+          srcDoc={resolvedContent}
+          sandbox={sandbox}
+          title="HTML preview"
+          style={{ width: "100%", border: "none", minHeight: 400, flex: 1, background: "white" }}
+        />
+        <ReadingWidthHandle containerRef={readingContainerRef} />
+      </div>
     </div>
   );
 }

@@ -68,6 +68,18 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             | undefined;
           if (typeof mock === "function") {
             const result = await mock(cmd, args ?? {});
+            // read_text_file changed shape from `string` to `{ content, size_bytes, line_count }`.
+            // Tests authored before that change still return a plain string — wrap it transparently
+            // so the existing specs keep working without per-file edits.
+            if (cmd === "read_text_file" && typeof result === "string") {
+              return {
+                content: result,
+                size_bytes: new TextEncoder().encode(result).length,
+                line_count: result.length === 0
+                  ? 0
+                  : result.split("\n").length - (result.endsWith("\n") ? 1 : 0),
+              };
+            }
             // If the test mock returned null, apply safe defaults for
             // infrastructure commands that were added after the test was written.
             if (result === null) {
@@ -82,6 +94,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "compute_fold_regions") return [];
               if (cmd === "parse_kql") return [];
               if (cmd === "strip_json_comments") return (args as { text?: string })?.text ?? "";
+              if (cmd === "read_text_file") return { content: "", size_bytes: 0, line_count: 0 };
               // Onboarding (iter 2 + iter 3) — keep welcome auto-show OFF by default.
               if (
                 cmd === "cli_shim_status" ||
@@ -117,6 +130,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "compute_fold_regions") return [];
           if (cmd === "parse_kql") return [];
           if (cmd === "strip_json_comments") return (args as { text?: string })?.text ?? "";
+          if (cmd === "read_text_file") return { content: "", size_bytes: 0, line_count: 0 };
           if (
             cmd === "cli_shim_status" ||
             cmd === "default_handler_status" ||

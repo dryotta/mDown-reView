@@ -12,7 +12,9 @@ describe("tabs slice – openFile", () => {
     useStore.getState().openFile("/docs/file.md");
     const { tabs, activeTabPath } = useStore.getState();
     expect(tabs).toHaveLength(1);
-    expect(tabs[0]).toEqual({ path: "/docs/file.md", scrollTop: 0 });
+    expect(tabs[0].path).toBe("/docs/file.md");
+    expect(tabs[0].scrollTop).toBe(0);
+    expect(typeof tabs[0].lastAccessedAt).toBe("number");
     expect(activeTabPath).toBe("/docs/file.md");
   });
 

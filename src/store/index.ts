@@ -41,21 +41,37 @@ interface WorkspaceSlice {
 
 // ── Tabs slice ─────────────────────────────────────────────────────────────
 
+/** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
+export const MAX_TABS = 15;
+
 export interface Tab {
   path: string;
   scrollTop: number;
+  /**
+   * Wall-clock timestamp of the last time this tab was opened or activated.
+   * Drives LRU eviction. Optional only for backwards-compatibility with persisted
+   * snapshots written before this field existed — `openFile` and `setActiveTab`
+   * always set it. Treat `undefined` as 0 (oldest) when sorting.
+   */
+  lastAccessedAt?: number;
 }
 
 interface TabsSlice {
   tabs: Tab[];
   activeTabPath: string | null;
   viewModeByTab: Record<string, "source" | "visual">;
+  /** Wall-clock timestamps of last successful file content load per path. Session-only (not persisted). */
+  lastFileReloadedAt: Record<string, number>;
+  /** Wall-clock timestamps of last successful comments load per path. Session-only (not persisted). */
+  lastCommentsReloadedAt: Record<string, number>;
   openFile: (path: string) => void;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (path: string) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
   setViewMode: (path: string, mode: "source" | "visual") => void;
+  setLastFileReloadedAt: (path: string, ts: number) => void;
+  setLastCommentsReloadedAt: (path: string, ts: number) => void;
 }
 
 // ── UI slice ──────────────────────────────────────────────────────────────
@@ -67,10 +83,13 @@ interface UISlice {
   folderPaneWidth: number;
   commentsPaneVisible: boolean;
   authorName: string;
+  /** Reading column width (CSS pixels). Persisted. Clamped to [400, 1600]. */
+  readingWidth: number;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
   toggleCommentsPane: () => void;
   setAuthorName: (name: string) => void;
+  setReadingWidth: (n: number) => void;
 }
 
 // ── Watcher slice ──────────────────────────────────────────────────────────
@@ -156,7 +175,28 @@ export function filterStaleTabs(
   activeTabPath: string | null,
   existsMap: Map<string, boolean>
 ): { tabs: Tab[]; activeTabPath: string | null } {
-  const validTabs = tabs.filter((t) => existsMap.get(t.path) !== false);
+  // 1. Drop tabs whose source file no longer exists.
+  let validTabs = tabs.filter((t) => existsMap.get(t.path) !== false);
+
+  // 2. Enforce MAX_TABS — keep activeTabPath (if any) and the most-recently-accessed
+  //    others by lastAccessedAt descending. Older persisted snapshots may lack the
+  //    field; treat missing as 0 so they evict first.
+  if (validTabs.length > MAX_TABS) {
+    const accessed = (t: Tab) => (typeof t.lastAccessedAt === "number" ? t.lastAccessedAt : 0);
+    const active = activeTabPath
+      ? validTabs.find((t) => t.path === activeTabPath) ?? null
+      : null;
+    const others = validTabs
+      .filter((t) => t.path !== activeTabPath)
+      .sort((a, b) => accessed(b) - accessed(a));
+    const keepCount = active ? MAX_TABS - 1 : MAX_TABS;
+    const kept = others.slice(0, keepCount);
+    // Restore original tab order for stability (avoids reshuffling the tab bar on rehydrate).
+    const keptSet = new Set(kept.map((t) => t.path));
+    if (active) keptSet.add(active.path);
+    validTabs = validTabs.filter((t) => keptSet.has(t.path));
+  }
+
   const validPaths = new Set(validTabs.map((t) => t.path));
   let newActiveTabPath = activeTabPath;
   if (activeTabPath && !validPaths.has(activeTabPath)) {
@@ -188,13 +228,38 @@ export const useStore = create<Store>()(
       // Tabs
       tabs: [],
       activeTabPath: null,
+      lastFileReloadedAt: {},
+      lastCommentsReloadedAt: {},
       openFile: (path) => {
+        const now = Date.now();
         const existing = get().tabs.find((t) => t.path === path);
         if (existing) {
-          set({ activeTabPath: path });
-        } else {
-          set((s) => ({ tabs: [...s.tabs, { path, scrollTop: 0 }], activeTabPath: path }));
+          set((s) => ({
+            activeTabPath: path,
+            tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
+          }));
+          return;
         }
+        // Evict LRU non-active tab if at capacity.
+        let baseTabs = get().tabs;
+        if (baseTabs.length >= MAX_TABS) {
+          const activePath = get().activeTabPath;
+          const candidates = baseTabs.filter((t) => t.path !== activePath);
+          if (candidates.length > 0) {
+            const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
+            const victim = candidates.reduce((oldest, t) =>
+              accessed(t) < accessed(oldest) ? t : oldest
+            );
+            baseTabs = baseTabs.filter((t) => t.path !== victim.path);
+            const { [victim.path]: _v, ...restView } = get().viewModeByTab;
+            const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
+            set({ viewModeByTab: restView, lastSaveByPath: restSave });
+          }
+        }
+        set({
+          tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
+          activeTabPath: path,
+        });
       },
       closeTab: (path) => {
         const tabs = get().tabs;
@@ -210,7 +275,13 @@ export const useStore = create<Store>()(
         set({ tabs: newTabs, activeTabPath: newActive, viewModeByTab: restViewModes, lastSaveByPath: restSaveByPath });
       },
       closeAllTabs: () => set({ tabs: [], activeTabPath: null, viewModeByTab: {}, lastSaveByPath: {} }),
-      setActiveTab: (path) => set({ activeTabPath: path }),
+      setActiveTab: (path) => {
+        const now = Date.now();
+        set((s) => ({
+          activeTabPath: path,
+          tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
+        }));
+      },
       setScrollTop: (path, scrollTop) => {
         const tab = get().tabs.find((t) => t.path === path);
         if (!tab || tab.scrollTop === scrollTop) return;
@@ -223,16 +294,22 @@ export const useStore = create<Store>()(
         set((s) => ({
           viewModeByTab: { ...s.viewModeByTab, [path]: mode },
         })),
+      setLastFileReloadedAt: (path, ts) =>
+        set((s) => ({ lastFileReloadedAt: { ...s.lastFileReloadedAt, [path]: ts } })),
+      setLastCommentsReloadedAt: (path, ts) =>
+        set((s) => ({ lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, [path]: ts } })),
 
       // UI
       theme: "system",
       folderPaneWidth: 240,
       commentsPaneVisible: true,
       authorName: "",
+      readingWidth: 720,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
+      setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
 
       // Watcher
       ghostEntries: [],
@@ -334,6 +411,7 @@ export const useStore = create<Store>()(
         root: state.root,
         expandedFolders: state.expandedFolders,
         authorName: state.authorName,
+        readingWidth: state.readingWidth,
         recentItems: state.recentItems,
         tabs: state.tabs,
         activeTabPath: state.activeTabPath,
@@ -341,8 +419,15 @@ export const useStore = create<Store>()(
       }),
       onRehydrateStorage: () => () => {
         queueMicrotask(() => {
-          const { tabs } = useStore.getState();
+          const { tabs, activeTabPath } = useStore.getState();
           if (tabs.length === 0) return;
+          // Enforce MAX_TABS immediately at rehydrate time so the cap holds
+          // even if every persisted file still exists (validatePersistedTabs
+          // also enforces it after the existence check).
+          if (tabs.length > MAX_TABS) {
+            const trimmed = filterStaleTabs(tabs, activeTabPath, new Map());
+            useStore.setState(trimmed);
+          }
           import("@/lib/tauri-commands").then(
             ({ checkPathExists }) => validatePersistedTabs(checkPathExists),
             () => {}

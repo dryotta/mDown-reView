@@ -47,8 +47,14 @@ export interface MrsfSidecar {
 
 // ── Typed wrappers ─────────────────────────────────────────────────────────
 
-export const readTextFile = (path: string): Promise<string> =>
-  invoke<string>("read_text_file", { path });
+export interface TextFileResult {
+  content: string;
+  size_bytes: number;
+  line_count: number;
+}
+
+export const readTextFile = (path: string): Promise<TextFileResult> =>
+  invoke<TextFileResult>("read_text_file", { path });
 
 export const readBinaryFile = (path: string): Promise<string> =>
   invoke<string>("read_binary_file", { path });

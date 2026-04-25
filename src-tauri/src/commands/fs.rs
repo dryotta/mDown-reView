@@ -65,9 +65,23 @@ pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
     Ok(result)
 }
 
+/// Result of [`read_text_file`]: file content plus cheap-to-compute metadata
+/// (byte size and line count) that the UI surfaces in the status bar without
+/// requiring a second IPC round-trip.
+#[derive(serde::Serialize, Debug)]
+pub struct TextFileResult {
+    pub content: String,
+    pub size_bytes: u64,
+    pub line_count: usize,
+}
+
 /// Read a text file, rejecting binary files and files >10 MB.
+///
+/// Returns the decoded UTF-8 content alongside `size_bytes` (raw byte length
+/// of the on-disk file) and `line_count` (logical lines as defined by
+/// [`str::lines`]).
 #[tauri::command]
-pub fn read_text_file(path: String) -> Result<String, String> {
+pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
     // Read first, then check size (eliminates TOCTOU race between metadata + read)
     let bytes = std::fs::read(&path).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
@@ -85,10 +99,14 @@ pub fn read_text_file(path: String) -> Result<String, String> {
         return Err("binary_file".into());
     }
 
-    String::from_utf8(bytes).map_err(|e| {
+    let size_bytes = bytes.len() as u64;
+    let content = String::from_utf8(bytes).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
-        "binary_file".into()
-    })
+        "binary_file".to_string()
+    })?;
+    let line_count = content.lines().count();
+
+    Ok(TextFileResult { content, size_bytes, line_count })
 }
 
 /// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
