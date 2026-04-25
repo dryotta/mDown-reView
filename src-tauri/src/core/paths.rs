@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 /// - absolute `input` → returned verbatim (folder & cwd ignored)
 /// - relative `input` + `Some(folder)` → joined under folder
 /// - relative `input` + `None` → joined under cwd
-fn resolve_path(input: &str, folder: Option<&str>, cwd: &Path) -> PathBuf {
+pub fn resolve_path(input: &str, folder: Option<&str>, cwd: &Path) -> PathBuf {
     let p = Path::new(input);
     if p.is_absolute() {
         return p.to_path_buf();

@@ -76,7 +76,7 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
         if args[i] == "--folder" {
             i += 1;
             if let Some(val) = args.get(i) {
-                let resolved = cwd.join(val);
+                let resolved = crate::core::paths::resolve_path(val, None, cwd);
                 if let Ok(canon) = std::fs::canonicalize(&resolved) {
                     folders.push(canon.to_string_lossy().into_owned());
                 }
@@ -85,13 +85,11 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
         i += 1;
     }
 
-    // Resolution base for relative --file / positional values.
-    let base: std::path::PathBuf = folders
-        .first()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| cwd.to_path_buf());
+    // Resolution base for relative --file / positional values: first --folder, else cwd.
+    let folder_owned: Option<String> = folders.first().cloned();
+    let folder_opt: Option<&str> = folder_owned.as_deref();
 
-    // ── Pass 2: resolve --file and positionals against `base` ─────────────
+    // ── Pass 2: resolve --file and positionals against `folder_opt` ───────
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
@@ -102,15 +100,13 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
         if arg == "--file" {
             i += 1;
             if let Some(val) = args.get(i) {
-                let p = Path::new(val);
-                let resolved = if p.is_absolute() { p.to_path_buf() } else { base.join(val) };
+                let resolved = crate::core::paths::resolve_path(val, folder_opt, cwd);
                 if let Ok(canon) = std::fs::canonicalize(&resolved) {
                     files.push(canon.to_string_lossy().into_owned());
                 }
             }
         } else if !arg.starts_with('-') {
-            let p = Path::new(arg);
-            let resolved = if p.is_absolute() { p.to_path_buf() } else { base.join(arg) };
+            let resolved = crate::core::paths::resolve_path(arg, folder_opt, cwd);
             if let Ok(canon) = std::fs::canonicalize(&resolved) {
                 match std::fs::metadata(&canon) {
                     Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
@@ -345,5 +341,63 @@ mod tests {
             merged.files
         );
         assert_eq!(merged.files.len(), 2);
+    }
+
+    /// Verifies parse_launch_args delegates to core::paths::resolve_path for
+    /// --file resolution: the resolved (canonical) path matches what the
+    /// shared helper produces. Note: foo.md is created so canonicalize
+    /// succeeds — resolve_path itself does not require existence, but the
+    /// surrounding canonicalize step in parse_launch_args does.
+    #[test]
+    fn parse_launch_args_delegates_to_resolve_path() {
+        let proj = tempdir().unwrap();
+        let cwd = tempdir().unwrap();
+        fs::write(proj.path().join("foo.md"), "x").unwrap();
+
+        let args = vec![
+            s("--file"), s("foo.md"),
+            s("--folder"), s(proj.path().to_str().unwrap()),
+        ];
+        let out = parse_launch_args(&args, cwd.path());
+
+        let folder_str = canon(proj.path());
+        let expected = crate::core::paths::resolve_path(
+            "foo.md",
+            Some(folder_str.as_str()),
+            cwd.path(),
+        );
+        let expected_canon = fs::canonicalize(&expected).unwrap().to_string_lossy().into_owned();
+
+        assert_eq!(out.files, vec![expected_canon]);
+    }
+
+    #[test]
+    fn parse_launch_args_handles_five_positional_files() {
+        let cwd = tempdir().unwrap();
+        let names = ["a.md", "b.md", "c.md", "d.md", "e.md"];
+        for n in &names {
+            fs::write(cwd.path().join(n), "x").unwrap();
+        }
+        let args: Vec<String> = names.iter().map(|n| s(n)).collect();
+        let out = parse_launch_args(&args, cwd.path());
+
+        let expected: Vec<String> = names.iter().map(|n| canon(cwd.path().join(n))).collect();
+        assert_eq!(out.files.len(), 5);
+        assert_eq!(out.files, expected);
+    }
+
+    #[test]
+    fn parse_launch_args_handles_ten_positional_files() {
+        let cwd = tempdir().unwrap();
+        let names = ["a.md","b.md","c.md","d.md","e.md","f.md","g.md","h.md","i.md","j.md"];
+        for n in &names {
+            fs::write(cwd.path().join(n), "x").unwrap();
+        }
+        let args: Vec<String> = names.iter().map(|n| s(n)).collect();
+        let out = parse_launch_args(&args, cwd.path());
+
+        let expected: Vec<String> = names.iter().map(|n| canon(cwd.path().join(n))).collect();
+        assert_eq!(out.files.len(), 10);
+        assert_eq!(out.files, expected);
     }
 }
