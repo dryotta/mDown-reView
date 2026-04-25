@@ -1,4 +1,3 @@
-import { basename } from "@/lib/path-utils";
 import { getMimeHint } from "@/lib/file-types";
 import { convertAssetUrl } from "@/lib/tauri-commands";
 
@@ -30,7 +29,4 @@ export function getVideoMime(path: string): string {
   return hint === "application/octet-stream" ? "video/*" : hint;
 }
 
-/** Exported for tests + parity with old API. */
-export function getVideoFilename(path: string): string {
-  return basename(path);
-}
+

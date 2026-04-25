@@ -1,4 +1,3 @@
-import { basename } from "@/lib/path-utils";
 import { getMimeHint } from "@/lib/file-types";
 import { convertAssetUrl } from "@/lib/tauri-commands";
 
@@ -34,7 +33,4 @@ export function getAudioMime(path: string): string {
   return hint === "application/octet-stream" ? "audio/*" : hint;
 }
 
-/** Exported for tests + parity with old API. */
-export function getAudioFilename(path: string): string {
-  return basename(path);
-}
+
