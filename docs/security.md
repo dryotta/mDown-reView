@@ -13,9 +13,9 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 ## Rules
 
 ### File-read bounds
-1. Every Rust command that opens a file enforces a 10 MB hard cap. (`commands/fs.rs:77-80` in `read_text_file`; `:102-105` in `read_binary_file`.)
-2. `read_text_file` rejects binaries by scanning the first 512 bytes for NUL, and only succeeds on valid UTF-8. (`commands/fs.rs:82-91`.)
-3. Size and binary checks happen on already-read bytes, not on `metadata()` before a second read (no TOCTOU). (`commands/fs.rs:71` comment.)
+1. Every Rust command that opens a file enforces a 10 MB hard cap. (`commands/fs.rs:91-94` in `read_text_file`; `:120-123` in `read_binary_file`.)
+2. `read_text_file` rejects binaries by scanning the first 512 bytes for NUL, and only succeeds on valid UTF-8. (`commands/fs.rs:96-100, 103-106`.)
+3. Size and binary checks happen on already-read bytes, not on `metadata()` before a second read (no TOCTOU). (`commands/fs.rs:85` comment.)
 4. `read_dir` canonicalizes the requested path and rejects any request whose canonical form differs from the canonicalized input. (`commands/fs.rs:19-32`.)
 
 ### Sidecar atomicity & integrity

@@ -124,12 +124,11 @@ test.describe("UX overhaul (#41) — tab LRU cap", () => {
 });
 
 test.describe("UX overhaul (#41) — tab overflow chevrons", () => {
-  test("F3 — overflow chevrons appear and right chevron scrolls the tab strip", async ({ page }) => {
-    // Open enough tabs to overflow the strip. The toolbar uses
-    // flex-shrink: 0 on the tab-bar wrapper, so on a wide viewport tabs
-    // never overflow naturally. To exercise the chevron logic we narrow the
-    // wrapper directly — this tests the in-component overflow detection,
-    // which is what Group B implemented.
+  test("F3 — overflow chevrons appear at a realistic viewport with many tabs", async ({ page }) => {
+    // The toolbar uses flex layout. With `.tab-bar-wrapper { flex-shrink: 1;
+    // min-width: 0 }` the wrapper compresses inside the toolbar's flex line,
+    // so a 1024px viewport with 15 tabs (each min-width 80px / max-width
+    // 180px) is enough to overflow — no DOM mutation needed.
     await page.setViewportSize({ width: 1024, height: 800 });
     const files = makeFiles(15);
     await installMock(page, files);
@@ -140,19 +139,8 @@ test.describe("UX overhaul (#41) — tab overflow chevrons", () => {
     }
     await expect(page.locator(".tab-bar .tab")).toHaveCount(15);
 
-    // Constrain the wrapper so the tab-bar (overflow-x: auto) overflows.
-    await page.evaluate(() => {
-      const w = document.querySelector(".tab-bar-wrapper") as HTMLElement | null;
-      if (!w) throw new Error(".tab-bar-wrapper missing");
-      w.style.width = "400px";
-      w.style.flexShrink = "1";
-      // Trigger ResizeObserver → updateOverflow → chevron visibility recompute.
-      window.dispatchEvent(new Event("resize"));
-    });
-
-    // After the constraint, the tab strip should be parked at the right
-    // edge (auto-scroll on last open). Scroll back to start to make the
-    // RIGHT chevron the visible one.
+    // After the last open the strip auto-scrolls to the right edge. Reset
+    // scrollLeft so the RIGHT chevron is the visible one to click.
     const scrollBar = page.locator(".tab-bar");
     await scrollBar.evaluate((el) => {
       el.scrollLeft = 0;
@@ -214,7 +202,7 @@ test.describe("UX overhaul (#41) — reading-width drag", () => {
     await page.goto("/");
     await page.locator(".folder-tree").getByText("notes.md", { exact: true }).click();
 
-    const handle = page.locator(".reading-width-handle");
+    const handle = page.locator('.reading-width-handle[data-side="right"]');
     await expect(handle).toHaveAttribute("role", "separator");
 
     const container = page.locator(".reading-width").first();

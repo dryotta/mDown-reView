@@ -1,33 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Profiler } from "react";
 import { act, render, screen } from "@testing-library/react";
 import { StatusBar, formatSize, formatRelative, truncatePath } from "../StatusBar";
 import { useStore } from "@/store";
-import type { FileContent } from "@/hooks/useFileContent";
 
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
-
-let renderCount = 0;
-let mockFileContent: FileContent = { status: "loading" };
-
-vi.mock("@/hooks/useFileContent", () => ({
-  useFileContent: (_path: string) => {
-    renderCount += 1;
-    return mockFileContent;
-  },
-}));
 
 const initialState = useStore.getState();
 
 beforeEach(() => {
   useStore.setState(initialState, true);
-  renderCount = 0;
-  mockFileContent = {
-    status: "ready",
-    content: "hello",
-    sizeBytes: 2048,
-    lineCount: 120,
-  };
 });
 
 afterEach(() => {
@@ -96,8 +79,11 @@ describe("StatusBar – rendering", () => {
     expect(bar.textContent).toBe("");
   });
 
-  it("renders path, size, and line count for active tab", () => {
-    useStore.setState({ activeTabPath: "/repo/notes.md" });
+  it("renders path, size, and line count from the store's fileMetaByPath cache", () => {
+    useStore.setState({
+      activeTabPath: "/repo/notes.md",
+      fileMetaByPath: { "/repo/notes.md": { sizeBytes: 2048, lineCount: 120 } },
+    });
     render(<StatusBar />);
 
     expect(screen.getByText("/repo/notes.md")).toBeInTheDocument();
@@ -106,15 +92,16 @@ describe("StatusBar – rendering", () => {
   });
 
   it("formats line count with thousands separators", () => {
-    mockFileContent = { status: "ready", content: "x", sizeBytes: 1024, lineCount: 12345 };
-    useStore.setState({ activeTabPath: "/repo/big.md" });
+    useStore.setState({
+      activeTabPath: "/repo/big.md",
+      fileMetaByPath: { "/repo/big.md": { sizeBytes: 1024, lineCount: 12345 } },
+    });
     render(<StatusBar />);
     expect(screen.getByText("12,345 lines")).toBeInTheDocument();
   });
 
-  it("omits size and line count when file is still loading", () => {
-    mockFileContent = { status: "loading" };
-    useStore.setState({ activeTabPath: "/repo/notes.md" });
+  it("omits size and line count when no fileMeta is cached yet (still loading)", () => {
+    useStore.setState({ activeTabPath: "/repo/notes.md", fileMetaByPath: {} });
     render(<StatusBar />);
     expect(screen.queryByText(/lines$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/KB|MB|\bB$/)).not.toBeInTheDocument();
@@ -165,7 +152,12 @@ describe("StatusBar – fine-grained scalar selectors", () => {
       lastFileReloadedAt: { "/repo/active.md": 1000 },
     });
 
-    render(<StatusBar />);
+    let renderCount = 0;
+    render(
+      <Profiler id="sb" onRender={() => { renderCount += 1; }}>
+        <StatusBar />
+      </Profiler>,
+    );
     const baseline = renderCount;
     expect(baseline).toBeGreaterThan(0);
 
@@ -181,6 +173,14 @@ describe("StatusBar – fine-grained scalar selectors", () => {
     act(() => {
       useStore.setState((s) => ({
         lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, "/repo/other.md": 9999 },
+      }));
+    });
+    expect(renderCount).toBe(baseline);
+
+    // Same for fileMetaByPath — only the active path's entry should re-render.
+    act(() => {
+      useStore.setState((s) => ({
+        fileMetaByPath: { ...s.fileMetaByPath, "/repo/other.md": { sizeBytes: 1, lineCount: 1 } },
       }));
     });
     expect(renderCount).toBe(baseline);

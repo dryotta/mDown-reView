@@ -133,3 +133,72 @@ describe("ReadingWidthHandle", () => {
     expect(setSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("ReadingWidthHandle — left edge (mirror)", () => {
+  function LeftHarness({ initialPx }: { initialPx: number }) {
+    const ref = useRef<HTMLDivElement>(null);
+    return (
+      <div
+        ref={ref}
+        data-testid="container"
+        className="reading-width"
+        style={{ ["--reading-width" as string]: `${initialPx}px` }}
+      >
+        <ReadingWidthHandle containerRef={ref} side="left" />
+      </div>
+    );
+  }
+
+  it("renders with data-side=\"left\" and a left-edge aria-label", () => {
+    const { container } = render(<LeftHarness initialPx={720} />);
+    const handle = container.querySelector(".reading-width-handle") as HTMLElement;
+    expect(handle.getAttribute("data-side")).toBe("left");
+    expect(handle.getAttribute("aria-label")).toBe("Resize reading width (left edge)");
+  });
+
+  it("dragging LEFT grows width by the same amount as the right handle dragging RIGHT (symmetric)", () => {
+    // Right handle: drag right 50px → width grows by 100 (×2 multiplier).
+    const right = render(<Harness initialPx={720} />);
+    const rightContainer = right.getByTestId("container");
+    mockRectWidth(rightContainer, 720);
+    const rightHandle = getHandle(right.container);
+    fireEvent.pointerDown(rightHandle, { pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(rightHandle, { pointerId: 1, clientX: 1050 });
+    fireEvent.pointerUp(rightHandle, { pointerId: 1, clientX: 1050 });
+    const rightFinal = useStore.getState().readingWidth;
+
+    // Reset store; isolate the left-handle render.
+    useStore.setState({ readingWidth: 720 });
+    right.unmount();
+
+    // Left handle: drag LEFT 50px → width must grow by the SAME amount (100).
+    const left = render(<LeftHarness initialPx={720} />);
+    const leftContainer = left.getByTestId("container");
+    mockRectWidth(leftContainer, 720);
+    const leftHandle = getHandle(left.container);
+    fireEvent.pointerDown(leftHandle, { pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(leftHandle, { pointerId: 1, clientX: 950 }); // moved left 50
+    fireEvent.pointerUp(leftHandle, { pointerId: 1, clientX: 950 });
+    const leftFinal = useStore.getState().readingWidth;
+
+    expect(rightFinal).toBe(820); // 720 + 50*2
+    expect(leftFinal).toBe(rightFinal); // symmetric
+  });
+
+  it("left handle: dragging RIGHT shrinks width (sign flipped vs. right handle)", () => {
+    const { getByTestId, container } = render(<LeftHarness initialPx={720} />);
+    const containerEl = getByTestId("container");
+    mockRectWidth(containerEl, 720);
+    const handle = getHandle(container);
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 1030 }); // moved right 30
+    // 720 + (1000 - 1030) * 2 = 720 - 60 = 660
+    expect(containerEl.style.getPropertyValue("--reading-width")).toBe("660px");
+
+    act(() => {
+      fireEvent.pointerUp(handle, { pointerId: 1, clientX: 1030 });
+    });
+    expect(useStore.getState().readingWidth).toBe(660);
+  });
+});

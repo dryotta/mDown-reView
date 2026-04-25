@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useStore } from "@/store";
-import { useFileContent } from "@/hooks/useFileContent";
 import "@/styles/status-bar.css";
 
 const RTF = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
@@ -31,10 +30,26 @@ export function truncatePath(path: string, max = 60): string {
   return `…${path.slice(path.length - (max - 1))}`;
 }
 
+/**
+ * StatusBar reads everything it needs from the Zustand store via fine-grained
+ * scalar selectors (Object.is identity prevents over-render). Crucially it
+ * does NOT call `useFileContent` — that hook is the SOLE issuer of
+ * `read_text_file`, and ViewerRouter already mounts it. Reading file metadata
+ * here would double the IPC + UTF-8 decode + line-count cost on every tab
+ * activation. Instead, `useFileContent` populates `fileMetaByPath` in the
+ * store on success, and we read the cached value.
+ */
 export function StatusBar() {
   const activeTabPath = useStore((s) => s.activeTabPath);
 
-  // Fine-grained scalar selectors — Object.is on a number prevents over-render.
+  // Fine-grained scalar selectors — Object.is on a number/undefined prevents
+  // over-render when unrelated paths' entries change.
+  const sizeBytes = useStore((s) =>
+    activeTabPath ? s.fileMetaByPath[activeTabPath]?.sizeBytes : undefined,
+  );
+  const lineCount = useStore((s) =>
+    activeTabPath ? s.fileMetaByPath[activeTabPath]?.lineCount : undefined,
+  );
   const fileTs = useStore((s) =>
     activeTabPath ? s.lastFileReloadedAt[activeTabPath] : undefined,
   );
@@ -57,33 +72,15 @@ export function StatusBar() {
   }
 
   return (
-    <StatusBarContent path={activeTabPath} fileTs={fileTs} commentsTs={commentsTs} now={now} />
-  );
-}
-
-function StatusBarContent({
-  path,
-  fileTs,
-  commentsTs,
-  now,
-}: {
-  path: string;
-  fileTs: number | undefined;
-  commentsTs: number | undefined;
-  now: number;
-}) {
-  const file = useFileContent(path);
-
-  return (
     <div className="status-bar" role="status" aria-label="Status bar">
-      <span className="status-bar-path" title={path}>
-        {truncatePath(path)}
+      <span className="status-bar-path" title={activeTabPath}>
+        {truncatePath(activeTabPath)}
       </span>
-      {file.status === "ready" && file.sizeBytes !== undefined && (
-        <span className="status-bar-item">{formatSize(file.sizeBytes)}</span>
+      {sizeBytes !== undefined && (
+        <span className="status-bar-item">{formatSize(sizeBytes)}</span>
       )}
-      {file.status === "ready" && file.lineCount !== undefined && (
-        <span className="status-bar-item">{file.lineCount.toLocaleString()} lines</span>
+      {lineCount !== undefined && (
+        <span className="status-bar-item">{lineCount.toLocaleString()} lines</span>
       )}
       {fileTs !== undefined && (
         <span className="status-bar-item">File reloaded {formatRelative(fileTs, now)}</span>

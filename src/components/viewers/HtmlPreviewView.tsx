@@ -71,7 +71,8 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           title="HTML preview"
           style={{ width: "100%", border: "none", minHeight: 400, flex: 1, background: "white" }}
         />
-        <ReadingWidthHandle containerRef={readingContainerRef} />
+        <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
+        <ReadingWidthHandle containerRef={readingContainerRef} side="right" />
       </div>
     </div>
   );

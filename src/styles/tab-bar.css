@@ -3,7 +3,10 @@
   align-items: stretch;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
+  /* Must shrink so the inner .tab-bar (overflow-x: auto) overflows naturally
+     and the chevrons appear at realistic viewport widths. The toolbar pairs
+     this with min-width: 0 so flex layout actually compresses the wrapper. */
+  flex-shrink: 1;
   height: 34px;
   min-width: 0;
 }

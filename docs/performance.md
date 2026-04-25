@@ -63,6 +63,10 @@ Unique to performance. Rust-First is a charter meta-principle.
 16. Fuzzy matching short-circuits identical/substring cases before computing Levenshtein. (`matching.rs:168-173`.)
 17. Sidecar mutations go through `with_sidecar_mut` (load → mutate → save → emit) — never from the frontend. (`commands/comments.rs:13`.)
 18. Batch counts for N files are a single IPC call (`get_unresolved_counts`), not N calls. (`commands/comments.rs:215`.)
+19. Line counting is amortized inside `read_text_file`: `content.lines().count()` runs once per read (`commands/fs.rs:107`) and the result is returned in `TextFileResult.line_count`. Frontend consumers (StatusBar) read it from the `fileMetaByPath` cache populated by `useFileContent` — they never recompute line counts in TS.
+
+### StatusBar timer
+20. `StatusBar` uses a single `setInterval(60_000ms)` to refresh "N min ago" labels and clears it on `activeTabPath` change or unmount (`StatusBar.tsx` effect). No timer per item, no leak across tab switches.
 
 ### Watcher efficiency
 19. The watcher thread owns its receiver exclusively via `.take()`; no double-start. (`watcher.rs:41-53`.)
@@ -82,7 +86,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 ## Gaps
 
 - No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.
-- `read_text_file` reads the file before checking size (`commands/fs.rs:70-80`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
+- `read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
 - No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.
 - No JS bundle-size budget enforced in CI.
 - No benchmark for `read_dir` on a 1000-entry folder.

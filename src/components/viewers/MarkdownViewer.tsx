@@ -239,7 +239,8 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
           )}
         </div>
       </MdCommentContext.Provider>
-        <ReadingWidthHandle containerRef={readingContainerRef} />
+        <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
+        <ReadingWidthHandle containerRef={readingContainerRef} side="right" />
       </div>
       {selectionToolbar && (
         <SelectionToolbar

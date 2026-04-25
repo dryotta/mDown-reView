@@ -15,8 +15,17 @@ import {
   type CliShimError,
   type OnboardingState,
 } from "@/lib/tauri-commands";
+import {
+  createTabsSlice,
+  filterStaleTabs,
+  MAX_TABS,
+  type TabsSlice,
+  type Tab,
+  type FileMeta,
+} from "./tabs";
 
-export type { OnboardingState };
+export type { OnboardingState, Tab, TabsSlice, FileMeta };
+export { MAX_TABS, filterStaleTabs };
 
 // ── Recent items ──────────────────────────────────────────────────────────
 
@@ -40,39 +49,8 @@ interface WorkspaceSlice {
 }
 
 // ── Tabs slice ─────────────────────────────────────────────────────────────
-
-/** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
-export const MAX_TABS = 15;
-
-export interface Tab {
-  path: string;
-  scrollTop: number;
-  /**
-   * Wall-clock timestamp of the last time this tab was opened or activated.
-   * Drives LRU eviction. Optional only for backwards-compatibility with persisted
-   * snapshots written before this field existed — `openFile` and `setActiveTab`
-   * always set it. Treat `undefined` as 0 (oldest) when sorting.
-   */
-  lastAccessedAt?: number;
-}
-
-interface TabsSlice {
-  tabs: Tab[];
-  activeTabPath: string | null;
-  viewModeByTab: Record<string, "source" | "visual">;
-  /** Wall-clock timestamps of last successful file content load per path. Session-only (not persisted). */
-  lastFileReloadedAt: Record<string, number>;
-  /** Wall-clock timestamps of last successful comments load per path. Session-only (not persisted). */
-  lastCommentsReloadedAt: Record<string, number>;
-  openFile: (path: string) => void;
-  closeTab: (path: string) => void;
-  closeAllTabs: () => void;
-  setActiveTab: (path: string) => void;
-  setScrollTop: (path: string, scrollTop: number) => void;
-  setViewMode: (path: string, mode: "source" | "visual") => void;
-  setLastFileReloadedAt: (path: string, ts: number) => void;
-  setLastCommentsReloadedAt: (path: string, ts: number) => void;
-}
+// Defined in `./tabs.ts` (extracted to keep this file under the 500-line
+// shared-chokepoint cap — rule 23 in `docs/architecture.md`).
 
 // ── UI slice ──────────────────────────────────────────────────────────────
 
@@ -168,46 +146,9 @@ interface OnboardingSlice {
   unregisterFolderContext: () => Promise<void>;
 }
 
-// ── Tab persistence helpers ────────────────────────────────────────────────
-
-export function filterStaleTabs(
-  tabs: Tab[],
-  activeTabPath: string | null,
-  existsMap: Map<string, boolean>
-): { tabs: Tab[]; activeTabPath: string | null } {
-  // 1. Drop tabs whose source file no longer exists.
-  let validTabs = tabs.filter((t) => existsMap.get(t.path) !== false);
-
-  // 2. Enforce MAX_TABS — keep activeTabPath (if any) and the most-recently-accessed
-  //    others by lastAccessedAt descending. Older persisted snapshots may lack the
-  //    field; treat missing as 0 so they evict first.
-  if (validTabs.length > MAX_TABS) {
-    const accessed = (t: Tab) => (typeof t.lastAccessedAt === "number" ? t.lastAccessedAt : 0);
-    const active = activeTabPath
-      ? validTabs.find((t) => t.path === activeTabPath) ?? null
-      : null;
-    const others = validTabs
-      .filter((t) => t.path !== activeTabPath)
-      .sort((a, b) => accessed(b) - accessed(a));
-    const keepCount = active ? MAX_TABS - 1 : MAX_TABS;
-    const kept = others.slice(0, keepCount);
-    // Restore original tab order for stability (avoids reshuffling the tab bar on rehydrate).
-    const keptSet = new Set(kept.map((t) => t.path));
-    if (active) keptSet.add(active.path);
-    validTabs = validTabs.filter((t) => keptSet.has(t.path));
-  }
-
-  const validPaths = new Set(validTabs.map((t) => t.path));
-  let newActiveTabPath = activeTabPath;
-  if (activeTabPath && !validPaths.has(activeTabPath)) {
-    newActiveTabPath = validTabs.length > 0 ? validTabs[0].path : null;
-  }
-  return { tabs: validTabs, activeTabPath: newActiveTabPath };
-}
-
 // ── Combined store ─────────────────────────────────────────────────────────
 
-type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice;
+export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice;
 
 
 export const useStore = create<Store>()(
@@ -225,79 +166,8 @@ export const useStore = create<Store>()(
         set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
       closeFolder: () => set({ root: null, expandedFolders: {} }),
 
-      // Tabs
-      tabs: [],
-      activeTabPath: null,
-      lastFileReloadedAt: {},
-      lastCommentsReloadedAt: {},
-      openFile: (path) => {
-        const now = Date.now();
-        const existing = get().tabs.find((t) => t.path === path);
-        if (existing) {
-          set((s) => ({
-            activeTabPath: path,
-            tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
-          }));
-          return;
-        }
-        // Evict LRU non-active tab if at capacity.
-        let baseTabs = get().tabs;
-        if (baseTabs.length >= MAX_TABS) {
-          const activePath = get().activeTabPath;
-          const candidates = baseTabs.filter((t) => t.path !== activePath);
-          if (candidates.length > 0) {
-            const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
-            const victim = candidates.reduce((oldest, t) =>
-              accessed(t) < accessed(oldest) ? t : oldest
-            );
-            baseTabs = baseTabs.filter((t) => t.path !== victim.path);
-            const { [victim.path]: _v, ...restView } = get().viewModeByTab;
-            const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
-            set({ viewModeByTab: restView, lastSaveByPath: restSave });
-          }
-        }
-        set({
-          tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
-          activeTabPath: path,
-        });
-      },
-      closeTab: (path) => {
-        const tabs = get().tabs;
-        const idx = tabs.findIndex((t) => t.path === path);
-        if (idx === -1) return;
-        const newTabs = tabs.filter((t) => t.path !== path);
-        let newActive = get().activeTabPath;
-        if (newActive === path) {
-          newActive = newTabs[idx] ? newTabs[idx].path : newTabs[idx - 1]?.path ?? null;
-        }
-        const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
-        const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
-        set({ tabs: newTabs, activeTabPath: newActive, viewModeByTab: restViewModes, lastSaveByPath: restSaveByPath });
-      },
-      closeAllTabs: () => set({ tabs: [], activeTabPath: null, viewModeByTab: {}, lastSaveByPath: {} }),
-      setActiveTab: (path) => {
-        const now = Date.now();
-        set((s) => ({
-          activeTabPath: path,
-          tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
-        }));
-      },
-      setScrollTop: (path, scrollTop) => {
-        const tab = get().tabs.find((t) => t.path === path);
-        if (!tab || tab.scrollTop === scrollTop) return;
-        set((s) => ({
-          tabs: s.tabs.map((t) => (t.path === path ? { ...t, scrollTop } : t)),
-        }));
-      },
-      viewModeByTab: {},
-      setViewMode: (path, mode) =>
-        set((s) => ({
-          viewModeByTab: { ...s.viewModeByTab, [path]: mode },
-        })),
-      setLastFileReloadedAt: (path, ts) =>
-        set((s) => ({ lastFileReloadedAt: { ...s.lastFileReloadedAt, [path]: ts } })),
-      setLastCommentsReloadedAt: (path, ts) =>
-        set((s) => ({ lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, [path]: ts } })),
+      // Tabs (delegated to ./tabs.ts)
+      ...createTabsSlice(set, get),
 
       // UI
       theme: "system",

@@ -13,12 +13,16 @@
   margin-left: auto;
   margin-right: auto;
   position: relative;
+  /* Spec line 107: "centered column with a visible boundary when the pane
+     is wide". A subtle inline-border + surface fill makes the column
+     boundaries discoverable so users know where to grab the resize handle. */
+  border-inline: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .reading-width-handle {
   position: absolute;
   top: 0;
-  right: -6px;
   width: 8px;
   height: 100%;
   cursor: ew-resize;
@@ -26,6 +30,18 @@
   touch-action: none;
   z-index: 5;
   transition: background-color 120ms ease;
+}
+
+/* Right handle (default) — pinned to the right edge. */
+.reading-width-handle[data-side="right"] {
+  right: -6px;
+}
+
+/* Left handle — pinned to the left edge. Drag math is mirrored in the
+   component (delta sign flipped) so dragging outward grows the column
+   symmetrically with the right handle. */
+.reading-width-handle[data-side="left"] {
+  left: -6px;
 }
 
 .reading-width-handle:hover,
