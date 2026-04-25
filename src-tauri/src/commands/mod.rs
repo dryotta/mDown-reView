@@ -12,6 +12,7 @@ pub mod fs;
 pub mod html;
 pub mod launch;
 pub mod onboarding;
+pub mod remote_asset;
 pub mod search;
 
 // ── Re-export core types so existing code (lib.rs, tests) still compiles ──
@@ -29,6 +30,7 @@ pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
 pub use launch::{get_launch_args, get_log_path, scan_review_files, parse_launch_args, push_pending, drain_pending, PendingArgsState};
 #[cfg(debug_assertions)]
 pub use launch::set_root_via_test;
+pub use remote_asset::{fetch_remote_asset, RemoteAssetResponse};
 pub use search::{parse_kql, search_in_document, strip_json_comments, KqlPipelineStep, SearchMatch};
 
 /// True for `<file>.review.yaml` / `<file>.review.json` sidecar names.

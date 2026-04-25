@@ -23,6 +23,7 @@ import {
   type Tab,
   type FileMeta,
 } from "./tabs";
+import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
 
 export type { OnboardingState, Tab, TabsSlice, FileMeta };
 export { MAX_TABS, filterStaleTabs };
@@ -148,7 +149,7 @@ interface OnboardingSlice {
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice;
+export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice;
 
 
 export const useStore = create<Store>()(
@@ -168,6 +169,11 @@ export const useStore = create<Store>()(
 
       // Tabs (delegated to ./tabs.ts)
       ...createTabsSlice(set, get),
+
+      // ViewerPrefs (delegated to ./viewerPrefs.ts) — per-document, session-only.
+      // Intentionally NOT added to `partialize` below: trust decisions (e.g.
+      // remote-image allowance) must not silently survive an app restart.
+      ...createViewerPrefsSlice(set, get),
 
       // UI
       theme: "system",

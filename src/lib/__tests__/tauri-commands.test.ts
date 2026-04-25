@@ -64,6 +64,16 @@ describe("openExternalUrl", () => {
     expect(openUrl).toHaveBeenCalledWith("http://example.com");
   });
 
+  it("forwards mailto: URLs to plugin openUrl", async () => {
+    await openExternalUrl("mailto:user@example.com");
+    expect(openUrl).toHaveBeenCalledWith("mailto:user@example.com");
+  });
+
+  it("forwards tel: URLs to plugin openUrl", async () => {
+    await openExternalUrl("tel:+15555550123");
+    expect(openUrl).toHaveBeenCalledWith("tel:+15555550123");
+  });
+
   it("rejects file:// URLs without calling plugin", async () => {
     await expect(openExternalUrl("file:///etc/passwd")).rejects.toThrow(/Blocked/);
     expect(openUrl).not.toHaveBeenCalled();
@@ -71,6 +81,16 @@ describe("openExternalUrl", () => {
 
   it("rejects javascript: URLs without calling plugin", async () => {
     await expect(openExternalUrl("javascript:alert(1)")).rejects.toThrow(/Blocked/);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects data: URLs without calling plugin", async () => {
+    await expect(openExternalUrl("data:text/html,<script>alert(1)</script>")).rejects.toThrow(/Blocked/);
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects vbscript: URLs without calling plugin", async () => {
+    await expect(openExternalUrl("vbscript:msgbox(1)")).rejects.toThrow(/Blocked/);
     expect(openUrl).not.toHaveBeenCalled();
   });
 

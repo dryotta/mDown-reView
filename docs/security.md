@@ -52,6 +52,9 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 25. Log rotation caps file size at 5 MB and keeps rotated files. (`lib.rs:55-56`.)
 26. Rust panics are logged with location via a panic hook installed in `setup`. (`lib.rs:109-123`.)
 
+### Remote asset fetching
+27. `fetch_remote_asset` enforces five bounds before returning bytes to the renderer: (a) URL must parse and use scheme `https` (`http`, `file`, `javascript`, `data` rejected); (b) connect + read timeouts are 10 s each via a single shared `reqwest::Client`; (c) body is streamed and aborted on overflow at an 8 MB cap; (d) `Content-Type` (sans parameters) must match the image allowlist `image/{png,jpeg,gif,webp,svg+xml,avif}`; (e) HTTP status must equal 200. Bytes are handed to the frontend and converted to a `blob:` URL — the CSP `img-src`/`connect-src` directives are never widened to permit remote origins. (`commands/remote_asset.rs`.)
+
 ### Cross-doc references
 - IPC chokepoint: rule 1 in [`docs/architecture.md`](architecture.md).
 - `window.onerror` at module scope before `createRoot`: rule 1 in [`docs/design-patterns.md`](design-patterns.md).

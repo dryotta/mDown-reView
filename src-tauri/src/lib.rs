@@ -223,6 +223,7 @@ pub fn run() {
                 commands::folder_context::unregister_folder_context,
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,
+                commands::remote_asset::fetch_remote_asset,
                 update::check_update,
                 update::install_update,
                 $($extra),*

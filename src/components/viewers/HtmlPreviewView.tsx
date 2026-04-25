@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { resolveHtmlAssets } from "@/lib/tauri-commands";
-import { dirname } from "@/lib/path-utils";
+import { resolveHtmlAssets, openExternalUrl } from "@/lib/tauri-commands";
+import { dirname, resolveRelative } from "@/lib/path-utils";
 import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
+import { warn } from "@/logger";
+
+const EXTERNAL_SCHEME = /^(https?|mailto|tel):/i;
+const BLOCKED_SCHEME = /^(javascript|file|data|vbscript):/i;
 
 interface Props {
   content: string;
@@ -14,7 +18,9 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const [resolvedContent, setResolvedContent] = useState(content);
   const [resolving, setResolving] = useState(false);
   const readingContainerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const readingWidth = useStore((s) => s.readingWidth);
+  const baseDir = filePath ? dirname(filePath) : undefined;
   // Security: never combine allow-same-origin + allow-scripts (iframe escape).
   // Safe mode: allow-same-origin only (for CSS/fonts, no script execution).
   // Unsafe mode: allow-scripts only (scripts run sandboxed, cannot access parent).
@@ -54,6 +60,11 @@ export function HtmlPreviewView({ content, filePath }: Props) {
         >
           {unsafeMode ? "Disable scripts" : "Enable scripts"}
         </button>
+        {unsafeMode && (
+          <span style={{ marginLeft: 8, fontStyle: "italic" }}>
+            Link routing disabled in scripts-enabled mode (cross-origin sandbox).
+          </span>
+        )}
       </div>
       <div
         className="reading-width"
@@ -66,10 +77,42 @@ export function HtmlPreviewView({ content, filePath }: Props) {
         }}
       >
         <iframe
+          ref={iframeRef}
           srcDoc={resolvedContent}
           sandbox={sandbox}
           title="HTML preview"
           style={{ width: "100%", border: "none", minHeight: 400, flex: 1, background: "white" }}
+          onLoad={() => {
+            // In unsafe (allow-scripts) mode, the iframe is cross-origin and
+            // we cannot reach contentDocument. Link routing is unavailable
+            // there — see banner notice below.
+            if (unsafeMode) return;
+            const doc = iframeRef.current?.contentDocument;
+            if (!doc) return;
+            doc.addEventListener("click", (event) => {
+              const target = event.target as Element | null;
+              const anchor = target?.closest?.("a") as HTMLAnchorElement | null;
+              if (!anchor) return;
+              const href = anchor.getAttribute("href");
+              if (!href) return;
+              if (href.startsWith("#")) return; // in-iframe anchor
+              if (BLOCKED_SCHEME.test(href)) {
+                event.preventDefault();
+                warn(`HtmlPreviewView: blocked iframe link scheme: ${href}`);
+                return;
+              }
+              if (EXTERNAL_SCHEME.test(href)) {
+                event.preventDefault();
+                openExternalUrl(href).catch(() => {});
+                return;
+              }
+              // Workspace-relative path → open in app
+              event.preventDefault();
+              if (!baseDir) return;
+              const resolved = resolveRelative(baseDir, href);
+              useStore.getState().openFile(resolved);
+            });
+          }}
         />
         <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
         <ReadingWidthHandle containerRef={readingContainerRef} side="right" />

@@ -47,6 +47,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
@@ -58,6 +60,8 @@ tempfile = "3"
 serde_yaml_ng = "0.10"
 serde_json = "1"
 rand = "0.8"
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [[bench]]
 name = "sidecar_bench"
