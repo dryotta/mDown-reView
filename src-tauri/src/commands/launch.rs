@@ -1,5 +1,6 @@
 //! Launch-time and diagnostic commands (CLI args, log path, file scanner).
 
+#[cfg(debug_assertions)]
 use super::is_sidecar_file;
 use crate::core::types::LaunchArgs;
 use std::path::Path;
