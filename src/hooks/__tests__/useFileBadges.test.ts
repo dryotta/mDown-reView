@@ -100,4 +100,19 @@ describe("useFileBadges", () => {
 
     expect(result.current).toBe(firstRef);
   });
+
+  it("does not call setBadges after unmount (cancelled flag)", async () => {
+    let resolveIpc!: (v: Record<string, FileBadge>) => void;
+    vi.mocked(getFileBadges).mockReturnValueOnce(
+      new Promise<Record<string, FileBadge>>((res) => { resolveIpc = res; })
+    );
+
+    const { unmount, result } = renderHook(() => useFileBadges(["/a.md"]));
+    unmount();
+
+    await act(async () => { resolveIpc({ "/a.md": A }); });
+    await act(async () => {});
+
+    expect(result.current).toEqual({});
+  });
 });
