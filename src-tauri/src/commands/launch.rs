@@ -171,14 +171,17 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
             .collect();
     }
 
-    let payload = serde_json::json!({
-        "files": files,
-        "folders": [path],
-    });
+    let launch_args = LaunchArgs {
+        files,
+        folders: vec![path],
+    };
+
+    let pending = app.state::<PendingArgsState>();
+    push_pending(&pending, launch_args);
 
     if let Some(window) = app.get_webview_window("main") {
         window
-            .emit("args-received", payload)
+            .emit("args-received", ())
             .map_err(|e| e.to_string())?;
     }
 
