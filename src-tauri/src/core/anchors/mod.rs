@@ -1,3 +1,5 @@
+use std::cell::OnceCell;
+
 use sha2::{Digest, Sha256};
 
 use crate::core::types::Anchor;
@@ -8,18 +10,76 @@ mod image_rect;
 mod json_path;
 mod word_range;
 
-#[allow(unused_imports)]
-pub(crate) use csv_cell::resolve as resolve_csv_cell;
-#[allow(unused_imports)]
-pub(crate) use html::resolve_element as resolve_html_element;
-#[allow(unused_imports)]
-pub(crate) use html::resolve_range as resolve_html_range;
-#[allow(unused_imports)]
-pub(crate) use image_rect::resolve as resolve_image_rect;
-#[allow(unused_imports)]
-pub(crate) use json_path::resolve as resolve_json_path;
-#[allow(unused_imports)]
-pub(crate) use word_range::resolve as resolve_word_range;
+/// Per-file lazily-parsed view of bytes used by [`resolve_anchor`]. Each
+/// representation (UTF-8 line split, CSV, JSON, HTML tag soup) is computed
+/// at most once via [`OnceCell`]: callers may resolve N anchors against
+/// the same file without re-parsing.
+///
+/// Single-thread only (`OnceCell` from `std::cell`). `get_file_comments`
+/// is a synchronous Tauri command that runs on its calling thread; if a
+/// future caller needs cross-thread sharing, swap to `std::sync::OnceLock`.
+pub struct LazyParsedDoc {
+    bytes: Vec<u8>,
+    line_cache: OnceCell<Vec<String>>,
+    csv_cache: OnceCell<Option<csv_cell::CsvDoc>>,
+    json_cache: OnceCell<Option<serde_json::Value>>,
+    html_cache: OnceCell<Vec<html::HtmlTag>>,
+}
+
+impl LazyParsedDoc {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            line_cache: OnceCell::new(),
+            csv_cache: OnceCell::new(),
+            json_cache: OnceCell::new(),
+            html_cache: OnceCell::new(),
+        }
+    }
+
+    pub fn lines(&self) -> &[String] {
+        self.line_cache.get_or_init(|| {
+            String::from_utf8_lossy(&self.bytes)
+                .lines()
+                .map(|l| l.to_string())
+                .collect()
+        })
+    }
+
+    pub(crate) fn csv(&self) -> Option<&csv_cell::CsvDoc> {
+        self.csv_cache
+            .get_or_init(|| csv_cell::parse_csv(&self.bytes).ok())
+            .as_ref()
+    }
+
+    pub(crate) fn json(&self) -> Option<&serde_json::Value> {
+        self.json_cache
+            .get_or_init(|| serde_json::from_slice(&self.bytes).ok())
+            .as_ref()
+    }
+
+    pub(crate) fn html_tags(&self) -> &[html::HtmlTag] {
+        self.html_cache
+            .get_or_init(|| html::extract_tags(&self.bytes))
+    }
+}
+
+/// Dispatcher for typed anchors. Line/File arms are kept for completeness,
+/// but the production hot-path (`get_file_comments`) routes those two
+/// variants through the existing `match_comments` batch algorithm and only
+/// calls this dispatcher for the typed anchor variants.
+pub fn resolve_anchor(anchor: &Anchor, doc: &LazyParsedDoc) -> MatchOutcome {
+    match anchor {
+        Anchor::Line { .. } => resolve_line(anchor, doc.lines()),
+        Anchor::File => MatchOutcome::Exact,
+        Anchor::ImageRect(p) => image_rect::resolve(p),
+        Anchor::CsvCell(p) => csv_cell::resolve(p, doc.csv()),
+        Anchor::JsonPath(p) => json_path::resolve(p, doc.json()),
+        Anchor::HtmlRange(p) => html::resolve_range(p, doc.html_tags()),
+        Anchor::HtmlElement(p) => html::resolve_element(p, doc.html_tags()),
+        Anchor::WordRange(p) => word_range::resolve(p, doc.lines()),
+    }
+}
 
 /// MRSF §6.2: max selected_text length
 pub const SELECTED_TEXT_MAX_LENGTH: usize = 4096;
@@ -35,12 +95,10 @@ pub enum MatchOutcome {
     Orphan,
 }
 
-/// Resolve a Line anchor — wraps the existing line-targeting algorithm
-/// (kept in `crate::core::matching`). Group A wires the dispatch surface;
-/// the dispatch from the matcher will land in Group B.
-// B-wave: real heuristics land in iter <n>; for now the line algorithm
-// is the matcher's responsibility, this stub just classifies outcomes.
-pub fn resolve_line(anchor: &Anchor) -> MatchOutcome {
+/// Resolve a Line anchor. The dispatcher includes this for completeness;
+/// the line-targeting heuristic itself lives in `crate::core::matching`,
+/// which `get_file_comments` continues to call as a batch algorithm.
+pub fn resolve_line(anchor: &Anchor, _lines: &[String]) -> MatchOutcome {
     debug_assert!(matches!(anchor, Anchor::Line { .. }));
     MatchOutcome::Exact
 }
@@ -212,5 +270,109 @@ mod tests {
     fn truncate_preserves_short_text() {
         let text = "short text";
         assert_eq!(truncate_selected_text(text), text);
+    }
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::*;
+    use crate::core::types::{
+        CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor, JsonPathAnchor,
+        WordRangePayload,
+    };
+
+    #[test]
+    fn dispatch_image_rect() {
+        let anchor = Anchor::ImageRect(ImageRectAnchor {
+            x_pct: 0.25,
+            y_pct: 0.5,
+            w_pct: Some(0.1),
+            h_pct: Some(0.1),
+        });
+        let doc = LazyParsedDoc::new(Vec::new());
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+    }
+
+    #[test]
+    fn dispatch_csv_cell_no_doc() {
+        // Non-CSV bytes (parse_csv only fails on non-UTF8; an HTML blob is
+        // technically valid UTF-8 and parses as a single 1-row CSV with a
+        // huge first cell, so the cell at (5,5) does NOT exist → Orphan).
+        let anchor = Anchor::CsvCell(CsvCellAnchor {
+            row_idx: 5,
+            col_idx: 5,
+            col_header: "name".into(),
+            primary_key_col: None,
+            primary_key_value: None,
+        });
+        let doc = LazyParsedDoc::new(b"<html><body>not csv</body></html>".to_vec());
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Orphan);
+    }
+
+    #[test]
+    fn dispatch_json_path_with_doc() {
+        // CSV-formatted bytes are not valid JSON → Orphan.
+        let csv_bytes = b"id,name\n1,Alice\n".to_vec();
+        let csv_doc = LazyParsedDoc::new(csv_bytes);
+        let anchor = Anchor::JsonPath(JsonPathAnchor {
+            json_path: "$.user.name".into(),
+            scalar_text: None,
+        });
+        assert_eq!(resolve_anchor(&anchor, &csv_doc), MatchOutcome::Orphan);
+
+        // Real JSON with a matching path → Exact.
+        let json_bytes = br#"{"user":{"name":"Alice"}}"#.to_vec();
+        let json_doc = LazyParsedDoc::new(json_bytes);
+        assert_eq!(resolve_anchor(&anchor, &json_doc), MatchOutcome::Exact);
+    }
+
+    #[test]
+    fn dispatch_html_range_with_text() {
+        let bytes = b"<html><body><p>Hello world</p></body></html>".to_vec();
+        let doc = LazyParsedDoc::new(bytes);
+        let anchor = Anchor::HtmlRange(HtmlRangeAnchor {
+            selector_path: String::new(),
+            start_offset: 0,
+            end_offset: 0,
+            selected_text: "Hello world".into(),
+        });
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+    }
+
+    #[test]
+    fn dispatch_html_element_tag_match() {
+        let bytes = b"<html><body><p>Hello world</p></body></html>".to_vec();
+        let doc = LazyParsedDoc::new(bytes);
+        let anchor = Anchor::HtmlElement(HtmlElementAnchor {
+            selector_path: String::new(),
+            tag: "p".into(),
+            text_preview: "Hello".into(),
+        });
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+    }
+
+    #[test]
+    fn dispatch_word_range_hash_match() {
+        let line_text = "alpha beta gamma";
+        let bytes = format!("{line_text}\n").into_bytes();
+        let doc = LazyParsedDoc::new(bytes);
+        let anchor = Anchor::WordRange(WordRangePayload {
+            start_word: 0,
+            end_word: 1,
+            line: 1,
+            snippet: "alpha".into(),
+            line_text_hash: compute_selected_text_hash(line_text),
+        });
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+    }
+
+    #[test]
+    fn lazy_parsed_doc_caches_results() {
+        let doc = LazyParsedDoc::new(b"line one\nline two\n".to_vec());
+        let first: *const [String] = doc.lines();
+        let second: *const [String] = doc.lines();
+        // Both calls return the same backing slice — the OnceCell is hit
+        // exactly once.
+        assert!(std::ptr::eq(first, second));
     }
 }

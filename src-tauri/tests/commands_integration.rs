@@ -1074,3 +1074,89 @@ mod f0_iter1 {
         }
     }
 }
+
+
+// 
+// Iter 4 / Wave 1c  typed-anchor dispatch end-to-end through
+// `get_file_comments`. Verifies the partition (Line/File via match_comments,
+// typed via resolve_anchor) and that orphan classification flows out via
+// the returned `CommentThread`'s `is_orphaned` flag.
+// ─
+
+mod wave1c_typed_dispatch {
+    use mdown_review_lib::commands::get_file_comments;
+    use mdown_review_lib::core::sidecar::save_sidecar;
+    use mdown_review_lib::core::types::{Anchor, CsvCellAnchor, MrsfComment};
+
+    fn typed_comment(id: &str, anchor: Anchor) -> MrsfComment {
+        MrsfComment {
+            id: id.into(),
+            author: "Test User (test)".into(),
+            timestamp: "2026-04-20T12:00:00-07:00".into(),
+            text: "typed".into(),
+            resolved: false,
+            anchor,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn get_file_comments_resolves_typed_anchor() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("data.csv");
+        std::fs::write(&file, "id,name\n1,Alice\n2,Bob\n").unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+
+        let comment = typed_comment(
+            "c-csv",
+            Anchor::CsvCell(CsvCellAnchor {
+                row_idx: 1,
+                col_idx: 1,
+                col_header: "name".into(),
+                primary_key_col: None,
+                primary_key_value: None,
+            }),
+        );
+        save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
+
+        let threads = get_file_comments(file_path).expect("get_file_comments ok");
+        assert_eq!(threads.len(), 1, "exactly one root thread");
+        let root = &threads[0].root;
+        assert!(
+            !root.is_orphaned,
+            "valid CsvCell on real CSV must resolve, not orphan"
+        );
+        assert!(
+            matches!(root.comment.anchor, Anchor::CsvCell(_)),
+            "anchor variant preserved through dispatch, got {:?}",
+            root.comment.anchor
+        );
+    }
+
+    #[test]
+    fn get_file_comments_orphans_typed_anchor_on_missing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("data.csv");
+        std::fs::write(&file, "id,name\n1,Alice\n").unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+
+        let comment = typed_comment(
+            "c-orphan",
+            Anchor::CsvCell(CsvCellAnchor {
+                row_idx: 99,
+                col_idx: 99,
+                col_header: "name".into(),
+                primary_key_col: None,
+                primary_key_value: None,
+            }),
+        );
+        save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
+
+        let threads = get_file_comments(file_path).expect("get_file_comments ok");
+        assert_eq!(threads.len(), 1);
+        assert!(
+            threads[0].root.is_orphaned,
+            "out-of-bounds CsvCell must orphan"
+        );
+    }
+}

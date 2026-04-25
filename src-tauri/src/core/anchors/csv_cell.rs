@@ -1,4 +1,3 @@
-#![allow(dead_code)] // wave-1b: matchers wired by wave-1c dispatcher
 use super::MatchOutcome;
 use crate::core::types::CsvCellAnchor;
 

@@ -7,7 +7,7 @@
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
 use crate::core::mrsf_version::MRSF_VERSION_DEFAULT;
-use crate::core::types::{CommentAnchor, CommentThread, MrsfSidecar};
+use crate::core::types::{CommentAnchor, CommentThread, MrsfComment, MrsfSidecar};
 use std::path::Path;
 use tauri::{Emitter, State};
 
@@ -114,8 +114,19 @@ fn with_sidecar_or_create(
 
 /// Combined hot-path: load sidecar → match to file lines → build threads.
 /// Single IPC call for the GUI's most common operation.
+///
+/// Comments are partitioned by anchor variant: `Line`/`File` go through the
+/// existing `match_comments` batch algorithm (line-targeting heuristics);
+/// typed anchors (CSV cell, JSON path, HTML range/element, image rect,
+/// word range) are dispatched through [`crate::core::anchors::resolve_anchor`]
+/// against a single shared [`crate::core::anchors::LazyParsedDoc`] so the
+/// file is parsed at most once per call (lazily, only for the
+/// representations the present anchors actually need).
 #[tauri::command]
 pub fn get_file_comments(file_path: String) -> Result<Vec<CommentThread>, String> {
+    use crate::core::anchors::{resolve_anchor, LazyParsedDoc, MatchOutcome};
+    use crate::core::types::{Anchor, MatchedComment};
+
     let sidecar = crate::core::sidecar::load_sidecar(&file_path).map_err(|e| e.to_string())?;
     let comments = match sidecar {
         Some(s) => s.comments,
@@ -125,17 +136,42 @@ pub fn get_file_comments(file_path: String) -> Result<Vec<CommentThread>, String
         return Ok(vec![]);
     }
 
-    // Read file content for matching (empty string for deleted/unreadable files → comments become orphans)
-    let content = match std::fs::read_to_string(&file_path) {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    // Read raw bytes once. NotFound (deleted/renamed) silently degrades to
+    // empty bytes so all comments orphan; other errors are logged.
+    let bytes = match std::fs::read(&file_path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => {
             tracing::warn!("Could not read {file_path} for comment matching: {e}");
-            String::new()
+            Vec::new()
         }
     };
-    let lines: Vec<&str> = content.lines().collect();
-    let matched = crate::core::matching::match_comments(&comments, &lines);
+    let doc = LazyParsedDoc::new(bytes);
+
+    let mut line_or_file: Vec<MrsfComment> = Vec::new();
+    let mut typed: Vec<MrsfComment> = Vec::new();
+    for c in comments {
+        match c.anchor {
+            Anchor::Line { .. } | Anchor::File => line_or_file.push(c),
+            _ => typed.push(c),
+        }
+    }
+
+    // Line/File: existing line-targeting heuristics.
+    let lines_str: Vec<&str> = doc.lines().iter().map(String::as_str).collect();
+    let mut matched = crate::core::matching::match_comments(&line_or_file, &lines_str);
+
+    // Typed anchors: per-comment dispatch with lazily-cached file parses.
+    for c in typed {
+        let outcome = resolve_anchor(&c.anchor, &doc);
+        matched.push(MatchedComment {
+            comment: c,
+            matched_line_number: 0,
+            is_orphaned: matches!(outcome, MatchOutcome::Orphan),
+            anchored_text: None,
+        });
+    }
+
     Ok(crate::core::threads::group_into_threads(&matched))
 }
 
