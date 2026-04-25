@@ -1,15 +1,57 @@
+.tab-bar-wrapper {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  /* Must shrink so the inner .tab-bar (overflow-x: auto) overflows naturally
+     and the chevrons appear at realistic viewport widths. The toolbar pairs
+     this with min-width: 0 so flex layout actually compresses the wrapper. */
+  flex-shrink: 1;
+  height: 34px;
+  min-width: 0;
+}
+
 .tab-bar {
   display: flex;
   align-items: center;
   overflow-x: auto;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-  height: 34px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  scrollbar-width: thin;
 }
 
 .tab-bar::-webkit-scrollbar {
   height: 3px;
+}
+
+.tab-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 100%;
+  border: none;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.tab-chevron:hover {
+  color: var(--color-text);
+  background: var(--color-tab-hover);
+}
+
+.tab-chevron-left {
+  border-right: 1px solid var(--color-border);
+}
+
+.tab-chevron-right {
+  border-left: 1px solid var(--color-border);
 }
 
 .tab {
@@ -25,7 +67,7 @@
   white-space: nowrap;
   gap: 6px;
   position: relative;
-  flex-shrink: 0;
+  flex: 0 1 160px;
 }
 
 .tab:hover {
@@ -54,7 +96,9 @@
 }
 
 .tab-close {
-  display: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.1s ease-in-out;
   border: none;
   background: none;
   cursor: pointer;
@@ -66,8 +110,10 @@
 }
 
 .tab:hover .tab-close,
-.tab.active .tab-close {
-  display: block;
+.tab.active .tab-close,
+.tab-close:focus-visible {
+  visibility: visible;
+  opacity: 1;
 }
 
 .tab-close:hover {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { TabBar } from "../TabBar";
 import { useStore } from "@/store";
 
@@ -86,5 +86,187 @@ describe("8.2 – tab interactions and unresolved comment badge", () => {
 
     const paths = useStore.getState().tabs.map((t) => t.path);
     expect(paths).not.toContain("/docs/README.md");
+  });
+});
+
+// ─── Chevron overflow + auto-scroll behavior ────────────────────────────────
+
+/**
+ * Force the scroll container into a given scroll geometry.
+ * jsdom doesn't lay anything out, so we have to stub the read-only
+ * scroll/client/offset properties.
+ */
+function setScrollGeometry(
+  container: HTMLElement,
+  geom: { scrollLeft: number; scrollWidth: number; clientWidth: number }
+) {
+  Object.defineProperty(container, "scrollLeft", { configurable: true, value: geom.scrollLeft, writable: true });
+  Object.defineProperty(container, "scrollWidth", { configurable: true, value: geom.scrollWidth });
+  Object.defineProperty(container, "clientWidth", { configurable: true, value: geom.clientWidth });
+}
+
+describe("TabBar – chevron overflow buttons", () => {
+  it("hides both chevrons when tabs fit (no overflow)", () => {
+    setup([{ path: "/a.md" }, { path: "/b.md" }], "/a.md");
+    expect(screen.queryByRole("button", { name: /scroll tabs left/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /scroll tabs right/i })).not.toBeInTheDocument();
+  });
+
+  it("shows right chevron when scrolled at start with overflow", () => {
+    setup([{ path: "/a.md" }, { path: "/b.md" }, { path: "/c.md" }], "/a.md");
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 0, scrollWidth: 1000, clientWidth: 300 });
+    act(() => {
+      fireEvent.scroll(container);
+    });
+    expect(screen.queryByRole("button", { name: /scroll tabs left/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /scroll tabs right/i })).toBeInTheDocument();
+  });
+
+  it("shows both chevrons when scrolled in the middle", () => {
+    setup([{ path: "/a.md" }, { path: "/b.md" }, { path: "/c.md" }], "/a.md");
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 200, scrollWidth: 1000, clientWidth: 300 });
+    act(() => {
+      fireEvent.scroll(container);
+    });
+    expect(screen.getByRole("button", { name: /scroll tabs left/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /scroll tabs right/i })).toBeInTheDocument();
+  });
+
+  it("shows only left chevron when scrolled to end", () => {
+    setup([{ path: "/a.md" }, { path: "/b.md" }, { path: "/c.md" }], "/a.md");
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 700, scrollWidth: 1000, clientWidth: 300 });
+    act(() => {
+      fireEvent.scroll(container);
+    });
+    expect(screen.getByRole("button", { name: /scroll tabs left/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /scroll tabs right/i })).not.toBeInTheDocument();
+  });
+
+  it("clicking the right chevron calls scrollBy on the container", () => {
+    setup([{ path: "/a.md" }, { path: "/b.md" }, { path: "/c.md" }], "/a.md");
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 0, scrollWidth: 1000, clientWidth: 300 });
+    act(() => {
+      fireEvent.scroll(container);
+    });
+    const scrollBySpy = vi.fn();
+    container.scrollBy = scrollBySpy;
+
+    fireEvent.click(screen.getByRole("button", { name: /scroll tabs right/i }));
+    expect(scrollBySpy).toHaveBeenCalledWith(expect.objectContaining({ left: expect.any(Number) }));
+    expect(scrollBySpy.mock.calls[0][0].left).toBeGreaterThan(0);
+  });
+
+  it("clicking the left chevron scrolls in the negative direction", () => {
+    setup([{ path: "/a.md" }, { path: "/b.md" }, { path: "/c.md" }], "/a.md");
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 200, scrollWidth: 1000, clientWidth: 300 });
+    act(() => {
+      fireEvent.scroll(container);
+    });
+    const scrollBySpy = vi.fn();
+    container.scrollBy = scrollBySpy;
+
+    fireEvent.click(screen.getByRole("button", { name: /scroll tabs left/i }));
+    expect(scrollBySpy.mock.calls[0][0].left).toBeLessThan(0);
+  });
+});
+
+describe("TabBar – auto-scroll active tab into view", () => {
+  function makeTabSpy() {
+    // jsdom doesn't implement scrollIntoView; define it before spying.
+    if (!(HTMLElement.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView) {
+      (HTMLElement.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
+    }
+    return vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => {});
+  }
+
+  it("calls scrollIntoView on the active tab when activeTabPath changes", () => {
+    const spy = makeTabSpy();
+    const { rerender } = setup(
+      [{ path: "/a.md" }, { path: "/b.md" }, { path: "/c.md" }],
+      "/a.md"
+    );
+    spy.mockClear(); // ignore initial mount
+
+    // Force the tab to be considered out-of-view.
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 0, scrollWidth: 1000, clientWidth: 100 });
+    // Stub b.md tab geometry: starts at 200, width 150 → outside [0, 100].
+    const tabB = screen.getByRole("tab", { name: /b\.md/ });
+    Object.defineProperty(tabB, "offsetParent", { configurable: true, get: () => container });
+    Object.defineProperty(tabB, "offsetLeft", { configurable: true, value: 200 });
+    Object.defineProperty(tabB, "offsetWidth", { configurable: true, value: 150 });
+
+    act(() => {
+      useStore.setState({ activeTabPath: "/b.md" });
+    });
+    rerender(<TabBar />);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: "instant", block: "nearest", inline: "nearest" })
+    );
+  });
+
+  it("does NOT call scrollIntoView when the active tab is already visible", () => {
+    const spy = makeTabSpy();
+    const { rerender } = setup(
+      [{ path: "/a.md" }, { path: "/b.md" }],
+      "/a.md"
+    );
+    spy.mockClear();
+
+    const container = screen.getByRole("tablist");
+    setScrollGeometry(container, { scrollLeft: 0, scrollWidth: 400, clientWidth: 400 });
+    const tabB = screen.getByRole("tab", { name: /b\.md/ });
+    Object.defineProperty(tabB, "offsetParent", { configurable: true, get: () => container });
+    Object.defineProperty(tabB, "offsetLeft", { configurable: true, value: 100 });
+    Object.defineProperty(tabB, "offsetWidth", { configurable: true, value: 100 });
+
+    act(() => {
+      useStore.setState({ activeTabPath: "/b.md" });
+    });
+    rerender(<TabBar />);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call scrollIntoView when the active tab is not laid out (offsetParent null)", () => {
+    const spy = makeTabSpy();
+    const { rerender } = setup([{ path: "/a.md" }, { path: "/b.md" }], "/a.md");
+    spy.mockClear();
+
+    const tabB = screen.getByRole("tab", { name: /b\.md/ });
+    Object.defineProperty(tabB, "offsetParent", { configurable: true, get: () => null });
+
+    act(() => {
+      useStore.setState({ activeTabPath: "/b.md" });
+    });
+    rerender(<TabBar />);
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call scrollIntoView when only the tabs array changes (same active tab)", () => {
+    const spy = makeTabSpy();
+    const { rerender } = setup([{ path: "/a.md" }, { path: "/b.md" }], "/a.md");
+    spy.mockClear();
+
+    // Add another tab; active tab is unchanged.
+    act(() => {
+      useStore.setState({
+        tabs: [
+          { path: "/a.md", scrollTop: 0 },
+          { path: "/b.md", scrollTop: 0 },
+          { path: "/c.md", scrollTop: 0 },
+        ],
+      });
+    });
+    rerender(<TabBar />);
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

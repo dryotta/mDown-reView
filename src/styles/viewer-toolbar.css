@@ -3,8 +3,11 @@
   align-items: center;
   padding: 4px 12px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  background: var(--color-bg);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .viewer-toolbar-toggle {

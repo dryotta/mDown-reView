@@ -5,6 +5,16 @@ import * as fs from "fs";
 
 test.describe("Native Smoke Tests", () => {
   test("26.1 - app window opens showing the welcome view", async ({ nativePage }) => {
+    // The native dev binary reuses its WebView2 user-data directory across runs, so
+    // Zustand's persisted store can carry over `tabs` / `activeTabPath` from a previous
+    // test session — which would render ViewerRouter instead of WelcomeView and make
+    // this assertion non-deterministic on developer machines. Reset persisted UI state
+    // and reload so we always start from a clean "no file open" baseline.
+    await nativePage.evaluate(() => {
+      localStorage.removeItem("mdownreview-ui");
+    });
+    await nativePage.reload();
+
     // App starts with no file open — welcome view must be visible
     await expect(nativePage.locator(".welcome-view")).toBeVisible({ timeout: 10_000 });
     await expect(nativePage.locator(".welcome-view").getByText("Open File")).toBeVisible();

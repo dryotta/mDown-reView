@@ -104,6 +104,12 @@ body,
   border-radius: 6px;
   overflow: hidden;
   background: var(--color-btn-group-bg);
+  /* The TabBar wrapper is the only flex item allowed to shrink in the
+     toolbar (so the chevrons trigger when overflowed). The button group
+     keeps its intrinsic size — Open File / Open Folder / Comments stay
+     readable at every viewport width. Pairs with .tab-bar-wrapper
+     (flex-shrink: 1) in tab-bar.css. */
+  flex-shrink: 0;
 }
 
 .toolbar-btn-group .toolbar-btn {

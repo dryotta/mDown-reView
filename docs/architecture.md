@@ -43,6 +43,8 @@ flowchart LR
 1. Every Tauri IPC call goes through a typed wrapper in `src/lib/tauri-commands.ts`; production code never imports `invoke` directly. (`src/lib/tauri-commands.ts:1` is the only non-test `invoke` importer.)
 2. Every new Rust command ships with a matching typed TS wrapper; the wrapper's return type matches the Rust `Result<T, String>` unwrapped `T`. (`commands/comments.rs:109` ↔ `tauri-commands.ts:50`.)
 3. Every Rust command is registered in `shared_commands!` in `src-tauri/src/lib.rs:222-262`. Commands are grouped under `src-tauri/src/commands/<feature>.rs` (`src-tauri/src/commands/mod.rs:7-15`): `fs` (incl. `update_tree_watched_dirs` for folder-tree watches), `comments`, `search`, `html`, `launch`, plus the iter-2 onboarding/platform-integration set (`onboarding` ×3, `cli_shim` ×3, `default_handler` ×2, `folder_context` ×3 — see [`docs/features/installation.md`](features/installation.md)). Path resolution shared by both the GUI and CLI binaries lives in `src-tauri/src/core/paths.rs`.
+
+   *Structured-return chokepoint.* When a single command's caller needs the bytes AND cheap-to-compute metadata (size, line count, …), return a struct that carries both rather than forcing a second IPC round-trip. Canonical example: `read_text_file` returns `TextFileResult { content, size_bytes, line_count }` (`commands/fs.rs:71-109`) so the StatusBar reads from a Zustand-cached `fileMetaByPath` populated by `useFileContent` — neither component issues its own metadata IPC. See rule 2 in [`docs/performance.md`](performance.md).
 4. All frontend logging goes through `src/logger.ts`; no file outside `src/logger.ts` and its test imports from `@tauri-apps/plugin-log`.
 5. Log prefix tags: frontend `[web]`, Rust `[rust]` or a subsystem like `[watcher]`. (`src/logger.ts:9-13`; `watcher.rs:93`.)
 6. `console.log`/`console.info` never appear in production frontend code. Diagnostic logging in watcher hooks goes through `@/logger` (`warn`/`debug`), not `console.*`. (`useFileWatcher.ts:45,57,61`.)
@@ -60,7 +62,7 @@ flowchart LR
 14. Ghost-entry scanning uses a single Rust command. (`commands/launch.rs:26` `scan_review_files`.) Cap: rule 3 in [`docs/performance.md`](performance.md).
 
 ### State boundaries
-15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `authorName`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`. `ghostEntries`, `lastSaveByPath`, `updateStatus`, comments, and scroll values are never persisted. (`store/index.ts:229-241`.)
+15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `authorName`, `readingWidth`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`. `ghostEntries`, `lastSaveByPath`, `lastFileReloadedAt`, `lastCommentsReloadedAt`, `viewModeByTab`, `fileMetaByPath`, `updateStatus`, comments, and scroll values are never persisted. (`store/index.ts` `partialize`; tabs slice `store/tabs.ts:39-58`.)
 16. Cross-slice state changes from a single user action group into one store action. (`store/index.ts:149-161` `closeTab`.)
 17. `lib/` never imports `components/` or `hooks/`; `lib/vm/` is the only place `lib/` reads `@/store`. (Grep-verified: `@/components` / `@/hooks` in `src/lib/` → 0; `@/store` → only `src/lib/vm/use-comment-actions.ts:2`.)
 
@@ -72,7 +74,7 @@ flowchart LR
 22. `read_dir` filters out sidecar files (`.review.yaml`, `.review.json`) before returning. (`commands/fs.rs:49-51`.)
 
 ### File-size budgets
-23. Any file >400 lines in `src/components/` or `src-tauri/src/` is a structural smell and must be split. Shared-chokepoint files (`src/store/index.ts`, `src/App.tsx`, `src-tauri/src/lib.rs`) get a 500-line budget. The old `src-tauri/src/commands.rs` god-file was deleted in iter 2 and is now the `commands/` folder; no single feature file should exceed the 400-line threshold (current snapshot: `core/html_assets.rs` 353, `core/comments.rs` 332, `core/sidecar.rs` 321, `core/fold_regions.rs` 303, `lib.rs` 288, `core/matching.rs` 284, `store/index.ts` 277, `commands/comments.rs` 217, `MarkdownViewer.tsx` 248).
+23. Any file >400 lines in `src/components/` or `src-tauri/src/` is a structural smell and must be split. Shared-chokepoint files (`src/store/index.ts`, `src/App.tsx`, `src-tauri/src/lib.rs`) get a 500-line budget. The old `src-tauri/src/commands.rs` god-file was deleted in iter 2 and is now the `commands/` folder; no single feature file should exceed the 400-line threshold (current snapshot: `core/html_assets.rs` 353, `core/comments.rs` 332, `core/sidecar.rs` 321, `core/fold_regions.rs` 303, `lib.rs` 288, `core/matching.rs` 284, `MarkdownViewer.tsx` 257, `commands/comments.rs` 217, `store/tabs.ts` ~210, `store/index.ts` ~424).
 
 ### Native menu
 24. Native OS menu events are forwarded as `menu-*` Tauri events handled in `src/hooks/useMenuListeners.ts`, not invoked as commands. (`lib.rs:193-212`; `useMenuListeners.ts:22-54`.)

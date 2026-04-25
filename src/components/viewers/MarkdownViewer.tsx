@@ -29,6 +29,8 @@ import {
   MdCommentPopover,
 } from "./markdown/CommentableBlocks";
 import { useImgResolver } from "./markdown/useImgResolver";
+import { ReadingWidthHandle } from "./ReadingWidthHandle";
+import { useStore } from "@/store";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
@@ -122,6 +124,8 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const { body, data } = useMemo(() => parseFrontmatter(content), [content]);
   const headings = useMemo(() => extractHeadings(body), [body]);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const readingContainerRef = useRef<HTMLDivElement>(null);
+  const readingWidth = useStore((s) => s.readingWidth);
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
 
@@ -189,13 +193,18 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   return (
     <div className="markdown-viewer">
-      {showSizeWarning && (
-        <div className="size-warning" role="alert">
-          This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
-        </div>
-      )}
-      {data && <FrontmatterBlock data={data} />}
-      <TableOfContents headings={headings} />
+      <div
+        className="reading-width"
+        ref={readingContainerRef}
+        style={{ ["--reading-width" as string]: `${readingWidth}px` }}
+      >
+        {showSizeWarning && (
+          <div className="size-warning" role="alert">
+            This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
+          </div>
+        )}
+        {data && <FrontmatterBlock data={data} />}
+        <TableOfContents headings={headings} />
       <MdCommentContext.Provider value={contextValue}>
         <div
           className="markdown-body"
@@ -230,6 +239,9 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
           )}
         </div>
       </MdCommentContext.Provider>
+        <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
+        <ReadingWidthHandle containerRef={readingContainerRef} side="right" />
+      </div>
       {selectionToolbar && (
         <SelectionToolbar
           position={selectionToolbar.position}

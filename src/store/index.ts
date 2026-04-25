@@ -15,8 +15,17 @@ import {
   type CliShimError,
   type OnboardingState,
 } from "@/lib/tauri-commands";
+import {
+  createTabsSlice,
+  filterStaleTabs,
+  MAX_TABS,
+  type TabsSlice,
+  type Tab,
+  type FileMeta,
+} from "./tabs";
 
-export type { OnboardingState };
+export type { OnboardingState, Tab, TabsSlice, FileMeta };
+export { MAX_TABS, filterStaleTabs };
 
 // ── Recent items ──────────────────────────────────────────────────────────
 
@@ -40,23 +49,8 @@ interface WorkspaceSlice {
 }
 
 // ── Tabs slice ─────────────────────────────────────────────────────────────
-
-export interface Tab {
-  path: string;
-  scrollTop: number;
-}
-
-interface TabsSlice {
-  tabs: Tab[];
-  activeTabPath: string | null;
-  viewModeByTab: Record<string, "source" | "visual">;
-  openFile: (path: string) => void;
-  closeTab: (path: string) => void;
-  closeAllTabs: () => void;
-  setActiveTab: (path: string) => void;
-  setScrollTop: (path: string, scrollTop: number) => void;
-  setViewMode: (path: string, mode: "source" | "visual") => void;
-}
+// Defined in `./tabs.ts` (extracted to keep this file under the 500-line
+// shared-chokepoint cap — rule 23 in `docs/architecture.md`).
 
 // ── UI slice ──────────────────────────────────────────────────────────────
 
@@ -67,10 +61,13 @@ interface UISlice {
   folderPaneWidth: number;
   commentsPaneVisible: boolean;
   authorName: string;
+  /** Reading column width (CSS pixels). Persisted. Clamped to [400, 1600]. */
+  readingWidth: number;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
   toggleCommentsPane: () => void;
   setAuthorName: (name: string) => void;
+  setReadingWidth: (n: number) => void;
 }
 
 // ── Watcher slice ──────────────────────────────────────────────────────────
@@ -149,25 +146,9 @@ interface OnboardingSlice {
   unregisterFolderContext: () => Promise<void>;
 }
 
-// ── Tab persistence helpers ────────────────────────────────────────────────
-
-export function filterStaleTabs(
-  tabs: Tab[],
-  activeTabPath: string | null,
-  existsMap: Map<string, boolean>
-): { tabs: Tab[]; activeTabPath: string | null } {
-  const validTabs = tabs.filter((t) => existsMap.get(t.path) !== false);
-  const validPaths = new Set(validTabs.map((t) => t.path));
-  let newActiveTabPath = activeTabPath;
-  if (activeTabPath && !validPaths.has(activeTabPath)) {
-    newActiveTabPath = validTabs.length > 0 ? validTabs[0].path : null;
-  }
-  return { tabs: validTabs, activeTabPath: newActiveTabPath };
-}
-
 // ── Combined store ─────────────────────────────────────────────────────────
 
-type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice;
+export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice;
 
 
 export const useStore = create<Store>()(
@@ -185,54 +166,20 @@ export const useStore = create<Store>()(
         set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
       closeFolder: () => set({ root: null, expandedFolders: {} }),
 
-      // Tabs
-      tabs: [],
-      activeTabPath: null,
-      openFile: (path) => {
-        const existing = get().tabs.find((t) => t.path === path);
-        if (existing) {
-          set({ activeTabPath: path });
-        } else {
-          set((s) => ({ tabs: [...s.tabs, { path, scrollTop: 0 }], activeTabPath: path }));
-        }
-      },
-      closeTab: (path) => {
-        const tabs = get().tabs;
-        const idx = tabs.findIndex((t) => t.path === path);
-        if (idx === -1) return;
-        const newTabs = tabs.filter((t) => t.path !== path);
-        let newActive = get().activeTabPath;
-        if (newActive === path) {
-          newActive = newTabs[idx] ? newTabs[idx].path : newTabs[idx - 1]?.path ?? null;
-        }
-        const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
-        const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
-        set({ tabs: newTabs, activeTabPath: newActive, viewModeByTab: restViewModes, lastSaveByPath: restSaveByPath });
-      },
-      closeAllTabs: () => set({ tabs: [], activeTabPath: null, viewModeByTab: {}, lastSaveByPath: {} }),
-      setActiveTab: (path) => set({ activeTabPath: path }),
-      setScrollTop: (path, scrollTop) => {
-        const tab = get().tabs.find((t) => t.path === path);
-        if (!tab || tab.scrollTop === scrollTop) return;
-        set((s) => ({
-          tabs: s.tabs.map((t) => (t.path === path ? { ...t, scrollTop } : t)),
-        }));
-      },
-      viewModeByTab: {},
-      setViewMode: (path, mode) =>
-        set((s) => ({
-          viewModeByTab: { ...s.viewModeByTab, [path]: mode },
-        })),
+      // Tabs (delegated to ./tabs.ts)
+      ...createTabsSlice(set, get),
 
       // UI
       theme: "system",
       folderPaneWidth: 240,
       commentsPaneVisible: true,
       authorName: "",
+      readingWidth: 720,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
+      setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
 
       // Watcher
       ghostEntries: [],
@@ -334,6 +281,7 @@ export const useStore = create<Store>()(
         root: state.root,
         expandedFolders: state.expandedFolders,
         authorName: state.authorName,
+        readingWidth: state.readingWidth,
         recentItems: state.recentItems,
         tabs: state.tabs,
         activeTabPath: state.activeTabPath,
@@ -341,8 +289,15 @@ export const useStore = create<Store>()(
       }),
       onRehydrateStorage: () => () => {
         queueMicrotask(() => {
-          const { tabs } = useStore.getState();
+          const { tabs, activeTabPath } = useStore.getState();
           if (tabs.length === 0) return;
+          // Enforce MAX_TABS immediately at rehydrate time so the cap holds
+          // even if every persisted file still exists (validatePersistedTabs
+          // also enforces it after the existence check).
+          if (tabs.length > MAX_TABS) {
+            const trimmed = filterStaleTabs(tabs, activeTabPath, new Map());
+            useStore.setState(trimmed);
+          }
           import("@/lib/tauri-commands").then(
             ({ checkPathExists }) => validatePersistedTabs(checkPathExists),
             () => {}

@@ -8,6 +8,7 @@ import type {
   MatchedComment,
   MrsfSidecar,
   SearchMatch,
+  TextFileResult,
 } from "@/lib/tauri-commands";
 
 // Typed mock return values are validated at compile time against shared interfaces
@@ -23,6 +24,7 @@ type InvokeResult =
   | FoldRegion[]
   | KqlPipelineStep[]
   | Record<string, number>
+  | TextFileResult
   | "file"
   | "dir"
   | "missing"

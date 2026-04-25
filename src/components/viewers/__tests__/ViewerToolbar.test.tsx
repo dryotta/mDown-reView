@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { ViewerToolbar } from "../ViewerToolbar";
 
 describe("ViewerToolbar", () => {
@@ -35,5 +37,19 @@ describe("ViewerToolbar", () => {
     );
     expect(screen.getByRole("button", { name: /wrap/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /source/i })).toBeNull();
+  });
+
+  it("declares sticky positioning so it stays visible while scrolling content", () => {
+    // jsdom does not compute `position: sticky`, so verify the rule exists in the source CSS.
+    const css = readFileSync(
+      resolve(__dirname, "../../../styles/viewer-toolbar.css"),
+      "utf8",
+    );
+    const block = css.match(/\.viewer-toolbar\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(block).toMatch(/position:\s*sticky/);
+    expect(block).toMatch(/top:\s*0/);
+    // Opaque background is required so scrolled content does not bleed through the sticky bar.
+    expect(block).toMatch(/background:\s*var\(--color-bg\)/);
+    expect(block).toMatch(/z-index:\s*\d+/);
   });
 });

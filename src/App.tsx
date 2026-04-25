@@ -13,6 +13,7 @@ import { FirstRunPanel } from "@/components/onboarding/FirstRunPanel";
 import { SetupPanel } from "@/components/onboarding/SetupPanel";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
+import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
@@ -20,34 +21,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
+import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
-
-type Theme = "system" | "light" | "dark";
-const THEME_CYCLE: Theme[] = ["system", "light", "dark"];
-
-/* ── Inline SVG toolbar icons (14×14, fill=currentColor) ──────────── */
-
-import {
-  IconFile,
-  IconFolder,
-  IconComment,
-  IconSun,
-  IconMoon,
-  IconAuto,
-  IconInfo,
-} from "@/components/Icons";
-
-const THEME_ICONS: Record<Theme, () => React.JSX.Element> = {
-  light: IconSun,
-  dark: IconMoon,
-  system: IconAuto,
-};
-
-const THEME_LABELS: Record<Theme, string> = {
-  light: "Light",
-  dark: "Dark",
-  system: "System",
-};
 
 export default function App() {
   const {
@@ -97,11 +72,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [checkForUpdate]);
 
-  const cycleTheme = useCallback(() => {
-    const idx = THEME_CYCLE.indexOf(theme);
-    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
-  }, [theme, setTheme]);
-
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -124,8 +94,6 @@ export default function App() {
     [folderPaneWidth, setFolderPaneWidth]
   );
 
-  const ThemeIcon = THEME_ICONS[theme];
-
   return (
     <div className="app-layout">
       <ErrorBoundary>
@@ -145,14 +113,9 @@ export default function App() {
             <IconComment /> Comments
           </button>
         </div>
-        <div className="toolbar-actions">
-          <button className="toolbar-btn toolbar-btn-utility" onClick={cycleTheme}>
-            <ThemeIcon /> {THEME_LABELS[theme]}
-          </button>
-          <button className="toolbar-btn toolbar-btn-utility" onClick={() => setAboutOpen(true)}>
-            <IconInfo /> About
-          </button>
-        </div>
+        <ErrorBoundary>
+          <TabBar />
+        </ErrorBoundary>
       </div>
 
       <UpdateBanner />
@@ -174,7 +137,6 @@ export default function App() {
         </div>
 
         <div className="viewer-area">
-          <TabBar />
           <ErrorBoundary>
             {activeTabPath ? (
               <ViewerRouter path={activeTabPath} />
@@ -190,6 +152,10 @@ export default function App() {
           </ErrorBoundary>
         )}
       </div>
+
+      <ErrorBoundary>
+        <StatusBar />
+      </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       <FirstRunPanel />
