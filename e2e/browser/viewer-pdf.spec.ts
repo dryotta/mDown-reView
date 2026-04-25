@@ -1,6 +1,10 @@
 import { test, expect } from "./fixtures";
 import type { Page } from "@playwright/test";
 
+// asset.localhost URLs are unreachable in browser-only tests (no Tauri shell);
+// the iframe src fails with ERR_CONNECTION_REFUSED. Suppress from console-spy.
+test.use({ consoleErrorAllowlist: ["Failed to load resource", "asset.localhost"] });
+
 const FIXTURES_DIR = "/e2e/fixtures";
 
 async function setupPdfMocks(page: Page) {

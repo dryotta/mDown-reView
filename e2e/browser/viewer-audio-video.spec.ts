@@ -1,6 +1,11 @@
 import { test, expect } from "./fixtures";
 import type { Page } from "@playwright/test";
 
+// asset.localhost URLs are unreachable in browser-only tests (no Tauri shell);
+// the mock returns the URL but the <audio>/<video> network fetch fails with
+// ERR_CONNECTION_REFUSED. Suppress that resource error from the console-spy.
+test.use({ consoleErrorAllowlist: ["Failed to load resource", "asset.localhost"] });
+
 const FIXTURES_DIR = "/e2e/fixtures";
 
 async function setupMediaMocks(page: Page) {
