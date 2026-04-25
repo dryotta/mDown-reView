@@ -167,7 +167,12 @@ mod tests {
         std::fs::create_dir_all(&fake_app).unwrap();
         let err = remove_at(&shim, &fake_app).unwrap_err().to_string();
         assert!(err.contains("broken symlink"), "got: {err}");
-        assert!(shim.exists(), "shim must not be deleted on refusal");
+        // Use symlink_metadata so we check the symlink entry itself (Path::exists
+        // follows the link and returns false for broken symlinks).
+        assert!(
+            std::fs::symlink_metadata(&shim).is_ok(),
+            "shim must not be deleted on refusal",
+        );
     }
 
     #[test]

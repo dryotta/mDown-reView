@@ -173,9 +173,15 @@ jobs:
       - name: Stage CLI binary (needed by Tauri externalBin during cargo build)
         run: npm run stage:cli
 
-      - name: Build debug binary
+      - name: Build debug binary (for CDP native tests)
         working-directory: src-tauri
         run: cargo build
+
+      - name: Build release NSIS installer (for installer.spec.ts)
+        run: npm run tauri:build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Get Playwright version
         id: pw-version
