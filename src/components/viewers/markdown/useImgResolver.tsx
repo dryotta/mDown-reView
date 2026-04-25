@@ -144,6 +144,6 @@ export function hasRemoteImageReferences(body: string): boolean {
     .replace(/`[^`\n]*`/g, "");
   return (
     /!\[[^\]]*\]\(\s*https?:\/\//i.test(stripped) ||
-    /<img\b[^>]*\bsrc\s*=\s*["']https?:\/\//i.test(stripped)
+    /<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i.test(stripped)
   );
 }

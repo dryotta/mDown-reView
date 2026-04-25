@@ -136,6 +136,9 @@ describe("hasRemoteImageReferences", () => {
   it("detects a raw <img> tag with an https src", () => {
     expect(hasRemoteImageReferences('<img src="https://example.com/x.png" />')).toBe(true);
   });
+  it("detects a raw <img> tag with unquoted https src", () => {
+    expect(hasRemoteImageReferences("<img src=https://example.com/x.png>")).toBe(true);
+  });
   it("returns false when only local images are referenced", () => {
     expect(hasRemoteImageReferences("![x](./i.png) and ![y](/abs/i.png)")).toBe(false);
   });
