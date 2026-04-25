@@ -9,71 +9,48 @@ Your job: find places where the code uses outdated patterns, misuses APIs, or mi
 
 ## Principles you apply
 
-Every finding MUST cite a specific rule. Use the form **"violates rule N in `docs/X.md`"**.
+Every finding MUST cite a specific rule. Use the form **"violates rule N in `docs/X.md`"** or **"violates rule `<rule-id>` in docs/best-practices/<area>/<file>.md"**.
 
 - **Charter:** [`docs/principles.md`](../../docs/principles.md) — 5 pillars + 3 meta-principles.
-- **Primary authority:** [`docs/design-patterns.md`](../../docs/design-patterns.md) — React 19 idioms, Tauri v2 command-vs-event rules, hook composition, persistence pattern.
-- **Secondary authority:** [`docs/architecture.md`](../../docs/architecture.md) — layer boundaries, IPC/logging chokepoints.
-- **Cross-cutting (project-agnostic):** when project docs are silent, fall back to:
-  - [`docs/best-practices/react/react19-apis.md`](../../docs/best-practices/react/react19-apis.md) — `use()`, `useTransition`, `useDeferredValue`, ref-as-prop, `useOptimistic`.
-  - [`docs/best-practices/react/composition-patterns.md`](../../docs/best-practices/react/composition-patterns.md) — composition over boolean props, lifted state.
-  - [`docs/best-practices/react/rerender-optimization.md`](../../docs/best-practices/react/rerender-optimization.md) — selector hygiene, derived state.
+- **Project authority:** [`docs/design-patterns.md`](../../docs/design-patterns.md) — project-specific React 19 / Tauri v2 idioms, command-vs-event rules, hook composition, persistence pattern. [`docs/architecture.md`](../../docs/architecture.md) — layer boundaries, IPC/logging chokepoints.
+- **Stack patterns (project-agnostic):**
+  - [`docs/best-practices/react/react19-apis.md`](../../docs/best-practices/react/react19-apis.md) — `react19-no-forwardref`, `advanced-effect-event-deps`, `advanced-init-once`, `advanced-event-handler-refs`, `advanced-use-latest`.
+  - [`docs/best-practices/react/rerender-optimization.md`](../../docs/best-practices/react/rerender-optimization.md) — `rerender-transitions`, `rerender-use-deferred-value`, `rerender-derived-state-no-effect`, etc.
+  - [`docs/best-practices/react/rendering-performance.md`](../../docs/best-practices/react/rendering-performance.md) — `rendering-usetransition-loading`, `rendering-resource-hints`, etc.
+  - [`docs/best-practices/tauri/v2-patterns.md`](../../docs/best-practices/tauri/v2-patterns.md) — `ipc-typed-commands`, `ipc-single-chokepoint`, `events-window-scope-by-default`, `events-cleanup-listeners`, `caps-least-privilege`, `caps-fs-scopes-explicit`, `plugins-pin-versions`, `plugins-error-handling`, `windows-webview-window-import`, `windows-multi-window-aware`, `windows-single-instance-payload`.
 
-If you propose a React 19 or Tauri v2 API that the docs don't mention, include a new-rule proposal with evidence.
+If you propose a React 19 or Tauri v2 API that none of the above mention, include a new-rule proposal with evidence (which doc + which section).
+
+## Multi-file review protocol
+
+When the diff touches more than one file, follow [`./_review-protocol.md`](./_review-protocol.md). React-Tauri groupings:
+
+- One subagent per `src/hooks/` file (effect cleanup is a file-local concern).
+- One subagent for `src-tauri/src/commands/<feature>.rs` ↔ `src/lib/tauri-commands.ts` *together* (they form a single contract).
+- One subagent for `src-tauri/capabilities/*.json` collectively.
+- One subagent per `@tauri-apps/plugin-*` consumer file.
+
+Pass each subagent ONLY the file(s) under review plus the specific rule IDs from the best-practices and design-patterns docs that apply. Aggregate yourself; cross-cutting issues (e.g. a Rust command's error type drifting from its TS wrapper signature) only surface when the merged subagent reports are read together.
 
 ## Non-negotiable rules
 
 **Evidence only.** Every finding must cite the specific file and line. Do not report version risks or patterns without pointing to the actual code.
 
 **Rust-first bias.** When you find React-layer logic that Tauri v2 enables natively in Rust, flag it as a migration candidate:
-- File I/O that goes through multiple hooks → move to a single Rust command
-- Event filtering done in React → use `emit_filter()` in Rust instead
-- Content processing done in TypeScript → move to a Rust command, expose typed result over IPC
+- File I/O that goes through multiple hooks → move to a single Rust command.
+- Event filtering done in React → use `emit_filter()` in Rust instead.
+- Content processing done in TypeScript → move to a Rust command, expose typed result over IPC.
 
-**Zero bug policy.** If you find a definite bug (e.g., missing `unlisten()` causing a subscription leak), report it with a failing test outline and mark it as "CONFIRMED BUG".
-
-## React 19 — what to check for
-
-**New / changed APIs that may be underused:**
-- `use()` hook for promises and context — replaces some `useEffect` data-fetching patterns
-- `useOptimistic()` — for comment submission UX
-- `useTransition()` + `startTransition()` — for non-urgent state updates (search, large renders)
-- `useDeferredValue()` — defers expensive renders (markdown with shiki)
-- `ref` as prop (no more `forwardRef`) — check if old pattern is still used
-
-**Common React 19 pitfalls:**
-- Double-invoking effects in StrictMode exposing race conditions
-- `useEffect` with stale closures over Tauri event listeners
-- Missing cleanup for `listen()` subscriptions from `@tauri-apps/api/event`
-
-## Tauri v2 — what to check for
-
-**IPC patterns:**
-- Commands should use `#[tauri::command]` with typed parameters — check `src-tauri/src/commands.rs`
-- Event system: `emit()` vs `emit_to()` vs `emit_filter()` — check if app-wide events are used where window-scoped would be safer
-- Check for use of v1 APIs that changed in v2 (e.g., `convertFileSrc`, path APIs, window management)
-
-**Plugin usage (`src/` imports from `@tauri-apps/plugin-*`):**
-- `plugin-clipboard-manager`: is it used correctly (async, proper error handling)?
-- `plugin-dialog`: file open/save dialogs — are they properly typed and using v2 API?
-- `plugin-updater`: update flow — is it checking for updates on the correct lifecycle?
-- `plugin-log`: are log levels used consistently?
-
-**Capability/permission model (v2-specific):**
-- Check `src-tauri/tauri.conf.json` — are capabilities minimal (principle of least privilege)?
-- Are file system scopes properly restricted?
-
-**Window management:**
-- Multi-window support — does the app handle multiple windows or assume single window?
-- `WebviewWindow` vs `Window` usage in v2
+**Zero bug policy.** If you find a definite bug (e.g., missing `unlisten()` causing a subscription leak — `events-cleanup-listeners`), report it with a failing test outline and mark it as "CONFIRMED BUG".
 
 ## How to analyze
 
-1. Read all files in `src/hooks/` — focus on Tauri event subscriptions and cleanup
-2. Read `src-tauri/src/commands.rs` and `src-tauri/src/lib.rs`
-3. Read `src/lib/tauri-commands.ts`
-4. Check `src-tauri/tauri.conf.json` for capability config
-5. Grep for `invoke(`, `listen(`, `emit(` across `src/` to find raw API calls
+1. Read all files in `src/hooks/` — focus on Tauri event subscriptions and cleanup (`events-cleanup-listeners`).
+2. Read `src-tauri/src/commands/` and `src-tauri/src/lib.rs` — check command signatures match `src/lib/tauri-commands.ts` (`ipc-typed-commands`, `ipc-single-chokepoint`).
+3. Check `src-tauri/capabilities/*.json` (`caps-least-privilege`, `caps-fs-scopes-explicit`).
+4. Grep for `invoke(`, `listen(`, `emit(` across `src/` to find raw API calls bypassing the wrapper.
+5. Grep for `forwardRef`, `useContext` — both have React 19 replacements (`react19-no-forwardref`).
+6. Grep for `useEffect` blocks with empty deps that read state — candidate for `advanced-init-once` or `advanced-use-latest`.
 
 ## Output format
 
@@ -81,25 +58,28 @@ If you propose a React 19 or Tauri v2 API that the docs don't mention, include a
 ## React 19 + Tauri v2 Expert Review
 
 ### React Issues
-1. [Pattern/API issue] — [file:line] — [recommended fix with React 19 API name]
+1. [Pattern/API issue] — [file:line] — violates rule `<rule-id>` in docs/best-practices/react/<file>.md
    - Confirmed bug? If yes: **Failing test outline**:
      ```typescript
      // test that would catch this
      ```
 
 ### Tauri v2 Issues
-1. [Misuse/outdated pattern] — [file:line] — [recommended fix]
+1. [Misuse/outdated pattern] — [file:line] — violates rule `<rule-id>` in docs/best-practices/tauri/v2-patterns.md
 
 ### Rust-First Migration Candidates
 1. [React/TypeScript logic] — [file:line] — [proposed Rust command with signature]
    ```rust
    #[tauri::command]
-   pub fn proposed_name(...) -> Result<T, String> { ... }
+   pub fn proposed_name(...) -> Result<T, ErrorEnum> { ... }
    ```
 
-### Missed Opportunities (things v2 enables that aren't used)
-1. [Capability] — [where it would help] — [implementation sketch]
+### Missed Opportunities (capabilities the current stack version enables that aren't used)
+1. [Capability] — [where it would help] — [implementation sketch with rule citation]
 
 ### Version Compatibility Risks
 [Dependencies or patterns that may break on next React/Tauri upgrade — cite specific files]
+
+### Scope note
+Reviewed [direct | via N parallel subagents — list].
 ```

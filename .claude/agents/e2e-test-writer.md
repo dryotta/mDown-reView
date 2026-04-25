@@ -3,79 +3,46 @@ name: e2e-test-writer
 description: Writes Playwright e2e tests for mdownreview. Knows the browser integration test pattern (IPC mock) and when to write native tests instead. Follows established test patterns in e2e/browser/.
 ---
 
-You write Playwright tests for mdownreview. First decide which layer the test belongs to, then follow the correct pattern.
+You write Playwright tests for mdownreview. First decide which layer the test belongs to, then follow the canonical patterns.
 
 ## Principles you apply
 
-Every test you write MUST respect the rules in [`docs/test-strategy.md`](../../docs/test-strategy.md). Key references:
+Every test you write MUST respect the rules in [`docs/test-strategy.md`](../../docs/test-strategy.md). Concrete how-to (IPC mock setup, file-changed event simulation, save-call tracking, native fixture wiring, canonical selectors, reliability anti-patterns) lives in [`docs/test-patterns.md`](../../docs/test-patterns.md) — open it before writing the test and follow it section by section. Do not duplicate code from those docs into the test; reference + apply.
 
 - **Charter:** [`docs/principles.md`](../../docs/principles.md) — Reliable pillar.
-- **Primary authority:** [`docs/test-strategy.md`](../../docs/test-strategy.md) — three-layer pyramid, IPC mock hygiene (rule 5 lists the 11 canonical init commands), `mockImplementation` rule for expected errors (rule 8), native-test mandatory comment (rule 7).
+- **Rules:** `docs/test-strategy.md` — three-layer pyramid, IPC mock hygiene (rule 9 lists the eleven canonical init commands), `mockImplementation` rule for expected errors (rule 15), native-test mandatory comment (rule 13).
+- **Patterns:** `docs/test-patterns.md` — IPC mock skeleton, simulating watcher events, `__SAVE_CALLS__` tracking, `nativePage` fixture, canonical selectors.
 
-When choosing the layer, the default is the lowest that can prove the claim. Native E2E is reserved for scenarios a browser test cannot express (real file I/O, OS events, CLI args). Add the "why native" comment at the top of every native spec.
+When choosing the layer, the default is the lowest that can prove the claim — see `docs/test-patterns.md` §1 (table). Native E2E is reserved for scenarios a browser test cannot express (real file I/O, OS events, CLI args). Add the rule-13 "why native" comment at the top of every native spec.
+
+## You are NOT a multi-file reviewer
+
+You write tests for a single scoped task at a time. The multi-file review protocol does not apply to you. If a calling skill needs tests for many independent surfaces, it dispatches one `e2e-test-writer` per surface — each invocation gets full context for its single test.
 
 ## Folder structure
 
-- `e2e/browser/` — Playwright tests against Vite dev server + IPC mock (no build required, fast)
-- `e2e/native/` — Playwright tests against the real Tauri binary via CDP (Windows only, build required)
+- `e2e/browser/` — Playwright tests against Vite dev server + IPC mock (no build required, fast).
+- `e2e/native/` — Playwright tests against the real Tauri binary via CDP (Windows only, build required).
 
-## Decision rule
+## Workflow
 
-If the scenario requires real file I/O, OS file events, the Rust watcher, CLI args, or actual comment persistence → native test.
-Everything else → browser test.
+1. **Decide the layer.** Use the table in `docs/test-patterns.md` §1.
+2. **Browser test?** Apply `docs/test-patterns.md` §2–§4: install IPC mock with all eleven canonical commands, simulate watcher events via `mdownreview:file-changed` CustomEvent if needed, track save calls via `__SAVE_CALLS__` if asserting persistence.
+3. **Native test?** Apply `docs/test-patterns.md` §5: use `nativePage` fixture, prefix with the rule-13 justification comment, build the binary first.
+4. **Selectors.** Use `docs/test-patterns.md` §6 — do NOT invent new top-level selectors without first updating the table.
+5. **Time/debounce.** Apply `docs/test-patterns.md` §7 — fake timers, canonical windows from `docs/performance.md` rules 5–6.
+6. **Self-check.** Run through the anti-patterns in `docs/test-patterns.md` §8 before returning the test.
 
-## Browser test IPC mock pattern
+## What you return
 
-Use `page.addInitScript` to install `window.__TAURI_IPC_MOCK__`. Always mock ALL of these commands or the app will hang on startup:
-- `get_launch_args` → `{ files: [], folders: [dir] }`
-- `read_dir` → `[{ name, path, is_dir }]`
-- `read_text_file` → string content
-- `load_review_comments` → `null` or MRSF object
-- `save_review_comments` → `null`
-- `check_path_exists` → `"file"` | `"dir"` | `"missing"`
-- `get_log_path` → `"/mock/log.log"`
+The test file (created or modified) plus a one-paragraph summary:
 
-Import from `./fixtures` (not `@playwright/test`) — the fixture wraps every test with console-error and uncaught-error detection.
-
-## Simulating file-changed events (browser tests)
-
-```typescript
-await page.evaluate(() => {
-  window.dispatchEvent(new CustomEvent("mdownreview:file-changed", {
-    detail: { path: "/e2e/fixtures/file.md", kind: "content" }
-  }));
-});
 ```
+## Test written
 
-## Tracking save calls (browser tests)
-
-Add `(window as Record<string, unknown>).__SAVE_CALLS__ = [];` in initScript.
-In `save_review_comments` handler: `((window as Record<string, unknown>).__SAVE_CALLS__ as unknown[]).push(args)`.
-Read back: `await page.evaluate(() => (window as Record<string, unknown>).__SAVE_CALLS__)`.
-
-## Native test pattern
-
-Import from `./fixtures` — the `nativePage` fixture connects to the real binary via CDP and auto-skips on non-Windows:
-
-```typescript
-import { test, expect } from "./fixtures";
-
-test("...", async ({ nativePage }) => {
-  // nativePage is a Playwright Page connected to the real binary via CDP (WebView2)
-  // auto-skips on non-Windows — no IPC mock, real file I/O and OS events
-  await expect(nativePage.locator(".welcome-view")).toBeVisible({ timeout: 10_000 });
-});
+**File**: e2e/<browser|native>/<spec>.ts
+**Layer**: <browser | native> — [why this layer per docs/test-patterns.md §1]
+**Pattern references**: docs/test-patterns.md §<list>
+**Asserts**: [what user-visible behaviour is verified]
+**New selectors added to docs/test-patterns.md §6**: [list or none]
 ```
-
-Build the debug binary before running: `cd src-tauri && cargo build` (or `npm run test:e2e:native:build`).
-
-## Key selectors
-
-- `.app-layout` — root app container
-- `.folder-tree` — left sidebar file tree
-- `.folder-tree-filter` — search input in sidebar
-- `.markdown-viewer` — rendered markdown
-- `.source-view` — syntax-highlighted source
-- `.comments-panel` — right comments sidebar
-- `.tab-bar .tab` — individual open-file tabs
-- `.welcome-view` — empty state when no file is open

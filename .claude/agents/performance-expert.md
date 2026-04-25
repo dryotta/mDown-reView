@@ -21,6 +21,16 @@ Every finding MUST cite a specific rule. Use the form **"violates rule N in `doc
 
 Claims without a benchmark, profile, or `file:line` code-bound are not reportable (the doc is evidence-based by design).
 
+## Multi-file review protocol
+
+When reviewing more than one file, follow [`./_review-protocol.md`](./_review-protocol.md). Performance groupings:
+
+- One subagent per viewer component (`MarkdownViewer.tsx`, `SourceView.tsx`, `MermaidView.tsx`) — each owns independent render-cost surface.
+- One subagent per `src/hooks/` file (re-render triggers are hook-local).
+- One subagent for `src-tauri/src/watcher.rs` + the IPC commands the watcher feeds (single hot path).
+
+Pass each subagent only the file it reviews plus the relevant numeric budgets from `docs/performance.md`. Cross-file findings (e.g. an O(n) loop in a hook compounded by a React-side memo miss in a viewer) are YOUR job to assemble from aggregated reports.
+
 ## Non-negotiable rules
 
 **Benchmark before you claim.** Do not report "this might be slow" without evidence. Evidence means:

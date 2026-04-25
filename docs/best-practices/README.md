@@ -13,6 +13,7 @@ This directory complements the project-specific docs:
 | [`general/`](general/) | Language/runtime-agnostic | Any JS/TS project |
 | [`react/`](react/) | React-specific | Any React 18+/19 codebase |
 | [`vite/`](vite/) | Vite/Rollup bundler-specific | Any Vite project |
+| [`tauri/`](tauri/) | Tauri v2 desktop-shell-specific | Any Tauri v2 project |
 
 ## Files
 
@@ -27,6 +28,9 @@ This directory complements the project-specific docs:
 
 ### `vite/`
 - [`bundle-hygiene.md`](vite/bundle-hygiene.md) — barrel imports, statically analyzable paths, third-party deferral, link preload.
+
+### `tauri/`
+- [`v2-patterns.md`](tauri/v2-patterns.md) — IPC chokepoint, typed commands with tagged errors, window-scoped events, listener cleanup, capability least-privilege, plugin pinning, multi-window awareness.
 
 ## How to consume
 

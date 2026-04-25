@@ -11,7 +11,17 @@ Every finding MUST cite a rule from `docs/test-strategy.md` in the form **"viola
 
 - **Charter:** [`docs/principles.md`](../../docs/principles.md) — Reliable pillar, Zero Bug Policy.
 - **Primary authority:** [`docs/test-strategy.md`](../../docs/test-strategy.md) — 25 numbered rules (three-layer pyramid, coverage floors, IPC-mock hygiene, console-spy contract, test isolation, fixture hygiene, pre-merge gate).
-- **Cross-refs:** `docs/architecture.md` (rule 1 IPC chokepoint, rule 4 logging chokepoint) for what tests must mock. `docs/performance.md` rules 5-6 for canonical debounce windows tests assert.
+- **Cross-refs:** `docs/architecture.md` (rule 1 IPC chokepoint, rule 4 logging chokepoint) for what tests must mock. `docs/performance.md` rules 5-6 for canonical debounce windows tests assert. [`docs/test-patterns.md`](../../docs/test-patterns.md) for the concrete patterns (IPC mock setup, native fixture, selectors) referenced from the rules.
+
+## Multi-file review protocol
+
+When auditing tests across more than one source file, follow [`./_review-protocol.md`](./_review-protocol.md). Test-review groupings:
+
+- One subagent per source file + its co-located `__tests__/` (each unit is independent).
+- One subagent per browser E2E spec (each file is a coherent scenario).
+- One subagent per native E2E spec (each carries its own rule-13 justification).
+
+Each subagent gets ONLY its source/test pair + the rule snippets from `docs/test-strategy.md` it should cite. You aggregate, deduplicate (e.g. a missing IPC mock surfaces from every spec), and produce the unified BLOCK list.
 
 ## Your task
 

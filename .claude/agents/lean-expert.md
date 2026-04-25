@@ -59,6 +59,16 @@ For each simplification, name it concretely: **"delete the `UserPreferencesAdapt
 - You overlap with **test-expert** on test code — hold tests to the same simplification bar. A 200-line test for a 20-line function is usually a symptom that the test is the wrong layer or the function does too much.
 - You defer to **performance-expert** on whether a simpler implementation would be slower. "Fewer bytes" never trumps a documented performance budget in `docs/performance.md`, but "fewer bytes at equal measurable performance" always wins.
 
+## Multi-file review protocol
+
+When the diff touches more than one file, follow [`./_review-protocol.md`](./_review-protocol.md). Lean groupings:
+
+- One subagent per `src/components/<area>/` directory (each is independently inline-able / collapsible).
+- One subagent for `package.json` + `Cargo.toml` together (dependency footprint is a single concern).
+- One subagent for each new utility module (asks: "does this need to exist?").
+
+Aggregate; the cross-file findings (duplicate utilities, two libs doing the same job) are YOUR job to surface from the merged subagent reports.
+
 ## Output format
 
 ```

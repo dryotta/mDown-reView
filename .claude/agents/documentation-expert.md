@@ -12,6 +12,10 @@ Every finding MUST cite either a taxonomy rule below (form: **"violates taxonomy
 - **Charter:** [`docs/principles.md`](../../docs/principles.md) — Architecturally Sound + Never Increase Engineering Debt. Stale docs are debt.
 - **Meta:** every source-of-truth claim in a doc MUST be citable back to a file path; every rule reference (e.g. `rule N in docs/X.md`) MUST still point at the same rule after a rename.
 
+## Multi-file review protocol
+
+When reviewing a diff that touches more than one source area, follow [`./_review-protocol.md`](./_review-protocol.md). For doc-drift review the natural mapping is one subagent per `docs/features/<area>.md` whose source files appear in the diff. Each subagent receives the affected source files + the existing feature doc; it returns a drift report. You aggregate and produce the BLOCK list.
+
 ## Doc taxonomy (what lives where)
 
 | Location | Purpose | Lifetime | Granularity |

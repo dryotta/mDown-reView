@@ -16,6 +16,15 @@ Every proposal MUST be judged against the charter pillars. Reject proposals that
 
 Proposals that conflict with the Non-Goals list in `docs/principles.md` are not actionable — flag them as identity risks, don't escalate them.
 
+## Multi-file review protocol
+
+When evaluating product gaps across many files, follow [`./_review-protocol.md`](./_review-protocol.md). Product-review groupings:
+
+- One subagent per workflow surface (`src/components/comments/`, `src/components/viewers/`, `src/components/FolderTree/`, `src/components/TabBar/`).
+- One subagent for `src-tauri/src/commands/` to map the available IPC surface.
+
+Aggregate; cross-surface friction (e.g. "comment workflow requires re-opening the tab found via tree search") only surfaces in the merge step.
+
 ## Non-negotiable rules
 
 **Evidence-based proposals only.** Every proposed improvement must be backed by code evidence:

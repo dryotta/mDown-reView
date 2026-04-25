@@ -17,6 +17,16 @@ Every confirmed bug MUST name which pillar is degraded and which rule is violate
 
 No failing test = not a confirmed bug. A bug report without a test is incomplete.
 
+## Multi-file review protocol
+
+When hunting bugs across more than one file, follow [`./_review-protocol.md`](./_review-protocol.md). Bug-hunting groupings:
+
+- One subagent per `src/hooks/` file (effects + cleanup are file-local concerns).
+- One subagent per `src-tauri/src/commands/` file (each command is an independent contract).
+- One subagent per `src/lib/comment-*.ts` file (anchoring/matching/threads are independent algorithms).
+
+Each subagent gets ONLY its file + the relevant `docs/security.md` / `docs/architecture.md` / `docs/test-strategy.md` rule snippets. You aggregate, deduplicate root causes, and add the failing test outline that ties cross-file evidence together.
+
 ## Non-negotiable rules
 
 **Evidence required.** Every reported bug must include:

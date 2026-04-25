@@ -396,7 +396,7 @@ Scan `NEXT_REQUIREMENTS` text for domain triggers. For each triggered expert, sp
 |---|---|
 | "IPC", "Tauri command", "invoke", `src-tauri/src/commands.rs`, `src/lib/tauri-commands.ts`, `src/store/*` | `architect-expert` |
 | "React component", "hook", "Zustand", `src/components/`, `src/hooks/`, `src/store/` | `react-tauri-expert` |
-| "file read", "file write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `security-reviewer` |
+| "file read", "file write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `security-expert` |
 | "startup", "debounce", "throttle", "watcher", "large file", "render cost" | `performance-expert` |
 | any source-code change (virtually always) | `test-expert` |
 | change that might affect a `docs/features/` area OR modifies `AGENTS.md`/`BUILDING.md`/`docs/**/*.md` | `documentation-expert` |
@@ -649,7 +649,7 @@ Spawn the **9-expert panel** in ONE parallel message:
 
 | Condition (match ANY) | Also spawn |
 |---|---|
-| Diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` usage, or any markdown-rendering code under `src/components/viewers/` | `security-reviewer` |
+| Diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` usage, or any markdown-rendering code under `src/components/viewers/` | `security-expert` |
 
 Each expert prompt:
 

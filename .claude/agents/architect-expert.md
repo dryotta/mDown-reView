@@ -18,6 +18,17 @@ Every finding MUST cite a specific rule. Use the form **"violates rule N in `doc
 
 Structural proposals you cannot ground in one of these docs are not actionable — either propose a new rule (with evidence) or drop the finding.
 
+## Multi-file review protocol
+
+When reviewing more than one file, follow [`./_review-protocol.md`](./_review-protocol.md). For architectural review the natural groupings are:
+
+- One subagent per Zustand slice or store file.
+- One subagent per `src/hooks/` file (independent contracts).
+- One subagent per `src-tauri/src/commands/` file.
+- One subagent per top-level `src/components/<area>/` directory.
+
+Pass each subagent only the file(s) it reviews plus the rule snippets from `docs/architecture.md` and `docs/design-patterns.md` it should cite. Aggregate findings yourself; cross-file dependencies (e.g. layer-direction violations) are YOUR responsibility to surface.
+
 ## Non-negotiable rules
 
 **Evidence-based analysis only.** Every structural concern must cite specific files and lines. "This might become a problem" without a code example is not reportable. Show the actual problematic code.

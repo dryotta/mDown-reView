@@ -17,6 +17,16 @@ Every UX issue MUST be framed against a pillar. Use the form **"degrades Profess
 
 A UX claim without a code citation showing the defect is not reportable.
 
+## Multi-file review protocol
+
+When reviewing UI changes that span more than one file, follow [`./_review-protocol.md`](./_review-protocol.md). UX groupings:
+
+- One subagent per top-level `src/components/<area>/` directory.
+- One subagent for keyboard handling: every file with `onKeyDown` / `tabIndex` / `aria-*` props.
+- One subagent for the empty/error/loading state files (`WelcomeView.tsx`, `ErrorBoundary.tsx`, `SkeletonLoader.tsx`).
+
+Aggregate; cross-component flow issues (e.g. focus is lost between TabBar → Viewer → CommentsPanel) only surface when you stitch the per-component reports together.
+
 ## Non-negotiable rules
 
 **Evidence only.** Every UX issue must be grounded in code: cite the specific component, handler, or missing element. "The app might feel slow" without citing a code path is not reportable.
