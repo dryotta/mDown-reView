@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { readTextFile } from "@/lib/tauri-commands";
+import { readTextFile, statFile } from "@/lib/tauri-commands";
 import { getFileCategory } from "@/lib/file-types";
 import { useStore } from "@/store/index";
 
@@ -53,6 +53,10 @@ export function useFileContent(path: string): FileContent {
       setState({ status: "video" });
       return;
     }
+    if (getFileCategory(path) === "pdf") {
+      setState({ status: "pdf" });
+      return;
+    }
 
     let cancelled = false;
     readTextFile(path)
@@ -75,10 +79,18 @@ export function useFileContent(path: string): FileContent {
       .catch((err: unknown) => {
         if (cancelled) return;
         const msg = String(err);
-        if (msg.includes("binary_file")) {
-          setState({ status: "binary" });
-        } else if (msg.includes("file_too_large")) {
-          setState({ status: "too_large" });
+        if (msg.includes("binary_file") || msg.includes("file_too_large")) {
+          const status = msg.includes("file_too_large") ? "too_large" : "binary";
+          // Set placeholder status immediately so the UI doesn't sit on a
+          // spinner; enrich with byte size from a follow-up stat call.
+          setState({ status });
+          statFile(path)
+            .then((s) => {
+              if (!cancelled) setState({ status, sizeBytes: s.size_bytes });
+            })
+            .catch(() => {
+              /* keep placeholder without size on stat failure */
+            });
         } else {
           setState({ status: "error", error: msg });
         }

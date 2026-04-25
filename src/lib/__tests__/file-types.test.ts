@@ -61,6 +61,11 @@ describe("getFileCategory", () => {
     expect(getFileCategory("UPPER.MP4")).toBe("video");
   });
 
+  it("classifies PDF files (#65 F3)", () => {
+    expect(getFileCategory("doc.pdf")).toBe("pdf");
+    expect(getFileCategory("DOC.PDF")).toBe("pdf");
+  });
+
   it("classifies other text files", () => {
     expect(getFileCategory("app.ts")).toBe("text");
     expect(getFileCategory("main.py")).toBe("text");
@@ -97,6 +102,10 @@ describe("hasVisualization", () => {
     expect(hasVisualization("audio")).toBe(true);
     expect(hasVisualization("video")).toBe(true);
   });
+
+  it("returns true for pdf (#65 F3)", () => {
+    expect(hasVisualization("pdf")).toBe(true);
+  });
 });
 
 describe("getDefaultView", () => {
@@ -120,6 +129,10 @@ describe("getDefaultView", () => {
   it("returns visual for audio and video (#65 F1/F2)", () => {
     expect(getDefaultView("audio")).toBe("visual");
     expect(getDefaultView("video")).toBe("visual");
+  });
+
+  it("returns visual for pdf (#65 F3)", () => {
+    expect(getDefaultView("pdf")).toBe("visual");
   });
 });
 
@@ -189,5 +202,11 @@ describe("getFiletypeKey (#65 F1/F2)", () => {
     expect(getFiletypeKey("clip.mp4")).toBe(".video");
     expect(getFiletypeKey("clip.webm", "visual")).toBe(".video");
     expect(getFiletypeKey("clip.mov", "source")).toBe(".video");
+  });
+
+  it("returns .pdf for pdf files regardless of view mode (#65 F3)", () => {
+    expect(getFiletypeKey("doc.pdf")).toBe(".pdf");
+    expect(getFiletypeKey("doc.pdf", "visual")).toBe(".pdf");
+    expect(getFiletypeKey("doc.pdf", "source")).toBe(".pdf");
   });
 });

@@ -31,9 +31,21 @@ vi.mock("../VideoViewer", () => ({
   ),
 }));
 
+vi.mock("../PdfViewer", () => ({
+  PdfViewer: ({ path }: { path: string }) => (
+    <div data-testid="pdf-viewer" data-path={path}>PdfViewer</div>
+  ),
+}));
+
 vi.mock("../BinaryPlaceholder", () => ({
-  BinaryPlaceholder: ({ path }: { path: string }) => (
-    <div data-testid="binary-placeholder" data-path={path}>BinaryPlaceholder</div>
+  BinaryPlaceholder: ({ path, size }: { path: string; size?: number }) => (
+    <div data-testid="binary-placeholder" data-path={path} data-size={size}>BinaryPlaceholder</div>
+  ),
+}));
+
+vi.mock("../TooLargePlaceholder", () => ({
+  TooLargePlaceholder: ({ path, size }: { path: string; size?: number }) => (
+    <div data-testid="too-large-placeholder" data-path={path} data-size={size}>TooLargePlaceholder</div>
   ),
 }));
 
@@ -105,6 +117,14 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("video-viewer").dataset.path).toBe("/movies/clip.mp4");
   });
 
+  it("pdf status routes to PdfViewer (#65 F3)", () => {
+    mockUseFileContent.mockReturnValue({ status: "pdf" });
+    useStore.setState({ tabs: [{ path: "/docs/spec.pdf", scrollTop: 0 }] });
+    render(<ViewerRouter path="/docs/spec.pdf" />);
+    expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("pdf-viewer").dataset.path).toBe("/docs/spec.pdf");
+  });
+
   it("loading status shows SkeletonLoader", () => {
     mockUseFileContent.mockReturnValue({ status: "loading" });
     useStore.setState({ tabs: [{ path: "/docs/README.md", scrollTop: 0 }] });
@@ -119,11 +139,20 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("binary-placeholder")).toBeInTheDocument();
   });
 
-  it("too_large status shows BinaryPlaceholder", () => {
-    mockUseFileContent.mockReturnValue({ status: "too_large" });
+  it("too_large status shows TooLargePlaceholder (not BinaryPlaceholder)", () => {
+    mockUseFileContent.mockReturnValue({ status: "too_large", sizeBytes: 11 * 1024 * 1024 });
     useStore.setState({ tabs: [{ path: "/data/huge.csv", scrollTop: 0 }] });
     render(<ViewerRouter path="/data/huge.csv" />);
-    expect(screen.getByTestId("binary-placeholder")).toBeInTheDocument();
+    expect(screen.getByTestId("too-large-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("binary-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("too-large-placeholder").dataset.size).toBe(String(11 * 1024 * 1024));
+  });
+
+  it("binary status forwards sizeBytes to BinaryPlaceholder", () => {
+    mockUseFileContent.mockReturnValue({ status: "binary", sizeBytes: 1234 });
+    useStore.setState({ tabs: [{ path: "/docs/file.bin", scrollTop: 0 }] });
+    render(<ViewerRouter path="/docs/file.bin" />);
+    expect(screen.getByTestId("binary-placeholder").dataset.size).toBe("1234");
   });
 
   it("error status shows error message", () => {

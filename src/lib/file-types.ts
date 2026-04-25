@@ -10,6 +10,7 @@ export type FileCategory =
   | "image"
   | "audio"
   | "video"
+  | "pdf"
   | "text";
 
 const CATEGORY_MAP: Record<string, FileCategory> = {
@@ -33,6 +34,7 @@ const CATEGORY_MAP: Record<string, FileCategory> = {
   ".webp": "image",
   ".bmp": "image",
   ".ico": "image",
+  ".pdf": "pdf",
   ".mp3": "audio",
   ".wav": "audio",
   ".ogg": "audio",
@@ -140,4 +142,75 @@ export function getShikiLanguage(path: string): string {
 // divergence has an obvious seam.
 export function getFoldLanguage(path: string): string {
   return getShikiLanguage(path);
+}
+
+// ── Binary placeholder iconography ────────────────────────────────────────
+// The BinaryPlaceholder viewer picks an icon from a small inline SVG map
+// (`BinaryPlaceholder.tsx`). The category here is icon-only — it has no
+// effect on routing — and intentionally narrow so the inline map stays tiny.
+export type BinaryIconCategory =
+  | "archive"
+  | "audio"
+  | "video"
+  | "pdf"
+  | "font"
+  | "exe"
+  | "image"
+  | "other";
+
+const BINARY_ICON_MAP: Record<string, BinaryIconCategory> = {
+  ".zip": "archive", ".tar": "archive", ".gz": "archive", ".tgz": "archive",
+  ".bz2": "archive", ".7z": "archive", ".rar": "archive", ".xz": "archive",
+  ".mp3": "audio", ".wav": "audio", ".ogg": "audio", ".flac": "audio",
+  ".m4a": "audio", ".aac": "audio",
+  ".mp4": "video", ".webm": "video", ".mov": "video", ".mkv": "video",
+  ".avi": "video",
+  ".pdf": "pdf",
+  ".ttf": "font", ".otf": "font", ".woff": "font", ".woff2": "font",
+  ".exe": "exe", ".msi": "exe", ".dll": "exe", ".so": "exe", ".dylib": "exe",
+  ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image",
+  ".svg": "image", ".webp": "image", ".bmp": "image", ".ico": "image",
+};
+
+export function getBinaryIconCategory(path: string): BinaryIconCategory {
+  const ext = extname(path);
+  return BINARY_ICON_MAP[ext] ?? "other";
+}
+
+// MIME hint by extension. Used by BinaryPlaceholder to display a hint like
+// "application/pdf" without opening the file. Best-effort: extension-driven,
+// no magic-byte sniffing. Unknown extensions return `application/octet-stream`.
+const MIME_MAP: Record<string, string> = {
+  ".zip": "application/zip", ".tar": "application/x-tar", ".gz": "application/gzip",
+  ".7z": "application/x-7z-compressed", ".rar": "application/vnd.rar",
+  ".pdf": "application/pdf",
+  ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+  ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac",
+  ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+  ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
+  ".bmp": "image/bmp", ".ico": "image/x-icon",
+  ".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff", ".woff2": "font/woff2",
+  ".exe": "application/vnd.microsoft.portable-executable",
+  ".msi": "application/x-msi", ".dll": "application/octet-stream",
+};
+
+export function getMimeHint(path: string): string {
+  const ext = extname(path);
+  return MIME_MAP[ext] ?? "application/octet-stream";
+}
+
+/** Format a byte count in human units (1024-based, like Linux `ls -h`). */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 ? 2 : 1)} ${units[i]}`;
 }

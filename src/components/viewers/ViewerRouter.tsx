@@ -8,6 +8,7 @@ import { AudioViewer } from "./AudioViewer";
 import { VideoViewer } from "./VideoViewer";
 import { PdfViewer } from "./PdfViewer";
 import { BinaryPlaceholder } from "./BinaryPlaceholder";
+import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
 
 interface Props {
@@ -15,7 +16,7 @@ interface Props {
 }
 
 export function ViewerRouter({ path }: Props) {
-  const { status, content, error } = useFileContent(path);
+  const { status, content, error, sizeBytes } = useFileContent(path);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const setScrollTop = useStore((s) => s.setScrollTop);
@@ -133,10 +134,18 @@ export function ViewerRouter({ path }: Props) {
     );
   }
 
-  if (status === "binary" || status === "too_large") {
+  if (status === "too_large") {
     return (
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
-        <BinaryPlaceholder path={path} />
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <TooLargePlaceholder path={path} size={sizeBytes} />
+      </div>
+    );
+  }
+
+  if (status === "binary") {
+    return (
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <BinaryPlaceholder path={path} size={sizeBytes} />
       </div>
     );
   }
