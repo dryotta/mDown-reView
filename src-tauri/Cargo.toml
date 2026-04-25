@@ -50,6 +50,7 @@ regex = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }

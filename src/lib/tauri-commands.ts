@@ -248,7 +248,7 @@ export interface OnboardingState {
 
 export type CliShimStatus = "done" | "missing" | "broken" | "unsupported";
 export type CliShimError =
-  | { kind: "permission_denied"; path: string }
+  | { kind: "permission_denied"; path: string; target: string }
   | { kind: "io"; message: string };
 export type DefaultHandlerStatus = "done" | "other" | "unknown" | "unsupported";
 export type FolderContextStatus = "done" | "missing" | "unsupported";

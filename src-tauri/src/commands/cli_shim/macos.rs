@@ -64,13 +64,15 @@ pub fn status_at(shim: &Path, app_root: Option<&Path>) -> CliShimStatus {
     CliShimStatus::Broken
 }
 
-/// Map an `io::Error` to either `PermissionDenied { path }` (for EACCES /
-/// EPERM) or a generic `Io` variant.
-fn map_install_err(e: std::io::Error, shim: &Path) -> CliShimError {
+/// Map an `io::Error` to either `PermissionDenied { path, target }` (for EACCES /
+/// EPERM) or a generic `Io` variant. `target` is the symlink target so the FE
+/// can render a valid `sudo ln -sf <target> <path>` retry hint.
+fn map_install_err(e: std::io::Error, shim: &Path, target: &Path) -> CliShimError {
     use std::io::ErrorKind;
     match e.kind() {
         ErrorKind::PermissionDenied => CliShimError::PermissionDenied {
             path: shim.display().to_string(),
+            target: target.display().to_string(),
         },
         _ => CliShimError::Io { message: e.to_string() },
     }
@@ -78,9 +80,9 @@ fn map_install_err(e: std::io::Error, shim: &Path) -> CliShimError {
 
 pub fn install_at(shim: &Path, target: &Path) -> Result<(), CliShimError> {
     if shim.exists() {
-        std::fs::remove_file(shim).map_err(|e| map_install_err(e, shim))?;
+        std::fs::remove_file(shim).map_err(|e| map_install_err(e, shim, target))?;
     }
-    std::os::unix::fs::symlink(target, shim).map_err(|e| map_install_err(e, shim))
+    std::os::unix::fs::symlink(target, shim).map_err(|e| map_install_err(e, shim, target))
 }
 
 /// Refuses to remove anything that isn't a symlink whose canonicalized target
@@ -102,7 +104,7 @@ pub fn remove_at(shim: &Path, app_root: &Path) -> Result<(), CliShimError> {
             message: "refusing: target outside app bundle".into(),
         });
     }
-    std::fs::remove_file(shim).map_err(|e| map_install_err(e, shim))
+    std::fs::remove_file(shim).map_err(|e| map_install_err(e, shim, &target))
 }
 
 #[cfg(test)]

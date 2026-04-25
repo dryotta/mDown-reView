@@ -110,7 +110,11 @@ describe("OnboardingSlice — installCliShim", () => {
       calls.push(cmd);
       if (cmd === "install_cli_shim") {
         // Tauri rejects pass through the value as-is; structured errors arrive as objects.
-        throw { kind: "permission_denied", path: "/usr/local/bin/mdownreview-cli" };
+        throw {
+          kind: "permission_denied",
+          path: "/usr/local/bin/mdownreview-cli",
+          target: "/Applications/mdownreview.app/Contents/MacOS/mdownreview-cli",
+        };
       }
       // status refresh after settle:
       if (cmd === "onboarding_state") return STATE_FIXTURE as never;
@@ -177,10 +181,19 @@ describe("OnboardingSlice — panel toggles", () => {
 
 describe("formatOnboardingError", () => {
   it("formats permission_denied with sudo hint", () => {
-    const out = formatOnboardingError({ kind: "permission_denied", path: "/x/y" });
+    const out = formatOnboardingError({
+      kind: "permission_denied",
+      path: "/usr/local/bin/x",
+      target: "/Applications/mdownreview.app/Contents/MacOS/mdownreview-cli",
+    });
     expect(out.toLowerCase()).toContain("permission denied");
-    expect(out).toContain("/x/y");
-    expect(out).toContain("sudo");
+    expect(out).toContain("/usr/local/bin/x");
+    expect(out).toContain("/Applications/mdownreview.app/Contents/MacOS/mdownreview-cli");
+    expect(out).toContain("sudo ln -sf");
+    // target must precede path in the rendered command
+    expect(out).toMatch(
+      /sudo ln -sf .*mdownreview-cli .*\/usr\/local\/bin\/x/,
+    );
   });
 
   it("renders io variant message, not raw JSON", () => {

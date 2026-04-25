@@ -387,7 +387,7 @@ export function formatOnboardingError(reason: unknown): string {
   if (isCliShimError(reason)) {
     switch (reason.kind) {
       case "permission_denied":
-        return `Permission denied — try sudo: \`sudo ln -sf ${reason.path}\``;
+        return `Permission denied — try \`sudo ln -sf ${reason.target} ${reason.path}\``;
       case "io":
         return reason.message;
       default: {

@@ -44,7 +44,7 @@ sequenceDiagram
 | Section | Status command | Mutators | Notes |
 |---|---|---|---|
 | **WhatIsThis** | — | — | Static intro card; no OS state. |
-| **CliPath** | `cli_shim_status` | `install_cli_shim`, `remove_cli_shim` | macOS manages a symlink in `/usr/local/bin` (or `~/.local/bin` fallback). Windows is read-only — install/remove are no-ops because the NSIS installer owns `HKCU\Environment\Path`. |
+| **CliPath** | `cli_shim_status` | `install_cli_shim`, `remove_cli_shim` | macOS manages a symlink in `/usr/local/bin` (or `~/.local/bin` fallback). Windows mutates `HKCU\Environment\Path` in-app (dedup-aware add / case-insensitive remove, preserves REG_SZ vs REG_EXPAND_SZ, broadcasts `WM_SETTINGCHANGE`); see [installation.md](installation.md) for the contract shared with the NSIS hook. |
 | **Skills** | — | external link | Cards link out to the [agent skills marketplace](https://github.com/dryotta/mdownreview-skills); we cannot detect plugin install state from outside the agent. |
 | **MdDefault** | `default_handler_status` | `set_default_handler` | Windows reads `HKCU\…\FileExts\.md\UserChoice\ProgId`; `set_*` opens `ms-settings:defaultapps` because Win10+ hash-protects UserChoice — we cannot complete this programmatically. macOS returns `Unknown` (LaunchServices FFI deferred). The panel re-polls on `window.focus` so the status flips to `Done` as soon as the user comes back from System Settings. |
 | **FolderOpen** | `folder_context_status` | `register_folder_context`, `unregister_folder_context` | Windows-only. Writes `HKCU\Software\Classes\Directory\shell\Open with mdownreview` (and the `Directory\Background\shell` twin). Other platforms render `Unsupported`. |
@@ -69,7 +69,7 @@ When the panel is re-triggered after an app update (`last_welcomed_version` < cu
 ## Per-platform UX divergence
 
 - **macOS** — `set_default_handler` defers to System Settings (LaunchServices APIs are programmatic but live in `core-foundation`; the FFI dependency was punted). CLI install is fully programmatic via symlink and never requires `sudo`.
-- **Windows** — Both `set_default_handler` and PATH mutation are out of our hands. UserChoice is hash-protected (Win10+); PATH is owned by the NSIS installer's HKCU hooks. The UI opens `ms-settings:defaultapps` and re-polls on `window.focus` so the user sees the status flip the moment they return from System Settings.
+- **Windows** — `set_default_handler` is out of our hands (UserChoice is hash-protected on Win10+); the UI opens `ms-settings:defaultapps` and re-polls on `window.focus` so the user sees the status flip the moment they return from System Settings. PATH ownership is shared between the NSIS installer hook and the in-app `install_cli_shim`/`remove_cli_shim` IPC — both write to `HKCU\Environment\Path` with the same dedupe contract (see [installation.md](installation.md)). Neither requires admin elevation.
 - **Other** — Every status enum has an `Unsupported` variant so the panel renders neutral state with no `cfg!` shenanigans in TypeScript.
 
 ## File-system layout
