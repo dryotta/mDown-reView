@@ -84,8 +84,6 @@ export interface GhostEntry {
 interface WatcherSlice {
   ghostEntries: GhostEntry[];
   setGhostEntries: (entries: GhostEntry[]) => void;
-  autoReveal: boolean;
-  toggleAutoReveal: () => void;
   lastSaveByPath: Record<string, number>;
   recordSave: (path: string) => void;
 }
@@ -246,8 +244,6 @@ export const useStore = create<Store>()(
         ) return;
         set({ ghostEntries: entries });
       },
-      autoReveal: true,
-      toggleAutoReveal: () => set((s) => ({ autoReveal: !s.autoReveal })),
       lastSaveByPath: {},
       recordSave: (path) =>
         set((s) => ({
@@ -337,7 +333,6 @@ export const useStore = create<Store>()(
         commentsPaneVisible: state.commentsPaneVisible,
         root: state.root,
         expandedFolders: state.expandedFolders,
-        autoReveal: state.autoReveal,
         authorName: state.authorName,
         recentItems: state.recentItems,
         tabs: state.tabs,

@@ -23,7 +23,6 @@ function getPersistedSnapshot() {
     commentsPaneVisible: state.commentsPaneVisible,
     root: state.root,
     expandedFolders: state.expandedFolders,
-    autoReveal: state.autoReveal,
     authorName: state.authorName,
     recentItems: state.recentItems,
     tabs: state.tabs,
@@ -88,7 +87,7 @@ describe("persistence partialize contract", () => {
     const snapshot = getPersistedSnapshot();
     const keys = Object.keys(snapshot).sort();
     expect(keys).toEqual(
-      ["activeTabPath", "authorName", "autoReveal", "commentsPaneVisible", "expandedFolders", "folderPaneWidth", "recentItems", "root", "tabs", "theme", "updateChannel"].sort()
+      ["activeTabPath", "authorName", "commentsPaneVisible", "expandedFolders", "folderPaneWidth", "recentItems", "root", "tabs", "theme", "updateChannel"].sort()
     );
   });
 

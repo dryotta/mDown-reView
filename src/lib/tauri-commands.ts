@@ -69,6 +69,9 @@ export const getLogPath = (): Promise<string> =>
 export const updateWatchedFiles = (paths: string[]): Promise<void> =>
   invoke<void>("update_watched_files", { paths });
 
+export const updateTreeWatchedDirs = (root: string, dirs: string[]): Promise<void> =>
+  invoke<void>("update_tree_watched_dirs", { root, dirs });
+
 export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
   invoke<[string, string][]>("scan_review_files", { root });
 

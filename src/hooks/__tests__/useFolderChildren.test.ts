@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useFolderChildren } from "@/hooks/useFolderChildren";
 import * as commands from "@/lib/tauri-commands";
+import { listenEvent } from "@/lib/tauri-events";
 
 vi.mock("@/lib/tauri-commands");
+vi.mock("@/lib/tauri-events", () => ({
+  listenEvent: vi.fn(() => Promise.resolve(() => {})),
+}));
 vi.mock("@/logger", () => ({
   error: vi.fn(),
   warn: vi.fn(),
@@ -15,6 +19,14 @@ vi.mock("@/logger", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+function getFolderChangedCallback() {
+  const call = vi
+    .mocked(listenEvent)
+    .mock.calls.find((c) => c[0] === "folder-changed");
+  if (!call) throw new Error("listenEvent('folder-changed', ...) was never called");
+  return call[1] as (payload: { path: string }) => void;
+}
 
 describe("useFolderChildren", () => {
   it("loads children on root change", async () => {
@@ -99,5 +111,64 @@ describe("useFolderChildren", () => {
 
     await act(async () => {});
     expect(commands.readDir).not.toHaveBeenCalled();
+  });
+});
+
+describe("useFolderChildren folder-changed listener", () => {
+  it("refreshes a cached dir when 'folder-changed' fires for it", async () => {
+    const initial = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
+    const refreshed = [
+      { name: "a.md", path: "/root/a.md", is_dir: false },
+      { name: "b.md", path: "/root/b.md", is_dir: false },
+    ];
+    vi.mocked(commands.readDir)
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(refreshed);
+
+    const { result } = renderHook(() => useFolderChildren("/root"));
+    await act(async () => {});
+
+    expect(result.current.childrenCache["/root"]).toEqual(initial);
+
+    const cb = getFolderChangedCallback();
+    await act(async () => {
+      cb({ path: "/root" });
+    });
+
+    expect(commands.readDir).toHaveBeenCalledTimes(2);
+    expect(commands.readDir).toHaveBeenLastCalledWith("/root");
+    expect(result.current.childrenCache["/root"]).toEqual(refreshed);
+  });
+
+  it("ignores 'folder-changed' for an uncached dir", async () => {
+    const initial = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
+    vi.mocked(commands.readDir).mockResolvedValue(initial);
+
+    renderHook(() => useFolderChildren("/root"));
+    await act(async () => {});
+
+    expect(commands.readDir).toHaveBeenCalledTimes(1);
+
+    const cb = getFolderChangedCallback();
+    await act(async () => {
+      cb({ path: "/root/uncached-sub" });
+    });
+
+    // Still only the initial root load — uncached dir was skipped
+    expect(commands.readDir).toHaveBeenCalledTimes(1);
+  });
+
+  it("unsubscribes on unmount", async () => {
+    const unlisten = vi.fn();
+    vi.mocked(listenEvent).mockResolvedValue(unlisten);
+    vi.mocked(commands.readDir).mockResolvedValue([]);
+
+    const { unmount } = renderHook(() => useFolderChildren("/root"));
+    await act(async () => {});
+
+    unmount();
+    await act(async () => {});
+
+    expect(unlisten).toHaveBeenCalled();
   });
 });

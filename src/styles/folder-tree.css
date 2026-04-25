@@ -138,11 +138,71 @@
   flex-shrink: 0;
 }
 
-/* Auto-reveal toggle active state */
-.folder-tree-btn.active {
-  background: var(--color-accent, #0969da);
-  color: white;
-  border-color: var(--color-accent, #0969da);
+/* ── Section headers (Other files, filter groups) ───────────────────────── */
+.folder-tree-section-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 4px 8px 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
+}
+
+.folder-tree-other-files-header {
+  cursor: pointer;
+}
+
+.folder-tree-other-files-header:hover {
+  color: var(--color-text);
+}
+
+.folder-tree-section-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-tree-other-files {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+
+.folder-tree-filter-group + .folder-tree-filter-group {
+  margin-top: 4px;
+}
+
+.folder-tree-filter-group-header {
+  padding-left: 8px;
+}
+
+/* Middle-ellipsis truncation for filter section folder paths. The start
+ * collapses with an ellipsis while the last path segment stays visible. */
+.middle-ellipsis {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.middle-ellipsis-start {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.middle-ellipsis-end {
+  flex: 0 0 auto;
 }
 
 /* Slide transition for folder pane */

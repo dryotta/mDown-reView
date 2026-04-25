@@ -24,23 +24,6 @@ describe("uiSlice — setAuthorName", () => {
   });
 });
 
-describe("uiSlice — toggleAutoReveal", () => {
-  it("defaults to true", () => {
-    expect(useStore.getState().autoReveal).toBe(true);
-  });
-
-  it("toggles from true to false", () => {
-    useStore.getState().toggleAutoReveal();
-    expect(useStore.getState().autoReveal).toBe(false);
-  });
-
-  it("toggles from false back to true", () => {
-    useStore.getState().toggleAutoReveal();
-    useStore.getState().toggleAutoReveal();
-    expect(useStore.getState().autoReveal).toBe(true);
-  });
-});
-
 describe("uiSlice — toggleCommentsPane", () => {
   it("defaults to true", () => {
     expect(useStore.getState().commentsPaneVisible).toBe(true);

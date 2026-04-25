@@ -19,6 +19,7 @@ export type { UnlistenFn };
  */
 export interface EventPayloads {
   "file-changed": { path: string; kind: "content" | "review" | "deleted" };
+  "folder-changed": { path: string };
   "comments-changed": { file_path: string };
   // Signal-only: payload is intentionally empty. Frontend MUST call
   // `get_launch_args` to drain the queued args. See useLaunchArgsBootstrap

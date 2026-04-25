@@ -60,7 +60,7 @@ flowchart LR
 14. Ghost-entry scanning uses a single Rust command. (`commands/launch.rs:26` `scan_review_files`.) Cap: rule 3 in [`docs/performance.md`](performance.md).
 
 ### State boundaries
-15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `autoReveal`, `authorName`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`. `ghostEntries`, `lastSaveByPath`, `updateStatus`, comments, and scroll values are never persisted. (`store/index.ts:229-241`.)
+15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `authorName`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`. `ghostEntries`, `lastSaveByPath`, `updateStatus`, comments, and scroll values are never persisted. (`store/index.ts:229-241`.)
 16. Cross-slice state changes from a single user action group into one store action. (`store/index.ts:149-161` `closeTab`.)
 17. `lib/` never imports `components/` or `hooks/`; `lib/vm/` is the only place `lib/` reads `@/store`. (Grep-verified: `@/components` / `@/hooks` in `src/lib/` → 0; `@/store` → only `src/lib/vm/use-comment-actions.ts:2`.)
 

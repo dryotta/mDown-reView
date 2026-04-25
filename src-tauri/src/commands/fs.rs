@@ -107,3 +107,21 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
+
+/// Update the set of directories whose direct children should produce
+/// `folder-changed` events (root + currently-expanded folders in the tree pane).
+///
+/// `root` and every entry in `dirs` MUST already be canonical absolute paths,
+/// must exist and be directories, and every dir must be contained within `root`.
+/// At most [`crate::watcher::MAX_TREE_WATCHED_DIRS`] entries per call.
+#[tauri::command]
+pub fn update_tree_watched_dirs(
+    root: String,
+    dirs: Vec<String>,
+    state: tauri::State<'_, crate::watcher::WatcherState>,
+) -> Result<(), String> {
+    state.set_tree_watched_dirs(root, dirs).map_err(|e| {
+        tracing::warn!("[rust] update_tree_watched_dirs rejected: {}", e);
+        e
+    })
+}
