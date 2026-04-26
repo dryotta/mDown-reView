@@ -1,0 +1,15 @@
+{
+  "html": "<span class=\"comment-meta\">2025-04-25</span>",
+  "console": [],
+  "ipc_errors": [],
+  "a11y_nodes": [{ "role": "text", "name": "2025-04-25" }],
+  "computed_styles": [
+    {
+      "anchor": "span.comment-meta",
+      "color": "rgb(0,0,0)",
+      "background": "rgb(255,255,255)",
+      "fontSize": 14,
+      "fontWeight": 400
+    }
+  ]
+}

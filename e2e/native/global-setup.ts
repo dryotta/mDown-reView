@@ -191,3 +191,39 @@ export default async function globalSetup() {
   await waitForCdp(CDP_PORT, 30_000, () => appAlive);
   console.log("[native-setup] CDP ready — all systems go.");
 }
+
+/**
+ * Library export for non-Playwright callers (e.g., test-exploratory-e2e skill).
+ * Spawns the binary with CDP enabled and resolves once the CDP HTTP endpoint
+ * responds. Caller is responsible for killing `appProc` on teardown.
+ *
+ * Throws on non-Windows (matches `e2e/native/fixtures.ts:8` behaviour).
+ */
+export async function spawnAppWithCdp(opts?: {
+  binaryPath?: string;
+  cdpPort?: number;
+  timeoutMs?: number;
+}): Promise<{ appProc: ChildProcess; cdpPort: number }> {
+  if (process.platform !== "win32") {
+    throw new Error("spawnAppWithCdp requires Windows (WebView2 + CDP)");
+  }
+  const cdpPort = opts?.cdpPort ?? CDP_PORT;
+  const binaryPath = opts?.binaryPath ?? BINARY_PATH;
+  if (!fs.existsSync(binaryPath)) {
+    throw new Error(`Binary not found at ${binaryPath}. Build first: 'cd src-tauri && cargo build'.`);
+  }
+  const appProc = spawn(binaryPath, [], {
+    env: {
+      ...process.env,
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false,
+  });
+  let alive = true;
+  appProc.once("exit", () => { alive = false; });
+  await waitForCdp(cdpPort, opts?.timeoutMs ?? 30_000, () => alive);
+  return { appProc, cdpPort };
+}
+
+export { waitForCdp };

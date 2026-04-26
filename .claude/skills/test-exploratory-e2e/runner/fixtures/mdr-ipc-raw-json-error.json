@@ -1,0 +1,9 @@
+{
+  "html": "<div class=\"error-banner\">{\"kind\":\"io\",\"message\":\"Permission denied\"}</div>",
+  "console": [],
+  "ipc_errors": [],
+  "a11y_nodes": [
+    { "role": "alert", "name": "{\"kind\":\"io\",\"message\":\"Permission denied\"}" }
+  ],
+  "computed_styles": []
+}

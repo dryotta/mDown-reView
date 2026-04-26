@@ -1,0 +1,7 @@
+{
+  "html": "<button>📁 Open</button>",
+  "console": [],
+  "ipc_errors": [],
+  "a11y_nodes": [{ "role": "button", "name": "Open", "anchor": "button" }],
+  "computed_styles": []
+}

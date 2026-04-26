@@ -1,0 +1,7 @@
+{
+  "html": "<div></div>",
+  "console": [{ "level": "error", "text": "TypeError: Cannot read properties of undefined" }],
+  "ipc_errors": [],
+  "a11y_nodes": [],
+  "computed_styles": []
+}

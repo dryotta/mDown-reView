@@ -1,0 +1,7 @@
+{
+  "html": "<button aria-label=\"\"><svg></svg></button>",
+  "console": [],
+  "ipc_errors": [],
+  "a11y_nodes": [{ "role": "button", "name": "", "anchor": "button" }],
+  "computed_styles": []
+}

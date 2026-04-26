@@ -47,3 +47,9 @@ docs/superpowers/
 # Tauri externalBin staging — populated by release.yml from build artefacts
 src-tauri/binaries/mdownreview-cli-*
 !src-tauri/binaries/.gitkeep
+
+# test-exploratory-e2e skill runtime artefacts
+.claude/test-exploratory-e2e/runs/
+.claude/test-exploratory-e2e/known-findings.json
+.claude/test-exploratory-loop/runs/
+
