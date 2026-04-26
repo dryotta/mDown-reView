@@ -16,11 +16,11 @@ You file an issue   →   /groom-issues #N   →   /iterate-one-issue N
                                        branch + tests + PR + retro
 ```
 
-Manual: file the issue. Then groom it (Phase A is interactive, asks the questions needed to make it executable, applies acceptance criteria, adds `groomed`). Then dispatch one iterate run against it. The skill plans → writes failing tests → implements → runs `/run-build-test` → opens the PR → writes a retrospective.
+File the issue manually or use prompt:
 
 **Prompts:**
 ```
-brainstorm with me improvements to the comments panel and file a gh issue after
+> brainstorm with me improvements to the comments panel and file a gh issue after
 ```
 ```
 /groom-issues #142
@@ -28,11 +28,6 @@ brainstorm with me improvements to the comments panel and file a gh issue after
 ```
 /iterate-one-issue 142
 ```
-or for several at once, run them through the loop:
-```
-/iterate-loop
-```
-(The loop will pick up `groomed` issues first.)
 
 ### Flow 2 — Self-improvement via dogfood (fully autonomous)
 
@@ -45,7 +40,7 @@ or for several at once, run them through the loop:
                                              └──── next /iterate-loop round picks them up
 ```
 
-Two terminals (preferably two git worktrees — see `superpowers:using-git-worktrees`). Both loops re-sync to `origin/main` between rounds, so you can merge PRs at your own pace.
+Two terminals (preferably two git worktrees or separate checkouts). Both loops re-sync to `origin/main` between rounds, so you can merge PRs at your own pace.
 
 **Prompts:**
 
