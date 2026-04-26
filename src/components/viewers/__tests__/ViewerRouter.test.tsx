@@ -525,4 +525,51 @@ describe("ViewerRouter scroll-restore vs pendingScrollTarget", () => {
     expect(useStore.getState().pendingScrollTarget).not.toBeNull();
     expect(useStore.getState().pendingScrollTarget!.filePath).toBe("/other.txt");
   });
+
+  // Iter 11 re-fix (carryover HIGH bug): the child `useScrollToLine` consumes
+  // pendingScrollTarget on mount, setting it to null. That re-renders
+  // ViewerRouter with `pendingScrollTarget === null`. If the restore effect's
+  // early-return is keyed on the live store value, it would then fire
+  // UNGUARDED and overwrite the just-applied comment scroll.
+  //
+  // The mock below clears the store synchronously to simulate the real
+  // child consume path — we cannot use the real `useScrollToLine` here
+  // because EnhancedViewer is mocked at module scope.
+  it("does NOT overwrite comment-scroll after child consumes pendingScrollTarget", () => {
+    // Force rAF to fire synchronously so the restore retry loop runs in jsdom.
+    const rafSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "x" });
+    useStore.setState({
+      tabs: [{ path: "/a.txt", scrollTop: 1234 }],
+      pendingScrollTarget: { filePath: "/a.txt", line: 7 },
+    });
+
+    render(<ViewerRouter path="/a.txt" />);
+
+    // Simulate the child mount-effect chain:
+    //   1) useScrollToLine consumes pendingScrollTarget (clears the store)
+    //   2) it scrolls the container to the comment-anchored line
+    // Both happen inside a single act() so React flushes the re-render
+    // triggered by the store clear before our final assertion.
+    const container = screen.getByTestId("enhanced-viewer").parentElement as HTMLDivElement;
+    act(() => {
+      useStore.getState().consumePendingScrollTarget("/a.txt");
+      container.scrollTop = 500; // pretend comment-anchored scroll value
+    });
+
+    // With the bug (early-return keyed on live store value), the re-render
+    // re-fires the restore effect with pendingScrollTarget=null and snaps
+    // scrollTop back to 1234. With the latched-ref fix, suppression
+    // persists across the re-render and scrollTop stays at 500.
+    expect(container.scrollTop).toBe(500);
+    expect(container.scrollTop).not.toBe(1234);
+
+    rafSpy.mockRestore();
+  });
 });

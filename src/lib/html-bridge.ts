@@ -143,17 +143,19 @@ function buildBridgeScript(opts: BuildBridgeOptions): string {
   document.addEventListener("click",function(e){
     if(!active()) return;
     if(isFormTarget(e.target)) return;
-    var sel=window.getSelection&&window.getSelection();
-    if(sel&&sel.toString().length>0) return;
     var t=e.target;
     if(!t||t.nodeType!==1) return;
-    // B2 forward-fix: anchor clicks in comment mode must NOT navigate the
-    // iframe. The host opens the comment composer; the link should not
-    // also follow. preventDefault/stopPropagation BEFORE posting.
+    // B2 forward-fix (iter 11): anchor click suppression must run BEFORE
+    // the selection-non-empty early-return. Otherwise an anchor click while
+    // a selection is active would skip preventDefault and let the iframe
+    // navigate. preventDefault/stopPropagation are safe regardless of
+    // whether we end up posting a click message.
     if(t.closest && t.closest("a")){
       e.preventDefault();
       e.stopPropagation();
     }
+    var sel=window.getSelection&&window.getSelection();
+    if(sel&&sel.toString().length>0) return;
     parent.postMessage({
       source:"mdr-html-bridge",nonce:NONCE,type:"click",
       selectorPath:path(t),

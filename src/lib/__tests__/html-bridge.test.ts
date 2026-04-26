@@ -36,6 +36,29 @@ describe("buildBridgeSrcDoc", () => {
     expect(out).toContain("e.preventDefault()");
     expect(out).toContain("e.stopPropagation()");
   });
+
+  // Iter 11 re-fix (carryover bug): the anchor preventDefault/stopPropagation
+  // block must execute BEFORE the selection-non-empty early-return — otherwise
+  // an anchor click during an active text selection would skip suppression
+  // and let the iframe navigate.
+  it("anchor suppression runs before the selection-non-empty early-return in the click handler", () => {
+    const out = buildBridgeSrcDoc("<body>x</body>", { nonce: "n" });
+    // Isolate the click-handler segment so we don't accidentally pick up the
+    // mouseup-handler's references to selection / paths.
+    const clickStart = out.indexOf('document.addEventListener("click"');
+    expect(clickStart).toBeGreaterThan(-1);
+    const clickSegment = out.slice(clickStart);
+    const closestIdx = clickSegment.indexOf('t.closest("a")');
+    const preventIdx = clickSegment.indexOf("e.preventDefault()");
+    const selectionEarlyReturnIdx = clickSegment.search(
+      /sel\s*&&\s*sel\.toString\(\)\.length\s*>\s*0/,
+    );
+    expect(closestIdx).toBeGreaterThan(-1);
+    expect(preventIdx).toBeGreaterThan(-1);
+    expect(selectionEarlyReturnIdx).toBeGreaterThan(-1);
+    expect(closestIdx).toBeLessThan(selectionEarlyReturnIdx);
+    expect(preventIdx).toBeLessThan(selectionEarlyReturnIdx);
+  });
 });
 
 describe("isBridgeMsg", () => {
