@@ -35,7 +35,7 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
 
 describe("SourceView", () => {
   it("renders source content with line numbers", async () => {
-    render(<SourceView content={"line1\nline2\nline3"} path="/test.ts" filePath="/test.ts" />);
+    render(<SourceView content={"line1\nline2\nline3"} path="/test.ts" filePath="/test.ts" zoom={1} />);
     await waitFor(() => {
       expect(screen.getByText("1")).toBeInTheDocument();
       expect(screen.getByText("2")).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe("SourceView", () => {
   });
 
   it("shows add-comment button on line hover", async () => {
-    render(<SourceView content={"const x = 1;"} path="/test.ts" filePath="/test.ts" />);
+    render(<SourceView content={"const x = 1;"} path="/test.ts" filePath="/test.ts" zoom={1} />);
     await waitFor(() => {
       expect(screen.getByText("1")).toBeInTheDocument();
     });
@@ -53,7 +53,7 @@ describe("SourceView", () => {
   });
 
   it("renders syntax-highlighted content from shiki", async () => {
-    render(<SourceView content={"const x = 1;"} path="/test.ts" filePath="/test.ts" />);
+    render(<SourceView content={"const x = 1;"} path="/test.ts" filePath="/test.ts" zoom={1} />);
     await waitFor(() => {
       const lineContent = document.querySelector(".source-line-content");
       expect(lineContent).not.toBeNull();
@@ -63,14 +63,14 @@ describe("SourceView", () => {
 
   it("renders highlighted content after content prop update", async () => {
     const { rerender } = render(
-      <SourceView content={"line1"} path="/test.ts" filePath="/test.ts" />
+      <SourceView content={"line1"} path="/test.ts" filePath="/test.ts" zoom={1} />
     );
     await waitFor(() => {
       expect(screen.getByText("1")).toBeInTheDocument();
     });
 
     rerender(
-      <SourceView content={"lineA\nlineB"} path="/test.ts" filePath="/test.ts" />
+      <SourceView content={"lineA\nlineB"} path="/test.ts" filePath="/test.ts" zoom={1} />
     );
 
     await waitFor(() => {
@@ -106,7 +106,7 @@ describe("SourceView — F6 right-click context menu", () => {
   });
 
   function openContextMenuOn(content: string, lineIdx: number) {
-    render(<SourceView content={content} path="/test.ts" filePath="/test.ts" />);
+    render(<SourceView content={content} path="/test.ts" filePath="/test.ts" zoom={1} />);
     return waitFor(() => {
       const lineEl = document.querySelector<HTMLElement>(`[data-line-idx="${lineIdx}"]`);
       expect(lineEl).not.toBeNull();
