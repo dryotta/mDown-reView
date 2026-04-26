@@ -102,8 +102,8 @@ const ruleApEmojiAsIcon: Rule = (s) => {
     const cls = /class=(?:"|')([^"']+)(?:"|')/i.exec(attrs)?.[1]?.split(/\s+/)[0];
     const text = inner.replace(/<[^>]+>/g, "").trim().slice(0, 24);
     const anchor = testid ? `button[data-testid='${testid}']`
-      : aria ? `button[aria-label='${aria}']`
       : cls ? `button.${cls}`
+      : aria ? `button[aria-label='${aria}']`
       : text ? `button:has-text("${text}")`
       : "button";
     if (seen.has(anchor)) continue;

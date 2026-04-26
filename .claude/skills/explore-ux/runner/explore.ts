@@ -43,6 +43,23 @@ async function executeStep(page: Page, step: FlowStep): Promise<void> {
       }, event);
       break;
     }
+    case "cli": {
+      // Spawn the binary again with given args; tauri-plugin-single-instance
+      // forwards them to the running instance, which queues them as launch args.
+      const { spawn } = await import("node:child_process");
+      const { existsSync } = await import("node:fs");
+      const candidates = [
+        "src-tauri/target/debug/mdownreview.exe",
+        "src-tauri/target/release/mdownreview.exe",
+      ];
+      const exe = candidates.find((p) => existsSync(p));
+      if (!exe) throw new Error("mdownreview.exe not found in target/{debug,release}");
+      const child = spawn(exe, step.args ?? [], { detached: true, stdio: "ignore" });
+      child.unref();
+      // Give single-instance forwarding + frontend get_launch_args poll a moment
+      await page.waitForTimeout(500);
+      break;
+    }
   }
 }
 
