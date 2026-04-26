@@ -70,7 +70,7 @@ npm run bench:cli:script    # run CLI subprocess timing script
 
 ---
 
-## Claude Code Automation
+## Agentic Development (Github Copilot CLI, Claude Code or similar)
 
 See [`AGENTIC_DEVELOPMENT.md`](AGENTIC_DEVELOPMENT.md) for the full skills + agents catalogue and the three day-to-day workflows. Only the editor-side hooks below are not covered there.
 
