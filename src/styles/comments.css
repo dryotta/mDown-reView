@@ -515,3 +515,59 @@ body.mode-move-anchor * {
   margin-left: 8px;
   cursor: pointer;
 }
+
+
+/* Iter 9 F3  filter row (search + severity chips + workspace toggle) */
+.comments-panel-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+.comments-filter-search {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.comments-filter-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.comments-filter-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.comments-filter-chip[aria-pressed="true"] { color: white; border-color: transparent; font-weight: 600; }
+.comments-filter-chip--high[aria-pressed="true"]   { background: #dc2626; }
+.comments-filter-chip--medium[aria-pressed="true"] { background: #ea580c; }
+.comments-filter-chip--low[aria-pressed="true"]    { background: #9ca3af; }
+.comments-filter-chip--none[aria-pressed="true"]   { background: #4b5563; }
+.comments-filter-workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.comment-panel-item-path {
+  font-size: 10px;
+  color: var(--color-muted);
+  margin-bottom: 2px;
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

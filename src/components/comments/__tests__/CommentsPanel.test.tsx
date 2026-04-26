@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { CommentsPanel } from "../CommentsPanel";
 import { useComments } from "@/lib/vm/use-comments";
+import { useWorkspaceComments } from "@/lib/vm/useWorkspaceComments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { useStore } from "@/store";
 import type { MatchedComment, CommentThread as CommentThreadType } from "@/lib/tauri-commands";
@@ -11,6 +12,10 @@ vi.mock("@/logger");
 
 vi.mock("@/lib/vm/use-comments", () => ({
   useComments: vi.fn(() => ({ threads: [], comments: [], loading: false, reload: vi.fn() })),
+}));
+
+vi.mock("@/lib/vm/useWorkspaceComments", () => ({
+  useWorkspaceComments: vi.fn(() => ({})),
 }));
 
 const mockAddComment = vi.fn().mockResolvedValue(undefined);
@@ -31,6 +36,7 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
 
 const mockUseComments = vi.mocked(useComments);
 const mockUseCommentActions = vi.mocked(useCommentActions);
+const mockUseWorkspaceComments = vi.mocked(useWorkspaceComments);
 
 const FILE = "/docs/README.md";
 
@@ -85,6 +91,7 @@ beforeEach(() => {
     resolveFocusedThread: vi.fn().mockResolvedValue(undefined),
   });
   mockUseComments.mockReturnValue({ threads: [], comments: [], loading: false, reload: vi.fn() });
+  mockUseWorkspaceComments.mockReturnValue({});
   useStore.setState({ pendingFileLevelInputFor: null });
 });
 
@@ -535,3 +542,71 @@ describe("CommentsPanel — Export review summary (iter 6 F2)", () => {
   });
 });
 
+
+//  Iter 9 F3  filter & search 
+
+describe("CommentsPanel  filter & search (iter 9 F3)", () => {
+  it("search filters threads by body text", () => {
+    setMockComments([
+      makeThread(makeComment("a", "alpha first", { line: 1, matchedLineNumber: 1 })),
+      makeThread(makeComment("b", "beta second", { line: 2, matchedLineNumber: 2 })),
+      makeThread(makeComment("c", "gamma third", { line: 3, matchedLineNumber: 3 })),
+    ]);
+
+    render(<CommentsPanel filePath={FILE} />);
+    const searchBox = screen.getByLabelText("Search comments");
+    fireEvent.change(searchBox, { target: { value: "alpha" } });
+
+    expect(screen.getByText("alpha first")).toBeInTheDocument();
+    expect(screen.queryByText("beta second")).not.toBeInTheDocument();
+    expect(screen.queryByText("gamma third")).not.toBeInTheDocument();
+  });
+
+  it("severity chip narrows list to matching threads", () => {
+    setMockComments([
+      makeThread(makeComment("h1", "high one", { line: 1, matchedLineNumber: 1, severity: "high" })),
+      makeThread(makeComment("m1", "medium one", { line: 2, matchedLineNumber: 2, severity: "medium" })),
+      makeThread(makeComment("h2", "high two", { line: 3, matchedLineNumber: 3, severity: "high" })),
+    ]);
+
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /severity high/i }));
+
+    expect(screen.getByText("high one")).toBeInTheDocument();
+    expect(screen.getByText("high two")).toBeInTheDocument();
+    expect(screen.queryByText("medium one")).not.toBeInTheDocument();
+  });
+
+  it("workspace-wide toggle includes threads from other files with file path label", () => {
+    setMockComments([
+      makeThread(makeComment("local", "local note", { line: 1, matchedLineNumber: 1 })),
+    ]);
+    mockUseWorkspaceComments.mockReturnValue({
+      [FILE]: [makeThread(makeComment("local", "local note", { line: 1, matchedLineNumber: 1 }))],
+      "/docs/other.md": [makeThread(makeComment("ext", "external note", { line: 7, matchedLineNumber: 7 }))],
+    });
+    useStore.setState({ root: "/docs" });
+
+    render(<CommentsPanel filePath={FILE} />);
+    expect(screen.queryByText("external note")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Show all files"));
+
+    expect(screen.getByText("external note")).toBeInTheDocument();
+    expect(screen.getByText("other.md")).toBeInTheDocument();
+  });
+
+  it("showResolved=false hides fully-resolved threads (existing behavior preserved)", () => {
+    setMockComments([
+      makeThread(makeComment("u", "unresolved", { line: 1, matchedLineNumber: 1 })),
+      makeThread(makeComment("r", "all resolved", { line: 2, matchedLineNumber: 2, resolved: true })),
+    ]);
+
+    render(<CommentsPanel filePath={FILE} />);
+    expect(screen.getByText("unresolved")).toBeInTheDocument();
+    expect(screen.queryByText("all resolved")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/show resolved/i));
+    expect(screen.getByText("all resolved")).toBeInTheDocument();
+  });
+});

@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
+import { useFilteredComments, type SeverityFilter } from "@/lib/vm/useFilteredComments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentThread } from "./CommentThread";
 import { CommentInput } from "./CommentInput";
@@ -14,11 +15,18 @@ interface Props {
   onScrollToLine?: (lineNumber: number) => void;
 }
 
+const SEVERITY_CHIPS: SeverityFilter[] = ["none", "low", "medium", "high"];
+
 export function CommentsPanel({ filePath, onScrollToLine }: Props) {
+  // `useComments` is still called for the unresolved/resolved counters in the
+  // header; the displayed list now comes from `useFilteredComments`.
   const { threads } = useComments(filePath);
   const { addComment } = useCommentActions();
   const [showResolved, setShowResolved] = useState(false);
   const [showFileLevelInput, setShowFileLevelInput] = useState(false);
+  const [search, setSearch] = useState("");
+  const [severities, setSeverities] = useState<Set<SeverityFilter>>(() => new Set());
+  const [workspaceWide, setWorkspaceWide] = useState(false);
   // Iter 6 F2 — transient "Exported to clipboard" status. Cleared after a
   // short timer so the header doesn't accumulate stale chrome.
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -42,7 +50,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     }
   }, [pendingFileLevelInputFor, filePath]);
 
-  const { sorted, unresolved, resolved } = useMemo(() => {
+  const { sorted: _sorted, unresolved, resolved } = useMemo(() => {
     const sorted = [...threads].sort(
       (a, b) => (a.root.matchedLineNumber ?? a.root.line ?? 0) - (b.root.matchedLineNumber ?? b.root.line ?? 0)
     );
@@ -52,20 +60,49 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     return { sorted, unresolved, resolved };
   }, [threads]);
 
-  const displayed = showResolved ? sorted : unresolved;
+  const filters = useMemo(
+    () => ({ search, severities, showResolved, workspaceWide }),
+    [search, severities, showResolved, workspaceWide],
+  );
+  const displayed = useFilteredComments(filePath || null, filters);
+  const setActiveTab = useStore((s) => s.setActiveTab);
+  const openFile = useStore((s) => s.openFile);
+  const setFocusedThread = useStore((s) => s.setFocusedThread);
 
-  const handleClick = useCallback((comment: MatchedComment) => {
+  const handleClick = useCallback((comment: MatchedComment, threadFilePath: string) => {
     const line = comment.matchedLineNumber ?? comment.line ?? 1;
-    onScrollToLine?.(line);
+    setFocusedThread(comment.id);
+    if (threadFilePath !== filePath) {
+      // Workspace-wide row → open/focus the source tab. `openFile` is
+      // idempotent for already-open tabs and falls back to setActiveTab.
+      openFile(threadFilePath);
+      setActiveTab(threadFilePath);
+    } else {
+      onScrollToLine?.(line);
+    }
     window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
-  }, [onScrollToLine]);
+  }, [onScrollToLine, filePath, openFile, setActiveTab, setFocusedThread]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent, comment: MatchedComment) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, comment: MatchedComment, threadFilePath: string) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      handleClick(comment);
+      handleClick(comment, threadFilePath);
     }
   }, [handleClick]);
+
+  const toggleSeverity = useCallback((sev: SeverityFilter) => {
+    setSeverities((prev) => {
+      const next = new Set(prev);
+      if (next.has(sev)) next.delete(sev);
+      else next.add(sev);
+      return next;
+    });
+  }, []);
+
+  const relativePath = useCallback((p: string) => {
+    if (!root) return p;
+    return p.startsWith(root) ? p.slice(root.length).replace(/^[\\/]+/, "") : p;
+  }, [root]);
 
   const handleSaveFileLevel = useCallback((text: string) => {
     // File-anchored comment — no line gutter, no selected text. We let the
@@ -150,6 +187,39 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
           </span>
         )}
       </div>
+      <div className="comments-panel-filters">
+        <input
+          type="search"
+          className="comments-filter-search"
+          placeholder="Search comments…"
+          aria-label="Search comments"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="comments-filter-chips" role="group" aria-label="Filter by severity">
+          {SEVERITY_CHIPS.map((sev) => (
+            <button
+              key={sev}
+              type="button"
+              className={`comments-filter-chip comments-filter-chip--${sev}`}
+              aria-pressed={severities.has(sev)}
+              aria-label={`Severity ${sev}`}
+              onClick={() => toggleSeverity(sev)}
+            >
+              {sev}
+            </button>
+          ))}
+        </div>
+        <label className="comments-filter-workspace">
+          <input
+            type="checkbox"
+            checked={workspaceWide}
+            onChange={(e) => setWorkspaceWide(e.target.checked)}
+            aria-label="Show all files"
+          />
+          Show all files
+        </label>
+      </div>
       <div className="comments-panel-body">
         {showFileLevelInput && canCommentOnFile && (
           <div className="comment-panel-file-input">
@@ -164,20 +234,23 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         {displayed.length === 0 ? (
           <div className="comments-empty">No comments yet</div>
         ) : (
-          displayed.map(thread => (
+          displayed.map(({ thread, filePath: tp }) => (
             <div
-              key={thread.root.id}
+              key={`${tp}::${thread.root.id}`}
               className="comment-panel-item"
               role="button"
               tabIndex={0}
-              onClick={() => handleClick(thread.root)}
-              onKeyDown={(e) => handleKeyDown(e, thread.root)}
+              onClick={() => handleClick(thread.root, tp)}
+              onKeyDown={(e) => handleKeyDown(e, thread.root, tp)}
             >
+              {workspaceWide && tp !== filePath && (
+                <div className="comment-panel-item-path" title={tp}>{relativePath(tp)}</div>
+              )}
               <div className="comment-panel-item-line">
                 Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}
                 {thread.root.isOrphaned && <span className="comment-orphaned-icon" title="Orphaned">⚠</span>}
               </div>
-              <CommentThread rootComment={thread.root} replies={thread.replies} filePath={filePath} />
+              <CommentThread rootComment={thread.root} replies={thread.replies} filePath={tp} />
             </div>
           ))
         )}
