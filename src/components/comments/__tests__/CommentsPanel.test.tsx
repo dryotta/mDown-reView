@@ -634,19 +634,21 @@ describe("CommentsPanel  filter & search (iter 9 F3)", () => {
     expect(screen.getByText("low one")).toBeInTheDocument();
   });
 
-  // B1.3 — cross-file click navigation. When the user clicks a thread row
-  // that lives in a different file (workspace-wide mode), openFile,
-  // setActiveTab, and setFocusedThread must all be called with the foreign
-  // file path / thread id. The scroll-to-line dispatch is deferred via rAF
-  // (see B4) so we don't assert it here — the focus call is the contract.
-  it("clicking a cross-file row calls openFile + setActiveTab + setFocusedThread", () => {
+  // B1.3 — cross-file click navigation. Iter 10 Group B replaced the rAF
+  // hack with a `pendingScrollTarget` store field consumed by the destination
+  // viewer's `useScrollToLine` on mount. The panel now queues the target
+  // and opens the file; `setActiveTab` is no longer called explicitly
+  // (`openFile` already activates the tab); `requestAnimationFrame` is no
+  // longer used as a delivery vehicle.
+  it("clicking a cross-file row queues pendingScrollTarget + calls openFile + setFocusedThread (no rAF)", () => {
     const openFile = vi.fn();
-    const setActiveTab = vi.fn();
     const setFocusedThread = vi.fn();
+    const setPendingScrollTarget = vi.fn();
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame");
     useStore.setState({
       openFile,
-      setActiveTab,
       setFocusedThread,
+      setPendingScrollTarget,
       root: "/docs",
     } as Partial<ReturnType<typeof useStore.getState>>);
 
@@ -662,8 +664,14 @@ describe("CommentsPanel  filter & search (iter 9 F3)", () => {
 
     fireEvent.click(screen.getByText("external note").closest(".comment-panel-item")!);
 
+    expect(setPendingScrollTarget).toHaveBeenCalledWith({
+      filePath: "/docs/other.md",
+      line: 7,
+      commentId: "ext",
+    });
     expect(openFile).toHaveBeenCalledWith("/docs/other.md");
-    expect(setActiveTab).toHaveBeenCalledWith("/docs/other.md");
     expect(setFocusedThread).toHaveBeenCalledWith("ext");
+    expect(rafSpy).not.toHaveBeenCalled();
+    rafSpy.mockRestore();
   });
 });

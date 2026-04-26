@@ -64,38 +64,27 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     [search, severities, showResolved, workspaceWide],
   );
   const displayed = useFilteredComments(filePath || null, filters);
-  const setActiveTab = useStore((s) => s.setActiveTab);
   const openFile = useStore((s) => s.openFile);
   const setFocusedThread = useStore((s) => s.setFocusedThread);
+  const setPendingScrollTarget = useStore((s) => s.setPendingScrollTarget);
 
   const handleClick = useCallback((comment: MatchedComment, threadFilePath: string) => {
     const line = comment.matchedLineNumber ?? comment.line ?? 1;
     setFocusedThread(comment.id);
     if (threadFilePath !== filePath) {
-      // Workspace-wide row → open/focus the source tab. `openFile` is
-      // idempotent for already-open tabs and falls back to setActiveTab.
+      // Iter 10 Group B — queue the scroll target BEFORE opening the file
+      // so the destination viewer drains it on mount via
+      // `useScrollToLine`'s `consumePendingScrollTarget(filePath)`. This
+      // replaces the iter 9 rAF×2 + setTimeout(0) hack and is robust to
+      // cold-loading viewers + rapid clicks (nonce supersedes earlier
+      // queued targets, consume-by-filePath rejects mismatches).
+      setPendingScrollTarget({ filePath: threadFilePath, line, commentId: comment.id });
       openFile(threadFilePath);
-      setActiveTab(threadFilePath);
-      // B4 (iter 9 forward-fix): the destination viewer mounts on the next
-      // commit and registers its scroll-to-line listener at that point.
-      // Dispatching synchronously would deliver the event to the OLD
-      // viewer's listener (or no one). rAF×2 + setTimeout(0) waits for the
-      // tab switch + viewer mount before firing. Best-effort timing — if
-      // the viewer takes longer than that to mount, the focus is preserved
-      // (setFocusedThread fired above) but the scroll won't land. A proper
-      // pending-target store path is deferred to a future iter.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
-          }, 0);
-        });
-      });
       return;
     }
     onScrollToLine?.(line);
     window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
-  }, [onScrollToLine, filePath, openFile, setActiveTab, setFocusedThread]);
+  }, [onScrollToLine, filePath, openFile, setFocusedThread, setPendingScrollTarget]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent, comment: MatchedComment, threadFilePath: string) => {
     if (e.key === "Enter" || e.key === " ") {

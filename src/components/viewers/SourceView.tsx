@@ -93,7 +93,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     setExpandedLine(line);
     setCommentingLine(null);
   }, []);
-  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo);
+  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo, filePath);
 
   // Stable handlers — recompute identity only when their dependencies actually
   // change. This is what allows `React.memo` on `SourceLine` to skip re-renders

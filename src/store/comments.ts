@@ -22,8 +22,27 @@ import {
 } from "@/lib/tauri-commands";
 import { error } from "@/logger";
 
+/**
+ * Iter 10 Group B — cross-file scroll target queued by `CommentsPanel` when
+ * the user clicks a workspace-wide row whose source file is not yet mounted.
+ * The destination viewer's `useScrollToLine` hook consumes the target on
+ * mount via `consumePendingScrollTarget(filePath)`, which atomically clears
+ * the field iff the queued `filePath` matches. This replaces the iter 9
+ * `requestAnimationFrame×2 + setTimeout(0)` hack (B4 forward-fix).
+ *
+ * `nonce` is a monotonic counter assigned by `setPendingScrollTarget`; rapid
+ * clicks supersede earlier targets because each `set` overwrites the field.
+ */
+export interface PendingScrollTarget {
+  filePath: string;
+  line: number;
+  commentId?: string;
+  nonce: number;
+}
+
 export interface CommentsSlice {
   focusedThreadId: string | null;
+  pendingScrollTarget: PendingScrollTarget | null;
   /**
    * VM-registered handler for the focused-thread resolve action. The
    * slice does not call `update_comment` directly — it routes through
@@ -33,6 +52,12 @@ export interface CommentsSlice {
   _resolveFocusedThreadHandler: (() => Promise<void>) | null;
 
   setFocusedThread: (id: string | null) => void;
+  setPendingScrollTarget: (
+    target: Omit<PendingScrollTarget, "nonce"> | null,
+  ) => void;
+  consumePendingScrollTarget: (
+    filePath: string,
+  ) => { line: number; commentId?: string } | null;
   setResolveFocusedThreadHandler: (
     fn: (() => Promise<void>) | null,
   ) => void;
@@ -69,15 +94,39 @@ function lineOf(t: CommentThread): number {
   return t.root.matchedLineNumber ?? t.root.line ?? 1;
 }
 
+// Module-scoped monotonic nonce. Slice instances are singletons (one Zustand
+// store per app) so this is effectively per-store. Used by tests and viewers
+// to detect whether a target was superseded between set and consume.
+let pendingScrollTargetNonce = 0;
+
 export function createCommentsSlice(
   set: SliceSet,
   get: SliceGet,
 ): CommentsSlice {
   return {
     focusedThreadId: null,
+    pendingScrollTarget: null,
     _resolveFocusedThreadHandler: null,
 
     setFocusedThread: (id) => set({ focusedThreadId: id }),
+
+    setPendingScrollTarget: (target) => {
+      if (target === null) {
+        set({ pendingScrollTarget: null });
+        return;
+      }
+      pendingScrollTargetNonce += 1;
+      set({
+        pendingScrollTarget: { ...target, nonce: pendingScrollTargetNonce },
+      });
+    },
+
+    consumePendingScrollTarget: (filePath) => {
+      const t = get().pendingScrollTarget;
+      if (!t || t.filePath !== filePath) return null;
+      set({ pendingScrollTarget: null });
+      return { line: t.line, commentId: t.commentId };
+    },
     setResolveFocusedThreadHandler: (fn) =>
       set({ _resolveFocusedThreadHandler: fn }),
 

@@ -188,7 +188,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     setExpandedLine(line);
     setCommentingLine(null);
   }, []);
-  useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo);
+  useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo, filePath);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
