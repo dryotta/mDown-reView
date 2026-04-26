@@ -101,6 +101,9 @@ export const updateTreeWatchedDirs = (root: string, dirs: string[]): Promise<voi
 export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
   invoke<[string, string][]>("scan_review_files", { root });
 
+export const canonicalizePath = (path: string): Promise<string> =>
+  invoke<string>("canonicalize_path", { path });
+
 export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
   invoke<"file" | "dir" | "missing">("check_path_exists", { path });
 

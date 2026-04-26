@@ -4,6 +4,22 @@ use super::is_sidecar_file;
 use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::DirEntry;
 
+/// Canonicalize an absolute path to the long form without the Windows `\\?\`
+/// verbatim prefix. Used by the renderer to normalize paths at workspace-open
+/// and tab-open boundaries so that string-equality comparisons against
+/// scanner output (which itself canonicalizes via `dunce`) match. No
+/// workspace guard — this is the very command callers use to obtain the
+/// canonical form before they have a workspace to validate against.
+#[tauri::command]
+pub fn canonicalize_path(path: String) -> Result<String, String> {
+    canonicalize_no_verbatim(std::path::Path::new(&path))
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| {
+            tracing::error!("[rust] canonicalize_path error: {}", e);
+            e.to_string()
+        })
+}
+
 /// Check if a path exists and whether it is a directory or file.
 /// Returns "file", "dir", or "missing".
 #[tauri::command]

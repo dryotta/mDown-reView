@@ -234,6 +234,7 @@ pub fn run() {
                 commands::launch::get_log_path,
                 commands::launch::scan_review_files,
                 commands::fs::check_path_exists,
+                commands::fs::canonicalize_path,
                 commands::comments::get::get_file_comments,
                 commands::comments::add_comment,
                 commands::comments::add_reply,

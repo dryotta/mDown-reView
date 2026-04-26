@@ -26,6 +26,7 @@ import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
 import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
 import { createCommentsSlice, type CommentsSlice } from "./comments";
 import { migrateV1StripVerbatim } from "./migrations/v1-strip-verbatim";
+import { canonicalizeOrFallback } from "./canonicalize";
 
 export type { OnboardingState, Tab, TabsSlice, FileMeta };
 export { MAX_TABS, filterStaleTabs };
@@ -45,7 +46,16 @@ const MAX_RECENT_ITEMS = 5;
 interface WorkspaceSlice {
   root: string | null;
   expandedFolders: Record<string, boolean>;
-  setRoot: (root: string | null) => void;
+  /**
+   * Set the workspace root. Canonicalises the incoming path via the Rust
+   * IPC so the stored form matches what `scan_review_files` emits (long
+   * form, no `\\?\` verbatim prefix) — without this, ghost-entry detection
+   * fails on Windows paths in 8.3 short-name form (e.g. `RUNNER~1`).
+   * Returns a Promise that callers SHOULD await before relying on the
+   * stored value, but workspace-open flows tolerate missed awaits because
+   * the canonicalised value just lands a moment later.
+   */
+  setRoot: (root: string | null) => Promise<void>;
   toggleFolder: (path: string) => void;
   setFolderExpanded: (path: string, expanded: boolean) => void;
   closeFolder: () => void;
@@ -176,7 +186,14 @@ export const useStore = create<Store>()(
       // Workspace
       root: null,
       expandedFolders: {},
-      setRoot: (root) => set({ root, expandedFolders: {} }),
+      setRoot: async (root) => {
+        if (root === null) {
+          set({ root: null, expandedFolders: {} });
+          return;
+        }
+        const canonical = await canonicalizeOrFallback(root);
+        set({ root: canonical, expandedFolders: {} });
+      },
       toggleFolder: (path) =>
         set((s) => ({
           expandedFolders: { ...s.expandedFolders, [path]: !s.expandedFolders[path] },
@@ -463,26 +480,7 @@ export function useUpdateState() {
   );
 }
 
-// Action to open files and folders from CLI args
-export function openFilesFromArgs(
-  files: string[],
-  folders: string[],
-  store: ReturnType<typeof useStore.getState>
-) {
-  // Last folder wins (spec requirement)
-  if (folders.length > 0) {
-    const lastFolder = folders[folders.length - 1];
-    store.setRoot(lastFolder);
-    store.addRecentItem(lastFolder, "folder");
-  }
-  const alreadyOpen = new Set(store.tabs.map((t) => t.path));
-  // Deduplicate incoming files
-  const unique = [...new Set(files)];
-  for (const file of unique) {
-    if (!alreadyOpen.has(file)) {
-      store.openFile(file);
-      alreadyOpen.add(file);
-    }
-    store.addRecentItem(file, "file");
-  }
-}
+// `openFilesFromArgs` lives in `./launchArgs.ts` (extracted to keep this
+// file under the 500-line shared-chokepoint budget — rule 23 in
+// `docs/architecture.md`). Re-exported below for back-compat.
+export { openFilesFromArgs } from "./launchArgs";

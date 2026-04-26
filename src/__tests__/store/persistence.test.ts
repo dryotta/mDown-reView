@@ -64,8 +64,8 @@ describe("persistence partialize contract", () => {
     expect(snapshot).toHaveProperty("commentsPaneVisible", false);
   });
 
-  it("includes root in the persisted snapshot", () => {
-    useStore.getState().setRoot("/workspace/project");
+  it("includes root in the persisted snapshot", async () => {
+    await useStore.getState().setRoot("/workspace/project");
     const snapshot = getPersistedSnapshot();
     expect(snapshot).toHaveProperty("root", "/workspace/project");
   });
