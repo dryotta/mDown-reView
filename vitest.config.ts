@@ -8,7 +8,11 @@ export default defineConfig({
     onUnhandledError: "fail",
     globals: true,
     include: ["src/**/*.test.{ts,tsx}", ".claude/**/*.test.{ts,tsx}"],
-    exclude: ["node_modules", "e2e"],
+    exclude: [
+      "node_modules",
+      "e2e",
+      ...(process.env.EXPLORE_UX_SMOKE === "1" ? [] : ["**/*.smoke.test.ts"]),
+    ],
   },
   resolve: {
     alias: {
