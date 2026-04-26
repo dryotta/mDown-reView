@@ -27,6 +27,7 @@
 .markdown-body {
   position: relative;
   padding-left: 28px;
+  overflow-wrap: break-word;
 }
 
 /* GitHub-style markdown */
@@ -68,6 +69,9 @@
   border-radius: 4px;
   font-size: 0.875em;
   font-family: "SFMono-Regular", Consolas, monospace;
+  /* #91 — wrap long unbreakable inline tokens (e.g. backticked paths) so they do not push the page sideways. Fenced `pre code` is reset below. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-body pre {
@@ -84,6 +88,16 @@
   background: none;
   border-radius: 0;
   font-size: 0.875em;
+}
+
+/* #91 — keep fenced code blocks horizontally scrollable. The container
+ * rule on `.markdown-body` would otherwise cascade down and force
+ * fenced code to wrap, defeating the deliberate `overflow: auto` on `pre`. */
+.markdown-body pre,
+.markdown-body pre code {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre;
 }
 
 .markdown-body blockquote {
@@ -104,6 +118,7 @@
 .markdown-body td {
   padding: 6px 13px;
   border: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
 }
 
 .markdown-body tr:nth-child(even) {
