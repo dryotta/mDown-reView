@@ -263,11 +263,7 @@ Subagents are specialist Claude instances invoked in parallel by the `/iterate` 
 | `exe-task-implementer` | Implements a single scoped task (including writing unit and Playwright e2e tests per `docs/best-practices-project/test-patterns.md`); returns a structured change summary |
 | `exe-implementation-validator` | Runs lint → tsc → cargo test → vitest → browser-e2e → native-e2e; returns PASS/FAIL with full output |
 
-**Shared references** (not invocable as agents — leading `_` prefix):
-
-| File | Purpose |
-|---|---|
-| `_knowledge-review-protocol.md` | Defines the per-knowledge-file dispatch protocol every review agent follows: one subagent per knowledge doc, parent aggregates. Always dispatched, even for a single doc. |
+Every `*-expert` review agent embeds the same per-knowledge-file dispatch protocol: one subagent per knowledge doc listed in the agent file, parent aggregates and dedupes. Uniform — always dispatched, even for a single doc. No recursion.
 
 ### Hooks
 

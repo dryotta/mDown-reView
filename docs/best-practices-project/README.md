@@ -18,4 +18,4 @@ Within agent reports: `violates rule <rule-id> in docs/best-practices-project/<f
 
 ## Per-knowledge-file review pattern
 
-Review agents that consult these files MUST follow the per-knowledge-file dispatch pattern in [`../../.claude/agents/_knowledge-review-protocol.md`](../../.claude/agents/_knowledge-review-protocol.md): one subagent per knowledge file, parent aggregates. This applies to both `best-practices-project/` and `best-practices-common/` files.
+Review agents that consult these files MUST follow the per-knowledge-file dispatch pattern embedded in each `*-expert` agent: one subagent per knowledge file, parent aggregates. This applies to both `best-practices-project/` and `best-practices-common/` files.
