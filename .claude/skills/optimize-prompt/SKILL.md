@@ -30,7 +30,7 @@ If the artifact is a one-shot question, skip — this is for prompts that will r
 
 ### Description / triggering (skills + agents)
 
-- **Description states WHEN, not WHAT.** A description that summarizes the workflow makes the model shortcut to the description and skip the body. Lead with "Use when…" and list concrete triggers, symptoms, file types, or user phrases. ([writing-skills CSO](../../plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/writing-skills/SKILL.md))
+- **Description states WHEN, not WHAT.** A description that summarizes the workflow makes the model shortcut to the description and skip the body. Lead with "Use when…" and list concrete triggers, symptoms, file types, or user phrases. (See [obra/superpowers `writing-skills`](https://github.com/obra/superpowers/blob/main/skills/writing-skills/SKILL.md).)
 - **Be specific and slightly pushy.** Models under-trigger skills. Name the situations explicitly ("even if the user doesn't say 'X' directly").
 - **Third person, imperative.** "Use when implementing…" not "I help you implement…".
 - **Keep frontmatter under ~1024 chars**, name uses `[a-z0-9-]` only.
