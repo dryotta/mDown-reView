@@ -21,10 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Tests (Linux) ────────────────────────────────────────────────────────
-  # Runs in parallel with the build matrix — no "needs" dependency.
-  test:
-    name: Test (Linux)
+  # ── Rust tests (Linux) ───────────────────────────────────────────────────
+  # Runs in parallel with vitest, e2e-browser, and the build matrix.
+  rust-test:
+    name: Rust tests (Linux)
     runs-on: ubuntu-latest
 
     steps:
@@ -37,6 +37,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Only the main branch publishes the cache; PR jobs restore-only.
+          # Saves ~2m of post-job cache packing per PR.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
@@ -60,14 +63,66 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  # ── Vitest unit tests (Linux) ────────────────────────────────────────────
+  # No Rust, no apt deps needed — vitest runs under jsdom.
+  vitest:
+    name: Vitest (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
       - name: Vitest unit tests
         run: npm test
 
       - name: Lint skill docs (npm-script references)
         run: npm run lint:skills
 
+  # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
+  e2e-browser:
+    name: E2E browser (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Get Playwright version
+        id: pw-version
+        shell: bash
+        run: echo "version=$(npx playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
       - name: Install Playwright (Chromium only)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Playwright E2E tests (browser mode)
         run: npm run test:e2e
@@ -118,6 +173,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Only the main branch publishes the cache; PR jobs restore-only.
+          # Saves ~2m of post-job cache packing per PR.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4

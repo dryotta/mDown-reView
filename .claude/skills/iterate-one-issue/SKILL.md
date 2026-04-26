@@ -17,6 +17,7 @@ Let `ARG` = trimmed string after skill name. First match wins:
 
 | Pattern | Result |
 |---|---|
+| `^--resume-rg\s+(\S+)$` | `MODE=resume-rg`, `BRANCH=$1`. Skips 0b–0h entirely; jumps to Step 9b–d-resume per [references/release-gate.md § 9b–d](references/release-gate.md#9bd--resume-idempotent-re-entry). Pre-conditions (caller's responsibility): cwd is the worktree where `<BRANCH>` is checked out, `git status` is clean, and `.claude/iterate-state-<branch-slug>.md` exists with `release_gate.state ∈ {dispatched, failed, passed}`. Used by `iterate-loop --pipeline` from yield points. |
 | `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
 | `^#(\d+)$` | `MODE=issue`, group 1 |
 | `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
@@ -132,7 +133,9 @@ gh pr create --draft --title "$PR_TITLE" --body "$PR_BODY"
 
 Capture `PR_NUMBER`, `PR_URL`.
 
-### 0g. State file — `.claude/iterate-state.md`
+### 0g. State file — `.claude/iterate-state-<branch-slug>.md`
+
+`<branch-slug>` = `BRANCH` with `/` → `-` (e.g. `feature-issue-42-csv-export`). Per-branch path so colocated worktrees never collide on a single state file.
 
 ```markdown
 ---
@@ -141,12 +144,23 @@ goal: "<GOAL_FOR_ASSESSOR>"
 issue_number: <ISSUE_NUMBER or null>
 started_at: <ISO datetime>
 branch: <BRANCH>
+worktree: <absolute path of working tree, or "." if none>
 pr: <PR_URL>
 pr_number: <PR_NUMBER>
+iter_base_sha: <SHA — set/refreshed at every Step 1 "After successful rebase">
 iteration_cap: 30
+release_gate:
+  state: <not-started | dispatched | passed | failed | skipped>
+  ref: <BRANCH validated by release-gate.yml — same as `branch` above>
+  workflow_run_id: <run ID from `gh workflow run`, or null>
+  dispatched_at: <ISO datetime, or null>
+  forward_fix_attempts: 0
+  step_at_suspend: <9b | 9c | 9d | null>
 ---
 # Iteration Log
 ```
+
+**Resume contract.** Every field above is the source of truth — Step 9b–d-resume reads cold from this file and may run from a different CLI session than the one that wrote 9a. The companion `iterate-loop` (in pipeline mode) and the `/iterate-resume` entry point both rely on this. Other steps update `iter_base_sha` (Step 1) and `release_gate.*` (Step 9a/c/d); never write through these from anywhere else.
 
 ### 0h. Banner
 
@@ -362,7 +376,7 @@ Wait for each dependency wave. Collect every summary.
 
 Every implementer reports "no changes" → log `SKIPPED — no-op: <reason>` to state file, no commit, advance iteration.
 
-### Step 6 — Push + race validate
+### Step 6 — Push, classify diff, race local + CI + experts
 
 #### 6a. Push
 ```bash
@@ -372,20 +386,46 @@ git push
 ```
 Commit messages: see Commit conventions table below.
 
-#### 6b. Local validation + CI poll (parallel)
+#### 6b. Classify diff (consumed by 6c, Step 7, Step 9)
 
-ONE message, both agents:
-
-**A — `exe-implementation-validator`:**
+```bash
+DIFF_FILES=$(git diff --name-only "$ITER_BASE_SHA" HEAD)
+if [ -z "$DIFF_FILES" ]; then
+  DIFF_CLASS=none
+elif echo "$DIFF_FILES" | grep -qvE '^(\.claude/|docs/|[^/]+\.md$)'; then
+  DIFF_CLASS=code
+elif echo "$DIFF_FILES" | grep -qE '^\.claude/(skills|agents)/'; then
+  DIFF_CLASS=prompt-only
+else
+  DIFF_CLASS=docs-only
+fi
+echo "[diff-class] $DIFF_CLASS — $(echo "$DIFF_FILES" | wc -l) files"
 ```
-Run the full local suite in order:
-1. npm run lint
-2. npx tsc --noEmit
-3. cd src-tauri && cargo test
-4. npm test
-5. npm run test:e2e
-6. npm run test:e2e:native
-Return PASS|FAIL with full output for every check.
+
+`DIFF_CLASS` rules:
+- **`code`** — at least one file outside `.claude/**`, `docs/**`, root `*.md`. Default when in doubt.
+- **`prompt-only`** — every changed file is under `.claude/skills/` or `.claude/agents/` (rule contracts, no behavioural code).
+- **`docs-only`** — every changed file is under `.claude/**` (non-prompt) or `docs/**` or a root `*.md`.
+- **`none`** — empty diff (Step 5 was a no-op; you should not be here).
+
+#### 6c. Local validate ∥ CI poll ∥ Expert diff review (parallel)
+
+ONE message, three agents launched together. The expert panel does NOT wait for local/CI — it runs against the diff that's already on the branch.
+
+**A — `exe-implementation-validator` (diff-scoped):**
+
+| `DIFF_CLASS` | Suite |
+|---|---|
+| `code` | Full suite: `1) npm run lint  2) npx tsc --noEmit  3) cd src-tauri && cargo test  4) npm test  5) npm run test:e2e  6) npm run test:e2e:native` |
+| `prompt-only` | `1) npm run lint:skills` only — every other gate has nothing to lint. |
+| `docs-only` | Skip entirely. Return `PASS — docs-only diff, no validators applicable`. |
+| `none` | Skip entirely. (Step 5 should have logged SKIPPED already.) |
+
+Prompt:
+```
+Run the validation suite for DIFF_CLASS=<…>:
+<list from table above>
+Return PASS|FAIL with full output for every check executed (or "SKIPPED — <reason>" if no checks apply).
 ```
 
 **B — `general-purpose` (CI poller):**
@@ -396,42 +436,61 @@ Stop when no check is "pending"/"in_progress".
 Return PASS or FAIL with failed-check names + logs.
 ```
 
-#### 6c. Forward-fix loop (max 5 attempts)
+CI itself is path-filtered (see `.github/workflows/ci.yml`), so on `prompt-only`/`docs-only` diffs every check correctly skips green within ~30 s of dispatch — the poller still runs (cheap), just exits fast.
 
-Repeat until both PASS or 5 attempts:
+**C — Expert diff review panel (diff-scoped, see Step 7).** Launched in the SAME parallel message as A and B; details in Step 7.
 
-1. `exe-task-implementer`:
+#### 6d. Forward-fix loop (max 5 attempts) — merges A/B/C failures
+
+Repeat until A, B, AND C are all green/APPROVE, or 5 attempts:
+
+1. Collect every failure: validator failures (A) + CI check failures (B) + every BLOCK from the expert panel (C).
+2. ONE `exe-task-implementer`:
    ```
-   Fix the failures. No revert — forward fix.
-   Local: <full output>   CI: <names + logs>   Prior attempts: <summaries>
-   Minimal change per failure. Tighten existing code over new abstractions.
+   Fix all of the failures below in one pass. No revert — forward fix.
+   Local: <full output>
+   CI: <names + logs>
+   Expert blocks: <each: expert · file:line · rule · fix direction>
+   Prior attempts: <summaries>
+   Minimal change per failure. Tighten existing code over new abstractions. Do NOT reopen approved concerns.
    Return Implementation Summary.
    ```
-2. ```bash
+3. ```bash
    git add <specific files>
    git commit -m "fix(iter-<iteration>): <summary>"
    git push
    ```
-3. Re-run 6b.
-4. Both PASS → break.
-5. After 5 attempts still failing → log `DEGRADED — could not fix validate/CI after 5: <summary>`. Do NOT revert. `degraded_count += 1`. Proceed to Step 7.
+4. Re-classify diff (6b) — fixes may have flipped `DIFF_CLASS` (e.g. added a code file). Re-run A/B/C against the new tip with the (possibly new) suite. Reuse the SAME expert set unless DIFF_CLASS changed.
+5. All three pass → break.
+6. After 5 attempts still failing → log `DEGRADED — could not converge validate/CI/experts after 5: <summary>`. Do NOT revert. `degraded_count += 1`. Proceed to Step 8.
 
-### Step 7 — Expert diff review
+### Step 7 — Expert diff review panel (launched in 6c, scoped by `DIFF_CLASS`)
 
 ```bash
 git diff $ITER_BASE_SHA HEAD --stat
 git diff $ITER_BASE_SHA HEAD
 ```
 
-Spawn the **8-expert panel** in ONE parallel message: `product-expert`, `performance-expert`, `architect-expert`, `react-tauri-expert`, `bug-expert`, `test-expert`, `documentation-expert`, `lean-expert`.
+Spawn the panel in the SAME parallel message as the validators (6c-C). Panel composition is **demand-driven by `DIFF_CLASS` and path triggers** — mirrors Step 3's rule.
 
-**Conditional** (same parallel message): include `security-expert` when diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` use, or any `src/components/viewers/` markdown rendering.
+**Always included** (every diff): `lean-expert`, `rubber-duck`.
+
+**By `DIFF_CLASS`:**
+
+| `DIFF_CLASS` | Add to panel |
+|---|---|
+| `code` | `product-expert`, `performance-expert`, `architect-expert`, `react-tauri-expert`, `bug-expert`, `test-expert`, `documentation-expert` (always with code), and **conditionally** `security-expert` when diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` use, or any `src/components/viewers/` markdown rendering. |
+| `prompt-only` | `documentation-expert` (the prompt itself is documentation), `architect-expert` (skill/agent contracts shape downstream IPC and dispatch). Skip the rest — `react-tauri-expert`/`performance-expert`/`bug-expert`/`security-expert`/`test-expert` have nothing to say about a markdown contract change. |
+| `docs-only` | `documentation-expert` only. |
+| `none` | Skip Step 7 entirely. |
+
+This implements the diff-scoped tightening called out in retrospective `feature-issue-105-assessor-path-check-iter-1.md`: prompt/docs-only iterations no longer dispatch the full 8-expert panel.
 
 Each prompt:
 ```
 Review this iteration's diff.
 <issue mode:> Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>  <or>  Goal: <GOAL_FOR_ASSESSOR>
-Iteration: <N>/30
+Iteration: <N>/30   DIFF_CLASS: <code|prompt-only|docs-only>
 Spec/goal context: <excerpt>
 Diff stat: <…>   Full diff: <…>
 
@@ -447,25 +506,16 @@ BLOCK on any of these — APPROVE otherwise. Cite specific rule numbers from doc
 Return APPROVE or BLOCK with file:line + "violates rule N in docs/X.md".
 ```
 
-**Any BLOCK** → `exe-task-implementer` with union of blocks:
-```
-Forward-fix the blocking issues. No revert.
-<each: expert · file:line · rule · fix direction>
-Minimal change per blocker. Do NOT reopen approved concerns.
-Return Implementation Summary.
-```
-
-Commit + push (`fix(iter-<iteration>): <summary>`). Re-run 6b. Re-run the SAME panel on the new diff (`git diff $ITER_BASE_SHA HEAD`).
-
-Still BLOCK after one fix round → log `DEGRADED — expert review: <summaries>`. `degraded_count += 1`. Do NOT revert. Proceed to Step 8.
+Findings flow into 6d's single forward-fix wave alongside validator/CI failures. There is no separate "Step 7 forward-fix loop" any more — convergence is owned by 6d.
 
 ### Step 8 — Record
 
 Append to state file:
 ```markdown
 ## Iteration <N> — <PASSED | DEGRADED | SKIPPED>
+- DIFF_CLASS: <code | prompt-only | docs-only | none>
 - Commits: <SHAs from ITER_BASE_SHA..HEAD>
-- Validate+CI: <passed | fixed in K | degraded after 5>
+- Validate+CI+Experts: <converged in K | degraded after 5>
 - Expert review: <A approved / B blocked — list>
 - Goal assessor confidence: <%>
 - Summary: <one sentence>
@@ -480,7 +530,7 @@ Update PR:
   gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
   <!-- iterate-iter-<N> -->
   ### <✅ PASSED | ⚠️ DEGRADED | ⏭️ SKIPPED> Iteration <N>/30
-  **Commits:** <short SHAs>   **Files:** <count>   **Tests:** <count>
+  **DIFF_CLASS:** <…>   **Commits:** <short SHAs>   **Files:** <count>   **Tests:** <count>
   <issue: AC satisfied this iter: …  |  goal: requirements done: …>
   <if DEGRADED: Carry-over: …>
   Next: iteration <N+1>
@@ -490,7 +540,7 @@ Update PR:
 
 `iteration += 1`. PASSED → `passed_count += 1`.
 
-### Step 8.5 — Retrospective (committed every iteration)
+### Step 8.5 — Retrospective + concurrent Step 9a dispatch
 
 Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Skill-specific bindings:
 
@@ -501,15 +551,22 @@ Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](.
 - For bug-mode iterations, append a `## BUG_RCA` section (verbatim from Step 3a) after `## Carry-over to the next run`.
 - Phase 2 (below) is this skill's binding of **Step R2** — it runs once at terminal Done-X, not per iteration. **Skip the per-iteration R2 call** — only Step 8.5's R1 (write the file) runs inside the loop.
 
-#### 8.5a–b. Generate
+#### 8.5a–b. Generate (parallel with 9a if achieved)
+
+If Step 2 returned `achieved` AND `DIFF_CLASS=code` AND release-gate is applicable (see Step 9), dispatch in **ONE parallel message**:
+- **Retro author** (`general-purpose`, R1 prompt below) — writes `$RETRO_FILE`.
+- **Step 9a-dispatch** (see Step 9 below) — triggers release-gate workflow on the iterate branch.
+
+Otherwise (still in_progress / non-code diff / Step 9 skipped), run only the retro author. The 9a dispatch path either fires later (next iteration) or is skipped entirely.
 
 Use the R1 prompt from the shared spec, with skill-specific context block:
 ```
 - Mode: <MODE>   Goal: <GOAL_FOR_ASSESSOR>   Issue: #<ISSUE_NUMBER or n/a>
 - Bug-mode: <IS_BUG>   Outcome: <PASSED|DEGRADED|SKIPPED>
+- DIFF_CLASS: <…>
 - Commits ITER_BASE_SHA..HEAD: <SHAs + summaries>
 - Files touched: <list>
-- Forward-fix attempts: Step 6 = <K>, Step 7 = <0|1>
+- Forward-fix attempts: 6d=<K>
 - Expert blocks: <expert + rule, or "none">
 - Assessor confidence: <prev% → curr%>
 - Iteration log entry verbatim: <…>
@@ -518,7 +575,7 @@ Use the R1 prompt from the shared spec, with skill-specific context block:
 
 Write output verbatim to `$RETRO_FILE`.
 
-#### 8.5c. Commit + push
+#### 8.5c. Commit + push retro
 ```bash
 git add "$RETRO_FILE"
 git commit -m "$(cat <<EOF
@@ -529,6 +586,8 @@ EOF
 )"
 git push
 ```
+
+If Step 9a was dispatched in parallel, the retro commit lands on the iterate tip *after* Step 9a captured `iter_base_sha`. That is intentional — Step 9b polls the workflow run dispatched at the pre-retro tip, which is fine because the retro itself is a `.claude/retrospectives/**` change that release-gate's path filter ignores.
 
 Retrospective is now part of PR diff; merging persists every retro into `main`.
 
@@ -542,7 +601,27 @@ Append one line to Step 8 comment (or post inline):
 
 ### Step 9 — Release-gate validation (Done-Achieved only)
 
-See [references/release-gate.md](references/release-gate.md) for the full mirror-branch + 9a–9d flow. The loop returns to **Done-Achieved** banner on success, or halts **Done-Blocked** on pre-existing release branch / 5 forward-fix failures.
+#### Skip rule (no release gate needed)
+
+```
+if DIFF_CLASS != code:
+  release_gate.state = skipped
+  log "[step9] SKIPPED — DIFF_CLASS=<…>; release-gate not applicable to non-buildable diffs"
+  jump to Done-Achieved (PR ready immediately, see done-handlers.md)
+```
+
+`.claude/**`, `docs/**`, and root `*.md` changes are already path-filtered out of CI. Re-running release-gate's signed-installer build on them produces zero new signal.
+
+#### Two-phase: 9a-dispatch (returns) and 9b–d-resume (called later)
+
+The release-gate poll is ~18 min of pure CI time. Step 9 is therefore split into a fast **dispatch** half that returns immediately with state persisted, and a **resume** half that the caller (`iterate-loop` in pipeline mode, or this same skill in single-issue mode) re-enters once GitHub signals completion.
+
+- **9a-dispatch:** create the workflow_dispatch run on the iterate branch, write `release_gate.state=dispatched` + `workflow_run_id` + `dispatched_at` into the state file, return `Done-Achieved-RG-Pending`.
+- **9b–d-resume:** poll the run; on PASS, mark PR ready (9d); on FAIL, forward-fix (9c, max 5) and re-dispatch.
+
+Single-issue mode (no pipelining) still works: the skill calls 9b–d-resume itself, immediately and synchronously, just like today. Pipeline-mode loop calls 9b–d-resume from a yield point in the next round.
+
+Full flow lives in [references/release-gate.md](references/release-gate.md).
 
 ---
 
@@ -555,20 +634,26 @@ Runs first on every Done-X — before banner, before exit. Highest signal value 
 | Trigger | Path |
 |---|---|
 | Step 1 abort (rebase) | **Done-Blocked** (skip 2–9) |
-| Step 2 `achieved` | **Done-Achieved** (run Step 9 first) |
+| Step 2 `achieved` AND `DIFF_CLASS != code` | **Done-Achieved** (Step 9 skipped) |
+| Step 2 `achieved` AND `DIFF_CLASS == code`, single-issue mode | **Done-Achieved** (run 9b–d-resume synchronously after 9a-dispatch) |
+| Step 2 `achieved` AND `DIFF_CLASS == code`, pipeline mode (loop signalled it) | **Done-Achieved-RG-Pending** (return after 9a-dispatch; loop calls 9b–d-resume later) |
 | Step 2 `blocked` | **Done-Blocked** (skip 3–9) |
 | End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** |
 
 **Phase 2 runs first on every terminal path.** `DEGRADED`/`SKIPPED` do NOT terminate.
 
-### Done-Achieved · Done-Blocked · Done-TimedOut
+`Done-Achieved-RG-Pending` is terminal **for this skill** (this invocation exits cleanly) but non-terminal **for the loop** (loop will dispatch 9b–d-resume later and may then transition to `Done-Achieved` or `Done-Blocked`). See [references/done-handlers.md](references/done-handlers.md).
+
+### Done-Achieved · Done-Achieved-RG-Pending · Done-Blocked · Done-TimedOut
 
 Each terminal path: post the appropriate PR/issue comment, set the appropriate label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, then **exit cleanly with the outcome on stdout**. The companion `iterate-loop` (if any) parses the outcome to decide whether to chain into the next issue. Full handler scripts in [references/done-handlers.md](references/done-handlers.md).
 
 **Outcome marker (last line printed before exit, machine-parseable for `iterate-loop`):**
 ```
-ITERATE_OUTCOME: <Done-Achieved|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL>
+ITERATE_OUTCOME: <Done-Achieved|Done-Achieved-RG-Pending|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL> [worktree=<path>] [rg_run=<ID>]
 ```
+
+`worktree=` and `rg_run=` are only set on `Done-Achieved-RG-Pending`. `worktree=` is the absolute path the loop must `cd` into to call 9b–d-resume; `rg_run=` is the GitHub Actions run ID the resume call polls.
 
 ---
 

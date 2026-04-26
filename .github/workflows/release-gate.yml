@@ -3,6 +3,20 @@ name: Release Gate
 on:
   pull_request:
     branches: [main]
+    # Skip release-gate runs for documentation-only / skill-prose / runtime-state changes —
+    # these never affect built artefacts. iterate-one-issue Step 8.5 retrospectives land
+    # under .claude/retrospectives/, so an iterate branch with a retro commit on top of
+    # validated code does not need re-validation by this filter.
+    paths-ignore:
+      - '.claude/**'
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch ref to validate (used by iterate-one-issue Step 9a)'
+        required: true
+        type: string
 
 concurrency:
   group: release-gate-${{ github.ref }}
@@ -13,9 +27,12 @@ jobs:
   # All jobs run in parallel — no needs dependencies.
   test:
     name: Test (${{ matrix.name }})
-    if: startsWith(github.head_ref, 'release/')
+    if: startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
+      # fail-fast: false — release gate is the last line of defense; we want full
+      # cross-platform signal in one run so iterate-one-issue Step 9c forward-fix
+      # sees every failure at once, not a Linux-only failure that masks a macOS one.
       fail-fast: false
       matrix:
         include:
@@ -28,6 +45,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On workflow_dispatch, inputs.ref selects the branch to validate (overrides
+          # the dispatch ref, which is the workflow file location). On pull_request,
+          # inputs.ref is null so this falls back to github.ref (the PR merge ref).
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -101,11 +123,13 @@ jobs:
   # x64 and macOS builds are already validated in CI.
   build-arm64:
     name: Build (windows-arm64)
-    if: startsWith(github.head_ref, 'release/')
+    if: startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -147,11 +171,13 @@ jobs:
   # a desktop session, so this works without extra setup.
   native-e2e:
     name: Native E2E (Windows)
-    if: startsWith(github.head_ref, 'release/')
+    if: startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
