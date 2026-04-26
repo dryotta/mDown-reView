@@ -8,7 +8,7 @@ For the **rules** every agent must follow, read [`AGENTS.md`](AGENTS.md). This d
 
 ## Three flows
 
-### Flow 1 — New feature (human-driven)
+### Flow 1 — New feature (human-initiated)
 
 ```
 You file an issue   →   /groom-issues #N   →   /iterate-one-issue #N
