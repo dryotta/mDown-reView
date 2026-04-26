@@ -11,7 +11,7 @@ For the **rules** every agent must follow, read [`AGENTS.md`](AGENTS.md). This d
 ### Flow 1 — New feature (human-driven)
 
 ```
-You file an issue   →   /groom-issues #N   →   /iterate-one-issue N
+You file an issue   →   /groom-issues #N   →   /iterate-one-issue #N
                                                    │
                                        branch + tests + PR + retro
 ```
@@ -26,7 +26,7 @@ File the issue manually or use prompt:
 /groom-issues #142
 ```
 ```
-/iterate-one-issue 142
+/iterate-one-issue #142
 ```
 
 ### Flow 2 — Self-improvement via dogfood (fully autonomous)
@@ -49,10 +49,20 @@ Terminal A (fix loop):
 /iterate-loop
 ```
 
+PRs land in `ready-for-review` for human merge. To have the loop squash-merge each green PR automatically, pass `--auto-merge`:
+
+```
+/iterate-loop --auto-merge
+```
+
+(Choose merge policy up-front — there's no mid-run toggle. `--auto-merge` only fires on `Done-Achieved` rounds; `Done-Blocked`/`Done-TimedOut` PRs are always left for a human.)
+
 Terminal B (explore loop, Windows-only):
 ```
-/test-exploratory-loop --iterations 100
+/test-exploratory-loop
 ```
+
+(Defaults to 50 iterations; pass `--iterations N` to override.)
 
 This is the intended steady-state for the project.
 
@@ -65,7 +75,7 @@ When you have a freeform goal that doesn't decompose into known issues, hand it 
 /iterate-one-issue make the cold-start time on Windows under 800 ms
 ```
 
-The skill assesses, plans, implements, runs gates, opens PR, retros. No issue required.
+The skill assesses, plans, implements, runs gates, opens PR, retros. No issue required. The PR is left ready-for-review — `iterate-one-issue` itself never merges (only `iterate-loop --auto-merge` does).
 
 ---
 
@@ -77,7 +87,7 @@ Skills live in `.claude/skills/<name>/SKILL.md`. You invoke skills.
 
 | Skill | Use when |
 |---|---|
-| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop` |
+| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop`. Add `--auto-merge` to squash-merge each Done-Achieved PR. |
 | **`iterate-one-issue`** | One issue, one freeform goal, or `--once` style runs |
 | **`test-exploratory-loop`** | Continuous dogfood, files new bugs (Windows only) |
 | **`test-exploratory-e2e`** | One round of dogfood (Windows only) |
@@ -163,7 +173,7 @@ If the new skill is **fully autonomous**, wire up [`.claude/shared/retrospective
 
 ## Anti-patterns
 
-- "Look at this and make it better" — too vague. Use a scenario prompt or file an issue and run `/iterate-one-issue <N>`.
+- "Look at this and make it better" — too vague. Use a scenario prompt or file an issue and run `/iterate-one-issue #N`.
 - Editing `main` directly — feature branch + PR is mandatory.
 - Calling reviewer agents one-by-one — skills dispatch them in parallel.
 - Skipping `/run-build-test` before a PR — CI catches it, but local catch is faster.
