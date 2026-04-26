@@ -17,6 +17,7 @@
     "test:e2e:native": "playwright test --config=playwright.native.config.ts",
     "test:e2e:native:build": "node scripts/stage-cli.mjs && cargo build --manifest-path src-tauri/Cargo.toml && npm run test:e2e:native",
     "lint": "eslint .",
+    "explore-ux": "tsx .claude/skills/explore-ux/runner/explore.ts",
     "bench:cli": "cd src-tauri && cargo bench",
     "bench:cli:script": "pwsh scripts/bench-cli.ps1"
   },
@@ -68,6 +69,7 @@
     "prettier": "^3.8.3",
     "rehype-parse": "^9.0.1",
     "rehype-stringify": "^10.0.1",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.3",
     "unified": "^11.0.5",
     "vite": "^7.0.4",
