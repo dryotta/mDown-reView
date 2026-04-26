@@ -1,204 +1,131 @@
 ---
 name: iterate
-description: Autonomous iteration loop on a single branch and single PR. Accepts a GitHub issue number (or #N / issue-N / issue URL) for issue mode, no-args to auto-pick the oldest open issue (preferring `groomed`), or free text for goal mode. Works on any open issue — a `<!-- mdownreview-spec -->` comment is used if present, otherwise the issue body itself becomes the spec. For `bug`-labelled issues, runs a root-cause + test-gap analysis so every fix ships with the regression test that would have caught it. Each iteration ends with a retrospective committed to the branch (and therefore the PR). On terminal success, synthesises retrospectives into an improvement spec and (optionally) opens a follow-up issue for the next /iterate run. Supersedes implement-issue, self-improve-loop, and start-feature.
+description: Autonomous single-branch/single-PR iteration loop. Args - empty (auto-pick oldest open issue, prefer `groomed`), `42`/`#42`/`issue-42`/issue URL (issue mode), or free text (goal mode). Bug-labelled issues run root-cause + test-gap analysis. Commits a retrospective per iteration; on Done-Achieved synthesises retrospectives into a follow-up issue. Charter rules in AGENTS.md govern every iteration.
 ---
 
-# Iterate
+**RIGID. Follow every step exactly.** User interaction is allowed ONLY in Step 0e. After 0f, fully autonomous through 30 iterations, CI forward-fixes, expert review, and release-gate validation. Pre-consult experts and the diff-review panel cite specific rule numbers; rule-violating diffs block at review even if green.
 
-Runs **one** autonomous iteration loop against **one branch and one PR** until the goal is achieved, the iteration cap is hit, or a terminal block is reached:
-pre-flight → branch → draft PR → for each iteration { rebase → assess → pre-consult (incl. bug root-cause analysis when applicable) → plan → implement → validate (push + CI + local, forward-fix) → expert review → record → retrospective } → on Done-Achieved, release-gate validation → mark PR ready → synthesise retrospectives into an improvement spec and open a follow-up issue.
+---
 
-**Clarification questions are allowed ONLY during Phase 0 setup (step 0e).** Once Phase 1 begins, the loop runs fully autonomously through 30 iterations, CI forward-fixes, expert review, and release-gate validation — no further user interaction until it terminates.
+## Phase 0 — Setup
 
-**RIGID. Follow every step exactly.**
+### 0a. Parse arg → mode
 
-## Product charter (governs every iteration)
+Let `ARG` = trimmed string after skill name. First match wins:
 
-Every change must respect the product charter. Before editing a domain, skim the relevant deep-dive:
-
-- **Charter (always):** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) + 3 meta-principles (Rust-First with MVVM, Never Increase Engineering Debt, Zero Bug Policy).
-- [`docs/architecture.md`](../../../docs/architecture.md) — IPC/logger chokepoints, Zustand boundaries, file-size budgets.
-- [`docs/performance.md`](../../../docs/performance.md) — numeric budgets, watcher rules, render-cost rules.
-- [`docs/security.md`](../../../docs/security.md) — IPC surface, CSP, atomic writes, path canonicalization.
-- [`docs/design-patterns.md`](../../../docs/design-patterns.md) — React 19 + Tauri v2 idioms.
-- [`docs/test-strategy.md`](../../../docs/test-strategy.md) — three-layer pyramid, coverage floors, mock hygiene.
-
-The assessor, the pre-consult experts, and the 6-expert diff review all cite specific rule numbers. An iteration that violates a rule from a deep-dive is blocked at review even if all tests are green.
-
-## Input
-
-One optional argument. The skill detects mode deterministically:
-
-| Argument | Mode |
+| Pattern | Result |
 |---|---|
-| (empty) | Issue mode — auto-pick oldest open issue (preferring `groomed`, falling back to any) |
-| `42` | Issue mode, issue #42 |
-| `#42` | Issue mode, issue #42 |
-| `issue-42` (case-insensitive) | Issue mode, issue #42 |
-| `https://github.com/<owner>/<repo>/issues/42[…]` | Issue mode, issue #42 |
-| anything else | Goal mode, argument used verbatim as the goal text (outer quotes stripped) |
-
----
-
-## Phase 0 — Setup (runs once per invocation)
-
-### 0a. Parse the argument and decide mode
-
-Let `ARG` be the entire string after the skill name, trimmed.
-
-Apply these rules in order; the first match wins:
-
-1. `ARG` empty → `MODE=issue`, auto-pick (see 0c).
-2. `ARG` matches `^\d+$` → `MODE=issue`, `ISSUE_NUMBER=$ARG`.
-3. `ARG` matches `^#(\d+)$` → `MODE=issue`, `ISSUE_NUMBER=<group 1>`.
-4. `ARG` matches `^[Ii]ssue-(\d+)$` → `MODE=issue`, `ISSUE_NUMBER=<group 1>`.
-5. `ARG` matches `^https?://github\.com/[^/]+/[^/]+/issues/(\d+)([/#?].*)?$` → `MODE=issue`, `ISSUE_NUMBER=<group 1>`.
-6. Otherwise → `MODE=goal`, `GOAL_TEXT=<ARG with surrounding quotes stripped>`.
+| empty | `MODE=issue`, auto-pick (0c) |
+| `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
+| `^#(\d+)$` | `MODE=issue`, group 1 |
+| `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
+| `^https?://github\.com/[^/]+/[^/]+/issues/(\d+)([/#?].*)?$` | `MODE=issue`, group 1 |
+| else | `MODE=goal`, `GOAL_TEXT=ARG` (strip surrounding quotes) |
 
 ### 0b. Pre-flight (parallel)
 
-Run in parallel:
 ```bash
 git status --porcelain
 git branch --show-current
 git rev-parse HEAD
 ```
 
-- **Dirty working tree** → STOP: `[iterate] Working tree is dirty. Commit or stash changes first.`
-- **Not on `main`** → `git checkout main && git pull --ff-only` (no halt).
+- Dirty tree → STOP `[iterate] Working tree is dirty. Commit or stash first.`
+- Not on `main` → `git checkout main && git pull --ff-only`.
 
-**Recursion-depth marker hygiene.** If `.claude/iterate-recursion-depth` exists and either (a) its mtime is older than 24 h or (b) it points at a branch that no longer exists locally or remotely, delete it. This implements Phase 2e's cleanup contract — a crashed recursive run must not permanently lock out future recursion.
-
+**Recursion-marker hygiene** (Phase 2e cleanup contract):
 ```bash
 DEPTH_FILE=".claude/iterate-recursion-depth"
 if [ -f "$DEPTH_FILE" ]; then
-  AGE_SECS=$(( $(date +%s) - $(stat -c %Y "$DEPTH_FILE" 2>/dev/null || stat -f %m "$DEPTH_FILE") ))
-  if [ "$AGE_SECS" -gt 86400 ]; then rm -f "$DEPTH_FILE"; fi
+  AGE=$(( $(date +%s) - $(stat -c %Y "$DEPTH_FILE" 2>/dev/null || stat -f %m "$DEPTH_FILE") ))
+  [ "$AGE" -gt 86400 ] && rm -f "$DEPTH_FILE"
 fi
 ```
 
-### 0c. Issue-mode auto-pick (only when 0a rule 1 matched)
-
-Prefer groomed first; fall back to any open issue.
+### 0c. Auto-pick (only when 0a empty)
 
 ```bash
-# 1) Prefer the oldest groomed issue
 PICK=$(gh issue list --label "groomed" --state open --json number --limit 100 \
   | jq 'sort_by(.number) | .[0].number // empty')
-
-# 2) Fall back to the oldest open issue that is not a PR and not in-progress
 if [ -z "$PICK" ]; then
   PICK=$(gh issue list --state open --json number,labels --limit 200 \
     | jq '[.[] | select(.labels | map(.name) | index("iterate-in-progress") | not)] | sort_by(.number) | .[0].number // empty')
 fi
 ```
 
-If `PICK` is still empty, STOP: `[iterate] No open issues found. Call /iterate with a goal or open an issue.`
-Otherwise, set `ISSUE_NUMBER=$PICK`.
+Empty → STOP `[iterate] No open issues found.` Otherwise `ISSUE_NUMBER=$PICK`.
 
-### 0d. Issue-mode-only: load the spec (spec comment optional)
+### 0d. Load spec (issue mode)
 
 ```bash
 gh issue view $ISSUE_NUMBER --json number,title,body,labels,comments
 ```
 
-Capture: `ISSUE_TITLE`, `ISSUE_BODY`, `LABELS` (array of label names).
+Capture `ISSUE_TITLE`, `ISSUE_BODY`, `LABELS`. Resolve `SPEC_MARKDOWN` (first match):
 
-Resolve `SPEC_MARKDOWN` in this order — first match wins:
+1. Comment starting with `<!-- mdownreview-spec -->` → use verbatim. `SPEC_SOURCE=groomed`.
+2. Else derive: `<!-- mdownreview-spec (derived from issue body — not groomed) -->\n\n# $ISSUE_TITLE\n\n$ISSUE_BODY\n\n## Acceptance criteria\n\n<see rules>`. `SPEC_SOURCE=derived`. Do **not** halt or call `/groom-issues`.
 
-1. The comment whose body begins with `<!-- mdownreview-spec -->` (groomed issue) — use its full body verbatim.
-2. Otherwise, **derive the spec from the issue body itself**. Set:
-   ```
-   SPEC_MARKDOWN = "<!-- mdownreview-spec (derived from issue body — not groomed) -->\n\n# $ISSUE_TITLE\n\n$ISSUE_BODY\n\n## Acceptance criteria\n\n<bulleted list — see derivation rules below>"
-   ```
-   Do NOT halt and do NOT call `/groom-issues`. The skill must work on any open issue.
-
-   Acceptance-criteria derivation rules (in order):
-   - If `$ISSUE_BODY` already contains `- [ ]` / `- [x]` checklist lines, reuse them verbatim.
-   - Else if `$ISSUE_BODY` contains an `## Acceptance` / `## Success` / `## Done when` section, convert each bullet/sentence in that section to `- [ ]` items.
-   - Else (free-form issue body), synthesise 1–3 acceptance items: at minimum `- [ ] $ISSUE_TITLE — verifiable by <observable signal>`. The assessor will refine these in Step 2 with file:line evidence; this is just enough scaffolding for the PR body's progress checklist.
+Acceptance-criteria derivation (in order):
+- Body has `- [ ]` / `- [x]` lines → reuse verbatim.
+- Body has `## Acceptance` / `## Success` / `## Done when` → convert that section's bullets to `- [ ]`.
+- Free-form → synthesise 1–3 minimal items, e.g. `- [ ] $ISSUE_TITLE — verifiable by <signal>`.
 
 Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines).
 
-Set `SPEC_SOURCE = "groomed"` if rule 1 matched, else `"derived"`. Surface this in the start banner so the human can re-run `/groom-issues $ISSUE_NUMBER` later if they want a higher-fidelity spec.
+**Bug-mode flag.** `IS_BUG = true` if any:
+- `LABELS` ∋ `bug` | `regression` | `defect`.
+- Title (case-insensitive) starts with `bug:` | `fix:` | `regression:`, or contains `[bug]` | `[regression]`.
+- Body has `## Steps to reproduce` / `## Reproduction` / `## Expected` + `## Actual`.
 
-**Bug-mode flag.** Compute `IS_BUG = true` when any of the following hold:
-- `LABELS` contains any of `bug`, `regression`, `defect`.
-- `$ISSUE_TITLE` (case-insensitive) starts with `bug:` / `fix:` / `regression:` / contains the substring `[bug]` / `[regression]`.
-- `$ISSUE_BODY` contains a `## Steps to reproduce` / `## Reproduction` / `## Expected` + `## Actual` section pair.
+### 0e. Clarification questions (last user touch-point)
 
-`IS_BUG` controls Step 3 (root-cause + test-gap pre-consult) and the Step 4 plan's regression-test requirement.
+Bias is to **skip**. Bundle ≤3 blocking questions into ONE `ask_user` call only when the goal is genuinely ambiguous (scope boundaries, observable success signal, internal contradictions). **Never** ask about: implementation detail, anything answered by deep-dive docs, anything the assessor can discover, style/naming/framework.
 
-### 0e. Clarification questions (last chance for user input)
+Fold answers into the goal:
+- Goal mode: append `  (clarifications: <summary>)` to `GOAL_FOR_ASSESSOR`.
+- Issue mode: append `### Operator clarifications (captured <ISO date>)` section with verbatim Q&A to `SPEC_MARKDOWN`.
 
-**This is the ONLY step where the skill may interact with the user. Steps 0f → 9 run fully autonomously.**
+After 0f, no further user interaction.
 
-Decide whether clarification is needed:
+### 0f. Compute branch / PR title / goal
 
-- **Skip entirely** if the goal/spec is concrete — acceptance criteria are specific, files or behaviours are named, and success is observable. The default bias is to skip; every question costs the user time.
-- **Otherwise**, bundle up to **3** genuinely blocking questions into a single `AskUserQuestion` invocation.
-
-Ask only about ambiguities that would waste iterations or produce the wrong feature if guessed wrong. Good examples:
-- Scope boundaries ("Does this apply to `.md` only, or all text files?")
-- Observable success signal ("Toast, log line, or persisted state?")
-- Conflicting constraints inside the spec itself
-
-Do NOT ask about:
-- Implementation details — Step 4 (Plan) decides those.
-- Anything already answered by `docs/principles.md` or the deep-dives.
-- Anything the assessor can discover by reading the code.
-- Style, formatting, naming conventions, test framework choice — all governed by existing docs.
-
-Fold the answers back into the goal so every downstream agent sees them:
-- Goal mode: append `"  (clarifications: <answer summary>)"` to `GOAL_FOR_ASSESSOR`.
-- Issue mode: append a new `### Operator clarifications (captured <ISO date>)` section to the end of `SPEC_MARKDOWN` containing the Q&A verbatim.
-
-Once you advance to step 0f, no further user interaction is permitted for the remainder of the run. Every `task-implementer`, expert, and forward-fix operates on the goal/spec as it stands after this step.
-
-### 0f. Compute branch, PR title, and goal-for-assessor
-
-| Variable | Issue mode | Goal mode |
+| Var | Issue mode | Goal mode |
 |---|---|---|
-| `BRANCH` | `feature/issue-$ISSUE_NUMBER-<3–5-word kebab slug of $ISSUE_TITLE>` | `auto-improve/<slug of $GOAL_TEXT, 40-char cap>-$(date +%Y%m%d)` |
+| `BRANCH` | `feature/issue-$ISSUE_NUMBER-<3–5-word slug>` | `auto-improve/<slug, 40-cap>-$(date +%Y%m%d)` |
 | `PR_TITLE` | `feat: implement #$ISSUE_NUMBER — $ISSUE_TITLE` | `auto-improve: $GOAL_TEXT` |
 | `GOAL_FOR_ASSESSOR` | `Satisfy all acceptance criteria of #$ISSUE_NUMBER: $ISSUE_TITLE` | `$GOAL_TEXT` |
 | `PR_CLOSE_TRAILER` | `Closes #$ISSUE_NUMBER` | (omit) |
 
-Slug rules: lowercase, non-alphanumerics → `-`, collapse runs of `-`, trim leading/trailing `-`.
+Slug: lowercase, non-alphanum → `-`, collapse runs, trim.
 
-### 0g. Create branch and draft PR
+### 0g. Branch + draft PR
 
 ```bash
 git checkout main && git pull --ff-only
 git checkout -b "$BRANCH"
 ```
 
-If `$BRANCH` already exists (local OR remote), STOP:
-`[iterate] Branch $BRANCH already exists. Delete it or pick a different invocation — resume is not supported.`
-Do NOT delete it — a pre-existing branch may hold human work.
+Pre-existing branch (local OR remote) → STOP `[iterate] Branch $BRANCH already exists. Delete or pick a different invocation — resume not supported.` Do **not** delete.
 
 ```bash
 git commit --allow-empty -m "chore(iterate): start — $GOAL_FOR_ASSESSOR"
 git push -u origin HEAD
-
-# rerere caches conflict resolutions across future rebases
 git config rerere.enabled true
 git config rerere.autoupdate true
 ```
 
-Build `PR_BODY`:
-- Issue mode: header links to the issue, full `ACCEPTANCE_CRITERIA` checklist is pasted (unchecked initially; assessor ticks as it satisfies items), trailer line is `Closes #$ISSUE_NUMBER`.
-- Goal mode: header quotes the goal text; empty progress list.
+`PR_BODY`:
+- Issue mode: links to issue · pastes full `ACCEPTANCE_CRITERIA` checklist (unchecked) · trailer `Closes #$ISSUE_NUMBER`.
+- Goal mode: header quotes goal · empty progress list.
 
 ```bash
 gh pr create --draft --title "$PR_TITLE" --body "$PR_BODY"
 ```
 
-Capture `PR_NUMBER` and `PR_URL` from the output.
+Capture `PR_NUMBER`, `PR_URL`.
 
-### 0h. Initialise the state file
-
-Write `.claude/iterate-state.md`:
+### 0h. State file — `.claude/iterate-state.md`
 
 ```markdown
 ---
@@ -214,646 +141,430 @@ iteration_cap: 30
 # Iteration Log
 ```
 
-### 0i. Print start banner
+### 0i. Banner
 
 ```
 [iterate] Mode: <MODE> | Goal: <GOAL_FOR_ASSESSOR>
-<Issue mode only:> Issue: #<ISSUE_NUMBER> | Spec source: <SPEC_SOURCE> | Bug-mode: <IS_BUG>
+<issue mode:> Issue: #<ISSUE_NUMBER> | Spec source: <SPEC_SOURCE> | Bug-mode: <IS_BUG>
 Branch: <BRANCH> | PR: <PR_URL>
-Starting autonomous loop — cap 30 iterations. Per-iteration retrospectives will be committed to this branch. No further interaction needed.
+Starting autonomous loop — cap 30. Per-iteration retrospectives committed to this branch.
 ```
 
 ---
 
 ## Phase 1 — Iteration loop
 
-Track counters: `iteration=1`, `passed_count=0`, `degraded_count=0`. Execute Steps 1 → 8 each iteration. Termination can fire only at Step 1 (rebase abort) or Step 2 (assessor `achieved` / `blocked`) or end-of-iteration (cap reached); see §Termination.
-
----
+Counters: `iteration=1`, `passed_count=0`, `degraded_count=0`. Run Steps 1–8 each iteration. Termination fires only at Step 1 (rebase abort) or Step 2 (`achieved`/`blocked`) or end-of-iteration cap.
 
 ### Step 1 — Rebase onto `origin/main`
 
-Rebase BEFORE Step 2 so the assessor reads a tree that reflects current main.
-
 ```bash
 git fetch origin main
-
 if git merge-base --is-ancestor origin/main HEAD; then
-  echo "[sync] branch already contains origin/main — no rebase needed"
+  echo "[sync] already contains origin/main"
 else
   git rebase --strategy=recursive --strategy-option=diff3 origin/main
 fi
 ```
 
-If the rebase completes cleanly (exit 0, working tree clean): skip to the "After successful rebase" block.
+Clean exit → skip to "After successful rebase".
 
-If the rebase pauses with conflicts, run the auto-resolution loop. Each loop iteration is one paused rebase commit. `rerere` auto-replays any conflict whose hunks were resolved before on this branch.
+**Conflict auto-resolution loop.** Counters: `attempt=0`, `max_attempts_per_commit=3`, `max_total_commits=20`, `commits_replayed=0`.
 
-Counters:
-```
-attempt = 0                        # retries for the CURRENT paused commit
-max_attempts_per_commit = 3
-max_total_commits = 20
-commits_replayed = 0
-```
+While `.git/rebase-merge` or `.git/rebase-apply` exists:
 
-While a rebase is in progress (`.git/rebase-merge` or `.git/rebase-apply` exists):
-
-1. **Detect state** (parallel):
+1. Detect (parallel):
    ```bash
    CONFLICTED=$(git diff --name-only --diff-filter=U)
    HAS_MARKERS=$(git grep -lE '^<<<<<<< ' -- . 2>/dev/null || true)
    ```
-
-2. **Empty-commit skip** — if `CONFLICTED` empty AND `HAS_MARKERS` empty (rerere fully resolved OR commit became empty after rebase):
+2. Empty/rerere-resolved (`CONFLICTED` empty AND `HAS_MARKERS` empty):
    ```bash
    git add -A
    git -c core.editor=true rebase --continue 2>/dev/null || git rebase --skip
    ```
-   `commits_replayed += 1`, `attempt = 0`. Continue loop.
-
-3. **Auto-resolve in parallel** — one `task-implementer` per conflicted file, dispatched in ONE message:
+   `commits_replayed += 1`, `attempt = 0`. Continue.
+3. Else dispatch one `exe-task-implementer` per conflicted file in ONE message:
    ```
-   Resolve merge conflicts in <FILE> from rebasing the iterate branch onto main.
-
-   Context:
-   - Goal: <GOAL_FOR_ASSESSOR>
-   - Iteration: <N> | Attempt: <attempt+1>/<max_attempts_per_commit>
-   - Conflict markers use diff3: <<< ours === ||||||| base === >>> theirs
-     * ours = iterate-branch work
-     * base = common ancestor
-     * theirs = incoming main
-   - git rerere is enabled — your resolution will be cached and auto-replayed on future rebases. Prefer consistent, principled resolutions over one-off hacks.
-
-   Rules:
-   - Preserve the intent of BOTH sides. If main refactored/renamed/moved code that ours also touched, adapt ours to main's new shape — do NOT revert main.
-   - Remove ALL conflict markers.
-   - Do NOT run `git add` or `git rebase --continue`. Just write the resolved file.
-   - If the conflict is semantically impossible (e.g. main deleted a feature ours extended), state so explicitly and leave the markers in place — the loop will escalate.
-
-   Return: file path, one-paragraph resolution summary, confidence 0–100.
+   Resolve merge conflicts in <FILE> from rebasing iterate branch onto main.
+   Goal: <GOAL_FOR_ASSESSOR>  Iteration: <N>  Attempt: <attempt+1>/<max>
+   diff3 markers: <<< ours / ||||||| base / === / >>> theirs
+   - ours = iterate work · base = ancestor · theirs = incoming main.
+   - rerere caches your resolution — prefer principled over one-off.
+   - Preserve intent of BOTH sides. If main moved/renamed code ours touched, adapt ours to main's shape — never revert main.
+   - Remove ALL markers. Do NOT git add or rebase --continue.
+   - If semantically impossible, say so and leave markers — escalation will follow.
+   Return: file path, resolution summary, confidence 0–100.
    ```
-
-4. **Stage and continue**:
-   ```bash
+4. ```bash
    git add -A
    git -c core.editor=true rebase --continue
    RC=$?
    ```
-
-5. **Outcome**:
-   - `RC=0` and rebase still in progress → `commits_replayed += 1`, `attempt = 0`. Continue loop.
-   - `RC=0` and rebase complete → break out of loop.
-   - `RC≠0` (still conflicts on same commit):
-     - `attempt += 1`
-     - If `attempt < max_attempts_per_commit`: re-run step 3 with an augmented prompt that includes the prior attempt's resolution and the still-present markers.
-     - If `attempt == max_attempts_per_commit`: escalate ONCE — spawn `architect-expert` with the full file contents, the diff from main, the diff from ours, and all prior implementer summaries. Apply its output, re-run step 4.
-     - If still conflicting after the architect escalation, OR if `commits_replayed > max_total_commits`: go to Abort.
-
-6. **Abort** (all auto-resolution failed):
+5. Outcome:
+   - `RC=0` & rebase ongoing → `commits_replayed += 1`, `attempt = 0`, continue.
+   - `RC=0` & rebase done → break.
+   - `RC≠0` & `attempt < max` → `attempt += 1`, re-run step 3 with augmented prompt (prior attempt + still-present markers).
+   - `RC≠0` & `attempt == max` → escalate ONCE to `architect-expert` with full file + diff-from-main + diff-from-ours + prior implementer summaries. Apply, retry step 4.
+   - Still failing OR `commits_replayed > 20` → Abort.
+6. **Abort:**
    ```bash
    git rebase --abort
    ```
-   Append to state file:
+   State file:
    ```markdown
    ## Iteration <N> — BLOCKED (merge conflict)
-   - Conflicted commit: <current HEAD of paused rebase>
+   - Conflicted commit: <SHA>
    - Files: <list>
    - Attempts: <implementer retries + 1 architect>
    - Summary: <text>
    ```
-   Jump to **Done-Blocked** with reason = `merge conflict against main at iteration <N> — human resolution required`.
+   Jump to **Done-Blocked** reason `merge conflict against main at iteration <N>`.
 
-**After a successful rebase**, sync the remote and capture the iteration baseline:
-
+**After successful rebase:**
 ```bash
 git push --force-with-lease
-ITER_BASE_SHA=$(git rev-parse HEAD)
-```
-
-`ITER_BASE_SHA` bounds Step 6's review diff to THIS iteration's NEW work.
-
-**Post-rebase sanity gate** (catches subtle resolution errors before the full suite):
-```bash
+ITER_BASE_SHA=$(git rev-parse HEAD)   # bounds Step 7 review diff
 npx tsc --noEmit
 (cd src-tauri && cargo check)
 ```
 
-If either fails, spawn `task-implementer` with the compile/type errors and instruction to fix as a follow-up commit. Commit + push. Only proceed to Step 2 once the tree compiles.
-
----
+If sanity gate fails → `exe-task-implementer` fixes as follow-up commit; commit + push; only then proceed.
 
 ### Step 2 — Assess
 
-Spawn `goal-assessor` in ONE call. Inputs:
-
-```
-Goal: <GOAL_FOR_ASSESSOR>
-Iteration: <N>/30
-Passed so far: <passed_count>
-Degraded so far: <degraded_count>
-Iteration log (prior): <full content of .claude/iterate-state.md>
-
-<Issue mode only — append this block:>
-Issue #<ISSUE_NUMBER>: <ISSUE_TITLE>
-Issue body:
-<ISSUE_BODY>
-
-Spec (source of truth — the contract with the human reviewer):
-<SPEC_MARKDOWN>
-
-Acceptance criteria (remaining open items — the skill has been ticking these off in the PR body as iterations satisfy them; derive current state from the iteration log):
-<open AC bullets>
-<End issue-mode block.>
-
-Instruction:
-Read the codebase from scratch. Ignore prior iteration specs. Assess whether the goal is fully achieved and, if not, write requirement specs for the next meaningful sprint — a coherent body of work that delivers visible progress, not just the smallest next step. Group requirements by what can be implemented in parallel.
-
-In issue mode: for each remaining AC checkbox, determine whether it is currently satisfied by the code and say so with file:line evidence. If NEXT_REQUIREMENTS is empty but some AC is still open, mark STATUS=blocked with BLOCKING_REASON pointing at the unreachable AC.
-```
-
-The agent returns:
-```
-STATUS: achieved | in_progress | blocked
-CONFIDENCE: 0–100
-NEXT_REQUIREMENTS: <bulleted spec, grouped for parallelism>
-EVIDENCE: <file:line citations>
-BLOCKING_REASON: <only when STATUS=blocked>
-```
+Spawn `exe-goal-assessor` (one call). Inputs: goal, iteration counters, full state-file content. Issue mode also pass: title, body, `SPEC_MARKDOWN`, open AC bullets. Instruction: read code from scratch, ignore prior specs, return STATUS / CONFIDENCE / NEXT_REQUIREMENTS / EVIDENCE / BLOCKING_REASON. Issue mode: per-AC verdict with file:line evidence; empty `NEXT_REQUIREMENTS` + open AC ⇒ `blocked` pointing at unreachable AC.
 
 Routing:
-- `achieved` → skip Steps 3–8, jump straight to **Done-Achieved**. No new commit this iteration.
-- `blocked` → skip Steps 3–8, jump straight to **Done-Blocked**. No new commit.
-- `in_progress` → continue to Step 3.
-
----
+- `achieved` → **Done-Achieved** (no commit).
+- `blocked` → **Done-Blocked** (no commit).
+- `in_progress` → Step 3.
 
 ### Step 3 — Demand-driven pre-consult (parallel)
 
-Scan `NEXT_REQUIREMENTS` text for domain triggers. For each triggered expert, spawn it **in one parallel message** alongside the others. If no trigger matches AND `IS_BUG` is false, skip Step 3 entirely.
+Scan `NEXT_REQUIREMENTS` for triggers; spawn matched experts in ONE parallel message. If no trigger AND `IS_BUG` false, skip.
 
-| Trigger (keyword or path pattern in NEXT_REQUIREMENTS) | Expert |
+| Trigger (keyword/path) | Expert |
 |---|---|
 | "IPC", "Tauri command", "invoke", `src-tauri/src/commands.rs`, `src/lib/tauri-commands.ts`, `src/store/*` | `architect-expert` |
 | "React component", "hook", "Zustand", `src/components/`, `src/hooks/`, `src/store/` | `react-tauri-expert` |
-| "file read", "file write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `security-reviewer` |
+| "file read/write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `security-expert` |
 | "startup", "debounce", "throttle", "watcher", "large file", "render cost" | `performance-expert` |
-| any source-code change (virtually always) | `test-expert` |
-| change that might affect a `docs/features/` area OR modifies `AGENTS.md`/`BUILDING.md`/`docs/**/*.md` | `documentation-expert` |
-| new dependency in `package.json`/`Cargo.toml`, large new module, significant net-new LOC, or file that might breach a budget in `docs/architecture.md` | `lean-expert` |
-| `IS_BUG = true` AND `iteration == 1` (run ONCE per loop) | `bug-hunter` (root-cause + test-gap analysis — see Step 3a) |
+| any source change (≈ always) | `test-expert` |
+| change to `docs/features/`, `AGENTS.md`, `BUILDING.md`, `docs/**/*.md` | `documentation-expert` |
+| new `package.json`/`Cargo.toml` dep, large module, budget-relevant LOC | `lean-expert` |
+| `IS_BUG=true` AND `iteration==1` (once per loop) | `bug-expert` (Step 3a) |
 
-Each expert prompt:
-
+Each prompt:
 ```
-I'm about to plan iteration <N> for <MODE> <ref>.
-
-Goal: <GOAL_FOR_ASSESSOR>
-Next requirements (assessor output):
-<NEXT_REQUIREMENTS>
-Evidence:
-<EVIDENCE>
-
-From your area of expertise:
-1. Key considerations for this iteration.
-2. Risks or pitfalls to watch for.
-3. Which files to modify and how.
-
-Cite file:line for every recommendation. Cite rule numbers from docs/*.md when a rule applies. If the plan looks sound, say so in one line.
+Iteration <N> for <MODE> <ref>.  Goal: <GOAL_FOR_ASSESSOR>
+NEXT_REQUIREMENTS: <…>   EVIDENCE: <…>
+From your area: (1) considerations, (2) risks, (3) files to modify and how.
+Cite file:line for every recommendation; cite rule numbers from docs/*.md when applicable. If sound, say so in one line.
 ```
 
-Collect any guidance into a short `ADVISORY_SUMMARY`. If no expert was spawned, `ADVISORY_SUMMARY = "none — no expert domains triggered"`.
+Aggregate to `ADVISORY_SUMMARY`. None → `"none — no expert domains triggered"`.
 
-#### Step 3a — Bug root-cause + test-gap analysis (only when `IS_BUG = true` AND `iteration == 1`)
+#### Step 3a — Bug RCA + test-gap (only `IS_BUG && iteration==1`)
 
-This runs once per loop, in the **same parallel message** as the other Step 3 experts. It exists because rule 3 of the charter (Zero Bug Policy) requires every fix to ship with the regression test that *would have caught the bug* — which means we have to know why the bug was introduced and which test was missing before we plan the fix.
+Same parallel message. Zero Bug Policy requires the regression test that *would have caught* the bug, so the fix plan must wait for this output.
 
-Spawn `bug-hunter`:
-
+Spawn `bug-expert`:
 ```
-Root-cause this bug for mdownreview's iterate loop. We are about to plan iteration 1; your output gates the plan.
-
+Root-cause this bug. Output gates iteration-1 plan.
 Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>
-Body / repro:
-<ISSUE_BODY>
-Spec (may be derived):
-<SPEC_MARKDOWN>
+Body / repro: <ISSUE_BODY>
+Spec: <SPEC_MARKDOWN>
 
-Charter rule (non-negotiable):
-- Zero Bug Policy (docs/principles.md): every fix ships with a regression test reproducing the original failure mode.
-- The fix must use the canonical architecture (docs/architecture.md) + design patterns (docs/design-patterns.md). No workarounds.
-
-Deliver, with file:line citations and concrete commit SHAs:
-
-1. **Reproduction.** Minimum sequence (file/click/keystroke) that triggers the failure. If you cannot reproduce from the issue, say so — do NOT guess.
-2. **Root cause.** The defect itself in code (not the symptom). Cite the offending file:line.
-3. **Introduction.** When and why was this code introduced? Use `git log -S '<distinctive token>' -- <file>`, `git log -p --follow -- <file>`, and `git blame <file>` on the offending lines to identify:
-   - The commit SHA, author date, and PR (if discoverable) that introduced the defect.
-   - The original intent — what the author was trying to do — and why it failed in this case (missing constraint, wrong layer, off-by-one, race, etc.).
-4. **Test gap.** Why didn't existing tests catch this? Map the bug to the test pyramid (docs/test-strategy.md):
-   - Which existing test *should* have caught it but didn't, and why? (wrong oracle, mocked the failing layer, etc.)
-   - Or, which test layer is missing entirely? Cite the rule from docs/test-strategy.md that is being under-served.
-5. **Regression-test plan.** The exact test to add — file path, layer (unit / browser e2e / native e2e), name, the assertion, and the input that reproduces the bug. The plan MUST satisfy: a green run BEFORE the fix would FAIL on that test, and AFTER the fix would PASS.
-6. **Fix direction.** One paragraph — the canonical (architecture + patterns aligned) shape of the fix. Not the diff; the shape.
-7. **Adjacent risk.** Other call-sites that share the same root cause and may need the same fix.
-
-Cite docs/X.md rule numbers wherever applicable.
+Deliver, with file:line + commit SHAs:
+1. Reproduction — minimum sequence. If you cannot repro, say so — don't guess.
+2. Root cause — defect in code (not symptom), file:line.
+3. Introduction — git log -S '<token>' / log -p --follow / blame to find SHA, author date, PR, original intent, why it failed.
+4. Test gap — which existing test should have caught it (wrong oracle? mocked failing layer?) OR which layer is missing. Cite docs/test-strategy.md rule.
+5. Regression-test plan — file path, layer (unit/browser-e2e/native-e2e), name, assertion, repro input. MUST fail before fix and pass after.
+6. Fix direction — one paragraph, canonical (architecture + design-patterns aligned) shape. Not the diff.
+7. Adjacent risk — other call-sites with the same root cause.
 ```
 
-Capture the output as `BUG_RCA`. Append the regression-test plan and fix direction to `ADVISORY_SUMMARY` so Step 4 (Plan) builds on it.
+Capture `BUG_RCA`. Append regression-test plan + fix direction to `ADVISORY_SUMMARY`.
 
-If `bug-hunter` reports it cannot reproduce or cannot localise the root cause, do NOT halt — log a `DEGRADED — bug-mode RCA inconclusive: <summary>` note to the state file (and to the iteration-1 retrospective) and continue. The plan must still include a regression test that captures whatever observable failure mode we *can* express; speculative fixes without a regression test are forbidden.
-
----
+If RCA inconclusive: do NOT halt — log `DEGRADED — bug-mode RCA inconclusive: <summary>` to state file + iter-1 retro and continue. Plan must still include a regression test for the observable failure mode; speculative fixes without a test are forbidden.
 
 ### Step 4 — Plan
 
 Spawn `general-purpose`:
-
 ```
-Produce a comprehensive sprint plan for this iteration. Identify ALL changes needed to make the requested progress — do not artificially limit scope.
+Comprehensive sprint plan for this iteration. Identify ALL changes — do not artificially narrow scope.
 
-Goal: <GOAL_FOR_ASSESSOR>
-Iteration: <N>/30
-Mode: <MODE>
-<Issue mode only:>
-Spec excerpt (the contract):
-<relevant sections of SPEC_MARKDOWN>
-Remaining acceptance criteria:
-<open AC bullets>
-<End.>
-Next requirements (assessor):
-<NEXT_REQUIREMENTS>
-Expert guidance:
-<ADVISORY_SUMMARY>
-<If IS_BUG and iteration == 1, also include:>
-Bug root-cause analysis (from bug-hunter — load-bearing for this plan):
-<BUG_RCA>
-The first plan group MUST add the regression test specified in section 5 of BUG_RCA, and the fix in this plan MUST follow the canonical shape from section 6. Do not propose any fix that does not have a corresponding test in section 5 — that is a Zero Bug Policy violation.
-<End.>
+Goal: <GOAL_FOR_ASSESSOR>   Iteration: <N>/30   Mode: <MODE>
+<issue mode:>
+Spec excerpt: <relevant SPEC_MARKDOWN sections>
+Remaining AC: <open bullets>
+<end>
+NEXT_REQUIREMENTS: <…>
+ADVISORY_SUMMARY: <…>
+<if IS_BUG && iteration==1:>
+BUG_RCA (load-bearing): <verbatim>
+The first plan group MUST add the regression test from BUG_RCA §5. Fix MUST follow §6 canonical shape. No fix without a corresponding test = Zero Bug Policy violation.
+<end>
 
-Use the grouping in NEXT_REQUIREMENTS to organise the plan: independent groups run in parallel, dependent groups wait for their dependencies.
-
-For each group:
-- Files to change · exact changes · tests to write · dependencies on other groups
-- Local validation expected to pass
-- Acceptance-criteria items satisfied (issue mode only — cite spec text)
-
+Use NEXT_REQUIREMENTS grouping: independent groups parallel; dependents wait.
+Per group: files · exact changes · tests · group dependencies · expected local validation · AC items satisfied (issue mode, cite spec).
 Rate overall risk: low | medium | high.
 
-Non-negotiable completeness rules:
-- Every UI-visible behaviour change: browser e2e test in e2e/browser/ AND native e2e test in e2e/native/ if the scenario requires real file I/O or IPC (docs/test-strategy.md rules 4-5)
-- Every new Tauri command: update commands.rs + tauri-commands.ts + IPC mock in src/__mocks__/@tauri-apps/api/core.ts (docs/test-strategy.md rule 5)
-- Delete code made obsolete by this change in the same step
-- No TODO comments, no half-wired code, no workarounds
-
-Charter meta-principles (non-negotiable):
-- Rust-First with MVVM: Model = Rust (src-tauri/src/core/, commands.rs); ViewModel = src/lib/vm/ + src/hooks/ + src/store/; View = src/components/
-- Never Increase Engineering Debt: every iteration reduces or holds debt flat; close Gap markers in deep-dive docs where applicable
-- Zero Bug Policy: every fix ships with a regression test reproducing the original failure
+Completeness rules (non-negotiable, per docs/test-strategy.md rules 4-5):
+- UI-visible change → browser e2e in e2e/browser/ AND native e2e in e2e/native/ if real I/O or IPC.
+- New Tauri command → commands.rs + tauri-commands.ts + IPC mock in src/__mocks__/@tauri-apps/api/core.ts.
+- Delete code made obsolete in the same step. No TODOs, half-wires, workarounds.
 ```
 
-Save the plan text as `PLAN`. Parse each group; label them `independent` or with their dependencies.
+Save as `PLAN`. Parse groups · label `independent` or list deps.
 
-**If `risk=high`**: spawn `architect-expert`:
+**`risk=high`** → spawn `architect-expert`:
 ```
-Identify the specific risks in this plan and propose concrete mitigations so it can proceed safely.
-<Paste full PLAN here.>
+Identify specific risks in this plan and propose concrete mitigations so it can proceed safely.
+<full PLAN>
 ```
-Incorporate mitigations into a revised `PLAN` and continue. If the architect judges the approach fundamentally unsound, log `SKIPPED — architect rejected: <reason>` to the state file, go to Step 8 (skip 5–7), then advance iteration.
+Incorporate into revised `PLAN`. If architect judges fundamentally unsound: log `SKIPPED — architect rejected: <reason>`, jump to Step 8 (skip 5–7), advance iteration.
 
----
+### Step 5 — Implement (parallel by group)
 
-### Step 5 — Implement (parallel by plan group)
-
-For each **independent group** in `PLAN`, spawn ONE `task-implementer`. Send ALL independent groups in one parallel message. Dependent groups wait for their dependency waves.
-
-Each `task-implementer` prompt:
+For each independent group, spawn ONE `exe-task-implementer`. Send all independent groups in ONE message; dependent groups wait their wave.
 
 ```
-Implement this group of changes for mdownreview.
-
-<Mode-specific header:>
-Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>
-OR
-Goal: <GOAL_FOR_ASSESSOR>
-<End.>
-
+Implement this group for mdownreview.
+<issue mode:> Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>  <or>  Goal: <GOAL_FOR_ASSESSOR>
 Iteration: <N>/30
-Group: <group name and dependency note>
-Files: <file list for this group>
-Changes: <exact changes from PLAN>
-Tests: <tests to write — unit + e2e if UI-visible>
-Context: <relevant spec/goal excerpt>
-
-Do NOT touch files outside this group. Do NOT ask clarifying questions — if ambiguous, make the conservative choice and note it.
-Return Implementation Summary: files modified · tests written · decisions made · concerns.
+Group: <name + deps>
+Files: <list>   Changes: <from PLAN>   Tests: <from PLAN>
+Context: <relevant excerpt>
+Do NOT touch files outside this group. Do NOT ask questions — if ambiguous, conservative choice + note.
+Return Implementation Summary.
 ```
 
-Wait for each dependency wave before spawning the next. Collect every Implementation Summary.
+Wait for each dependency wave. Collect every summary.
 
-If every implementer in this iteration reports "no changes made or needed": log `SKIPPED — no-op: <reason>` to the state file, do NOT commit or push, advance iteration.
-
----
+Every implementer reports "no changes" → log `SKIPPED — no-op: <reason>` to state file, no commit, advance iteration.
 
 ### Step 6 — Push + race validate
 
-#### 6a. Push immediately
-
+#### 6a. Push
 ```bash
-git add <specific files reported by implementers — never git add -A blindly>
+git add <specific files reported by implementers — NEVER git add -A blindly>
 git commit -m "$COMMIT_MESSAGE"
 git push
 ```
+Commit messages: see Commit conventions table below.
 
-Commit message (see §Commit conventions for the full table):
-- Issue mode: `feat(#<N>): iter <iteration> — <one-line summary>` with a 2-3 sentence body and `Refs #<N>` trailer.
-- Goal mode: `auto-improve: iter <iteration> — <one-line summary>` with a 2-3 sentence body.
-Both include `Co-authored-by: Claude Opus 4.7 <noreply@anthropic.com>`.
+#### 6b. Local validation + CI poll (parallel)
 
-#### 6b. Local validation and CI poll (parallel)
+ONE message, both agents:
 
-Spawn both in ONE message:
-
-**Agent A** — `implementation-validator`:
+**A — `exe-implementation-validator`:**
 ```
-Run the full local test suite in order:
+Run the full local suite in order:
 1. npm run lint
 2. npx tsc --noEmit
 3. cd src-tauri && cargo test
 4. npm test
 5. npm run test:e2e
 6. npm run test:e2e:native
-
-Return PASS or FAIL with full output for every check.
+Return PASS|FAIL with full output for every check.
 ```
 
-**Agent B** — `general-purpose` (CI poller):
+**B — `general-purpose` (CI poller):**
 ```
-Poll CI status for PR <PR_NUMBER> every 30 seconds until all checks complete or 30 minutes elapse.
+Poll CI for PR <PR_NUMBER> every 30 s, max 30 min.
   gh pr checks <PR_NUMBER>
-Stop when no check shows "pending" or "in_progress".
-Return: PASS (all checks green) or FAIL (list of failed check names with their logs).
+Stop when no check is "pending"/"in_progress".
+Return PASS or FAIL with failed-check names + logs.
 ```
-
-Wait for both.
 
 #### 6c. Forward-fix loop (max 5 attempts)
 
-Repeat until both PASS or 5 attempts exhausted:
+Repeat until both PASS or 5 attempts:
 
-1. Spawn `task-implementer`:
+1. `exe-task-implementer`:
    ```
-   Fix the following failures. Do not revert — make a forward fix.
-   Local failures: <full local output>
-   CI failures: <failed check names and logs>
-   Prior attempts in this loop: <summaries>
-
-   Make the minimal change needed to resolve each failure. Prefer tightening existing code over adding new abstractions.
+   Fix the failures. No revert — forward fix.
+   Local: <full output>   CI: <names + logs>   Prior attempts: <summaries>
+   Minimal change per failure. Tighten existing code over new abstractions.
    Return Implementation Summary.
    ```
-2. Commit + push:
-   ```bash
+2. ```bash
    git add <specific files>
-   git commit -m "fix(iter-<iteration>): <one-line summary>"
+   git commit -m "fix(iter-<iteration>): <summary>"
    git push
    ```
-3. Re-run 6b (local + CI in parallel).
-4. If both PASS: break, proceed to Step 7.
-5. If still failing after attempt 5: log `DEGRADED — could not fix validate/CI after 5 attempts: <summary>`. Do NOT revert commits — leave them for the next iteration's assessor. `degraded_count += 1`. Proceed to Step 7 anyway (expert review still runs).
-
----
+3. Re-run 6b.
+4. Both PASS → break.
+5. After 5 attempts still failing → log `DEGRADED — could not fix validate/CI after 5: <summary>`. Do NOT revert. `degraded_count += 1`. Proceed to Step 7.
 
 ### Step 7 — Expert diff review
-
-Capture only THIS iteration's NEW diff:
 
 ```bash
 git diff $ITER_BASE_SHA HEAD --stat
 git diff $ITER_BASE_SHA HEAD
 ```
 
-Spawn the **9-expert panel** in ONE parallel message:
+Spawn the **8-expert panel** in ONE parallel message: `product-expert`, `performance-expert`, `architect-expert`, `react-tauri-expert`, `bug-expert`, `test-expert`, `documentation-expert`, `lean-expert`.
 
-- `product-improvement-expert`
-- `performance-expert`
-- `architect-expert`
-- `react-tauri-expert`
-- `ux-expert`
-- `bug-hunter`
-- `test-expert`
-- `documentation-expert`
-- `lean-expert`
+**Conditional** (same parallel message): include `security-expert` when diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` use, or any `src/components/viewers/` markdown rendering.
 
-**Conditional expert** — include in the same parallel message when the diff matches:
-
-| Condition (match ANY) | Also spawn |
-|---|---|
-| Diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` usage, or any markdown-rendering code under `src/components/viewers/` | `security-reviewer` |
-
-Each expert prompt:
-
+Each prompt:
 ```
-Review this iteration's diff for mdownreview.
-
-<Mode-specific header:>
-Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>
-OR
-Goal: <GOAL_FOR_ASSESSOR>
-<End.>
-
+Review this iteration's diff.
+<issue mode:> Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>  <or>  Goal: <GOAL_FOR_ASSESSOR>
 Iteration: <N>/30
-Spec/goal context:
-<relevant excerpt>
-
-Diff stat:
-<output of git diff --stat>
-
-Full diff:
-<output of git diff>
+Spec/goal context: <excerpt>
+Diff stat: <…>   Full diff: <…>
 
 BLOCK on any of these — APPROVE otherwise. Cite specific rule numbers from docs/*.md when blocking.
+1. Progress toward the goal / AC it claims?
+2. New bugs, regressions, arch problems? (docs/architecture.md)
+3. Violates docs/{performance,security,design-patterns,test-strategy}.md?
+4. UI-visible change without browser e2e in e2e/browser/? (test-strategy rules 4-5)
+5. Dead code · unused imports · replaced patterns not deleted?
+6. Debt — TODOs, half-wires, bypassed checks, workarounds?
+7. Rust-First with MVVM respected?
 
-1. Does this make progress toward the goal / acceptance criterion it claims?
-2. New bugs, regressions, or architectural problems? (docs/architecture.md rules)
-3. Violates any rule in docs/performance.md, docs/security.md, docs/design-patterns.md, or docs/test-strategy.md?
-4. UI-visible change without a browser e2e test in e2e/browser/? (docs/test-strategy.md rules 4-5)
-5. Dead code, unused imports, replaced patterns not deleted in the same iteration?
-6. Technical debt — TODO comments, half-wired code, bypassed checks, workarounds?
-7. Rust-First with MVVM respected? (docs/principles.md, docs/architecture.md rules 1-10)
-
-Return: APPROVE or BLOCK with file:line evidence AND "violates rule N in docs/X.md" citation for every BLOCK.
+Return APPROVE or BLOCK with file:line + "violates rule N in docs/X.md".
 ```
 
-Wait for ALL experts.
-
-**If any BLOCK**: spawn `task-implementer` with the union of blocking issues:
-
+**Any BLOCK** → `exe-task-implementer` with union of blocks:
 ```
-Fix the following blocking review issues. Do not revert — forward fix.
-<For each blocking issue: expert name, file:line, rule citation, fix direction>
-
-Make the minimal change that satisfies each blocker. Do NOT reopen approved concerns.
+Forward-fix the blocking issues. No revert.
+<each: expert · file:line · rule · fix direction>
+Minimal change per blocker. Do NOT reopen approved concerns.
 Return Implementation Summary.
 ```
 
-Commit + push (`fix(iter-<iteration>): <summary>`), then re-run Step 6b (local validation + CI poll). Then re-run the SAME expert panel on the updated iteration diff (re-capture `git diff $ITER_BASE_SHA HEAD`).
+Commit + push (`fix(iter-<iteration>): <summary>`). Re-run 6b. Re-run the SAME panel on the new diff (`git diff $ITER_BASE_SHA HEAD`).
 
-If experts still BLOCK after ONE fix round: log `DEGRADED — expert review: <issue summaries>`. `degraded_count += 1`. Do NOT revert. Proceed to Step 8.
+Still BLOCK after one fix round → log `DEGRADED — expert review: <summaries>`. `degraded_count += 1`. Do NOT revert. Proceed to Step 8.
 
----
+### Step 8 — Record
 
-### Step 8 — Record iteration
-
-Append to `.claude/iterate-state.md`:
-
+Append to state file:
 ```markdown
 ## Iteration <N> — <PASSED | DEGRADED | SKIPPED>
-- Commits: <list of SHAs from ITER_BASE_SHA to HEAD>
-- Validate+CI: <passed | fixed in K attempts | degraded after 5>
+- Commits: <SHAs from ITER_BASE_SHA..HEAD>
+- Validate+CI: <passed | fixed in K | degraded after 5>
 - Expert review: <A approved / B blocked — list>
 - Goal assessor confidence: <%>
 - Summary: <one sentence>
 <if DEGRADED:>
-- Carry-over issues: <bullet list — read by next iteration's assessor>
+- Carry-over: <bullets — read by next assessor>
 ```
 
-**Update PR body and progress**:
-
-- Refresh the PR body's progress list:
-  - Issue mode: tick any AC checkbox that this iteration's assessor confirmed or this iteration's implementers clearly satisfied (cross-reference their Implementation Summaries).
-  - Goal mode: append the iteration's completed requirement groups as ticked items.
-  - Use `gh pr edit <PR_NUMBER> --body "<updated body>"`.
-
-- Post a progress comment:
+Update PR:
+- Body: tick AC checkboxes confirmed by assessor or implementers (issue mode); append completed requirement groups (goal mode). `gh pr edit <PR_NUMBER> --body "<…>"`.
+- Comment:
   ```bash
   gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
   <!-- iterate-iter-<N> -->
   ### <✅ PASSED | ⚠️ DEGRADED | ⏭️ SKIPPED> Iteration <N>/30
-
-  **Commits:** <short SHAs>
-  **Files changed:** <count>
-  **Tests added/updated:** <count>
-  <Issue mode: **AC satisfied this iteration:** <bullet list>>
-  <Goal mode: **Requirements completed:** <bullet list>>
-  <If DEGRADED: **Carry-over:** <summary>>
-
-  Next: iteration <N+1> (assessor will re-scan on rebase)
+  **Commits:** <short SHAs>   **Files:** <count>   **Tests:** <count>
+  <issue: AC satisfied this iter: …  |  goal: requirements done: …>
+  <if DEGRADED: Carry-over: …>
+  Next: iteration <N+1>
   EOF
   )"
   ```
 
-`iteration += 1`. If `PASSED`, `passed_count += 1`.
+`iteration += 1`. PASSED → `passed_count += 1`.
 
----
+### Step 8.5 — Retrospective (committed every iteration)
 
-### Step 8.5 — Retrospective (committed to the branch — runs every iteration, including DEGRADED and SKIPPED)
+Phase 2 reads these. Vague retros are useless — every point cites file:line, agent name, commit SHA, rule, or quoted error.
 
-The retrospective is the artefact Phase 2 reads to decide whether to spin off an improvement issue. Every retrospective MUST contain enough specificity (file:line, agent names, commit SHAs, assertion text, error messages) that Phase 2 can lift it almost verbatim into a follow-up spec without re-reading the code. Vague retrospectives ("we should improve testing") are useless and will be rejected.
-
-#### 8.5a. Compute paths
-
+#### 8.5a. Paths
 ```bash
-SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')   # feature/issue-42-foo → feature-issue-42-foo
+SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
 RETRO_DIR=".claude/retrospectives"
 RETRO_FILE="$RETRO_DIR/$SAFE_BRANCH-iter-$N.md"
 mkdir -p "$RETRO_DIR"
 ```
 
-#### 8.5b. Generate the retrospective
+#### 8.5b. Generate
 
-Spawn `general-purpose`:
-
+`general-purpose`:
 ```
-Write the retrospective for iteration <N>/30 of the iterate loop on mdownreview.
+Retrospective for iteration <N>/30 on mdownreview.
 
-Context (load-bearing — your output will be committed to the PR and synthesised into a follow-up improvement spec):
-- Mode: <MODE>
-- Goal: <GOAL_FOR_ASSESSOR>
-- Issue: #<ISSUE_NUMBER or "n/a">
-- Bug-mode: <IS_BUG>
-- Iteration outcome: <PASSED | DEGRADED | SKIPPED>
-- Iteration commits: <SHAs from ITER_BASE_SHA..HEAD with one-line summaries>
+Context (load-bearing — committed to PR, synthesised by Phase 2):
+- Mode: <MODE>   Goal: <GOAL_FOR_ASSESSOR>   Issue: #<ISSUE_NUMBER or n/a>
+- Bug-mode: <IS_BUG>   Outcome: <PASSED|DEGRADED|SKIPPED>
+- Commits ITER_BASE_SHA..HEAD: <SHAs + summaries>
 - Files touched: <list>
-- Forward-fix attempts in Step 6: <K>
-- Forward-fix attempts in Step 7 expert review: <0 or 1>
-- Expert blocks (cite expert name + rule number): <list or "none">
-- Goal-assessor confidence delta: <prev% → curr%>
-- Iteration log entry from .claude/iterate-state.md: <verbatim>
+- Forward-fix attempts: Step 6 = <K>, Step 7 = <0|1>
+- Expert blocks: <expert + rule, or "none">
+- Assessor confidence: <prev% → curr%>
+- Iteration log entry verbatim: <…>
 - BUG_RCA (if applicable): <verbatim>
 
-Output a single markdown file with this exact structure. Be concrete — no platitudes, no abstract advice. Every point cites file:line, an agent name, a commit SHA, a rule number, or quoted error/assertion text.
+Output ONE markdown file with this exact structure. Concrete only — no platitudes. Every point cites file:line / agent / SHA / rule / quoted error.
 
 # Retrospective — iteration <N>/30 (<PASSED|DEGRADED|SKIPPED>)
 
 ## Goal of this iteration
-<one-sentence verbatim from NEXT_REQUIREMENTS, or the AC it targeted>
+<one sentence — verbatim NEXT_REQUIREMENTS or AC>
 
 ## What went well
-- <bullet — concrete, with evidence>
+- <concrete bullet>
 
 ## What did not go well
-- <bullet — concrete, with evidence: which agent, which rule, which file, which assertion>
+- <concrete: which agent, which rule, which file, which assertion>
 
 ## Root causes of friction
-For each problem in "What did not go well", state the underlying cause (test infra slow, agent prompt missing X, doc rule N is ambiguous, etc.). Cite docs/X.md rules when a rule could be tightened.
+For each problem above, the underlying cause. Cite docs/X.md rules where one could be tightened.
 
 ## Improvement candidates (each must be specifiable)
-For each candidate, provide enough detail that Phase 2 can lift it directly into a `<!-- mdownreview-spec -->` body without re-investigation. Use this template per candidate:
+For each candidate use this template — Phase 2 must lift directly into a `<!-- mdownreview-spec -->` body without re-investigation:
 
 ### <short imperative title>
-- **Category:** process | tooling | test-strategy | architecture | docs | skill (the iterate skill itself) | agent (one of the .claude/agents/ definitions)
-- **Problem (with evidence):** <2-3 sentences citing file:line, agent name, log excerpt, or commit SHA>
-- **Proposed change:** <concrete diff sketch — file paths, what to add/remove, what to assert>
-- **Acceptance signal:** <how we'd know it worked — measurable, observable>
-- **Estimated size:** xs | s | m | l (xs = single-file edit, l = multi-day refactor)
-- **Confidence this matters:** low | medium | high (with one-line justification — e.g. "appeared in iter 1, 3, 4 — recurring pattern")
+- **Category:** process | tooling | test-strategy | architecture | docs | skill | agent
+- **Problem (with evidence):** <2–3 sentences citing file:line, agent, log, SHA>
+- **Proposed change:** <concrete diff sketch — paths, what to add/remove, what to assert>
+- **Acceptance signal:** <measurable, observable>
+- **Estimated size:** xs|s|m|l
+- **Confidence this matters:** low|medium|high (one-line justification)
 
-If no improvement candidates apply this iteration, write `_None — iteration was clean and adds no signal for Phase 2._` (literally that sentence, so Phase 2 can detect it).
+If no candidate, write literally: `_None — iteration was clean and adds no signal for Phase 2._`
 
 ## Carry-over to next iteration
-<bullet list — items the next assessor must read first; empty if none>
+<bullets; empty if none>
 ```
 
-Write the agent's output verbatim to `$RETRO_FILE`.
+Write output verbatim to `$RETRO_FILE`.
 
-#### 8.5c. Commit and push the retrospective as its own commit
-
+#### 8.5c. Commit + push
 ```bash
 git add "$RETRO_FILE"
 git commit -m "$(cat <<EOF
 chore(iter-$N): retrospective
 
 $(head -n 1 "$RETRO_FILE" | sed 's/^# //')
-Persisted to the PR per docs/principles.md (Never Increase Engineering Debt — explicit improvement signal). Phase 2 will synthesise across iterations.
 EOF
 )"
 git push
 ```
 
-The retrospective is part of the PR diff from this point on. Reviewers see it; merging the PR persists every retrospective into `main`'s history.
+Retrospective is now part of PR diff; merging persists every retro into `main`.
 
-#### 8.5d. Link from the iteration progress comment
-
-Append one line to the Step 8 progress comment (or post a separate inline comment if Step 8 already finalised it):
+#### 8.5d. Link from progress comment
+Append one line to Step 8 comment (or post inline):
 ```
 **Retrospective:** [`$RETRO_FILE`](<repo-blob-url>) — <count> improvement candidate(s)
 ```
 
----
+**Termination check after 8.5:** `iteration > 30` → **Done-TimedOut**. Else loop back to Step 1.
 
-**Termination check** (after 8.5):
-- If `iteration > 30`: go to **Done-TimedOut**.
-- Otherwise: return to Step 1 of the next iteration.
+### Step 9 — Release-gate validation (Done-Achieved only)
 
----
+Runs the Windows + macOS Release Gate (real installers, signed builds) against accumulated work. Release Gate triggers on `release/*` branches; this step creates a mirror branch+PR at the iterate tip, validates there, forward-fixes on the **iterate branch** so humans review one PR.
 
-### Step 9 — Release-gate validation (FINAL step — runs ONLY on Done-Achieved path)
-
-Triggered from **Done-Achieved** before the iterate PR is marked ready. Purpose: run the full Windows + macOS **Release Gate** workflow (real installers, signed builds, platform matrix) against the accumulated work. Release Gate only triggers on PRs whose branch starts with `release/`, so this step creates a companion mirror branch+PR at the iterate branch tip, validates there, and forward-fixes any failures on the **iterate branch** (not the mirror) so humans review a single PR.
-
-#### 9a. Create release-validation branch and mirror PR
-
+#### 9a. Mirror branch + PR
 ```bash
 RELEASE_BRANCH="release/iterate-$(echo "$BRANCH" | sed 's|^[^/]*/||' | cut -c1-40)-$(date +%Y%m%d%H%M)"
 git checkout -b "$RELEASE_BRANCH"
@@ -862,54 +573,42 @@ git checkout "$BRANCH"
 
 RELEASE_PR_URL=$(gh pr create --draft --base main --head "$RELEASE_BRANCH" \
   --title "validate-release: $PR_TITLE" \
-  --body "$(cat <<'EOF'
-Release-gate validation for #<PR_NUMBER>. Close with `gh pr close --delete-branch` after validation completes.
-EOF
-)")
-RELEASE_PR_NUMBER=<parse the number from $RELEASE_PR_URL>
+  --body "Release-gate validation for #<PR_NUMBER>. Close with --delete-branch after validation.")
+RELEASE_PR_NUMBER=<parse>
 ```
 
-If `$RELEASE_BRANCH` already exists (e.g., a previous skill run crashed mid-step-9), halt as **Done-Blocked** with reason = `release-gate branch <RELEASE_BRANCH> already exists — delete it and re-run step 9 manually`. Do NOT overwrite.
+Pre-existing `$RELEASE_BRANCH` → halt **Done-Blocked** reason `release-gate branch <…> already exists — delete and re-run step 9 manually`. Do NOT overwrite.
 
-Comment on the iterate PR:
 ```bash
 gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-start -->
 ⏳ Release-gate validation started on $RELEASE_PR_URL"
 ```
 
-#### 9b. Poll CI + Release Gate on the mirror PR
-
-Spawn `general-purpose`:
+#### 9b. Poll
+`general-purpose`:
 ```
-Poll CI and Release Gate status for PR <RELEASE_PR_NUMBER> every 60 seconds until all checks complete or 60 minutes elapse.
+Poll CI + Release Gate on PR <RELEASE_PR_NUMBER> every 60 s, max 60 min.
   gh pr checks <RELEASE_PR_NUMBER>
-Stop when no check shows "pending" or "in_progress".
-Return: PASS (all checks green) or FAIL (list of failed check names with their logs).
+Stop when no check is pending/in_progress. Return PASS or FAIL + logs.
 ```
 
-Release-gate jobs are slower than CI — use 60 min timeout (not 30) and 60 s poll interval (not 30).
-
-#### 9c. Forward-fix loop (max 5 attempts)
+#### 9c. Forward-fix loop (max 5)
 
 On FAIL:
-
-1. Spawn `task-implementer`:
+1. `exe-task-implementer`:
    ```
-   Fix the following Release Gate failures. Do not revert — forward fix.
-   Failed checks: <names>
-   Logs:
-   <truncated logs>
-   Prior attempts in this loop: <summaries>
-
-   Edit files on the iterate branch (current working tree). Do NOT edit the release-mirror branch. Return Implementation Summary.
+   Fix Release Gate failures. No revert — forward fix.
+   Failed: <names>   Logs: <truncated>   Prior: <summaries>
+   Edit on iterate branch (current tree). Do NOT edit the release-mirror branch.
+   Return Implementation Summary.
    ```
-2. Commit + push on the **iterate branch**:
+2. Commit + push on iterate branch:
    ```bash
-   git add <specific files>
-   git commit -m "fix(iter-release): <one-line summary>"
+   git add <files>
+   git commit -m "fix(iter-release): <summary>"
    git push
    ```
-3. Fast-forward the mirror branch to the iterate tip, then push (re-triggers Release Gate):
+3. Fast-forward mirror to iterate tip:
    ```bash
    git checkout "$RELEASE_BRANCH"
    git merge --ff-only "$BRANCH"
@@ -917,109 +616,87 @@ On FAIL:
    git checkout "$BRANCH"
    ```
 4. Re-run 9b.
-5. PASS → proceed to 9d.
-6. Still FAIL after attempt 5: halt as **Done-Blocked** with reason = `release-gate failure after 5 forward-fix attempts`. Leave mirror PR draft. Leave iterate PR draft.
+5. PASS → 9d. After 5 attempts still FAIL → halt **Done-Blocked** reason `release-gate failure after 5 forward-fix attempts`. Mirror PR stays draft; iterate PR stays draft.
 
-#### 9d. Close the mirror PR and mark the iterate PR ready
+#### 9d. Close mirror, mark iterate ready
 
-Execute ALL of the following in order — this block IS the success path:
-
-1. **Close the mirror PR and delete its branch:**
-   ```bash
-   gh pr close "$RELEASE_PR_NUMBER" --delete-branch
-   ```
-
-2. **Refresh the iterate PR body** — tick every progress item, change the summary to "Ready for review — goal achieved, release gate passed". In issue mode, ensure `Closes #<ISSUE_NUMBER>` remains in the body trailer.
-   ```bash
-   gh pr edit <PR_NUMBER> --body "<final body>"
-   ```
-
-3. **Mark the iterate PR ready for review** (this is the only place in the skill that flips the iterate PR out of draft):
-   ```bash
-   gh pr ready <PR_NUMBER>
-   ```
-
-4. **Append to state file:**
+Execute ALL in order:
+1. `gh pr close "$RELEASE_PR_NUMBER" --delete-branch`
+2. Refresh iterate PR body — tick all progress, summary "Ready for review — goal achieved, release gate passed". Issue mode: keep `Closes #<ISSUE_NUMBER>` trailer. `gh pr edit <PR_NUMBER> --body "<final>"`.
+3. `gh pr ready <PR_NUMBER>` (only place this skill flips iterate PR out of draft).
+4. State file:
    ```markdown
    ## Release-gate validation — PASSED
-   - Mirror PR: <RELEASE_PR_URL> (closed with --delete-branch)
+   - Mirror PR: <URL> (closed --delete-branch)
    - Fix attempts: <N>
-   - Commit validated: <iterate branch HEAD SHA>
-   - Iterate PR: <PR_URL> (marked ready for review)
+   - Commit validated: <iterate HEAD SHA>
+   - Iterate PR: <URL> (ready for review)
    ```
-
-5. **Comment on the iterate PR** so the reviewer sees the release-gate result inline:
+5. Comment on iterate PR:
    ```bash
    gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-done -->
-   🟢 Release gate validated on commit <sha>. Mirror PR closed. PR marked ready for review."
+   🟢 Release gate validated on commit <sha>. Mirror PR closed. PR ready for review."
    ```
 
-Proceed to **Done-Achieved** — the remaining step is just the success banner.
+Proceed to **Done-Achieved** banner.
 
 ---
 
-## Phase 2 — Improvement-spec synthesis (runs once on EVERY terminal path)
+## Phase 2 — Improvement-spec synthesis (every terminal path)
 
-Phase 2 turns the per-iteration retrospectives into one concrete follow-up action. It runs as the **first step of every Done-X path** (Done-Achieved, Done-Blocked, Done-TimedOut) — before banners, before exit. Reason: the retrospective signal is most valuable on Done-Blocked and Done-TimedOut, where the loop did NOT achieve its goal and the WHY is the highest-value output of the run.
+Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut.
 
-### 2a. Gate — is there enough signal?
-
+### 2a. Gate
 ```bash
 SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
 RETRO_FILES=$(ls -1 ".claude/retrospectives/$SAFE_BRANCH-iter-"*.md 2>/dev/null || true)
 RETRO_COUNT=$(echo "$RETRO_FILES" | grep -c . || true)
 ```
 
-Skip Phase 2 (proceed straight to the terminal banner) if any of these hold:
-- `RETRO_COUNT == 0` — the loop ended before any iteration completed Step 8.5 (e.g. Step 1 aborted on iteration 1).
-- Every retrospective contains the literal sentence `_None — iteration was clean and adds no signal for Phase 2._` and nothing else under "Improvement candidates".
+Skip Phase 2 (go to terminal banner) if:
+- `RETRO_COUNT == 0`, OR
+- Every retro contains literally `_None — iteration was clean and adds no signal for Phase 2._` and nothing else under "Improvement candidates".
 
-When skipped, append to the state file:
-```markdown
-## Phase 2 — SKIPPED (no actionable retrospective signal)
-```
+When skipped: state file `## Phase 2 — SKIPPED (no actionable retrospective signal)`.
 
-### 2b. Synthesise across retrospectives
+### 2b. Synthesise
 
-Spawn `general-purpose` (single call). Pass every retrospective file's content verbatim plus the loop's terminal status.
+`general-purpose` (single call). Pass every retro file content verbatim + terminal status.
 
 ```
-Synthesise the iterate-loop retrospectives into ONE follow-up improvement spec for mdownreview.
+Synthesise iterate-loop retros into ONE follow-up improvement spec.
+Loop terminated as: <Done-Achieved|Done-Blocked|Done-TimedOut>
+Branch: <BRANCH>   Iterate PR: <URL>   Issue: #<ISSUE_NUMBER>
+Total retros: <RETRO_COUNT>
 
-Loop terminated as: <Done-Achieved | Done-Blocked | Done-TimedOut>
-Branch: <BRANCH>
-Iterate PR: <PR_URL>
-Issue (if any): #<ISSUE_NUMBER>
-Total retrospectives: <RETRO_COUNT>
+Retros (verbatim, in order, '---' separated):
+<concatenated $SAFE_BRANCH-iter-N.md>
 
-Retrospectives (verbatim, in order):
-<concatenated content of every $SAFE_BRANCH-iter-N.md, separated by '---' lines>
+Pick the SINGLE highest-leverage candidate meeting ALL:
+1. Recurs across ≥2 retros, OR appears once with high-confidence + l/m size, OR is a `bug`/`agent`/`skill` candidate the loop itself hit.
+2. Source retros have enough specificity (file:line, agent, rule, log) to draft a concrete spec.
+3. In scope: iterate skill, .claude/agents/, docs/*.md, src/, src-tauri/, e2e/, .github/workflows/.
+4. Not duplicating an open issue. Verify: `gh issue list --state open --search "<keywords>" --limit 20`.
 
-Your job: pick the SINGLE highest-leverage improvement candidate that meets ALL of these:
-1. Recurs across ≥2 retrospectives, OR appears once with high-confidence + l/m size, OR is a `bug` / `agent` / `skill` category candidate the loop itself ran into.
-2. Has enough specificity in the source retrospectives (file:line, agent name, rule number, log excerpt) to draft a concrete spec.
-3. Is in scope for this repo (the iterate skill, .claude/agents/, docs/*.md, src/, src-tauri/, e2e/, .github/workflows/).
-4. Does not duplicate an open GitHub issue. Run `gh issue list --state open --search "<candidate keywords>" --limit 20` and check titles/bodies.
-
-If NO candidate clears all four bars, output exactly:
+If NO candidate clears all four, output exactly:
 NO_IMPROVEMENT_FOUND
 <one-paragraph justification>
 
-Otherwise output exactly this template — no preamble, no commentary outside the template:
+Otherwise output exactly this template — no preamble, no extra commentary:
 
 ISSUE_TITLE: <imperative, ≤70 chars>
-ISSUE_LABELS: <comma-separated, choose from: groomed, iterate-improvement, plus exactly one of: process, tooling, test-strategy, architecture, docs, skill, agent, bug>
+ISSUE_LABELS: <comma-separated; from {groomed, iterate-improvement} + exactly one of {process, tooling, test-strategy, architecture, docs, skill, agent, bug}>
 ISSUE_BODY:
-<problem statement, 1-2 paragraphs, citing retrospective(s) by file path>
+<problem statement, 1-2 paragraphs, citing retro file paths>
 
 ## Why this matters
-<1 paragraph linking to docs/principles.md pillar(s) the improvement serves>
+<1 paragraph linking to docs/principles.md pillar(s)>
 
 ## Evidence from retrospectives
-<bullet list — each bullet quotes the retrospective verbatim and cites the file>
+<bullets, each quoting retro verbatim + file>
 
 SPEC_BODY:
-<the body of a `<!-- mdownreview-spec -->` comment — must be self-contained enough that a fresh /iterate run can implement it without re-reading the retrospectives>
+<body of `<!-- mdownreview-spec -->` comment — self-contained for fresh /iterate run>
 
 # <ISSUE_TITLE>
 
@@ -1027,234 +704,195 @@ SPEC_BODY:
 <one sentence, observable>
 
 ## Acceptance criteria
-- [ ] <specific, measurable, file/path-cited where possible>
-- [ ] <…>
-- [ ] Regression test (if a behaviour change): <file path, layer, assertion>
+- [ ] <specific, measurable, file/path-cited>
+- [ ] …
+- [ ] Regression test (if behaviour change): <file path, layer, assertion>
 
 ## Files likely to change
-<bullet list of file paths>
+<bullets>
 
 ## Out of scope
-<bullet list — what NOT to do>
+<bullets>
 
 ## Notes
-<any constraint surfaced by the retrospectives — e.g. "must not regress test-strategy.md rule 5">
+<constraints — e.g. "must not regress test-strategy.md rule 5">
 ```
 
-Capture the agent's full output as `IMPROVEMENT_SYNTHESIS`.
+Capture `IMPROVEMENT_SYNTHESIS`.
 
 ### 2c. Decision
 
-If `IMPROVEMENT_SYNTHESIS` begins with `NO_IMPROVEMENT_FOUND`:
-
+Begins with `NO_IMPROVEMENT_FOUND`:
 ```markdown
 ## Phase 2 — NO_IMPROVEMENT_FOUND
-- Justification: <verbatim from synthesis>
-- Retrospectives reviewed: <list of file paths>
+- Justification: <verbatim>
+- Retrospectives reviewed: <paths>
 ```
+Append, skip 2d/2e, banner.
 
-Append to state file. Skip 2d/2e and proceed to the terminal banner.
+Else parse `ISSUE_TITLE`, `ISSUE_LABELS`, `ISSUE_BODY`, `SPEC_BODY`.
 
-Otherwise parse `ISSUE_TITLE`, `ISSUE_LABELS`, `ISSUE_BODY`, and `SPEC_BODY` from the template.
-
-### 2d. Create the follow-up issue + attach the spec
+### 2d. Create issue + spec
 
 ```bash
 NEW_ISSUE_URL=$(gh issue create \
   --title "$ISSUE_TITLE" \
   --label "$ISSUE_LABELS" \
-  --body "$(printf '%s\n\nSurfaced by /iterate retrospectives on PR <PR_URL>.\n\n%s' "$ISSUE_BODY" "<links to each retrospective file in the PR>")")
-NEW_ISSUE_NUMBER=<parsed from $NEW_ISSUE_URL>
+  --body "$(printf '%s\n\nSurfaced by /iterate retrospectives on PR <PR_URL>.\n\n%s' "$ISSUE_BODY" "<links to each retro file in PR>")")
+NEW_ISSUE_NUMBER=<parsed>
 
-# Attach the spec as a comment so the next /iterate run picks it up groomed.
 gh issue comment "$NEW_ISSUE_NUMBER" --body "$(cat <<EOF
 <!-- mdownreview-spec -->
 $SPEC_BODY
 EOF
 )"
-```
 
-Cross-link from the iterate PR:
-```bash
 gh pr comment <PR_NUMBER> --body "<!-- iterate-followup -->
 🔁 Phase 2 surfaced a follow-up improvement: $NEW_ISSUE_URL"
 ```
 
-Append to state file:
+State file:
 ```markdown
 ## Phase 2 — IMPROVEMENT_FOUND
-- New issue: <NEW_ISSUE_URL>
-- Title: <ISSUE_TITLE>
-- Labels: <ISSUE_LABELS>
+- New issue: <URL>
+- Title: <…>   Labels: <…>
 - Recursion: <will-recurse | skipped — see 2e>
 ```
 
-### 2e. Optional recursive iteration (gated)
+### 2e. Optional auto-recursion (gated)
 
-Auto-recursion runs ONLY when ALL of these hold — otherwise stop here:
-- This loop ended in **Done-Achieved** (the system is healthy enough to keep going).
-- The recursion-depth marker file `.claude/iterate-recursion-depth` does not exist OR its content is `0`.
-- The new issue has the `iterate-improvement` label (which step 2b's template enforces).
+Auto-recurse ONLY when ALL hold:
+- Loop ended **Done-Achieved**.
+- `.claude/iterate-recursion-depth` missing OR contains `0`.
+- New issue has `iterate-improvement` label (template enforces).
 
-If gated off, just print this line in the terminal banner and exit:
+Off → banner line:
 ```
    Follow-up: <NEW_ISSUE_URL> — run `/iterate <NEW_ISSUE_NUMBER>` to deliver it.
 ```
 
-If permitted:
-
+On:
 ```bash
-# Increment the depth marker so the recursive run cannot itself recurse.
 echo 1 > .claude/iterate-recursion-depth
 ```
-
 Print:
 ```
    Follow-up: <NEW_ISSUE_URL>
-   Auto-recursing into a fresh /iterate run on the improvement issue (recursion depth 1/1).
+   Auto-recursing into a fresh /iterate (recursion depth 1/1).
 ```
+Invoke `iterate` skill with arg `<NEW_ISSUE_NUMBER>`. Recursive call sees depth=1 and refuses to recurse again at its own 2e. Outer skill exits after recursive call returns/errors.
 
-Then invoke the `iterate` skill with argument `<NEW_ISSUE_NUMBER>` via the Skill tool. The recursive call's Phase 0 will see `.claude/iterate-recursion-depth = 1` and refuse to recurse again at its own Phase 2e.
-
-After the recursive call returns (or if it errors out), the outer skill exits — there is nothing more to do.
-
-**Cleanup contract.** Phase 0 of every fresh `/iterate` invocation MUST delete `.claude/iterate-recursion-depth` if the file is older than 24 hours OR if it points at a branch that no longer exists. (Implement as part of step 0b.) This prevents a crashed recursive run from permanently locking out future recursion.
+**Cleanup contract (implemented in 0b):** delete depth marker if older than 24 h OR points at a missing branch.
 
 ---
 
 ## Termination
 
-Three specific points inside an iteration can terminate the loop:
+| Trigger | Path |
+|---|---|
+| Step 1 abort (rebase) | **Done-Blocked** (skip 2–9) |
+| Step 2 `achieved` | **Done-Achieved** (run Step 9 first) |
+| Step 2 `blocked` | **Done-Blocked** (skip 3–9) |
+| End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** |
 
-1. **Step 1 aborts** (all rebase auto-resolution failed) → **Done-Blocked** with reason = merge-conflict. Steps 2–9 skipped.
-2. **Step 2 returns `STATUS=achieved`** → **Done-Achieved** (runs Step 9 first). Steps 3–8 skipped this iteration.
-3. **Step 2 returns `STATUS=blocked`** → **Done-Blocked**. Steps 3–9 skipped.
-
-**Phase 2 runs first on every terminal path** — before the banner, before exit. See the Phase 2 section above.
-
-After a completed iteration (end of Step 8.5), if `iteration + 1 > 30`, exit via **Done-TimedOut**.
-
-`DEGRADED` and `SKIPPED` iterations do NOT terminate. They count against `degraded_count` and the loop continues — the next iteration's assessor re-reads the code and will fold the carry-over in, OR re-flag it as `blocked` if structurally unfixable.
+**Phase 2 runs first on every terminal path.** `DEGRADED`/`SKIPPED` do NOT terminate.
 
 ### Done-Achieved
 
-**Step 9 Release-gate validation runs FIRST.** If it halts, you are in Done-Blocked — do not continue here.
+Step 9 ran first; if it halted you are in Done-Blocked instead. Step 9d already closed mirror, refreshed PR body, marked PR ready. Run **Phase 2** (only path where 2e may auto-recurse).
 
-Step 9d (on success) has already closed the mirror PR, refreshed the iterate PR body, and marked the iterate PR ready for review. Then run **Phase 2** (improvement-spec synthesis) — this is the only terminal path where Phase 2e may auto-recurse.
-
-Print:
 ```
 ✅ <MODE> — <ref>
-   PR: <PR_URL> (ready for review, release gate passed)
+   PR: <URL> (ready for review, release gate passed)
    Branch: <BRANCH>
    Iterations: <passed_count> passed · <degraded_count> degraded
    Release-gate fix attempts: <K>
    Final assessor confidence: <%>
    Phase 2: <skipped | NO_IMPROVEMENT_FOUND | improvement issue $NEW_ISSUE_URL [auto-recursing]>
 ```
-
 Exit.
 
 ### Done-Blocked
 
-Run **Phase 2** first (synthesis only — Phase 2e auto-recursion is gated off because we are not in Done-Achieved). The whole point of capturing retros from blocked runs is so the next attempt has a concrete improvement target.
+Run **Phase 2** first (synthesis only — 2e gated off; not Done-Achieved).
 
-Leave PR in draft. Comment on the iterate PR:
+PR stays draft. Comment:
 ```bash
 gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
 <!-- iterate-blocked -->
 ## ⚠️ Autonomous iteration halted at iteration <N>/30
-
-**Reason:** <BLOCKING_REASON or rebase-conflict summary or release-gate reason>
-**Last assessor evidence:** <EVIDENCE, if any>
-<If rebase-conflict:>
-**Conflicted files:** <list>
-<End.>
-
-Iterations 1..<N-1> are complete and pushed. This iteration needs human attention. After resolving the blocker, restart with `/iterate <same args>` (the branch must first be deleted) or continue manually on this branch.
+**Reason:** <BLOCKING_REASON | rebase-conflict summary | release-gate reason>
+**Last assessor evidence:** <…>
+<if rebase-conflict:> **Conflicted files:** <list>
+Iterations 1..<N-1> are pushed. Restart with `/iterate <same args>` after deletion, or continue manually.
 EOF
 )"
 ```
+Issue mode: post the same on the issue (`<!-- iterate-blocked-issue -->`).
 
-In issue mode, post the same message on the issue (use `<!-- iterate-blocked-issue -->`).
-
-Print:
 ```
 ❌ <MODE> — <ref>
-   Halted at iteration <N>/30
-   Reason: <short>
-   PR (draft): <PR_URL>
-   Branch: <BRANCH>
-   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL — run /iterate <new-issue-number> when unblocked>
+   Halted at iteration <N>/30   Reason: <short>
+   PR (draft): <URL>   Branch: <BRANCH>
+   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL>
 ```
-
 Exit.
 
 ### Done-TimedOut
 
-Run **Phase 2** first (synthesis only — Phase 2e auto-recursion is gated off). 30 iterations is the strongest possible signal that something structural needs to change; the retros have it.
+Run **Phase 2** first (2e gated off). 30 iterations is the strongest possible signal that something structural needs to change.
 
-Leave PR in draft. Comment on the iterate PR:
+PR stays draft. Comment:
 ```bash
 gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
 <!-- iterate-timeout -->
 ## ⏱ Iteration cap reached (30)
-
 **Progress:** <passed_count> passed · <degraded_count> degraded
 **Final assessor confidence:** <%>
-**Last NEXT_REQUIREMENTS (work still open):**
-<bulleted list>
-
-Review the branch, then either merge what is ready, continue manually, or restart with `/iterate <args>` after adjusting scope.
+**Last NEXT_REQUIREMENTS (still open):**
+<bullets>
+Review the branch — merge what is ready, continue manually, or restart with `/iterate <args>` after adjusting scope.
 EOF
 )"
 ```
+Issue mode: post the same on the issue.
 
-In issue mode, post the same message on the issue.
-
-Print:
 ```
 ⏱  <MODE> — <ref>
    Cap reached after 30 iterations
-   PR (draft, partial progress): <PR_URL>
-   Branch: <BRANCH>
-   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL — run /iterate <new-issue-number> after triage>
+   PR (draft, partial): <URL>   Branch: <BRANCH>
+   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL>
 ```
-
 Exit.
 
 ---
 
-## Halt semantics (summary)
+## Halt semantics
 
-The skill **halts the loop** only on:
-- Step 2 returns `STATUS=blocked`
-- Step 1 aborts after all auto-resolution strategies fail
-- Iteration cap reached (30)
-- Step 9 (Release Gate) fails after 5 forward-fix attempts
-- Step 9 finds a pre-existing release-mirror branch
+**Halt (loop ends, Phase 2 runs):**
+- Step 2 `blocked`
+- Step 1 abort after auto-resolution
+- Cap = 30
+- Step 9 fail after 5 forward-fix
+- Step 9 finds pre-existing release-mirror branch
 
-Every halt above runs **Phase 2** (retrospective synthesis → maybe a follow-up issue) before exit. Phase 2e auto-recursion ONLY fires from Done-Achieved.
+**`DEGRADED` (continue):**
+- Validate/CI fails after 5 forward-fix (Step 6)
+- Expert review still blocks after one fix round (Step 7)
+- `IS_BUG` and bug-expert RCA inconclusive (Step 3a)
 
-The skill **logs `DEGRADED` and continues** on:
-- Validate/CI fails after 5 forward-fix attempts (Step 6)
-- Expert review blocks after one forward-fix attempt (Step 7)
-- `IS_BUG` and `bug-hunter` reports inconclusive root cause (Step 3a)
+**`SKIPPED` (continue):**
+- `risk=high` plan rejected by `architect-expert` (Step 4)
+- Every implementer reports no-op (Step 5)
 
-The skill **logs `SKIPPED` and continues** on:
-- `risk=high` plan is rejected by `architect-expert` as fundamentally unsound (Step 4)
-- Every implementer in an iteration reports "no-op" (Step 5)
-
-The skill **halts before starting the loop** on:
-- Dirty working tree at setup
+**Pre-loop halt:**
+- Dirty tree at setup
 - Pre-existing target branch
-- Issue mode auto-pick finds no open issues at all (rare — repo has zero open issues)
+- Issue mode auto-pick finds no open issues at all
 
-The skill **does NOT halt** on (these used to halt; no longer):
-- Issue mode and issue has no `<!-- mdownreview-spec -->` comment — Step 0d derives a spec from the issue body.
-- Issue mode auto-pick finds no `groomed` issues — Step 0c falls back to the oldest open issue.
-
-No other halts.
+**No longer halts:**
+- Issue has no `<!-- mdownreview-spec -->` comment (0d derives)
+- Auto-pick finds no `groomed` (0c falls back to oldest open)
 
 ---
 
@@ -1262,33 +900,28 @@ No other halts.
 
 | Situation | Mode | Message |
 |---|---|---|
-| Iteration implementation commit | Issue | `feat(#<N>): iter <iteration> — <summary>\n\n<2-3 sentence body>\n\nRefs #<N>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
-| Iteration implementation commit | Goal | `auto-improve: iter <iteration> — <summary>\n\n<2-3 sentence body>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
-| Forward-fix commit inside an iteration | Either | `fix(iter-<iteration>): <summary>` |
-| Rebase-repair commit | Either | `fix(rebase): <summary>` |
+| Iteration impl | Issue | `feat(#<N>): iter <iteration> — <summary>\n\n<body>\n\nRefs #<N>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
+| Iteration impl | Goal | `auto-improve: iter <iteration> — <summary>\n\n<body>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
+| Forward-fix in iteration | Either | `fix(iter-<iteration>): <summary>` |
+| Rebase repair | Either | `fix(rebase): <summary>` |
 | Release-gate forward-fix | Either | `fix(iter-release): <summary>` |
-| Retrospective commit (Step 8.5c) | Either | `chore(iter-<iteration>): retrospective\n\n<retro title line>` |
+| Retrospective (8.5c) | Either | `chore(iter-<iteration>): retrospective\n\n<retro title>` |
 
-There is no "final-iteration" commit. When Step 2 returns `achieved`, Steps 3–8 are skipped, so no new commit is produced. The retrospective commit (Step 8.5) is the LAST commit of every iteration that ran Steps 3–8 — DEGRADED and SKIPPED iterations also write retros.
-
-Phase 2 does NOT push a commit to the iterate branch — it creates a new GitHub issue and (optionally) recurses. The follow-up issue, not a commit, is its artefact.
-
-Issue closure on merge is driven by the `Closes #<N>` trailer in the PR body (set in Phase 0g), not by commit messages.
+No "final" iteration commit — `achieved` skips Steps 3–8. Step 8.5 is the LAST commit of every iteration that ran 3–8 (DEGRADED/SKIPPED also write retros). Phase 2 does NOT push to the iterate branch — its artefact is the new GitHub issue (and optional recursion). Issue closure on merge is driven by the `Closes #<N>` trailer in the PR body (set in 0g), not commit messages.
 
 ---
 
 ## Failure recovery
 
-If the skill is interrupted mid-loop:
+If interrupted mid-loop:
 
-1. Read `.claude/iterate-state.md` for branch, PR, and last iteration.
-2. Check out the loop branch: `git checkout <BRANCH>`.
-3. If a rebase is in progress (`.git/rebase-merge` or `.git/rebase-apply` exists), complete or abort it before restarting.
-4. Ensure rerere is enabled on the branch (idempotent):
-   ```bash
+1. Read `.claude/iterate-state.md` for branch / PR / last iteration.
+2. `git checkout <BRANCH>`.
+3. If `.git/rebase-merge` or `.git/rebase-apply` exists, complete or abort before restart.
+4. ```bash
    git config rerere.enabled true
    git config rerere.autoupdate true
    ```
-5. Inspect retrospectives at `.claude/retrospectives/<safe-branch>-iter-*.md` — already-pushed retros are visible in the PR; uncommitted ones can be reviewed locally and either committed or deleted before the next run.
-6. If `.claude/iterate-recursion-depth` exists from a crashed recursive run, delete it (or wait for Step 0b to expire it after 24 h).
-7. Restart is NOT supported — the pre-flight check in Phase 0 halts on the existing branch. To resume the work itself, delete the in-flight branch and re-invoke `/iterate <same args>` — Step 1's rebase + Step 2's assessor will account for the already-committed work on the deleted branch's remote tip if it has been pushed. Retrospectives committed on the prior branch are preserved through the rebase and still drive Phase 2 of the next run.
+5. Inspect retros at `.claude/retrospectives/<safe-branch>-iter-*.md` — pushed retros are visible in PR; uncommitted ones can be reviewed locally.
+6. If `.claude/iterate-recursion-depth` exists from a crash, delete it (or wait 24 h for 0b to expire).
+7. **Restart is not supported** — Phase 0 halts on existing branch. To resume the work, delete the in-flight branch and re-invoke `/iterate <same args>` — Step 1's rebase + Step 2's assessor will fold in already-pushed work. Retros committed on the prior branch persist via the rebase and still drive Phase 2 of the next run.

@@ -94,7 +94,7 @@ Autonomously implements a GitHub issue or drives improvement toward a free-text 
 
 **What it does:**
 1. Pre-flight (clean tree, on main), creates `feature/issue-<N>-<slug>` or `auto-improve/<slug>-<date>`, opens a draft PR.
-2. Up to 30 iterations of: rebase-with-rerere → `goal-assessor` → demand-driven pre-consult experts → plan → parallel `task-implementer` groups → push + race local validation against CI → 6-expert diff review → record.
+2. Up to 30 iterations of: rebase-with-rerere → `exe-goal-assessor` → demand-driven pre-consult experts → plan → parallel `exe-task-implementer` groups → push + race local validation against CI → 6-expert diff review → record.
 3. Forward-fixes every failure — validate/CI up to 5 attempts, expert review one round. Never aborts a phase; the assessor re-reads code the next iteration.
 4. On `STATUS=achieved`, mirrors the branch tip to `release/iterate-<slug>-<timestamp>`, opens a draft mirror PR to trigger the Release Gate workflow, forward-fixes platform-matrix failures (5 attempts), then closes the mirror PR and marks the iterate PR ready.
 
@@ -182,10 +182,10 @@ One cycle of the autonomous self-improvement loop. Designed to be run repeatedly
 5. Create branch
    └─ git checkout -b auto-improve/YYYYMMDD-short-slug
 
-6. Implement  (task-implementer agent)
+6. Implement  (exe-task-implementer agent)
    └─ scoped, style-matching code change; returns change summary
 
-7. Validate  (implementation-validator agent)
+7. Validate  (exe-implementation-validator agent)
    └─ npx tsc --noEmit → npm test → eslint --max-warnings=0
    └─ PASS or DO NOT COMMIT verdict
 
@@ -239,31 +239,31 @@ Requires an explicit confirmation step before writing any files — will stop an
 
 ### Expert Subagents
 
-Subagents are specialist Claude instances invoked in parallel by the `/iterate` skill (9-expert unconditional panel + 1 conditional per-iteration diff review, plus demand-driven pre-consult). Defined in `.claude/agents/`.
+Subagents are specialist Claude instances invoked in parallel by the `/iterate` skill (8-expert unconditional panel + 1 conditional per-iteration diff review, plus demand-driven pre-consult). Defined in `.claude/agents/`.
 
 **Review panel (run per iteration diff):**
 
 | Agent | Specialisation |
 |---|---|
-| `product-improvement-expert` | Feature gaps in the AI-output review workflow; missing capabilities; friction points |
+| `product-expert` | Feature gaps in the AI-output review workflow, missing capabilities, friction points; **and** interaction polish — keyboard navigation, loading/error states, comment workflow friction, empty states |
 | `performance-expert` | React rendering bottlenecks (shiki, Mermaid), Rust watcher efficiency, IPC payload size |
 | `architect-expert` | Component boundaries, Zustand store design, IPC contract integrity, dependency direction |
 | `react-tauri-expert` | React 19 API misuse (missing `useTransition`, stale closures), Tauri v2 pattern correctness, plugin usage |
-| `ux-expert` | Keyboard navigation, loading/error states, comment workflow friction, empty states |
-| `bug-hunter` | Race conditions, async error handling, `listen()` leaks without `unlisten()`, comment anchor edge cases |
+| `bug-expert` | Confirmed defects with mandatory regression tests — race conditions, async error handling, `listen()` leaks, anchor edge cases |
 | `test-expert` | Test completeness, pyramid-layer correctness, reliability/flakiness, e2e coverage, IPC-mock hygiene, oracle quality |
 | `documentation-expert` | Doc taxonomy (principles + deep-dives + one evergreen `docs/features/<area>.md`), code/doc drift, rule-citation staleness |
 | `lean-expert` | **Pushes for simpler implementations** — dependency justification, bundle/binary size, dead code, file-size budgets, inlining + collapsing opportunities |
-| `security-reviewer` *(conditional)* | Tauri IPC handlers, path traversal, XSS in markdown rendering, IPC type mismatches — runs when diff touches commands, path handling, or markdown rendering |
+| `security-expert` *(conditional)* | Tauri IPC handlers, path traversal, XSS in markdown rendering, IPC type mismatches — runs when diff touches commands, path handling, or markdown rendering |
 
-**Assessor + workers:**
+**Execution agents** (assessor + workers, `exe-` prefix):
 
 | Agent | Role |
 |---|---|
-| `goal-assessor` | Reads the code from scratch each iteration, emits fresh requirement specs (Step 2 of `/iterate`) |
-| `task-implementer` | Implements a single scoped task; returns a structured change summary |
-| `e2e-test-writer` | Writes Playwright browser and native tests following the IPC mock pattern |
-| `implementation-validator` | Runs lint → tsc → cargo test → vitest → browser-e2e → native-e2e; returns PASS/FAIL with full output |
+| `exe-goal-assessor` | Reads the code from scratch each iteration, emits fresh requirement specs (Step 2 of `/iterate`) |
+| `exe-task-implementer` | Implements a single scoped task (including writing unit and Playwright e2e tests per `docs/best-practices-project/test-patterns.md`); returns a structured change summary |
+| `exe-implementation-validator` | Runs lint → tsc → cargo test → vitest → browser-e2e → native-e2e; returns PASS/FAIL with full output |
+
+Every `*-expert` review agent embeds the same per-knowledge-file dispatch protocol: one subagent per knowledge doc listed in the agent file, parent aggregates and dedupes. Uniform — always dispatched, even for a single doc. No recursion.
 
 ### Hooks
 

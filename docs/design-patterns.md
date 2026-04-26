@@ -57,6 +57,9 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 - `convertFileSrc` for local images: rule 14 in [`docs/security.md`](security.md).
 - Shiki singleton: rule 7 in [`docs/performance.md`](performance.md).
 - Zustand `persist` allowlist: rule 15 in [`docs/architecture.md`](architecture.md).
+- React 19 API choices (`use`, `useTransition`, `useDeferredValue`, ref-as-prop, `useOptimistic`): [`docs/best-practices-common/react/react19-apis.md`](best-practices-common/react/react19-apis.md).
+- Composition over boolean props, compound components, lifted state: [`docs/best-practices-common/react/composition-patterns.md`](best-practices-common/react/composition-patterns.md).
+- Re-render hygiene (selector granularity, derived state without effects, transient refs): [`docs/best-practices-common/react/rerender-optimization.md`](best-practices-common/react/rerender-optimization.md).
 
 ## Gaps
 
