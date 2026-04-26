@@ -48,10 +48,10 @@ async function setup(): Promise<Session> {
   await attachDrains(page);
 
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const runDir = join(".claude/explore-ux/runs", runId);
+  const runDir = join(".claude/test-exploratory-e2e/runs", runId);
   mkdirSync(join(runDir, "screenshots"), { recursive: true });
 
-  const storePath = ".claude/explore-ux/known-findings.json";
+  const storePath = ".claude/test-exploratory-e2e/known-findings.json";
 
   return {
     browser, context, page, runId, runDir, storePath,
@@ -309,7 +309,7 @@ function readFindingsRecords(runDir: string): {
 function writeReport(s: Session, path: string): void {
   const recs = readFindingsRecords(s.runDir);
   const md = [
-    `# explore-ux v2 run ${s.runId}`,
+    `# test-exploratory-e2e v2 run ${s.runId}`,
     ``,
     `- Steps:    ${s.step}`,
     `- Findings: ${s.findingsCount.new} new, ${s.findingsCount.reproduced} reproduced`,

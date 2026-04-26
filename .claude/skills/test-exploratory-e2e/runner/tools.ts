@@ -1,4 +1,4 @@
-// NDJSON command schema for the explore-ux REPL.
+// NDJSON command schema for the test-exploratory-e2e REPL.
 //
 // Agent (stdin) → REPL: one Command per line.
 // REPL (stdout)  → Agent: one Response per line.

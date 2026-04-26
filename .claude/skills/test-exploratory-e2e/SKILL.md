@@ -1,9 +1,9 @@
 ---
-name: explore-ux
-description: AI-driven exploratory UX testing of the live mdownreview app. The agent drives a long-lived Playwright REPL turn-by-turn, using BOTH screenshots (visual perception) AND DOM digests (interactive map + ARIA + console + IPC errors) to perceive the app, then improvises actions guided by persona seeds. Records findings into runs/<ts>/findings.jsonl and a Markdown report. Windows-only v2.
+name: test-exploratory-e2e
+description: AI-driven exploratory end-to-end testing of the live mdownreview app. The agent drives a long-lived Playwright REPL turn-by-turn, using BOTH screenshots (visual perception) AND DOM digests (interactive map + ARIA + console + IPC errors) to perceive the app, then improvises actions guided by persona seeds. Records findings into runs/<ts>/findings.jsonl and a Markdown report, then files deduplicated GitHub issues. Windows-only v2.
 ---
 
-# explore-ux v2 — agent runbook
+# test-exploratory-e2e v2 — agent runbook
 
 You ARE the exploration loop. The skill ships a thin Playwright REPL; you drive it.
 
@@ -92,7 +92,7 @@ Two findings belong in the same group if a single PR would naturally fix both.
 After you have finished recording, send `{"act":"file_issues","dryRun":false}` (use `dryRun:true` first to preview titles). The REPL:
 
 1. Uploads all new screenshots to the orphan `explore-ux-evidence` branch so GitHub can render them inline.
-2. **Lists open `explore-ux`-labelled issues on the repo and matches each by group tag** (hidden `<!-- explore-ux:group=<g> -->` marker, with title-prefix fallback for legacy issues).
+2. **Lists open `test-exploratory-e2e`-labelled issues on the repo and matches each by group tag** (hidden `<!-- explore-ux:group=<g> -->` marker, with title-prefix fallback for legacy issues).
 3. For each group:
    - If an open issue already covers the group → posts a `Reproduced in run <id>` comment listing the new findings; status is `reproduced`. **No duplicate issue is created.**
    - Otherwise → calls `gh issue create` once for the group; status is `filed`.
@@ -103,6 +103,18 @@ After you have finished recording, send `{"act":"file_issues","dryRun":false}` (
 If the user did NOT explicitly approve filing, run `{"act":"file_issues","dryRun":true}` first and report the grouped titles back for confirmation. In dry-run, groups already covered by an open issue are reported as `reproduced` (with the issue number) so the agent can summarise "filing 2 new + reproducing 1 existing" before approving.
 
 When you stop, send `{"act":"stop"}`. Read the response, view `reportPath`, and report findings to the user.
+
+## Persistent GitHub identifiers
+
+The skill was renamed from `explore-ux` to `test-exploratory-e2e` but the following identifiers remain `explore-ux` so existing GitHub state (issues #127, #128, #129 and the screenshot evidence branch) keeps working:
+
+- GitHub label: `explore-ux`
+- Issue title prefix: `[explore-ux] …`
+- Body marker for dedupe: `<!-- explore-ux:group=<g> -->`
+- Evidence orphan branch: `explore-ux-evidence`
+- Body footer text: "explore-ux run id: …"
+
+If you ever need to migrate, **rename the GitHub label first**, then update `runner/issues.ts` and `runner/evidence.ts` constants, then re-render every open issue body via `file-grouped.ts --update`.
 
 ## If PowerShell stdout buffers / wedges
 

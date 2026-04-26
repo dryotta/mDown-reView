@@ -17,8 +17,8 @@
     "test:e2e:native": "playwright test --config=playwright.native.config.ts",
     "test:e2e:native:build": "node scripts/stage-cli.mjs && cargo build --manifest-path src-tauri/Cargo.toml && npm run test:e2e:native",
     "lint": "eslint .",
-    "explore-ux": "tsx .claude/skills/explore-ux/runner/explore.ts",
-    "explore-ux:repl": "tsx .claude/skills/explore-ux/runner/repl.ts",
+    "test-exploratory-e2e": "tsx .claude/skills/test-exploratory-e2e/runner/explore.ts",
+    "test-exploratory-e2e:repl": "tsx .claude/skills/test-exploratory-e2e/runner/repl.ts",
     "bench:cli": "cd src-tauri && cargo bench",
     "bench:cli:script": "pwsh scripts/bench-cli.ps1"
   },

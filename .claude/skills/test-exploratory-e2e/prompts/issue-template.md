@@ -1,6 +1,6 @@
 ## Heuristic
 **MDR-IPC-RAW-JSON-ERROR** — Raw error JSON leaks into UI
-(see `.claude/skills/explore-ux/heuristics/mdownreview-specific.md`)
+(see `.claude/skills/test-exploratory-e2e/heuristics/mdownreview-specific.md`)
 
 ## Severity
 **P1**

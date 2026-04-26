@@ -1,10 +1,10 @@
-# explore-ux Skill Implementation Plan
+# test-exploratory-e2e skill Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a `/explore-ux` skill that drives the live mdownreview Tauri app over CDP, captures screenshot/DOM/a11y/console/IPC evidence per step, runs heuristic + (optional) vision triage, and files deduplicated GitHub issues with reproduction steps.
 
-**Architecture:** TypeScript runner under `.claude/skills/explore-ux/runner/` invoked by SKILL.md via `npx tsx`. Reuses the spawn helper from `e2e/native/global-setup.ts` (refactored to be importable). Windows-only v1, dry-run by default, vision ON by default. Spec: `docs/specs/skill-explore-ux.md`.
+**Architecture:** TypeScript runner under `.claude/skills/test-exploratory-e2e/runner/` invoked by SKILL.md via `npx tsx`. Reuses the spawn helper from `e2e/native/global-setup.ts` (refactored to be importable). Windows-only v1, dry-run by default, vision ON by default. Spec: `docs/specs/skill-test-exploratory-e2e.md`.
 
 **Tech Stack:** TypeScript, Playwright (`chromium.connectOverCDP`), Vitest (existing), `gh` CLI (existing), Node `child_process`. Zero new runtime dependencies.
 
@@ -15,30 +15,30 @@
 ## File Structure
 
 **Created:**
-- `.claude/skills/explore-ux/SKILL.md`
-- `.claude/skills/explore-ux/heuristics/{nielsen,wcag-aa,mdownreview-specific,anti-patterns}.md`
-- `.claude/skills/explore-ux/flows/{flow-schema,catalogue}.md`
-- `.claude/skills/explore-ux/runner/{flow-schema,dedupe,analyze,capture,explore,report,issues}.ts`
-- `.claude/skills/explore-ux/runner/{flow-schema,dedupe,analyze,issues,explore.integration}.test.ts`
-- `.claude/skills/explore-ux/runner/explore.smoke.test.ts` (env-gated)
-- `.claude/skills/explore-ux/runner/fixtures/` (per-heuristic DOM fixtures)
-- `.claude/skills/explore-ux/prompts/{triage,issue-template}.md`
+- `.claude/skills/test-exploratory-e2e/SKILL.md`
+- `.claude/skills/test-exploratory-e2e/heuristics/{nielsen,wcag-aa,mdownreview-specific,anti-patterns}.md`
+- `.claude/skills/test-exploratory-e2e/flows/{flow-schema,catalogue}.md`
+- `.claude/skills/test-exploratory-e2e/runner/{flow-schema,dedupe,analyze,capture,explore,report,issues}.ts`
+- `.claude/skills/test-exploratory-e2e/runner/{flow-schema,dedupe,analyze,issues,explore.integration}.test.ts`
+- `.claude/skills/test-exploratory-e2e/runner/explore.smoke.test.ts` (env-gated)
+- `.claude/skills/test-exploratory-e2e/runner/fixtures/` (per-heuristic DOM fixtures)
+- `.claude/skills/test-exploratory-e2e/prompts/{triage,issue-template}.md`
 
 **Modified:**
 - `e2e/native/global-setup.ts` — extract `spawnAppWithCdp()` + `waitForCdp()` to importable lib
-- `package.json` — add `"explore-ux": "tsx .claude/skills/explore-ux/runner/explore.ts"` script
-- `vitest.config.ts` — include `.claude/skills/explore-ux/runner/**/*.test.ts` in test glob; exclude `*.smoke.test.ts` unless `EXPLORE_UX_SMOKE=1`
+- `package.json` — add `"explore-ux": "tsx .claude/skills/test-exploratory-e2e/runner/explore.ts"` script
+- `vitest.config.ts` — include `.claude/skills/test-exploratory-e2e/runner/**/*.test.ts` in test glob; exclude `*.smoke.test.ts` unless `EXPLORE_UX_SMOKE=1`
 
 **Persistent (not committed; in `.gitignore`):**
-- `.claude/explore-ux/known-findings.json`
-- `.claude/explore-ux/runs/`
+- `.claude/test-exploratory-e2e/known-findings.json`
+- `.claude/test-exploratory-e2e/runs/`
 
 ---
 
 ## Task 1: Scaffold + gitignore
 
 **Files:**
-- Create: `.claude/skills/explore-ux/{heuristics,flows,runner,runner/fixtures,prompts}/.gitkeep`
+- Create: `.claude/skills/test-exploratory-e2e/{heuristics,flows,runner,runner/fixtures,prompts}/.gitkeep`
 - Modify: `.gitignore`
 
 - [ ] **Step 1: Create directories and .gitkeep files**
@@ -49,10 +49,10 @@ New-Item -ItemType Directory -Force -Path `
   .claude\skills\explore-ux\flows, `
   .claude\skills\explore-ux\runner\fixtures, `
   .claude\skills\explore-ux\prompts | Out-Null
-'.claude/skills/explore-ux/heuristics/.gitkeep',
-'.claude/skills/explore-ux/flows/.gitkeep',
-'.claude/skills/explore-ux/runner/fixtures/.gitkeep',
-'.claude/skills/explore-ux/prompts/.gitkeep' |
+'.claude/skills/test-exploratory-e2e/heuristics/.gitkeep',
+'.claude/skills/test-exploratory-e2e/flows/.gitkeep',
+'.claude/skills/test-exploratory-e2e/runner/fixtures/.gitkeep',
+'.claude/skills/test-exploratory-e2e/prompts/.gitkeep' |
   ForEach-Object { New-Item -ItemType File -Force -Path $_ | Out-Null }
 ```
 
@@ -61,15 +61,15 @@ New-Item -ItemType Directory -Force -Path `
 Append to `.gitignore`:
 
 ```
-# explore-ux skill runtime artefacts
-.claude/explore-ux/runs/
-.claude/explore-ux/known-findings.json
+# test-exploratory-e2e skill runtime artefacts
+.claude/test-exploratory-e2e/runs/
+.claude/test-exploratory-e2e/known-findings.json
 ```
 
 - [ ] **Step 3: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux .gitignore
+git add .claude/skills/test-exploratory-e2e .gitignore
 git commit -m "chore(explore-ux): scaffold skill directory" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -78,9 +78,9 @@ git commit -m "chore(explore-ux): scaffold skill directory" -m "Co-authored-by: 
 ## Task 2: Flow schema (TypeScript contract + parser)
 
 **Files:**
-- Create: `.claude/skills/explore-ux/flows/flow-schema.md`
-- Create: `.claude/skills/explore-ux/runner/flow-schema.ts`
-- Create: `.claude/skills/explore-ux/runner/flow-schema.test.ts`
+- Create: `.claude/skills/test-exploratory-e2e/flows/flow-schema.md`
+- Create: `.claude/skills/test-exploratory-e2e/runner/flow-schema.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/flow-schema.test.ts`
 
 - [ ] **Step 1: Write flow-schema.md (the human contract)**
 
@@ -172,7 +172,7 @@ describe("parseFlowCatalogue", () => {
 - [ ] **Step 3: Run test, expect FAIL**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/flow-schema.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/flow-schema.test.ts
 ```
 
 Expected: import error (file does not exist).
@@ -243,7 +243,7 @@ export function parseFlowCatalogue(md: string): Flow[] {
 - [ ] **Step 5: Run test, expect PASS**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/flow-schema.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/flow-schema.test.ts
 ```
 
 Expected: 3 passed.
@@ -251,7 +251,7 @@ Expected: 3 passed.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/flows .claude/skills/explore-ux/runner/flow-schema.*
+git add .claude/skills/test-exploratory-e2e/flows .claude/skills/test-exploratory-e2e/runner/flow-schema.*
 git commit -m "feat(explore-ux): flow schema and parser" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -259,9 +259,9 @@ git commit -m "feat(explore-ux): flow schema and parser" -m "Co-authored-by: Cop
 
 ## Task 3: Heuristics markdown (4 files)
 
-**Files:** Create all four under `.claude/skills/explore-ux/heuristics/`. These are reference docs cited by issue bodies; no tests required (they're consumed by `analyze.ts` whose tests come later).
+**Files:** Create all four under `.claude/skills/test-exploratory-e2e/heuristics/`. These are reference docs cited by issue bodies; no tests required (they're consumed by `analyze.ts` whose tests come later).
 
-- [ ] **Step 1: Write `heuristics/nielsen.md`** (copy the table from `docs/specs/skill-explore-ux.md` §7.1; one section per rule with `## NIELSEN-N` heading and one paragraph each).
+- [ ] **Step 1: Write `heuristics/nielsen.md`** (copy the table from `docs/specs/skill-test-exploratory-e2e.md` §7.1; one section per rule with `## NIELSEN-N` heading and one paragraph each).
 
 - [ ] **Step 2: Write `heuristics/wcag-aa.md`** (copy table from spec §7.2; section per rule). Note: rule is `WCAG-2.5.8` (target size minimum, AA in WCAG 2.2), not 2.5.5.
 
@@ -272,7 +272,7 @@ git commit -m "feat(explore-ux): flow schema and parser" -m "Co-authored-by: Cop
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/heuristics
+git add .claude/skills/test-exploratory-e2e/heuristics
 git commit -m "feat(explore-ux): heuristic rule reference docs" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -281,8 +281,8 @@ git commit -m "feat(explore-ux): heuristic rule reference docs" -m "Co-authored-
 ## Task 4: Dedupe module (TDD)
 
 **Files:**
-- Create: `.claude/skills/explore-ux/runner/dedupe.ts`
-- Create: `.claude/skills/explore-ux/runner/dedupe.test.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/dedupe.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/dedupe.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -387,7 +387,7 @@ describe("mergeFinding", () => {
 - [ ] **Step 2: Run test, expect FAIL** (`module not found`).
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/dedupe.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/dedupe.test.ts
 ```
 
 - [ ] **Step 3: Implement `runner/dedupe.ts`**
@@ -479,7 +479,7 @@ export function mergeFinding(
 - [ ] **Step 4: Run test, expect PASS**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/dedupe.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/dedupe.test.ts
 ```
 
 Expected: 7 passed.
@@ -487,7 +487,7 @@ Expected: 7 passed.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/dedupe.*
+git add .claude/skills/test-exploratory-e2e/runner/dedupe.*
 git commit -m "feat(explore-ux): dedupe key + persistent finding store" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -496,9 +496,9 @@ git commit -m "feat(explore-ux): dedupe key + persistent finding store" -m "Co-a
 ## Task 5: Rule engine (TDD with one fixture per rule)
 
 **Files:**
-- Create: `.claude/skills/explore-ux/runner/analyze.ts`
-- Create: `.claude/skills/explore-ux/runner/analyze.test.ts`
-- Create: `.claude/skills/explore-ux/runner/fixtures/{wcag-1.4.3-fail,wcag-1.4.3-pass,wcag-4.1.2-fail,mdr-ipc-raw-json-error,mdr-console-error,ap-emoji-as-icon}.json`
+- Create: `.claude/skills/test-exploratory-e2e/runner/analyze.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/analyze.test.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/fixtures/{wcag-1.4.3-fail,wcag-1.4.3-pass,wcag-4.1.2-fail,mdr-ipc-raw-json-error,mdr-console-error,ap-emoji-as-icon}.json`
 
 Each fixture is a serialised "snapshot" — a minimal object capturing only what the rule engine needs (DOM markup, computed-style samples, console events, IPC events, a11y nodes).
 
@@ -592,7 +592,7 @@ describe("rule engine — deterministic families", () => {
 - [ ] **Step 3: Run test, expect FAIL**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/analyze.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/analyze.test.ts
 ```
 
 - [ ] **Step 4: Implement `runner/analyze.ts`**
@@ -721,7 +721,7 @@ export function runRules(snapshot: Snapshot): RuleHit[] {
 - [ ] **Step 5: Run test, expect PASS**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/analyze.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/analyze.test.ts
 ```
 
 Expected: 6 passed.
@@ -729,7 +729,7 @@ Expected: 6 passed.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/analyze.* .claude/skills/explore-ux/runner/fixtures
+git add .claude/skills/test-exploratory-e2e/runner/analyze.* .claude/skills/test-exploratory-e2e/runner/fixtures
 git commit -m "feat(explore-ux): rule engine with per-heuristic fixtures" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -752,7 +752,7 @@ At the bottom of `e2e/native/global-setup.ts`, after the existing `globalSetup` 
 
 ```ts
 /**
- * Library export for non-Playwright callers (e.g., explore-ux skill).
+ * Library export for non-Playwright callers (e.g., test-exploratory-e2e skill).
  * Spawns the binary with CDP enabled and resolves once the CDP HTTP endpoint
  * responds. Caller is responsible for killing `appProc` on teardown.
  *
@@ -810,7 +810,7 @@ git commit -m "refactor(e2e/native): expose spawnAppWithCdp helper for explore-u
 ## Task 7: Capture module (init-script + screenshot + a11y)
 
 **Files:**
-- Create: `.claude/skills/explore-ux/runner/capture.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/capture.ts`
 
 This module is mostly Playwright glue — its real verification happens inside the integration test (Task 9). No standalone unit test.
 
@@ -968,7 +968,7 @@ Expected: no errors in `capture.ts`.
 - [ ] **Step 3: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/capture.ts
+git add .claude/skills/test-exploratory-e2e/runner/capture.ts
 git commit -m "feat(explore-ux): per-step capture (screenshot + DOM + a11y + console + IPC)" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -977,7 +977,7 @@ git commit -m "feat(explore-ux): per-step capture (screenshot + DOM + a11y + con
 ## Task 8: Catalogue seed flows
 
 **Files:**
-- Create: `.claude/skills/explore-ux/flows/catalogue.md`
+- Create: `.claude/skills/test-exploratory-e2e/flows/catalogue.md`
 
 - [ ] **Step 1: Author catalogue with seed flows**
 
@@ -1124,7 +1124,7 @@ it("parses the real catalogue.md without error", () => {
 ```
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/flow-schema.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/flow-schema.test.ts
 ```
 
 Expected: 4 passed.
@@ -1132,7 +1132,7 @@ Expected: 4 passed.
 - [ ] **Step 3: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/flows/catalogue.md .claude/skills/explore-ux/runner/flow-schema.test.ts
+git add .claude/skills/test-exploratory-e2e/flows/catalogue.md .claude/skills/test-exploratory-e2e/runner/flow-schema.test.ts
 git commit -m "feat(explore-ux): seed flow catalogue (8 flows)" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1141,8 +1141,8 @@ git commit -m "feat(explore-ux): seed flow catalogue (8 flows)" -m "Co-authored-
 ## Task 9: Explore loop + integration test
 
 **Files:**
-- Create: `.claude/skills/explore-ux/runner/explore.ts`
-- Create: `.claude/skills/explore-ux/runner/explore.integration.test.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/explore.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/explore.integration.test.ts`
 
 - [ ] **Step 1: Write `runner/explore.ts` (driver, no top-level Playwright import — kept lazy so unit tests don't need it)**
 
@@ -1304,7 +1304,7 @@ describe("explore loop", () => {
 - [ ] **Step 3: Run test, expect FAIL** (`module not found` initially, then assertion mismatches as you iterate).
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/explore.integration.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/explore.integration.test.ts
 ```
 
 - [ ] **Step 4: Iterate `explore.ts` until tests pass**
@@ -1314,7 +1314,7 @@ Expected after fix: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/explore.* 
+git add .claude/skills/test-exploratory-e2e/runner/explore.* 
 git commit -m "feat(explore-ux): exploration loop with priority-ordered flow execution" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1323,7 +1323,7 @@ git commit -m "feat(explore-ux): exploration loop with priority-ordered flow exe
 ## Task 10: Report writer
 
 **Files:**
-- Create: `.claude/skills/explore-ux/runner/report.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/report.ts`
 
 No test — output is consumed by humans; smoke test (Task 13) verifies the file lands on disk.
 
@@ -1366,7 +1366,7 @@ export function writeReport(input: ReportInput): string {
   const newCount = input.merges.filter((m) => m.merge.status === "NEW").length;
   const reproCount = input.merges.filter((m) => m.merge.status === "REPRODUCED").length;
   const md = [
-    `# explore-ux run ${input.runId}`,
+    `# test-exploratory-e2e run ${input.runId}`,
     ``,
     `- Started:  ${input.startedAt}`,
     `- Finished: ${input.finishedAt}`,
@@ -1407,7 +1407,7 @@ npx tsc --noEmit
 - [ ] **Step 3: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/report.ts
+git add .claude/skills/test-exploratory-e2e/runner/report.ts
 git commit -m "feat(explore-ux): report writer (markdown + jsonl)" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1416,13 +1416,13 @@ git commit -m "feat(explore-ux): report writer (markdown + jsonl)" -m "Co-author
 ## Task 11: Issue filer (with dry-run + dedupe integration)
 
 **Files:**
-- Create: `.claude/skills/explore-ux/prompts/issue-template.md`
-- Create: `.claude/skills/explore-ux/runner/issues.ts`
-- Create: `.claude/skills/explore-ux/runner/issues.test.ts`
+- Create: `.claude/skills/test-exploratory-e2e/prompts/issue-template.md`
+- Create: `.claude/skills/test-exploratory-e2e/runner/issues.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/issues.test.ts`
 
 - [ ] **Step 1: Author `prompts/issue-template.md`**
 
-Static markdown — exactly the template from `docs/specs/skill-explore-ux.md` §8.5.
+Static markdown — exactly the template from `docs/specs/skill-test-exploratory-e2e.md` §8.5.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1434,7 +1434,7 @@ import { renderIssueBody, fileIssue, type IssueInput } from "./issues";
 
 const INPUT: IssueInput = {
   heuristic_id: "MDR-IPC-RAW-JSON-ERROR",
-  heuristic_file: ".claude/skills/explore-ux/heuristics/mdownreview-specific.md",
+  heuristic_file: ".claude/skills/test-exploratory-e2e/heuristics/mdownreview-specific.md",
   severity: "P1",
   reproSteps: ["Open folder", "Click file", "Observe banner"],
   screenshot: "screenshots/step-17.png",
@@ -1488,7 +1488,7 @@ describe("fileIssue", () => {
 - [ ] **Step 3: Run test, expect FAIL**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/issues.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/issues.test.ts
 ```
 
 - [ ] **Step 4: Implement `runner/issues.ts`**
@@ -1592,7 +1592,7 @@ export async function fileIssue(
 - [ ] **Step 5: Run test, expect PASS**
 
 ```powershell
-npx vitest run .claude/skills/explore-ux/runner/issues.test.ts
+npx vitest run .claude/skills/test-exploratory-e2e/runner/issues.test.ts
 ```
 
 Expected: 3 passed.
@@ -1600,7 +1600,7 @@ Expected: 3 passed.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/issues.* .claude/skills/explore-ux/prompts
+git add .claude/skills/test-exploratory-e2e/runner/issues.* .claude/skills/test-exploratory-e2e/prompts
 git commit -m "feat(explore-ux): issue filer with dry-run default and gh CLI integration" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1609,14 +1609,14 @@ git commit -m "feat(explore-ux): issue filer with dry-run default and gh CLI int
 ## Task 12: Vision triage prompt + optional sub-agent call
 
 **Files:**
-- Create: `.claude/skills/explore-ux/prompts/triage.md`
+- Create: `.claude/skills/test-exploratory-e2e/prompts/triage.md`
 
 Vision is invoked by **the SKILL itself**, not by `runner/explore.ts`. The runner writes `runs/<id>/evidence.jsonl` and screenshots; the SKILL reads them and calls a sub-agent. This keeps the runner free of any LLM dependency and makes vision purely additive.
 
 - [ ] **Step 1: Author `prompts/triage.md`**
 
 ```markdown
-You are the triage agent for the `explore-ux` skill.
+You are the triage agent for the `test-exploratory-e2e` skill.
 
 ## Input
 You will receive: a screenshot of the mDown reView app, the URL/route, the action that
@@ -1627,7 +1627,7 @@ by the rule engine.
 Return a JSON array of findings. Each finding has:
 
 - `heuristic_id`: must be one of the IDs documented in
-  `.claude/skills/explore-ux/heuristics/{nielsen,wcag-aa,mdownreview-specific,anti-patterns}.md`.
+  `.claude/skills/test-exploratory-e2e/heuristics/{nielsen,wcag-aa,mdownreview-specific,anti-patterns}.md`.
   Prefer NIELSEN-2 (match real world), NIELSEN-8 (aesthetic & minimal), or AP-* —
   the rule engine handles the others.
 - `severity`: P1 / P2 / P3 (see severity mapping in skill-explore-ux.md §7.5).
@@ -1647,7 +1647,7 @@ Return ONLY the JSON array, no prose.
 - [ ] **Step 2: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/prompts/triage.md
+git add .claude/skills/test-exploratory-e2e/prompts/triage.md
 git commit -m "feat(explore-ux): vision triage prompt" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1656,7 +1656,7 @@ git commit -m "feat(explore-ux): vision triage prompt" -m "Co-authored-by: Copil
 ## Task 13: Smoke test (Windows-gated)
 
 **Files:**
-- Create: `.claude/skills/explore-ux/runner/explore.smoke.test.ts`
+- Create: `.claude/skills/test-exploratory-e2e/runner/explore.smoke.test.ts`
 - Modify: `vitest.config.ts` to exclude `*.smoke.test.ts` unless `EXPLORE_UX_SMOKE=1`
 
 - [ ] **Step 1: Modify `vitest.config.ts`**
@@ -1691,13 +1691,13 @@ describe.skipIf(SKIP)("explore-ux smoke (Windows + EXPLORE_UX_SMOKE=1)", () => {
   it("runs 3 steps end-to-end in dry-run mode", () => {
     const result = spawnSync(
       "npx",
-      ["tsx", ".claude/skills/explore-ux/runner/explore.ts",
+      ["tsx", ".claude/skills/test-exploratory-e2e/runner/explore.ts",
        "--steps", "3", "--no-vision"],
       { encoding: "utf8", shell: true, timeout: 120_000 },
     );
     expect(result.status).toBe(0);
     // Find latest run dir
-    const runs = ".claude/explore-ux/runs";
+    const runs = ".claude/test-exploratory-e2e/runs";
     expect(existsSync(runs)).toBe(true);
     const latest = readdirSync(runs).sort().pop()!;
     const dir = join(runs, latest);
@@ -1705,7 +1705,7 @@ describe.skipIf(SKIP)("explore-ux smoke (Windows + EXPLORE_UX_SMOKE=1)", () => {
     expect(existsSync(join(dir, "evidence.jsonl"))).toBe(true);
     expect(readdirSync(join(dir, "screenshots")).length).toBeGreaterThan(0);
     // Dry-run: known-findings has issue: null
-    const known = JSON.parse(readFileSync(".claude/explore-ux/known-findings.json", "utf8"));
+    const known = JSON.parse(readFileSync(".claude/test-exploratory-e2e/known-findings.json", "utf8"));
     const someFinding = Object.values(known.findings as Record<string, { issue: number | null }>)[0];
     expect(someFinding?.issue ?? null).toBe(null);
   });
@@ -1717,7 +1717,7 @@ This smoke test depends on Task 14 having already produced a runnable `explore.t
 - [ ] **Step 3: Commit (test only; will pass after Task 14)**
 
 ```powershell
-git add .claude/skills/explore-ux/runner/explore.smoke.test.ts vitest.config.ts
+git add .claude/skills/test-exploratory-e2e/runner/explore.smoke.test.ts vitest.config.ts
 git commit -m "test(explore-ux): Windows-gated smoke test scaffold" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1726,8 +1726,8 @@ git commit -m "test(explore-ux): Windows-gated smoke test scaffold" -m "Co-autho
 ## Task 14: CLI entry + npm script + SKILL.md
 
 **Files:**
-- Modify: `.claude/skills/explore-ux/runner/explore.ts` — add a `main()` invoked when run as a script
-- Create: `.claude/skills/explore-ux/SKILL.md`
+- Modify: `.claude/skills/test-exploratory-e2e/runner/explore.ts` — add a `main()` invoked when run as a script
+- Create: `.claude/skills/test-exploratory-e2e/SKILL.md`
 - Modify: `package.json` — add `"explore-ux"` script
 
 - [ ] **Step 1: Append CLI to `runner/explore.ts`**
@@ -1736,7 +1736,7 @@ At the bottom of `explore.ts`:
 
 ```ts
 // ---------------------------------------------------------------------------
-// CLI entry: `tsx .claude/skills/explore-ux/runner/explore.ts [args]`
+// CLI entry: `tsx .claude/skills/test-exploratory-e2e/runner/explore.ts [args]`
 // ---------------------------------------------------------------------------
 
 interface CliArgs {
@@ -1766,7 +1766,7 @@ function parseArgs(argv: string[]): CliArgs {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (process.platform !== "win32") {
-    console.error("[explore-ux] Windows-only in v1. See docs/specs/skill-explore-ux.md §3.");
+    console.error("[explore-ux] Windows-only in v1. See docs/specs/skill-test-exploratory-e2e.md §3.");
     process.exit(2);
   }
   // Pre-flight: port 9222 free
@@ -1792,7 +1792,7 @@ async function main() {
   const { fileIssue } = await import("./issues");
 
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const runDir = join(".claude/explore-ux/runs", runId);
+  const runDir = join(".claude/test-exploratory-e2e/runs", runId);
   mkdirSync(join(runDir, "screenshots"), { recursive: true });
 
   console.log(`[explore-ux] Run ${runId} starting (steps=${args.steps}, vision=${args.vision}, file=${args.file})`);
@@ -1804,7 +1804,7 @@ async function main() {
     const ctx = browser.contexts()[0] ?? await browser.newContext();
     const page = ctx.pages()[0] ?? await ctx.newPage();
     await attachDrains(page);
-    const md = readFileSync(".claude/skills/explore-ux/flows/catalogue.md", "utf8");
+    const md = readFileSync(".claude/skills/test-exploratory-e2e/flows/catalogue.md", "utf8");
     const flows = parseFlowCatalogue(md);
     const ordered = args.seed
       ? [...flows.filter((f) => f.id === args.seed), ...flows.filter((f) => f.id !== args.seed)]
@@ -1816,7 +1816,7 @@ async function main() {
 
     bundles.forEach((b) => writeEvidenceLine(runDir, b));
 
-    const storePath = ".claude/explore-ux/known-findings.json";
+    const storePath = ".claude/test-exploratory-e2e/known-findings.json";
     const store = loadStore(storePath);
     const merges: { bundle: typeof bundles[number]; hit: typeof bundles[number]["rule_hits"][number]; merge: ReturnType<typeof mergeFinding> }[] = [];
     for (const b of bundles) {
@@ -1835,7 +1835,7 @@ async function main() {
       for (const m of merges.filter((m) => m.merge.status === "NEW")) {
         const r = await fileIssue({
           heuristic_id: m.hit.id,
-          heuristic_file: ".claude/skills/explore-ux/heuristics/" +
+          heuristic_file: ".claude/skills/test-exploratory-e2e/heuristics/" +
             (m.hit.id.startsWith("NIELSEN-") ? "nielsen.md"
             : m.hit.id.startsWith("WCAG-") ? "wcag-aa.md"
             : m.hit.id.startsWith("MDR-") ? "mdownreview-specific.md"
@@ -1883,7 +1883,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 In `package.json` `scripts` block:
 
 ```json
-"explore-ux": "tsx .claude/skills/explore-ux/runner/explore.ts"
+"explore-ux": "tsx .claude/skills/test-exploratory-e2e/runner/explore.ts"
 ```
 
 - [ ] **Step 3: Add `tsx` if missing**
@@ -1896,15 +1896,15 @@ npm install --save-dev tsx
 
 - [ ] **Step 4: Author `SKILL.md`**
 
-`.claude/skills/explore-ux/SKILL.md`:
+`.claude/skills/test-exploratory-e2e/SKILL.md`:
 
 ````markdown
 ---
 name: explore-ux
-description: Headed Playwright exploration of the live mdownreview app. Drives major flows over CDP, captures screenshot/DOM/a11y/console/IPC evidence, runs heuristic + vision triage, and files deduplicated GitHub issues. Windows-only v1. Args - empty (full catalogue), `--seed <flow-id>` (PR-scoped), `--steps N`, `--no-vision`, `--file` (default dry-run), `--auto`, `--no-confirm`. Spec at docs/specs/skill-explore-ux.md.
+description: Headed Playwright exploration of the live mdownreview app. Drives major flows over CDP, captures screenshot/DOM/a11y/console/IPC evidence, runs heuristic + vision triage, and files deduplicated GitHub issues. Windows-only v1. Args - empty (full catalogue), `--seed <flow-id>` (PR-scoped), `--steps N`, `--no-vision`, `--file` (default dry-run), `--auto`, `--no-confirm`. Spec at docs/specs/skill-test-exploratory-e2e.md.
 ---
 
-# explore-ux
+# test-exploratory-e2e
 
 **Use when** you want to surface UX issues and functional drift the scripted `e2e/native/` suite misses, especially before merging a PR or after a self-improve cycle. Read-only — never edits app code.
 
@@ -1925,10 +1925,10 @@ npm run explore-ux -- [--seed <flow-id>] [--steps N] [--no-vision] [--file] [--a
 Defaults: steps=50, vision ON, dry-run (no issues filed).
 
 Outputs:
-- `.claude/explore-ux/runs/<ISO-ts>/report.md` — human digest
-- `.claude/explore-ux/runs/<ISO-ts>/evidence.jsonl` — per-step bundles
-- `.claude/explore-ux/runs/<ISO-ts>/screenshots/` — PNG per step
-- `.claude/explore-ux/known-findings.json` — dedupe store
+- `.claude/test-exploratory-e2e/runs/<ISO-ts>/report.md` — human digest
+- `.claude/test-exploratory-e2e/runs/<ISO-ts>/evidence.jsonl` — per-step bundles
+- `.claude/test-exploratory-e2e/runs/<ISO-ts>/screenshots/` — PNG per step
+- `.claude/test-exploratory-e2e/known-findings.json` — dedupe store
 
 ## Optional: vision triage (default on)
 
@@ -1950,13 +1950,13 @@ See `heuristics/{nielsen,wcag-aa,mdownreview-specific,anti-patterns}.md`. Every 
 
 ## Non-goals
 
-See `docs/specs/skill-explore-ux.md` §3.
+See `docs/specs/skill-test-exploratory-e2e.md` §3.
 ````
 
 - [ ] **Step 5: Run smoke test from Task 13 (now that runner CLI exists)**
 
 ```powershell
-$env:EXPLORE_UX_SMOKE="1"; npx vitest run .claude/skills/explore-ux/runner/explore.smoke.test.ts
+$env:EXPLORE_UX_SMOKE="1"; npx vitest run .claude/skills/test-exploratory-e2e/runner/explore.smoke.test.ts
 ```
 
 Expected: 1 passed (requires built binary; if missing, run `npm run test:e2e:native:build` first).
@@ -1964,7 +1964,7 @@ Expected: 1 passed (requires built binary; if missing, run `npm run test:e2e:nat
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add .claude/skills/explore-ux/SKILL.md .claude/skills/explore-ux/runner/explore.ts package.json package-lock.json
+git add .claude/skills/test-exploratory-e2e/SKILL.md .claude/skills/test-exploratory-e2e/runner/explore.ts package.json package-lock.json
 git commit -m "feat(explore-ux): SKILL.md + CLI entry + npm script" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
@@ -1977,7 +1977,7 @@ git commit -m "feat(explore-ux): SKILL.md + CLI entry + npm script" -m "Co-autho
 ```powershell
 git push -u origin feature/explore-ux-spec
 gh pr create --title "feat(explore-ux): exploratory Playwright skill v1" `
-  --body "Implements docs/specs/skill-explore-ux.md. Windows-only, dry-run by default, vision ON by default. See plan: docs/specs/skill-explore-ux-plan.md."
+  --body "Implements docs/specs/skill-test-exploratory-e2e.md. Windows-only, dry-run by default, vision ON by default. See plan: docs/specs/skill-test-exploratory-e2e-plan.md."
 ```
 
 - [ ] **Step 2: Confirm CI passes**
@@ -2023,7 +2023,7 @@ All names/signatures match across tasks.
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/specs/skill-explore-ux-plan.md`. Two execution options:
+Plan complete and saved to `docs/specs/skill-test-exploratory-e2e-plan.md`. Two execution options:
 
 1. **Subagent-Driven (recommended)** — fresh subagent per task, review between tasks, fast iteration
 2. **Inline Execution** — execute tasks in this session using executing-plans, batch execution with checkpoints

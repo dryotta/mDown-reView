@@ -119,7 +119,7 @@ export async function explore(
 
 
 // ---------------------------------------------------------------------------
-// CLI entry: `tsx .claude/skills/explore-ux/runner/explore.ts [args]`
+// CLI entry: `tsx .claude/skills/test-exploratory-e2e/runner/explore.ts [args]`
 // ---------------------------------------------------------------------------
 
 interface CliArgs {
@@ -149,7 +149,7 @@ function parseArgs(argv: string[]): CliArgs {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (process.platform !== "win32") {
-    console.error("[explore-ux] Windows-only in v1. See docs/specs/skill-explore-ux.md 3.");
+    console.error("[explore-ux] Windows-only in v1. See docs/specs/skill-test-exploratory-e2e.md 3.");
     process.exit(2);
   }
   const net = await import("node:net");
@@ -174,7 +174,7 @@ async function main() {
   const { fileIssue } = await import("./issues");
 
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const runDir = join(".claude/explore-ux/runs", runId);
+  const runDir = join(".claude/test-exploratory-e2e/runs", runId);
   mkdirSync(join(runDir, "screenshots"), { recursive: true });
 
   console.log(`[explore-ux] Run ${runId} starting (steps=${args.steps}, vision=${args.vision}, file=${args.file})`);
@@ -186,7 +186,7 @@ async function main() {
     const ctx = browser.contexts()[0] ?? await browser.newContext();
     const page = ctx.pages()[0] ?? await ctx.newPage();
     await attachDrains(page);
-    const md = readFileSync(".claude/skills/explore-ux/flows/catalogue.md", "utf8");
+    const md = readFileSync(".claude/skills/test-exploratory-e2e/flows/catalogue.md", "utf8");
     const flows = parseFlowCatalogue(md);
     const ordered = args.seed
       ? [...flows.filter((f) => f.id === args.seed), ...flows.filter((f) => f.id !== args.seed)]
@@ -198,7 +198,7 @@ async function main() {
 
     bundles.forEach((b) => writeEvidenceLine(runDir, b));
 
-    const storePath = ".claude/explore-ux/known-findings.json";
+    const storePath = ".claude/test-exploratory-e2e/known-findings.json";
     const store = loadStore(storePath);
     const merges: { bundle: typeof bundles[number]; hit: typeof bundles[number]["rule_hits"][number]; merge: ReturnType<typeof mergeFinding> }[] = [];
     for (const b of bundles) {
@@ -215,7 +215,7 @@ async function main() {
 
     if (args.file) {
       for (const m of merges.filter((m) => m.merge.status === "NEW")) {
-        const heuristicFile = ".claude/skills/explore-ux/heuristics/" +
+        const heuristicFile = ".claude/skills/test-exploratory-e2e/heuristics/" +
           (m.hit.id.startsWith("NIELSEN-") ? "nielsen.md"
           : m.hit.id.startsWith("WCAG-") ? "wcag-aa.md"
           : m.hit.id.startsWith("MDR-") ? "mdownreview-specific.md"

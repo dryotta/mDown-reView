@@ -1,6 +1,6 @@
 # Nielsen 10 — heuristics catalogue
 
-Reference rule IDs cited by `explore-ux` issue bodies. Each rule has a stable
+Reference rule IDs cited by `test-exploratory-e2e` issue bodies. Each rule has a stable
 ID; bug reports link to the section by anchor.
 
 | ID | Heuristic | Detector |

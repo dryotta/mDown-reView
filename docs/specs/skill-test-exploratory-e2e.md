@@ -1,11 +1,11 @@
-# Design Spec — `explore-ux` skill
+# Design Spec — `test-exploratory-e2e` skill
 
 **Status:** Approved (brainstorming complete, awaiting user review of this doc)
 **Date:** 2026-04-25
 **Owner:** mdownreview maintainers
 **Inspirations:** [`bencium/bencium-marketplace/design-audit`](https://github.com/bencium/bencium-marketplace/tree/main/design-audit), [`bencium/bencium-marketplace/bencium-controlled-ux-designer`](https://github.com/bencium/bencium-marketplace/tree/main/bencium-controlled-ux-designer), [`nextlevelbuilder/ui-ux-pro-max-skill`](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).
 
-> Note: this doc lives at `docs/specs/skill-explore-ux.md` (not the brainstorming-skill default `docs/superpowers/specs/...`) because `docs/superpowers/` is gitignored in this repo and the project's existing spec taxonomy is `docs/specs/`.
+> Note: this doc lives at `docs/specs/skill-test-exploratory-e2e.md` (not the brainstorming-skill default `docs/superpowers/specs/...`) because `docs/superpowers/` is gitignored in this repo and the project's existing spec taxonomy is `docs/specs/`.
 
 ---
 
@@ -45,14 +45,14 @@ A skill that drives the **already-built mdownreview Tauri app** through a real W
 | Issue filing default? | **Dry-run** — `--file` to actually post. |
 | Spec location? | `docs/superpowers/specs/2026-04-25-explore-ux-design.md` (this file). |
 | Platform scope v1? | **Windows-only**, matches `e2e/native/`. |
-| Architecture? | **Inline runner under `.claude/skills/explore-ux/runner/`**, executed via `npx tsx`. |
+| Architecture? | **Inline runner under `.claude/skills/test-exploratory-e2e/runner/`**, executed via `npx tsx`. |
 
 ## 5. Architecture
 
 ### 5.1 Directory layout
 
 ```
-.claude/skills/explore-ux/
+.claude/skills/test-exploratory-e2e/
 ├── SKILL.md                      ← entry: arg parsing, state machine, user-touch points
 ├── heuristics/
 │   ├── nielsen.md                ← NIELSEN-1..10
@@ -72,7 +72,7 @@ A skill that drives the **already-built mdownreview Tauri app** through a real W
 │   ├── explore.ts                ← main loop; imports e2e/native/global-setup.ts
 │   ├── capture.ts                ← screenshot + DOM hash + a11y tree + console + IPC
 │   ├── analyze.ts                ← rule engine + (optional) vision sub-agent batch
-│   ├── dedupe.ts                 ← reads/writes .claude/explore-ux/known-findings.json
+│   ├── dedupe.ts                 ← reads/writes .claude/test-exploratory-e2e/known-findings.json
 │   ├── report.ts                 ← writes runs/<ts>/{report.md, evidence.jsonl, screenshots/}
 │   ├── issues.ts                 ← gh issue create + attach (dry-run unless --file)
 │   └── *.test.ts                 ← co-located Vitest unit + integration tests
@@ -81,7 +81,7 @@ A skill that drives the **already-built mdownreview Tauri app** through a real W
     └── issue-template.md         ← GH issue body
 ```
 
-Persistent state at `.claude/explore-ux/`:
+Persistent state at `.claude/test-exploratory-e2e/`:
 - `known-findings.json` — dedupe DB (heuristic-id × screen-id × dom-anchor → issue#).
 - `runs/<ISO-ts>/` — per-run output (report.md, evidence.jsonl, screenshots/).
 
@@ -257,7 +257,7 @@ dedupe_key = sha256(`${heuristic_id}|${screen_id}|${normalised_anchor}`)
 normalised_anchor = strip dynamic IDs/indices: button.foo[data-id=abc123] → button.foo[data-id]
 ```
 
-`.claude/explore-ux/known-findings.json`:
+`.claude/test-exploratory-e2e/known-findings.json`:
 
 ```jsonc
 {
@@ -282,7 +282,7 @@ A finding's slot reopens when its issue is closed (skill checks `gh issue view <
 ```markdown
 ## Heuristic
 **MDR-IPC-RAW-JSON-ERROR** — Raw error JSON leaks into UI
-(see `.claude/skills/explore-ux/heuristics/mdownreview-specific.md`)
+(see `.claude/skills/test-exploratory-e2e/heuristics/mdownreview-specific.md`)
 
 ## Severity
 **P1**
@@ -309,7 +309,7 @@ explore-ux run id: `2026-04-25-22-30`, step 17
 Reproduced 3× since 2026-04-20.
 ```
 
-Labels: `explore-ux`, `bug` or `ux`, `needs-grooming`, `severity-p{1,2,3}`.
+Labels: `test-exploratory-e2e`, `bug` or `ux`, `needs-grooming`, `severity-p{1,2,3}`.
 
 Screenshot upload: `gh issue create --body-file body.md`, then `gh api -X POST repos/:owner/:repo/issues/:n/comments` with an inline `data:image/png;base64,…` URI. Screenshots > 1 MB are downscaled to 1280 px wide.
 
@@ -340,7 +340,7 @@ In dry-run, also printed to stdout.
 
 `runner/explore.smoke.test.ts`. Windows-only, gated by `EXPLORE_UX_SMOKE=1` env var (does not run in normal `npm test`). Spawns the actual binary, runs 3 steps from one canned flow, asserts:
 
-1. `npx tsx .claude/skills/explore-ux/runner/explore.ts --steps 3 --no-vision` exits 0.
+1. `npx tsx .claude/skills/test-exploratory-e2e/runner/explore.ts --steps 3 --no-vision` exits 0.
 2. `runs/<ts>/{report.md, evidence.jsonl, screenshots/}` all populated.
 3. Report mentions ≥ 1 deterministic finding (e.g., contrast or accessible-name) — proves rule engine actually ran against real DOM.
 4. `known-findings.json` updated with at least 1 entry, `issue: null` (dry-run).

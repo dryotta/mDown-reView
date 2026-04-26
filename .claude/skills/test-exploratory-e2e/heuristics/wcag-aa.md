@@ -1,6 +1,6 @@
 # WCAG 2.1 AA + 2.2 — heuristics catalogue (high-yield subset)
 
-Reference rule IDs cited by `explore-ux` issue bodies. Note `WCAG-2.5.8`
+Reference rule IDs cited by `test-exploratory-e2e` issue bodies. Note `WCAG-2.5.8`
 (Target Size Minimum) is the AA-level WCAG 2.2 successor to 2.5.5
 (Target Size, AAA). The runner cites 2.5.8.
 

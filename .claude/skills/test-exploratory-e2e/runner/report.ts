@@ -60,7 +60,7 @@ export function writeReport(input: ReportInput): string {
     .map(([k, n]) => { const [id, ...rest] = k.split("|"); return { id, anchor: rest.join("|"), n }; });
 
   const md = [
-    `# explore-ux run ${input.runId}`,
+    `# test-exploratory-e2e run ${input.runId}`,
     ``,
     `- Started:  ${input.startedAt}`,
     `- Finished: ${input.finishedAt}`,

@@ -193,7 +193,7 @@ export default async function globalSetup() {
 }
 
 /**
- * Library export for non-Playwright callers (e.g., explore-ux skill).
+ * Library export for non-Playwright callers (e.g., test-exploratory-e2e skill).
  * Spawns the binary with CDP enabled and resolves once the CDP HTTP endpoint
  * responds. Caller is responsible for killing `appProc` on teardown.
  *

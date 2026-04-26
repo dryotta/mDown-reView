@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   }
 
   const SEV_RANK = { P1: 0, P2: 1, P3: 2 } as const;
-  const storePath = ".claude/explore-ux/known-findings.json";
+  const storePath = ".claude/test-exploratory-e2e/known-findings.json";
   const store = loadStore(storePath);
 
   if (updateMode) {

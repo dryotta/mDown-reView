@@ -139,7 +139,7 @@ export function renderGroupedIssueBody(g: GroupedIssueInput): string {
     `## Run`,
     `explore-ux run id: \`${g.runId}\``,
     ``,
-    `_Filed automatically by the explore-ux skill. Each \`### N.\` block is a separate finding sharing the \`${g.group}\` group tag — split into individual issues during grooming if they need independent fixes._`,
+    `_Filed automatically by the test-exploratory-e2e skill. Each \`### N.\` block is a separate finding sharing the \`${g.group}\` group tag — split into individual issues during grooming if they need independent fixes._`,
   );
   return lines.join("\n");
 }

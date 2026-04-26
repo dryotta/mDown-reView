@@ -8,7 +8,7 @@ import {
 
 const INPUT: IssueInput = {
   heuristic_id: "MDR-IPC-RAW-JSON-ERROR",
-  heuristic_file: ".claude/skills/explore-ux/heuristics/mdownreview-specific.md",
+  heuristic_file: ".claude/skills/test-exploratory-e2e/heuristics/mdownreview-specific.md",
   severity: "P1",
   reproSteps: ["Open folder", "Click file", "Observe banner"],
   screenshot: "screenshots/step-17.png",

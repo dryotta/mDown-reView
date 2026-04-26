@@ -48,6 +48,6 @@ docs/superpowers/
 src-tauri/binaries/mdownreview-cli-*
 !src-tauri/binaries/.gitkeep
 
-# explore-ux skill runtime artefacts
-.claude/explore-ux/runs/
-.claude/explore-ux/known-findings.json
+# test-exploratory-e2e skill runtime artefacts
+.claude/test-exploratory-e2e/runs/
+.claude/test-exploratory-e2e/known-findings.json
