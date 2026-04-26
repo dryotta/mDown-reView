@@ -73,7 +73,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
         trailing={<FileActionsBar path={filePath} />}
       />
       {showSource ? (
-        <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} />
+        <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} zoom={zoom} />
       ) : (
         <Suspense fallback={<SkeletonLoader />}>
           {renderVisualView(category, content, path, filePath, fileSize)}
