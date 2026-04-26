@@ -67,12 +67,6 @@ When you have a freeform goal that doesn't decompose into known issues, hand it 
 
 **Prompts:**
 ```
-/iterate-one-issue add a CSV export action to the comments panel
-```
-```
-/iterate-one-issue compress agent + skill prompts into a minimal, lossless representation; remove boilerplate, repeated phrasing, and verbose disclaimers
-```
-```
 /iterate-one-issue make the cold-start time on Windows under 800 ms
 ```
 
@@ -145,54 +139,6 @@ Agents live in `.claude/agents/<name>.md`. They are stateless reviewers dispatch
 | `exe-task-implementer` | Implements one scoped task |
 | `exe-implementation-validator` | Runs the gate sequence; never fixes |
 | `exe-goal-assessor` | Decides if a freeform goal's requirements are satisfied |
-
----
-
-## Common prompts
-
-```
-# Backlog drain (default daily driver)
-/iterate-loop
-
-# Drain once and exit (CI-style)
-/iterate-loop --once
-
-# Single issue
-/iterate-one-issue 142
-
-# Several issues sequentially (the loop picks them up automatically; or chain manually)
-/iterate-one-issue 36
-/iterate-one-issue 40
-/iterate-one-issue 41
-
-# Freeform goal (no issue)
-/iterate-one-issue add a CSV export action to the comments panel
-
-# Review all bug-tagged issues, ask clarifications via groom, then fix in sequence
-review all open issues with the `bug` label, run /groom-issues over them,
-then /iterate-loop to fix them. Don't ask questions during iterate —
-let the expert panels decide.
-
-# Groom one issue / the whole needs-grooming queue
-/groom-issues #87
-groom the needs-grooming backlog
-
-# Local verification before a PR
-/run-build-test
-
-# CI didn't run on a feature branch
-/validate-ci
-
-# Ship a release
-/publish-release
-
-# Tighten a prompt
-/optimize-prompt
-<paste prompt text>
-
-# Direct expert review (escape hatch)
-have the security-expert review my staged changes
-```
 
 ---
 
