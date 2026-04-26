@@ -6,7 +6,6 @@ import {
   defaultHandlerStatus as ipcDefaultHandlerStatus,
   folderContextStatus as ipcFolderContextStatus,
   installCliShim as ipcInstallCliShim,
-  onboardingMarkWelcomed as ipcMarkWelcomed,
   onboardingState as ipcOnboardingState,
   registerFolderContext as ipcRegisterFolderContext,
   removeCliShim as ipcRemoveCliShim,
@@ -144,16 +143,11 @@ interface OnboardingSlice {
   onboardingState: OnboardingState | null;
   onboardingErrors: Record<string, string>;
   // Panel visibility (transient, not persisted)
-  welcomePanelOpen: boolean;
-  setupPanelOpen: boolean;
+  settingsOpen: boolean;
   // Actions
   refreshOnboarding: () => Promise<void>;
-  openWelcome: () => void;
-  closeWelcome: () => void;
-  openSetup: () => void;
-  closeSetup: () => void;
-  markOnboardingWelcomed: (version: string) => Promise<void>;
-  dismissOnboardingWelcome: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
   installCliShim: () => Promise<void>;
   removeCliShim: () => Promise<void>;
   setDefaultHandler: () => Promise<void>;
@@ -256,8 +250,7 @@ export const useStore = create<Store>()(
       onboardingStatuses: { cliShim: "pending", defaultHandler: "pending", folderContext: "pending" },
       onboardingState: null,
       onboardingErrors: {},
-      welcomePanelOpen: false,
-      setupPanelOpen: false,
+      settingsOpen: false,
       refreshOnboarding: async () => {
         const [cli, def, folder, state] = await Promise.allSettled([
           ipcCliShimStatus(),
@@ -290,15 +283,8 @@ export const useStore = create<Store>()(
           onboardingErrors: errors,
         });
       },
-      openWelcome: () => set({ welcomePanelOpen: true, setupPanelOpen: false }),
-      closeWelcome: () => set({ welcomePanelOpen: false }),
-      openSetup: () => set({ welcomePanelOpen: false, setupPanelOpen: true }),
-      closeSetup: () => set({ setupPanelOpen: false }),
-      markOnboardingWelcomed: async (version) => {
-        await ipcMarkWelcomed(version);
-        await useStore.getState().refreshOnboarding();
-      },
-      dismissOnboardingWelcome: () => set({ welcomePanelOpen: false }),
+      openSettings: () => set({ settingsOpen: true }),
+      closeSettings: () => set({ settingsOpen: false }),
       installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
       removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
       setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),
@@ -367,7 +353,20 @@ function isCliShimError(r: unknown): r is CliShimError {
   return kind === "permission_denied" || kind === "io";
 }
 
-/** Convert any IPC rejection into a user-facing error string. */
+/**
+ * Convert any IPC rejection into a user-facing error string.
+ *
+ * Tagged enums (Rust `#[serde(tag = "kind")]`) MUST be matched
+ * exhaustively — falling through to `JSON.stringify` would render raw
+ * `{"kind":"permission_denied",...}` blobs in the UI (see repo-wide
+ * "tagged enum" rule in docs/architecture.md / agent memory).
+ *
+ * Today only `CliShimError` is a tagged enum; `set_default_handler` and
+ * `(un)register_folder_context` reject with plain `Result<(), String>`,
+ * caught by the `typeof reason === "string"` branch. When those grow
+ * structured errors, add a matching `is*Error` guard + `switch` block
+ * here with its own `never` exhaustiveness check.
+ */
 export function formatOnboardingError(reason: unknown): string {
   if (isCliShimError(reason)) {
     switch (reason.kind) {
@@ -383,11 +382,10 @@ export function formatOnboardingError(reason: unknown): string {
   }
   if (reason instanceof Error) return reason.message;
   if (typeof reason === "string") return reason;
-  try {
-    return JSON.stringify(reason);
-  } catch {
-    return String(reason);
-  }
+  // Deliberate: no JSON.stringify fallthrough. Any unknown shape that
+  // reaches here is a contract bug — surface a stable sentinel rather than
+  // leaking serialized internals into the UI.
+  return "Unexpected error";
 }
 
 /**

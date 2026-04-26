@@ -34,16 +34,13 @@ vi.mock("@/lib/tauri-events", () => ({
 vi.mock("@/lib/tauri-commands", () => ({
   getLaunchArgs: vi.fn().mockResolvedValue({ files: [], folders: [] }),
   showOpenDialog: vi.fn().mockResolvedValue(null),
-  onboardingShouldWelcome: vi.fn().mockResolvedValue(false),
   cliShimStatus: vi.fn().mockResolvedValue("missing"),
   defaultHandlerStatus: vi.fn().mockResolvedValue("unknown"),
   folderContextStatus: vi.fn().mockResolvedValue("missing"),
   onboardingState: vi.fn().mockResolvedValue({
     schema_version: 1,
-    last_welcomed_version: null,
     last_seen_sections: [],
   }),
-  onboardingMarkWelcomed: vi.fn().mockResolvedValue(undefined),
   installCliShim: vi.fn().mockResolvedValue(undefined),
   removeCliShim: vi.fn().mockResolvedValue(undefined),
   setDefaultHandler: vi.fn().mockResolvedValue(undefined),
@@ -90,16 +87,14 @@ vi.mock("@/components/UpdateBanner", () => ({
 vi.mock("@/components/WelcomeView", () => ({
   WelcomeView: () => <div data-testid="welcome-view" />,
 }));
-vi.mock("@/components/onboarding/FirstRunPanel", () => ({
-  FirstRunPanel: () => null,
-}));
-vi.mock("@/components/onboarding/SetupPanel", () => ({
-  SetupPanel: () => null,
+vi.mock("@/components/SettingsView", () => ({
+  SettingsView: () => <div data-testid="settings-view" />,
 }));
 vi.mock("@/components/Icons", () => ({
   IconFile: () => <span data-testid="icon-file" />,
   IconFolder: () => <span data-testid="icon-folder" />,
   IconComment: () => <span data-testid="icon-comment" />,
+  IconSettings: () => <span data-testid="icon-settings" />,
 }));
 
 import { showOpenDialog } from "@/lib/tauri-commands";
@@ -145,12 +140,13 @@ function pressKey(opts: {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("App – toolbar rendering", () => {
-  it("renders Open File, Open Folder, and Comments buttons; Theme/About buttons removed", async () => {
+  it("renders Open File, Open Folder, Comments, and Settings buttons; Theme/About buttons removed", async () => {
     await renderApp();
 
     expect(screen.getByText("Open File")).toBeInTheDocument();
     expect(screen.getByText("Open Folder")).toBeInTheDocument();
     expect(screen.getByText("Comments")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByText("System")).not.toBeInTheDocument();
     expect(screen.queryByText("About")).not.toBeInTheDocument();
   });
@@ -158,6 +154,20 @@ describe("App – toolbar rendering", () => {
   it("shows WelcomeView when no active tab", async () => {
     await renderApp();
     expect(screen.getByTestId("welcome-view")).toBeInTheDocument();
+  });
+
+  it("renders SettingsView (not WelcomeView) when no active tab and settingsOpen=true", async () => {
+    useStore.setState({ settingsOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("welcome-view")).not.toBeInTheDocument();
+  });
+
+  it("renders WelcomeView (no SettingsView) when no active tab and settingsOpen=false", async () => {
+    useStore.setState({ settingsOpen: false });
+    await renderApp();
+    expect(screen.getByTestId("welcome-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
   });
 });
 

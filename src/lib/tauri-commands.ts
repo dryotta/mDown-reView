@@ -366,7 +366,6 @@ export const restartApp = (): Promise<void> => {
 
 export interface OnboardingState {
   schema_version: number;
-  last_welcomed_version: string | null;
   last_seen_sections: string[];
 }
 
@@ -380,13 +379,7 @@ export type FolderContextStatus = "done" | "missing" | "unsupported";
 export const onboardingState = (): Promise<OnboardingState> =>
   invoke<OnboardingState>("onboarding_state");
 
-export const onboardingMarkWelcomed = (version: string): Promise<void> =>
-  invoke<void>("onboarding_mark_welcomed", { version });
-
-export const onboardingShouldWelcome = (): Promise<boolean> =>
-  invoke<boolean>("onboarding_should_welcome");
-
-export const cliShimStatus = (): Promise<CliShimStatus> =>
+export const cliShimStatus= (): Promise<CliShimStatus> =>
   invoke<CliShimStatus>("cli_shim_status");
 
 export const installCliShim = (): Promise<void> =>

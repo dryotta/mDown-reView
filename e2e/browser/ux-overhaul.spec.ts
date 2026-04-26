@@ -361,7 +361,7 @@ test.describe("UX overhaul (#41) — hover-stable close button", () => {
 });
 
 test.describe("UX overhaul (#41) — toolbar enumeration", () => {
-  test("F8 — top toolbar exposes exactly [Open File, Open Folder, Comments]", async ({ page }) => {
+  test("F8 — top toolbar exposes exactly [Open File, Open Folder, Comments, Settings] (#79 B12)", async ({ page }) => {
     await installMock(page, makeFiles(0));
     await page.goto("/");
 
@@ -369,15 +369,14 @@ test.describe("UX overhaul (#41) — toolbar enumeration", () => {
     const group = page.locator(".toolbar .toolbar-btn-group");
     await expect(group).toBeVisible();
 
-    // Exactly three buttons in the left button group.
-    await expect(group.locator("button")).toHaveCount(3);
+    // Exactly four buttons in the left button group (#79 B12 added Settings).
+    await expect(group.locator("button")).toHaveCount(4);
 
     // Order matters per AC.
     const buttonTexts = await group.locator("button").allInnerTexts();
-    expect(buttonTexts.map((t) => t.trim())).toEqual(["Open File", "Open Folder", "Comments"]);
+    expect(buttonTexts.map((t) => t.trim())).toEqual(["Open File", "Open Folder", "Comments", "Settings"]);
 
-    // No Settings/Theme/About buttons anywhere in the top toolbar.
-    await expect(page.locator(".toolbar button", { hasText: "Settings" })).toHaveCount(0);
+    // No Theme/About buttons in the top toolbar.
     await expect(page.locator(".toolbar button", { hasText: "Theme" })).toHaveCount(0);
     await expect(page.locator(".toolbar button", { hasText: "About" })).toHaveCount(0);
   });

@@ -8,7 +8,6 @@ interface MenuListenerCallbacks {
   toggleCommentsPane: () => void;
   setTheme: (theme: "system" | "light" | "dark") => void;
   setAboutOpen: (open: boolean) => void;
-  setSettingsOpen: (open: boolean) => void;
   checkForUpdate: () => void;
   /**
    * F1 — accepted so callers can share a single callbacks object with
@@ -25,7 +24,6 @@ export function useMenuListeners({
   toggleCommentsPane,
   setTheme,
   setAboutOpen,
-  setSettingsOpen,
   checkForUpdate,
 }: MenuListenerCallbacks) {
   useEffect(() => {
@@ -55,13 +53,12 @@ export function useMenuListeners({
       listenEvent("menu-theme-light", () => setTheme("light")),
       listenEvent("menu-theme-dark", () => setTheme("dark")),
       listenEvent("menu-about", () => setAboutOpen(true)),
-      listenEvent("menu-open-settings", () => setSettingsOpen(true)),
+      listenEvent("menu-open-settings", () => useStore.getState().openSettings()),
       listenEvent("menu-check-updates", () => { checkForUpdate(); }),
-      listenEvent("menu-help-welcome", () => useStore.getState().openWelcome()),
-      listenEvent("menu-help-setup", () => useStore.getState().openSetup()),
+      listenEvent("menu-help-settings", () => useStore.getState().openSettings()),
     ];
     return () => {
       pending.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
-  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, setAboutOpen, setSettingsOpen, checkForUpdate]);
+  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, setAboutOpen, checkForUpdate]);
 }

@@ -299,21 +299,12 @@ describe("onboarding & platform-integration wrappers", () => {
     const m = await getInvoke();
     m.mockResolvedValueOnce({
       schema_version: 1,
-      last_welcomed_version: null,
       last_seen_sections: [],
     });
     const { onboardingState } = await import("../tauri-commands");
     const r = await onboardingState();
     expect(m).toHaveBeenCalledWith("onboarding_state");
     expect(r.schema_version).toBe(1);
-  });
-
-  it("onboardingMarkWelcomed forwards version", async () => {
-    const m = await getInvoke();
-    m.mockResolvedValueOnce(undefined);
-    const { onboardingMarkWelcomed } = await import("../tauri-commands");
-    await onboardingMarkWelcomed("0.3.4");
-    expect(m).toHaveBeenCalledWith("onboarding_mark_welcomed", { version: "0.3.4" });
   });
 
   it("cliShimStatus returns the status string from invoke", async () => {

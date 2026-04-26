@@ -162,7 +162,8 @@ pub fn run() {
             // Help menu
             let help_welcome =
                 MenuItem::with_id(app, "help-welcome", "Welcome…", true, None::<&str>)?;
-            let help_setup = MenuItem::with_id(app, "help-setup", "Setup…", true, None::<&str>)?;
+            let help_settings =
+                MenuItem::with_id(app, "help-settings", "Settings…", true, None::<&str>)?;
             let about_item =
                 MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
             let check_updates = MenuItem::with_id(
@@ -174,7 +175,7 @@ pub fn run() {
             )?;
             let help_menu = SubmenuBuilder::new(app, "Help")
                 .item(&help_welcome)
-                .item(&help_setup)
+                .item(&help_settings)
                 .separator()
                 .item(&about_item)
                 .separator()
@@ -210,7 +211,7 @@ pub fn run() {
                     "open-settings" => "menu-open-settings",
                     "check-updates" => "menu-check-updates",
                     "help-welcome" => "menu-help-welcome",
-                    "help-setup" => "menu-help-setup",
+                    "help-settings" => "menu-help-settings",
                     _ => return,
                 };
                 let _ = window.emit(event_name, ());
@@ -253,8 +254,6 @@ pub fn run() {
                 commands::search::parse_kql,
                 commands::search::strip_json_comments,
                 commands::onboarding::onboarding_state,
-                commands::onboarding::onboarding_mark_welcomed,
-                commands::onboarding::onboarding_should_welcome,
                 commands::cli_shim::cli_shim_status,
                 commands::cli_shim::install_cli_shim,
                 commands::cli_shim::remove_cli_shim,

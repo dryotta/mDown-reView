@@ -109,16 +109,14 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               )
                 return "missing";
               if (cmd === "onboarding_state")
-                return { schema_version: 1, last_welcomed_version: null, last_seen_sections: [] };
-              if (cmd === "onboarding_should_welcome") return false;
+                return { schema_version: 1, last_seen_sections: [] };
               if (cmd === "get_launch_args") return { files: [], folders: [] };
               if (
                 cmd === "install_cli_shim" ||
                 cmd === "remove_cli_shim" ||
                 cmd === "set_default_handler" ||
                 cmd === "register_folder_context" ||
-                cmd === "unregister_folder_context" ||
-                cmd === "onboarding_mark_welcomed"
+                cmd === "unregister_folder_context"
               )
                 return undefined;
             }
@@ -143,16 +141,14 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           )
             return "missing";
           if (cmd === "onboarding_state")
-            return { schema_version: 1, last_welcomed_version: null, last_seen_sections: [] };
-          if (cmd === "onboarding_should_welcome") return false;
+            return { schema_version: 1, last_seen_sections: [] };
           if (cmd === "get_launch_args") return { files: [], folders: [] };
           if (
             cmd === "install_cli_shim" ||
             cmd === "remove_cli_shim" ||
             cmd === "set_default_handler" ||
             cmd === "register_folder_context" ||
-            cmd === "unregister_folder_context" ||
-            cmd === "onboarding_mark_welcomed"
+            cmd === "unregister_folder_context"
           )
             return undefined;
           return null;

@@ -58,6 +58,14 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
           </button>
         </div>
 
+        <button
+          type="button"
+          className="welcome-settings-link"
+          onClick={() => useStore.getState().openSettings()}
+        >
+          → Settings
+        </button>
+
         {recentItems.length > 0 && (
           <div className="welcome-recent">
             <h2 className="welcome-recent-title">Recent</h2>

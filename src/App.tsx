@@ -11,8 +11,6 @@ import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useAuthor } from "@/lib/vm/useAuthor";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import { FirstRunPanel } from "@/components/onboarding/FirstRunPanel";
-import { SetupPanel } from "@/components/onboarding/SetupPanel";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
@@ -20,11 +18,12 @@ import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { SettingsView } from "@/components/SettingsView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
-import { IconFile, IconFolder, IconComment } from "@/components/Icons";
+import { IconFile, IconFolder, IconComment, IconSettings } from "@/components/Icons";
 import "@/styles/app.css";
 
 export default function App() {
@@ -52,7 +51,10 @@ export default function App() {
   useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // settingsOpen lives in the store (B5/B6/B10): menu listeners and the
+  // Welcome/toolbar entry points all dispatch through `openSettings`, and the
+  // no-tab branch swaps in <SettingsView/> when this flips true.
+  const settingsOpen = useStore((s) => s.settingsOpen);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
@@ -106,7 +108,6 @@ export default function App() {
     toggleCommentsPane,
     setTheme,
     setAboutOpen,
-    setSettingsOpen,
     checkForUpdate,
     startCommentOnSelection,
   };
@@ -196,6 +197,14 @@ export default function App() {
           >
             <IconComment /> Comments
           </button>
+          <button
+            className="toolbar-btn"
+            onClick={() => useStore.getState().openSettings()}
+            title="Settings"
+            aria-label="Settings"
+          >
+            <IconSettings /> Settings
+          </button>
         </div>
         <ErrorBoundary>
           <TabBar />
@@ -224,6 +233,8 @@ export default function App() {
           <ErrorBoundary>
             {activeTabPath ? (
               <ViewerRouter path={activeTabPath} />
+            ) : settingsOpen ? (
+              <SettingsView />
             ) : (
               <WelcomeView onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
             )}
@@ -242,9 +253,10 @@ export default function App() {
       </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
-      <FirstRunPanel />
-      <SetupPanel />
+      {/* Legacy author/preferences dialog. SettingsDialog → SettingsView
+          migration is tracked separately; for B10 the dialog stays mounted
+          so other entry points (menu items wired before B6) still work. */}
+      {settingsOpen && <SettingsDialog onClose={() => useStore.getState().closeSettings()} />}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 //! Onboarding state — pure data + I/O on an injectable path.
 //!
-//! Tracks the last app version the user was welcomed into and which onboarding
-//! sections they've already seen. Schema is versioned from day one: a future
-//! `schema_version` is treated as untrusted and ignored (returns Default).
+//! Tracks which onboarding sections the user has already seen. Schema is
+//! versioned from day one: a future `schema_version` is treated as untrusted
+//! and ignored (returns Default). Unknown legacy fields (e.g. the removed
+//! `last_welcomed_version`) are silently dropped by serde.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -12,7 +13,6 @@ const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnboardingState {
     pub schema_version: u32,
-    pub last_welcomed_version: Option<String>,
     #[serde(default)]
     pub last_seen_sections: Vec<String>,
     /// Display name written into `MrsfComment.author` for new comments.
@@ -27,7 +27,6 @@ impl Default for OnboardingState {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
-            last_welcomed_version: None,
             last_seen_sections: Vec::new(),
             author: None,
         }
@@ -68,7 +67,6 @@ mod tests {
         let path = dir.path().join("onboarding.json");
         let state = load_at(&path);
         assert_eq!(state.schema_version, SCHEMA_VERSION);
-        assert!(state.last_welcomed_version.is_none());
         assert!(state.last_seen_sections.is_empty());
     }
 
@@ -77,13 +75,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("onboarding.json");
         let original = OnboardingState {
-            last_welcomed_version: Some("0.3.4".into()),
             last_seen_sections: vec!["cli".into(), "default-handler".into()],
             ..Default::default()
         };
         save_at(&path, &original).unwrap();
         let loaded = load_at(&path);
-        assert_eq!(loaded.last_welcomed_version, Some("0.3.4".into()));
         assert_eq!(
             loaded.last_seen_sections,
             vec!["cli".to_string(), "default-handler".into()]
@@ -97,7 +93,6 @@ mod tests {
         std::fs::write(&path, b"{not valid json").unwrap();
         let state = load_at(&path);
         assert_eq!(state.schema_version, SCHEMA_VERSION);
-        assert!(state.last_welcomed_version.is_none());
     }
 
     #[test]
@@ -106,12 +101,25 @@ mod tests {
         let path = dir.path().join("onboarding.json");
         std::fs::write(
             &path,
-            br#"{"schema_version":99,"last_welcomed_version":"99.0.0","last_seen_sections":[]}"#,
+            br#"{"schema_version":99,"last_seen_sections":[]}"#,
         )
         .unwrap();
         let state = load_at(&path);
         assert_eq!(state.schema_version, SCHEMA_VERSION);
-        assert!(state.last_welcomed_version.is_none());
+    }
+
+    #[test]
+    fn legacy_payload_with_last_welcomed_version_loads_cleanly() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("onboarding.json");
+        std::fs::write(
+            &path,
+            r#"{"schema_version":1,"last_welcomed_version":"0.3.4","last_seen_sections":["cli"]}"#,
+        )
+        .unwrap();
+        let state = load_at(&path);
+        assert_eq!(state.schema_version, 1);
+        assert_eq!(state.last_seen_sections, vec!["cli".to_string()]);
     }
 
     #[test]

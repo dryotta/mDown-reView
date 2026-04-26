@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import * as logger from "@/logger";
 import App from "@/App";
+import "@/styles/settings-view.css";
 
 // Install global error handlers before React initializes so that errors
 // during module loading or the first render are captured.

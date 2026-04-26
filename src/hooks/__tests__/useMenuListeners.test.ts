@@ -29,13 +29,12 @@ describe("useMenuListeners", () => {
     toggleCommentsPane: vi.fn(),
     setTheme: vi.fn(),
     setAboutOpen: vi.fn(),
-    setSettingsOpen: vi.fn(),
     checkForUpdate: vi.fn(),
   };
 
-  it("subscribes to all 16 menu events", () => {
+  it("subscribes to all 15 menu events", () => {
     renderHook(() => useMenuListeners(callbacks));
-    expect(listeners.size).toBe(16);
+    expect(listeners.size).toBe(15);
     expect(listeners.has("menu-open-file")).toBe(true);
     expect(listeners.has("menu-open-folder")).toBe(true);
     expect(listeners.has("menu-close-folder")).toBe(true);
@@ -50,8 +49,10 @@ describe("useMenuListeners", () => {
     expect(listeners.has("menu-about")).toBe(true);
     expect(listeners.has("menu-open-settings")).toBe(true);
     expect(listeners.has("menu-check-updates")).toBe(true);
-    expect(listeners.has("menu-help-welcome")).toBe(true);
-    expect(listeners.has("menu-help-setup")).toBe(true);
+    expect(listeners.has("menu-help-settings")).toBe(true);
+    // Removed in #79: legacy onboarding entries no longer wired to the menu.
+    expect(listeners.has("menu-help-setup")).toBe(false);
+    expect(listeners.has("menu-help-welcome")).toBe(false);
   });
 
   it("calls handleOpenFile on menu-open-file event", () => {
@@ -88,10 +89,12 @@ describe("useMenuListeners", () => {
     expect(callbacks.setAboutOpen).toHaveBeenCalledWith(true);
   });
 
-  it("calls setSettingsOpen(true) on menu-open-settings event", () => {
+  it("dispatches openSettings on menu-open-settings event", () => {
+    const openSettings = vi.fn();
+    useStore.setState({ openSettings } as Partial<ReturnType<typeof useStore.getState>>);
     renderHook(() => useMenuListeners(callbacks));
     listeners.get("menu-open-settings")?.();
-    expect(callbacks.setSettingsOpen).toHaveBeenCalledWith(true);
+    expect(openSettings).toHaveBeenCalledOnce();
   });
 
   it("calls checkForUpdate on menu-check-updates event", () => {
@@ -100,27 +103,24 @@ describe("useMenuListeners", () => {
     expect(callbacks.checkForUpdate).toHaveBeenCalledOnce();
   });
 
-  it("calls openWelcome on menu-help-welcome event", () => {
-    const openWelcome = vi.fn();
-    useStore.setState({ openWelcome } as Partial<ReturnType<typeof useStore.getState>>);
+  it("dispatches openSettings on menu-help-settings event", () => {
+    const openSettings = vi.fn();
+    useStore.setState({ openSettings } as Partial<ReturnType<typeof useStore.getState>>);
     renderHook(() => useMenuListeners(callbacks));
-    listeners.get("menu-help-welcome")?.();
-    expect(openWelcome).toHaveBeenCalledOnce();
+    listeners.get("menu-help-settings")?.();
+    expect(openSettings).toHaveBeenCalledOnce();
   });
 
-  it("calls openSetup on menu-help-setup event", () => {
-    const openSetup = vi.fn();
-    useStore.setState({ openSetup } as Partial<ReturnType<typeof useStore.getState>>);
+  it("does not subscribe to legacy menu-help-setup event", () => {
     renderHook(() => useMenuListeners(callbacks));
-    listeners.get("menu-help-setup")?.();
-    expect(openSetup).toHaveBeenCalledOnce();
+    expect(listeners.has("menu-help-setup")).toBe(false);
   });
 
   it("cleans up all listeners on unmount", async () => {
     const { unmount } = renderHook(() => useMenuListeners(callbacks));
     unmount();
     await vi.waitFor(() => {
-      expect(mockUnlisten).toHaveBeenCalledTimes(16);
+      expect(mockUnlisten).toHaveBeenCalledTimes(15);
     });
   });
 });

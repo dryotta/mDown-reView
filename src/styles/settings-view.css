@@ -1,0 +1,191 @@
+/*
+ * Settings view — full-page region rendered when no tab is active and
+ * `settingsOpen` is true (see App.tsx routing + SettingsView.tsx). NOT a
+ * modal/dialog: no backdrop, no fixed positioning. Sits inside the normal
+ * content area so the user can dismiss it by Esc, the close button, or by
+ * opening any file.
+ *
+ * Reuses the global `--color-*` tokens defined in `app.css`.
+ */
+
+.settings-view {
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 24px 28px;
+  box-sizing: border-box;
+}
+
+/* Header: title on the left, close button on the right.
+   Class names start with `onboarding-` for historical reasons — SettingsView
+   reuses the markup from the deleted FirstRunPanel/SetupPanel and these are
+   the only remaining consumers. */
+.onboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 720px;
+  margin: 0 auto 16px auto;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.onboarding-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.onboarding-close {
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.onboarding-close:hover {
+  color: var(--color-text);
+  background: var(--color-tab-hover);
+}
+
+.onboarding-body {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Rows ──────────────────────────────────────────────────────────────── */
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-row-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* Status badge next to the label */
+.settings-row-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.settings-row-badge-done {
+  background: rgba(46, 160, 67, 0.16);
+  color: #2ea043;
+  border-color: rgba(46, 160, 67, 0.4);
+}
+
+.settings-row-badge-error {
+  background: rgba(207, 34, 46, 0.16);
+  color: var(--color-badge);
+  border-color: rgba(207, 34, 46, 0.4);
+}
+
+.settings-row-badge-unsupported {
+  opacity: 0.7;
+}
+
+/* Error message under the row spans both columns */
+.settings-row-error {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-badge);
+}
+
+/* ── Switch (pill) ─────────────────────────────────────────────────────── */
+
+.settings-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.settings-switch:hover:not(:disabled) {
+  border-color: var(--color-muted);
+}
+
+.settings-switch:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.settings-switch[aria-checked="true"],
+.settings-switch.settings-switch-on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.settings-switch[aria-checked="true"]:hover:not(:disabled),
+.settings-switch.settings-switch-on:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.settings-switch[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.settings-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 120ms ease;
+}
+
+.settings-switch[aria-checked="true"] .settings-switch-thumb,
+.settings-switch.settings-switch-on .settings-switch-thumb {
+  transform: translateX(16px);
+}

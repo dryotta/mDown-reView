@@ -46,7 +46,7 @@ export interface EventPayloads {
   "menu-open-settings": void;
   "menu-check-updates": void;
   "menu-help-welcome": void;
-  "menu-help-setup": void;
+  "menu-help-settings": void;
 }
 
 export type EventName = keyof EventPayloads;
