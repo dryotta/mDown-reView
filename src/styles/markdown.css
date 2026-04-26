@@ -1,6 +1,11 @@
 .markdown-viewer {
   padding: 20px 28px;
-  height: 100%;
+  /* min-height (not height) so this element — which is the sticky
+     containing block for `.viewer-toolbar` inside `EnhancedViewer` —
+     grows with content. With `height: 100%` the containing block is
+     capped at one viewport, so the toolbar follows it off-screen
+     once the user scrolls past the first viewport (#90). */
+  min-height: 100%;
 }
 
 .size-warning {

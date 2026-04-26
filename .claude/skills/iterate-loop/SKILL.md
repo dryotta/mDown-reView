@@ -21,7 +21,7 @@ Args are parsed positionally; `--auto-merge` may be combined with either mode.
 | Flag | Effect |
 |---|---|
 | (none) | **Default.** PRs from each round are left in the `ready-for-review` state set by `iterate-one-issue` — a human merges. |
-| `--auto-merge` | After every `Done-Achieved` round, squash-merge the PR via `gh pr merge --squash --delete-branch --auto` (waits on required checks if branch protection is enabled). Done-Blocked / Done-TimedOut PRs are never touched. |
+| `--auto-merge` | After every `Done-Achieved` round, poll the PR's required checks until they finish, then squash-merge directly via `gh pr merge --squash --delete-branch`. Does **not** use GitHub's `--auto` queueing feature (which requires the repo-level "Allow auto-merge" setting). Done-Blocked / Done-TimedOut PRs are never touched. |
 
 Anything else → STOP `[iterate-loop] Unknown arg "<ARG>". Use empty (continuous) or --once, optionally with --auto-merge.`
 
@@ -154,15 +154,37 @@ gh issue edit $PICK --remove-label "iterate-in-progress" 2>/dev/null || true
 
 Then:
 
-```bash
-gh pr merge "$PR_URL" --squash --delete-branch --auto
-```
+1. **Poll required checks** (max 60 polls × 60 s = 60 min budget per PR):
 
-`--auto` queues the merge to fire once required status checks pass; if no required checks are configured, GitHub merges immediately. Either way, this skill does **not** wait for the merge to land — it logs the enqueue result and moves on. The next round's `git pull --ff-only` at Step 3 picks up the merged commit naturally.
+   ```bash
+   for i in $(seq 1 60); do
+     gh pr checks "$PR_URL" --required
+     STATUS=$?
+     # gh pr checks exit codes:
+     #   0  = all required checks succeeded
+     #   8  = some required checks still pending / queued
+     #   1+ = at least one required check failed (or no required checks configured)
+     case $STATUS in
+       0) break ;;
+       8) sleep 60 ;;
+       *) break ;;
+     esac
+   done
+   ```
 
-If the `gh pr merge` call exits non-zero, log `[iterate-loop] auto-merge failed for #$PICK ($PR_URL): <stderr first line>` and continue. Do **not** halt the loop and do **not** retry — the PR remains ready-for-review for human handling. `ROUNDS_AUTO_MERGE_FAILED += 1`.
+   Edge case: if `--required` reports "no required checks", fall back to `gh pr checks "$PR_URL"` (all checks, not just required) once and treat its exit 0 as green.
 
-On success: `ROUNDS_AUTO_MERGED += 1`.
+2. **If checks ended green** (exit 0), squash-merge directly:
+
+   ```bash
+   gh pr merge "$PR_URL" --squash --delete-branch
+   ```
+
+   On success: `ROUNDS_AUTO_MERGED += 1`. The next round's `git pull --ff-only` at Step 3 picks up the merged commit.
+
+3. **If checks failed, polled out (60 min), or `gh pr merge` exits non-zero**, log `[iterate-loop] auto-merge skipped for #$PICK ($PR_URL): <reason>` and continue. Do **not** halt the loop and do **not** retry — the PR remains ready-for-review for human handling. `ROUNDS_AUTO_MERGE_FAILED += 1`.
+
+This skill never uses `gh pr merge --auto` — that requires the repository-level "Allow auto-merge" setting, which is not assumed to be enabled. Polling + direct merge keeps `--auto-merge` working on any repository the agent can push to and merge on.
 
 ### Step 6 — Tally + per-round log
 
@@ -173,7 +195,7 @@ Parse `INNER_OUTPUT`. Append one row to `$LOOP_LOG`:
 - Started: <ISO>   Finished: <ISO>   Duration: <h:mm>
 - Outcome: <Done-Achieved|Done-Blocked|Done-TimedOut|Deferred-Grooming>
 - Branch: <BRANCH>   PR: <URL or n/a>
-- Auto-merge: <enqueued | failed: <reason> | n/a (Done-Blocked|TimedOut|Deferred) | off>
+- Auto-merge: <merged | skipped: <reason> | n/a (Done-Blocked|TimedOut|Deferred) | off>
 - Phase 2 (inner): <improvement issue URL | NO_IMPROVEMENT_FOUND | skipped>
 ```
 

@@ -178,11 +178,16 @@
 }
 
 /* L1 — `EnhancedViewer` flex column. The toolbar (with FileActionsBar in
-   its `trailing` slot) is the single sticky element inside it. */
+   its `trailing` slot) is the single sticky element inside it.
+   `min-height: 100%` (not `height: 100%`) so the sticky containing
+   block grows with the viewer body. With a fixed `height: 100%` the
+   containing block is capped at one viewport of `.viewer-scroll-region`,
+   and once the user scrolls past it the sticky toolbar follows it
+   off-screen — the bug behind #90. */
 .enhanced-viewer {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  min-height: 100%;
 }
 
 /* L5 — shared scroll/error containers used by `ViewerRouter`. */
