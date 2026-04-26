@@ -56,6 +56,30 @@ For `i = 1 .. iterations`:
 
 After the last iteration, write a session digest to `.claude/test-exploratory-loop/runs/<ISO-ts>/loop.md` summarising per-iteration counts, all baseline→advance SHA pairs, and links to filed/reproduced issues.
 
+## Post-loop retrospective + self-improvement issue
+
+After the final iteration's digest is written, run the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Bindings:
+
+- `SKILL_TAG=test-exploratory-loop`
+- `RUN_TAG=loop-<ISO-ts>` (matches the loop digest folder)
+- `OUTCOME=PASSED` if the loop completed all `--iterations`; `DEGRADED` if the early-stop heuristics in "Stopping early" fired; `BLOCKED` if pre-flight or `sync.ts` halted; `TIMED-OUT` if `wait-for-main` hit its 3-consecutive-timeout cap.
+- `RETRO_FILE=".claude/retrospectives/test-exploratory-loop-$RUN_TAG.md"`. Mirror to `.claude/test-exploratory-loop/runs/<ISO-ts>/retrospective.md`.
+
+Source material for the retro: the per-iteration `loop.md` digest (advance SHAs, new/reproduced/filed counts), each inner-skill `runs/<ISO-ts>/retrospective.md`, and the early-stop reason if any.
+
+Improvement candidates here typically target **the orchestrator itself**:
+- A wait-for-main poll cadence that hides backlog stalls.
+- A rebuild step that misses a binary change.
+- Persona seeds that reach saturation too early.
+- Synchronisation gaps with the fix loop (e.g. issues filed but never picked up).
+
+Run R1 then R2 per the shared spec. The created issue carries `iterate-improvement` + `self-improve:test-exploratory-loop` and feeds the next `/iterate` run.
+
+End with:
+```
+🔁 Self-improve: <NEW_ISSUE_URL> (<category>)   # or "reproduced #N", "NO_IMPROVEMENT_FOUND", "skipped"
+```
+
 ## Pre-flight (once at i=0)
 
 Same as `test-exploratory-e2e`:
@@ -86,6 +110,7 @@ The agent should stop and surface to the user if:
 ## Outputs
 
 - `.claude/test-exploratory-loop/runs/<ISO-ts>/loop.md` — orchestrator digest
+- `.claude/test-exploratory-loop/runs/<ISO-ts>/retrospective.md` — post-loop retro (mirrored to `.claude/retrospectives/`)
 - `.claude/test-exploratory-e2e/runs/<ISO-ts>/` — one folder per iteration (inherited from the inner skill)
 
 ## Non-goals

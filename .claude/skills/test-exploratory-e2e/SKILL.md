@@ -104,6 +104,28 @@ If you want a sanity check, run `{"act":"file_issues","dryRun":true}` first and 
 
 When you stop, send `{"act":"stop"}`. Read the response, view `reportPath`, and report findings to the user.
 
+## Post-run retrospective + self-improvement issue
+
+After `{"act":"stop"}` and `file_issues`, before reporting back to the user, run the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Bindings:
+
+- `SKILL_TAG=test-exploratory-e2e`
+- `RUN_TAG=run-<ISO-ts>` (matches the runDir)
+- `OUTCOME=<PASSED|DEGRADED>` — `PASSED` if `{"act":"stop"}` returned cleanly with `findings >= 0` and no IPC/console errors hit a P1; `DEGRADED` otherwise.
+- `RETRO_FILE=".claude/retrospectives/test-exploratory-e2e-$RUN_TAG.md"` AND mirror to `<runDir>/retrospective.md` for in-run inspection.
+
+Improvement candidates here typically target **the skill itself, the persona seeds, the heuristics catalogue, or the REPL runner** — examples:
+- A heuristic that fired on a false positive → propose tightening the rule.
+- A persona seed that produced low-yield exploration → propose retiring or refining it.
+- A REPL action that wedged or buffered → propose a runner fix.
+- An app bug class the skill keeps missing → propose a new heuristic or seed.
+
+Run R1 (write the retro), then R2 (gate / synthesise / dedupe / create) per the shared spec. The created issue carries `iterate-improvement` + `self-improve:test-exploratory-e2e` labels and will be picked up by the next `/iterate` run automatically.
+
+End with the shared banner line so logs are greppable:
+```
+🔁 Self-improve: <NEW_ISSUE_URL> (<category>)   # or "reproduced #N", "NO_IMPROVEMENT_FOUND", "skipped"
+```
+
 ## Persistent GitHub identifiers
 
 GitHub state still uses the legacy `explore-ux` label / body marker / evidence branch. See [`references/identifiers.md`](references/identifiers.md) before renaming anything.

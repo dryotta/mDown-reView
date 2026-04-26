@@ -535,23 +535,19 @@ Update PR:
 
 ### Step 8.5 — Retrospective (committed every iteration)
 
-Phase 2 reads these. Vague retros are useless — every point cites file:line, agent name, commit SHA, rule, or quoted error.
+Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Iterate-specific bindings:
 
-#### 8.5a. Paths
-```bash
-SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
-RETRO_DIR=".claude/retrospectives"
-RETRO_FILE="$RETRO_DIR/$SAFE_BRANCH-iter-$N.md"
-mkdir -p "$RETRO_DIR"
+- `SKILL_TAG=iterate`
+- `RUN_TAG=$(echo "$BRANCH" | tr '/' '-')-iter-$N`
+- `RETRO_FILE=".claude/retrospectives/$RUN_TAG.md"` (the SAFE_BRANCH prefix from earlier iterate versions is already encoded in `RUN_TAG`)
+- `OUTCOME=<PASSED|DEGRADED|SKIPPED>` (per Step 2 + Step 7 result)
+- For bug-mode iterations, append a `## BUG_RCA` section (verbatim from Step 3a) after `## Carry-over to the next run`.
+- Phase 2 (below) is iterate's binding of **Step R2** — it runs once at terminal Done-X, not per iteration. **Skip the per-iteration R2 call** — only Step 8.5's R1 (write the file) runs inside the loop.
+
+#### 8.5a–b. Generate
+
+Use the R1 prompt from the shared spec, with iterate-specific context block:
 ```
-
-#### 8.5b. Generate
-
-`general-purpose`:
-```
-Retrospective for iteration <N>/30 on mdownreview.
-
-Context (load-bearing — committed to PR, synthesised by Phase 2):
 - Mode: <MODE>   Goal: <GOAL_FOR_ASSESSOR>   Issue: #<ISSUE_NUMBER or n/a>
 - Bug-mode: <IS_BUG>   Outcome: <PASSED|DEGRADED|SKIPPED>
 - Commits ITER_BASE_SHA..HEAD: <SHAs + summaries>
@@ -561,38 +557,6 @@ Context (load-bearing — committed to PR, synthesised by Phase 2):
 - Assessor confidence: <prev% → curr%>
 - Iteration log entry verbatim: <…>
 - BUG_RCA (if applicable): <verbatim>
-
-Output ONE markdown file with this exact structure. Concrete only — no platitudes. Every point cites file:line / agent / SHA / rule / quoted error.
-
-# Retrospective — iteration <N>/30 (<PASSED|DEGRADED|SKIPPED>)
-
-## Goal of this iteration
-<one sentence — verbatim NEXT_REQUIREMENTS or AC>
-
-## What went well
-- <concrete bullet>
-
-## What did not go well
-- <concrete: which agent, which rule, which file, which assertion>
-
-## Root causes of friction
-For each problem above, the underlying cause. Cite docs/X.md rules where one could be tightened.
-
-## Improvement candidates (each must be specifiable)
-For each candidate use this template — Phase 2 must lift directly into a `<!-- mdownreview-spec -->` body without re-investigation:
-
-### <short imperative title>
-- **Category:** process | tooling | test-strategy | architecture | docs | skill | agent
-- **Problem (with evidence):** <2–3 sentences citing file:line, agent, log, SHA>
-- **Proposed change:** <concrete diff sketch — paths, what to add/remove, what to assert>
-- **Acceptance signal:** <measurable, observable>
-- **Estimated size:** xs|s|m|l
-- **Confidence this matters:** low|medium|high (one-line justification)
-
-If no candidate, write literally: `_None — iteration was clean and adds no signal for Phase 2._`
-
-## Carry-over to next iteration
-<bullets; empty if none>
 ```
 
 Write output verbatim to `$RETRO_FILE`.

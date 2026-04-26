@@ -1,113 +1,34 @@
-## Phase 2 — Improvement-spec synthesis (every terminal path)
+# Phase 2 — Improvement-spec synthesis (every terminal path)
 
-Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut.
+Iterate's binding of **Step R2** in [`../../shared/retrospective.md`](../../../shared/retrospective.md). Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut.
 
-### 2a. Gate
+## 2a. Gate
+
 ```bash
 SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
 RETRO_FILES=$(ls -1 ".claude/retrospectives/$SAFE_BRANCH-iter-"*.md 2>/dev/null || true)
 RETRO_COUNT=$(echo "$RETRO_FILES" | grep -c . || true)
 ```
 
-Skip Phase 2 (go to terminal banner) if:
-- `RETRO_COUNT == 0`, OR
-- Every retro contains literally `_None — iteration was clean and adds no signal for Phase 2._` and nothing else under "Improvement candidates".
-
-When skipped: state file `## Phase 2 — SKIPPED (no actionable retrospective signal)`.
-
-### 2b. Synthesise
-
-`general-purpose` (single call). Pass every retro file content verbatim + terminal status.
-
+Apply the shared **R2a** gate (skip when no retros, or every retro is the literal `_None — run was clean…_` line). When skipped, state file:
 ```
-Synthesise iterate-loop retros into ONE follow-up improvement spec.
-Loop terminated as: <Done-Achieved|Done-Blocked|Done-TimedOut>
-Branch: <BRANCH>   Iterate PR: <URL>   Issue: #<ISSUE_NUMBER>
-Total retros: <RETRO_COUNT>
-
-Retros (verbatim, in order, '---' separated):
-<concatenated $SAFE_BRANCH-iter-N.md>
-
-Pick the SINGLE highest-leverage candidate meeting ALL:
-1. Recurs across ≥2 retros, OR appears once with high-confidence + l/m size, OR is a `bug`/`agent`/`skill` candidate the loop itself hit.
-2. Source retros have enough specificity (file:line, agent, rule, log) to draft a concrete spec.
-3. In scope: iterate skill, .claude/agents/, docs/*.md, src/, src-tauri/, e2e/, .github/workflows/.
-4. Not duplicating an open issue. Verify: `gh issue list --state open --search "<keywords>" --limit 20`.
-
-If NO candidate clears all four, output exactly:
-NO_IMPROVEMENT_FOUND
-<one-paragraph justification>
-
-Otherwise output exactly this template — no preamble, no extra commentary:
-
-ISSUE_TITLE: <imperative, ≤70 chars>
-ISSUE_LABELS: <comma-separated; from {groomed, iterate-improvement} + exactly one of {process, tooling, test-strategy, architecture, docs, skill, agent, bug}>
-ISSUE_BODY:
-<problem statement, 1-2 paragraphs, citing retro file paths>
-
-## Why this matters
-<1 paragraph linking to docs/principles.md pillar(s)>
-
-## Evidence from retrospectives
-<bullets, each quoting retro verbatim + file>
-
-SPEC_BODY:
-<body of `<!-- mdownreview-spec -->` comment — self-contained for fresh /iterate run>
-
-# <ISSUE_TITLE>
-
-## Goal
-<one sentence, observable>
-
-## Acceptance criteria
-- [ ] <specific, measurable, file/path-cited>
-- [ ] …
-- [ ] Regression test (if behaviour change): <file path, layer, assertion>
-
-## Files likely to change
-<bullets>
-
-## Out of scope
-<bullets>
-
-## Notes
-<constraints — e.g. "must not regress test-strategy.md rule 5">
+## Phase 2 — SKIPPED (no actionable retrospective signal)
 ```
 
-Capture `IMPROVEMENT_SYNTHESIS`.
+## 2b. Synthesise
 
-### 2c. Decision
+Apply shared **R2b** with these iterate-specific bindings passed into the synthesis prompt:
+- `SKILL_TAG=iterate`
+- `RUN_TAG=$SAFE_BRANCH` (covers all iterations of this run)
+- `OUTCOME=<Done-Achieved|Done-Blocked|Done-TimedOut>`
+- Branch / Iterate PR / Issue context
+- Concatenate all `$SAFE_BRANCH-iter-N.md` in order (separated by `---`)
 
-Begins with `NO_IMPROVEMENT_FOUND`:
-```markdown
-## Phase 2 — NO_IMPROVEMENT_FOUND
-- Justification: <verbatim>
-- Retrospectives reviewed: <paths>
-```
-Append, skip 2d/2e, banner.
+Capture as `IMPROVEMENT_SYNTHESIS`. The synthesis output already enforces the `iterate-improvement` + `self-improve:iterate` labels via shared R2b.
 
-Else parse `ISSUE_TITLE`, `ISSUE_LABELS`, `ISSUE_BODY`, `SPEC_BODY`.
+## 2c. Decision + dedupe + create
 
-### 2d. Create issue + spec
-
-```bash
-NEW_ISSUE_URL=$(gh issue create \
-  --title "$ISSUE_TITLE" \
-  --label "$ISSUE_LABELS" \
-  --body "$(printf '%s\n\nSurfaced by /iterate retrospectives on PR <PR_URL>.\n\n%s' "$ISSUE_BODY" "<links to each retro file in PR>")")
-NEW_ISSUE_NUMBER=<parsed>
-
-gh issue comment "$NEW_ISSUE_NUMBER" --body "$(cat <<EOF
-<!-- mdownreview-spec -->
-$SPEC_BODY
-EOF
-)"
-
-gh pr comment <PR_NUMBER> --body "<!-- iterate-followup -->
-🔁 Phase 2 surfaced a follow-up improvement: $NEW_ISSUE_URL"
-```
-
-State file:
+Run shared **R2c → R2d → R2e** in order. State file when an issue is created:
 ```markdown
 ## Phase 2 — IMPROVEMENT_FOUND
 - New issue: <URL>
@@ -115,9 +36,21 @@ State file:
 - Recursion: <will-recurse | skipped — see 2e>
 ```
 
-### 2e. Optional auto-recursion (gated)
+When R2c reports `NO_IMPROVEMENT_FOUND`:
+```markdown
+## Phase 2 — NO_IMPROVEMENT_FOUND
+- Justification: <verbatim>
+- Retrospectives reviewed: <paths>
+```
+Skip 2e, banner.
 
-Auto-recurse ONLY when ALL hold:
+## 2d. Cross-link to iterate PR
+
+Apply shared **R2f** with the iterate PR number — comments `🔁 Phase 2 surfaced a follow-up improvement: <URL>` (using marker `<!-- iterate-followup -->`).
+
+## 2e. Optional auto-recursion (gated)
+
+Iterate is the **only** skill that opts into shared **R2g**. Auto-recurse ONLY when ALL hold:
 - Loop ended **Done-Achieved**.
 - `.claude/iterate-recursion-depth` missing OR contains `0`.
 - New issue has `iterate-improvement` label (template enforces).
