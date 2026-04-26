@@ -51,3 +51,5 @@ src-tauri/binaries/mdownreview-cli-*
 # test-exploratory-e2e skill runtime artefacts
 .claude/test-exploratory-e2e/runs/
 .claude/test-exploratory-e2e/known-findings.json
+.claude/test-exploratory-loop/runs/
+
