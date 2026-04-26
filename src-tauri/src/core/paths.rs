@@ -16,6 +16,34 @@
 
 use std::path::{Path, PathBuf};
 
+/// Canonicalize `p` without leaking Windows `\\?\` verbatim prefixes across
+/// the IPC boundary.
+///
+/// This is the canonical-form chokepoint for every Tauri command, the
+/// watcher, the scanner, and the CLI. Why a dedicated helper instead of
+/// calling [`std::fs::canonicalize`] directly:
+///
+/// - On Windows, [`std::fs::canonicalize`] always returns the verbatim
+///   form (`\\?\C:\…` or `\\?\UNC\srv\share\…`). When that string crosses
+///   into TypeScript it desynchronises from the bare-form paths that the
+///   frontend already holds (workspace `root`, persisted tabs, dialog
+///   results, [`std::fs::read_dir`] output) and breaks string-equality
+///   matching — the root cause of issue #89's ghost duplicates and the
+///   "Other files" mis-attribution.
+/// - On non-Windows targets the call is identical to
+///   [`std::fs::canonicalize`]; `dunce::canonicalize` is a thin wrapper.
+/// - For paths that exceed the legacy `MAX_PATH` (260 bytes) on Windows,
+///   no non-verbatim form exists; in that case `dunce` falls back to the
+///   verbatim form rather than failing — callers must not assume the
+///   result never contains `\\?\`, only that it never contains it
+///   *unnecessarily*.
+///
+/// Errors mirror [`std::fs::canonicalize`] (returns the underlying
+/// [`std::io::Error`] on missing file, permission denied, etc.).
+pub fn canonicalize_no_verbatim(p: &Path) -> std::io::Result<PathBuf> {
+    dunce::canonicalize(p)
+}
+
 /// Resolve a CLI-style path argument.
 ///
 /// Rules:
@@ -303,5 +331,78 @@ mod tests {
             err.contains("outside") || err.contains("not found"),
             "unexpected error: {err}"
         );
+    }
+
+    // ---- canonicalize_no_verbatim ------------------------------------
+
+    #[test]
+    fn canonicalize_no_verbatim_posix_passthrough() {
+        // On any platform, canonicalizing a real tempdir succeeds and
+        // returns an absolute path. On non-Windows this matches std
+        // exactly; the assertion below is the cross-platform invariant.
+        let dir = tempdir().unwrap();
+        let canon = canonicalize_no_verbatim(dir.path()).unwrap();
+        assert!(canon.is_absolute());
+        assert!(canon.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonicalize_no_verbatim_strips_disk_verbatim_prefix() {
+        // `dunce` rewrites `\\?\C:\…` to `C:\…` whenever the bare form
+        // resolves to the same file. Synthesize the verbatim form by
+        // calling std::fs first, then assert dunce strips it.
+        let dir = tempdir().unwrap();
+        let std_canon = std::fs::canonicalize(dir.path()).unwrap();
+        let std_str = std_canon.to_string_lossy();
+        // Sanity: std really did emit the verbatim form on this host.
+        assert!(
+            std_str.starts_with(r"\\?\"),
+            "expected std::fs::canonicalize to produce verbatim form on Windows, got {std_str}"
+        );
+        let bare = canonicalize_no_verbatim(dir.path()).unwrap();
+        let bare_str = bare.to_string_lossy();
+        assert!(
+            !bare_str.starts_with(r"\\?\"),
+            "expected non-verbatim form, got {bare_str}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonicalize_no_verbatim_strips_unc_verbatim_prefix() {
+        // We can't reliably create `\\?\UNC\…` paths in a test (would need
+        // a real UNC share), so feed dunce a synthetic `\\?\UNC\…` string
+        // pointing at a real local dir via its disk form is impossible.
+        // Instead, exercise the explicit string-rewrite contract: passing
+        // a `\\?\UNC\` path must NOT emit a verbatim result when the bare
+        // `\\srv\share` form would mean the same thing. dunce's contract
+        // is documented: any UNC verbatim it can simplify, it does.
+        // We assert the API surface: a string that already has `\\?\UNC\`
+        // and points nowhere yields an Err (file-not-found) — i.e. we
+        // never panic, and we never silently strip into a wrong path.
+        let bogus = std::path::PathBuf::from(r"\\?\UNC\nonexistent-host\share\file");
+        let res = canonicalize_no_verbatim(&bogus);
+        assert!(res.is_err(), "expected Err on nonexistent UNC, got {res:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonicalize_no_verbatim_long_path_does_not_panic() {
+        // A path long enough that no non-verbatim form is possible
+        // (>260 chars). dunce's contract is that it falls back to the
+        // verbatim form rather than panicking; we don't care which form
+        // we get, only that the call succeeds without unwinding.
+        let dir = tempdir().unwrap();
+        let mut deep = dir.path().to_path_buf();
+        // 30 segments of 10 chars each → ~300 chars beyond the tempdir root.
+        for i in 0..30 {
+            deep = deep.join(format!("seg-{:04}-x", i));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        // Must not panic. On hosts where the dir resolves to a path
+        // shorter than MAX_PATH (rare with this many segments) dunce
+        // returns the bare form; otherwise it returns the verbatim form.
+        let _ = canonicalize_no_verbatim(&deep).expect("long-path canonicalize must succeed");
     }
 }

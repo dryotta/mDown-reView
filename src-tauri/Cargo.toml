@@ -50,6 +50,11 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", features = ["sync"] }
 unicode-segmentation = "1"
+# Pure-Rust path canonicalizer that strips Windows `\\?\` verbatim prefixes
+# whenever an equivalent non-verbatim form exists. Promoted from transitive
+# (tauri/open) to direct so `core::paths::canonicalize_no_verbatim` has a
+# stable, intentional dependency. See docs/security.md rule 11.
+dunce = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

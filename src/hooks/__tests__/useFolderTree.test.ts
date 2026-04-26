@@ -155,4 +155,25 @@ describe("buildFolderTree", () => {
     expect(ghost!.name).toBe("ghost.md");
     expect(ghost!.depth).toBe(1);
   });
+
+  // Issue #89 regression — cross-form ghost dedupe.
+  //
+  // Before AC #4 the scanner emitted `\\?\C:\…` verbatim paths while
+  // `read_dir` emitted bare `C:\…`; the dedupe check
+  // (`flatList.some((n) => n.path === ghost.sourcePath)`) string-compared
+  // cross-form and missed, surfacing a duplicate ghost beside the real
+  // file. AC #4 aligns the producers; this test pins the renderer-side
+  // defensive normalisation that survives if either side regresses.
+  it("dedupes a verbatim cache entry against a bare ghost path (issue #89)", () => {
+    const winRoot = "C:\\proj";
+    const cache: Record<string, DirEntry[]> = {
+      [winRoot]: [makeEntry("a.md", "\\\\?\\C:\\proj\\a.md", false)],
+    };
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "C:\\proj\\a.md", sidecarPath: "C:\\proj\\a.md.review.yaml" },
+    ];
+    const result = buildFolderTree(winRoot, cache, {}, "", ghosts);
+    expect(result).toHaveLength(1);
+    expect(result[0].isGhost).toBeFalsy();
+  });
 });

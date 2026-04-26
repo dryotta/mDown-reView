@@ -2,6 +2,7 @@
 
 #[cfg(debug_assertions)]
 use super::is_sidecar_file;
+use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::LaunchArgs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -80,7 +81,7 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
             i += 1;
             if let Some(val) = args.get(i) {
                 let resolved = crate::core::paths::resolve_path(val, None, cwd);
-                if let Ok(canon) = std::fs::canonicalize(&resolved) {
+                if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
                     folders.push(canon.to_string_lossy().into_owned());
                 }
             }
@@ -104,13 +105,13 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
             i += 1;
             if let Some(val) = args.get(i) {
                 let resolved = crate::core::paths::resolve_path(val, folder_opt, cwd);
-                if let Ok(canon) = std::fs::canonicalize(&resolved) {
+                if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
                     files.push(canon.to_string_lossy().into_owned());
                 }
             }
         } else if !arg.starts_with('-') {
             let resolved = crate::core::paths::resolve_path(arg, folder_opt, cwd);
-            if let Ok(canon) = std::fs::canonicalize(&resolved) {
+            if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
                 match std::fs::metadata(&canon) {
                     Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
                     Ok(_) => files.push(canon.to_string_lossy().into_owned()),
@@ -200,9 +201,13 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    /// Canonicalize via std so test expectations match (handles Windows `\\?\` prefix).
+    /// Canonicalize via the shared no-verbatim helper so test expectations
+    /// share form with what `parse_launch_args` itself emits.
     fn canon(p: impl AsRef<Path>) -> String {
-        fs::canonicalize(p).unwrap().to_string_lossy().into_owned()
+        canonicalize_no_verbatim(p.as_ref())
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn s(v: &str) -> String {
@@ -406,7 +411,7 @@ mod tests {
         let folder_str = canon(proj.path());
         let expected =
             crate::core::paths::resolve_path("foo.md", Some(folder_str.as_str()), cwd.path());
-        let expected_canon = fs::canonicalize(&expected)
+        let expected_canon = canonicalize_no_verbatim(&expected)
             .unwrap()
             .to_string_lossy()
             .into_owned();

@@ -3,6 +3,7 @@
 //! canonical target lies inside the canonical app-bundle root.
 
 use super::{CliShimError, CliShimStatus};
+use crate::core::paths::canonicalize_no_verbatim;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
@@ -17,7 +18,7 @@ fn io_err(e: std::io::Error) -> CliShimError {
 fn app_bundle_root(_app: &AppHandle) -> Result<PathBuf, CliShimError> {
     // current_exe() points at .app/Contents/MacOS/mdownreview
     let exe = std::env::current_exe().map_err(io_err)?;
-    let canonical = std::fs::canonicalize(&exe).map_err(io_err)?;
+    let canonical = canonicalize_no_verbatim(&exe).map_err(io_err)?;
     canonical
         .ancestors()
         .nth(3) // .../X.app/Contents/MacOS/mdownreview -> .../X.app
@@ -52,12 +53,12 @@ pub fn status_at(shim: &Path, app_root: Option<&Path>) -> CliShimStatus {
     if !meta.file_type().is_symlink() {
         return CliShimStatus::Broken;
     }
-    let target = match std::fs::canonicalize(shim) {
+    let target = match canonicalize_no_verbatim(shim) {
         Ok(t) => t,
         Err(_) => return CliShimStatus::Broken, // dangling symlink
     };
     if let Some(root) = app_root {
-        if let Ok(canonical_root) = std::fs::canonicalize(root) {
+        if let Ok(canonical_root) = canonicalize_no_verbatim(root) {
             if target.starts_with(&canonical_root) {
                 return CliShimStatus::Done;
             }
@@ -99,10 +100,10 @@ pub fn remove_at(shim: &Path, app_root: &Path) -> Result<(), CliShimError> {
             message: "refusing: not a symlink".into(),
         });
     }
-    let target = std::fs::canonicalize(shim).map_err(|_| CliShimError::Io {
+    let target = canonicalize_no_verbatim(shim).map_err(|_| CliShimError::Io {
         message: "refusing: broken symlink".into(),
     })?;
-    let canonical_root = std::fs::canonicalize(app_root).map_err(io_err)?;
+    let canonical_root = canonicalize_no_verbatim(app_root).map_err(io_err)?;
     if !target.starts_with(&canonical_root) {
         return Err(CliShimError::Io {
             message: "refusing: target outside app bundle".into(),

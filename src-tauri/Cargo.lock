@@ -2790,6 +2790,7 @@ dependencies = [
  "chrono",
  "clap 4.6.1",
  "criterion",
+ "dunce",
  "log",
  "notify",
  "notify-debouncer-mini",

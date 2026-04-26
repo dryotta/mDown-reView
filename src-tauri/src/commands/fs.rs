@@ -1,6 +1,7 @@
 //! Filesystem-facing IPC commands: directory listing and file reads.
 
 use super::is_sidecar_file;
+use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::DirEntry;
 
 /// Check if a path exists and whether it is a directory or file.
@@ -18,14 +19,14 @@ pub fn check_path_exists(path: String) -> String {
 #[tauri::command]
 pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
     // Canonicalize to resolve symlinks and reject traversal
-    let canonical = std::fs::canonicalize(&path).map_err(|e| {
+    let canonical = canonicalize_no_verbatim(std::path::Path::new(&path)).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
     // Ensure the canonical path matches the requested one (no breakout)
     let requested = std::path::Path::new(&path);
     if requested.is_absolute() {
-        let req_canonical = std::fs::canonicalize(requested).map_err(|e| e.to_string())?;
+        let req_canonical = canonicalize_no_verbatim(requested).map_err(|e| e.to_string())?;
         if req_canonical != canonical {
             return Err("path traversal not allowed".into());
         }

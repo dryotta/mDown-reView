@@ -1,6 +1,7 @@
 //! `export_review_summary` — workspace-wide markdown digest.
 
 use super::enforce_workspace_path;
+use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::CommentThread;
 use crate::watcher::WatcherState;
 use std::path::Path;
@@ -82,7 +83,7 @@ pub fn export_review_summary_inner(workspace: &str) -> String {
 /// original input on error (missing file, permission denied) so callers
 /// can still attempt raw-equality matching as a last resort.
 fn canonicalize_string(p: &str) -> String {
-    match std::fs::canonicalize(p) {
+    match canonicalize_no_verbatim(Path::new(p)) {
         Ok(canon) => canon.to_string_lossy().to_string(),
         Err(_) => p.to_string(),
     }

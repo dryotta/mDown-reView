@@ -1,7 +1,8 @@
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, Subcommand};
 use mdown_review_lib::core::types::CommentMutation;
-use mdown_review_lib::core::{comments, paths, scanner, sidecar};
+use mdown_review_lib::core::paths::{self, canonicalize_no_verbatim};
+use mdown_review_lib::core::{comments, scanner, sidecar};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -130,8 +131,8 @@ fn root_dir(folder: Option<&str>) -> PathBuf {
 
 /// Compute a path relative to `root` if possible; otherwise stringify `path`.
 fn rel_to(path: &Path, root: &Path) -> String {
-    let canonical_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical_root = canonicalize_no_verbatim(root).unwrap_or_else(|_| root.to_path_buf());
+    let canonical_path = canonicalize_no_verbatim(path).unwrap_or_else(|_| path.to_path_buf());
     canonical_path
         .strip_prefix(&canonical_root)
         .map(|r| r.to_string_lossy().into_owned())
@@ -139,7 +140,7 @@ fn rel_to(path: &Path, root: &Path) -> String {
 }
 
 fn abs_str(path: &Path) -> String {
-    std::fs::canonicalize(path)
+    canonicalize_no_verbatim(path)
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .into_owned()

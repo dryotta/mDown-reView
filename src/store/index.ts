@@ -25,6 +25,7 @@ import {
 import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
 import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
 import { createCommentsSlice, type CommentsSlice } from "./comments";
+import { stripVerbatimPrefix } from "@/lib/paths";
 
 export type { OnboardingState, Tab, TabsSlice, FileMeta };
 export { MAX_TABS, filterStaleTabs };
@@ -305,6 +306,65 @@ export const useStore = create<Store>()(
     }),
     {
       name: "mdownreview-ui",
+      // Bump when persisted-shape migrations land. v1 (issue #89) strips
+      // Windows `\\?\` verbatim prefixes from every persisted path field
+      // so old clients agree with the post-fix Rust IPC chokepoint
+      // (`core::paths::canonicalize_no_verbatim`) on string identity.
+      version: 1,
+      migrate: (persistedState, fromVersion) => {
+        // `migrate` runs BEFORE the store is hydrated; we receive the raw
+        // shape and return the migrated raw shape. Type as the partialized
+        // payload (every field below is also in `partialize`).
+        const s = (persistedState ?? {}) as Record<string, unknown>;
+        if (fromVersion < 1) {
+          // ── Strip verbatim prefixes from every persisted path field ──
+          if (typeof s.root === "string") {
+            s.root = stripVerbatimPrefix(s.root);
+          }
+          if (typeof s.activeTabPath === "string") {
+            s.activeTabPath = stripVerbatimPrefix(s.activeTabPath);
+          }
+          if (Array.isArray(s.tabs)) {
+            s.tabs = (s.tabs as Tab[]).map((t) => ({
+              ...t,
+              path: stripVerbatimPrefix(t.path),
+            }));
+          }
+          if (Array.isArray(s.recentItems)) {
+            // Strip first, then re-dedupe by post-strip path keeping the
+            // most recent timestamp so a workspace that was opened both
+            // through the dialog (`C:\…`) and through an OS handler
+            // (`\\?\C:\…`) collapses to a single entry. Sort newest-first
+            // so subsequent UI consumers (recent menu) render in order.
+            const stripped = (s.recentItems as RecentItem[]).map((r) => ({
+              ...r,
+              path: stripVerbatimPrefix(r.path),
+            }));
+            const byPath = new Map<string, RecentItem>();
+            for (const r of stripped) {
+              const prior = byPath.get(r.path);
+              if (!prior || r.timestamp > prior.timestamp) {
+                byPath.set(r.path, r);
+              }
+            }
+            s.recentItems = Array.from(byPath.values()).sort(
+              (a, b) => b.timestamp - a.timestamp,
+            );
+          }
+          if (s.expandedFolders && typeof s.expandedFolders === "object") {
+            const next: Record<string, boolean> = {};
+            for (const [k, v] of Object.entries(s.expandedFolders as Record<string, boolean>)) {
+              next[stripVerbatimPrefix(k)] = v;
+            }
+            s.expandedFolders = next;
+          }
+        }
+        // The migrate signature requires the partialize-shape return; the
+        // strict shape is inferred inline so we satisfy it via the
+        // double-cast through `unknown`. The runtime shape is identical
+        // (every field below appears in `partialize`).
+        return s as unknown as ReturnType<NonNullable<Parameters<typeof persist>[1]["partialize"]>>;
+      },
       // Only persist UI state, not comments (those live in sidecar files)
       partialize: (state) => ({
         theme: state.theme,
