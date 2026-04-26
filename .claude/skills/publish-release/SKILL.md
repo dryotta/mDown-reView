@@ -1,6 +1,6 @@
 ---
 name: publish-release
-description: Bump version, update changelog, tag, and push — triggers the release CI/CD workflow.
+description: Use when shipping a new release of mdownreview — when the user says "release", "tag", "publish", "ship a new version", "bump version", or asks for a CHANGELOG-driven version bump. Triggers the release CI/CD workflow via tag push.
 ---
 
 **Never skip the confirmation in Step 5.**

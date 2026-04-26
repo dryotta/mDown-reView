@@ -1,6 +1,6 @@
 ---
 name: validate-ci
-description: Ensure a release/* PR exists so CI + Release Gate run on the current work.
+description: Use when verifying that CI and the Release Gate workflow run on the current work, when a `release/*` branch is missing for a change being prepped for release, or when the user asks to "trigger CI" / "run the release gate" / "validate before merging".
 ---
 
 CI runs on any PR to `main`; Release Gate also requires `release/*` head ref. This skill creates whatever's needed to trigger both.
@@ -13,7 +13,7 @@ CI runs on any PR to `main`; Release Gate also requires `release/*` head ref. Th
 ### On a non-main branch
 
 3. `gh pr view --json number,url,headRefName 2>&1` — capture URL if PR exists.
-4. If branch doesn't start with `release/`, ask user (choices: `Continue (CI only)` | `Create release/ branch from this tip`). On the second choice:
+4. If branch doesn't start with `release/`, create one (do not prompt — autonomous default):
    ```bash
    git checkout -b release/<original-slug>
    git push -u origin HEAD

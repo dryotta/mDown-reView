@@ -1,6 +1,6 @@
 ---
 name: groom-issues
-description: Use when the user runs `/groom-issues`, asks to groom or spec out GitHub issues, asks to "process the needs-grooming backlog", or pastes issue numbers asking for them to be groomed. Optionally accepts issue numbers (`/groom-issues #36 #42`).
+description: Use when the user runs `/groom-issues`, asks to "groom", "spec out", or "process the needs-grooming backlog" of GitHub issues, or pastes issue numbers asking for grooming. Two-phase pipeline (interactive Phase A → autonomous Phase B).
 ---
 
 # Groom Issues

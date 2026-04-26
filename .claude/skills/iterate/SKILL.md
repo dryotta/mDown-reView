@@ -1,9 +1,9 @@
 ---
 name: iterate
-description: Autonomous single-branch/single-PR iteration loop. Args - empty (auto-pick oldest open issue, prefer `groomed`), `42`/`#42`/`issue-42`/issue URL (issue mode), or free text (goal mode). Bug-labelled issues run root-cause + test-gap analysis. Commits a retrospective per iteration; on Done-Achieved synthesises retrospectives into a follow-up issue. Charter rules in AGENTS.md govern every iteration.
+description: Fully autonomous single-branch/single-PR iteration loop. Args - empty (continuous mode - drain the backlog and then monitor for new issues), `42`/`#42`/`issue-42`/issue URL (single-issue mode), `--once` (drain backlog once and exit), or free text (goal mode). Auto-skips issues labelled `needs-grooming`, `blocked`, or `iterate-in-progress`. Ambiguous issues get a clarification comment + `needs-grooming` label rather than a user prompt. Done-Blocked outcomes label the issue `blocked`. Bug-labelled issues run root-cause + test-gap analysis. Charter rules in AGENTS.md govern every iteration.
 ---
 
-**RIGID. Follow every step exactly.** User interaction is allowed ONLY in Step 0e. After 0f, fully autonomous through 30 iterations, CI forward-fixes, expert review, and release-gate validation. Pre-consult experts and the diff-review panel cite specific rule numbers; rule-violating diffs block at review even if green.
+**RIGID. Follow every step exactly.** This skill is **fully autonomous — it never calls `ask_user`.** Assume the user is unavailable. Where a human checkpoint used to exist (clarification, sign-off), the skill now writes the question or status to GitHub (issue comment + label) and either skips the issue or halts gracefully. Pre-consult experts and the diff-review panel cite specific rule numbers; rule-violating diffs block at review even if green.
 
 ---
 
@@ -15,12 +15,15 @@ Let `ARG` = trimmed string after skill name. First match wins:
 
 | Pattern | Result |
 |---|---|
-| empty | `MODE=issue`, auto-pick (0c) |
+| empty | `MODE=continuous`, drain backlog then monitor (0c) |
+| `--once` | `MODE=drain-once`, drain backlog and exit (0c, no monitor) |
 | `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
 | `^#(\d+)$` | `MODE=issue`, group 1 |
 | `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
 | `^https?://github\.com/[^/]+/[^/]+/issues/(\d+)([/#?].*)?$` | `MODE=issue`, group 1 |
 | else | `MODE=goal`, `GOAL_TEXT=ARG` (strip surrounding quotes) |
+
+`MODE=continuous` and `MODE=drain-once` both run the auto-pick loop in 0c. The only difference is what happens when the backlog is empty (see 0c).
 
 ### 0b. Pre-flight (parallel)
 
@@ -42,18 +45,45 @@ if [ -f "$DEPTH_FILE" ]; then
 fi
 ```
 
-### 0c. Auto-pick (only when 0a empty)
+### 0c. Auto-pick (only when MODE is `continuous` or `drain-once`)
+
+**Skip filter** — never pick issues with these labels:
+- `needs-grooming` (open clarification questions outstanding)
+- `blocked` (previous Done-Blocked outcome — needs human attention)
+- `iterate-in-progress` (another iterate run owns it)
+
+**Selection (one query):**
 
 ```bash
-PICK=$(gh issue list --label "groomed" --state open --json number --limit 100 \
-  | jq 'sort_by(.number) | .[0].number // empty')
-if [ -z "$PICK" ]; then
-  PICK=$(gh issue list --state open --json number,labels --limit 200 \
-    | jq '[.[] | select(.labels | map(.name) | index("iterate-in-progress") | not)] | sort_by(.number) | .[0].number // empty')
-fi
+PICK=$(gh issue list --state open --json number,labels --limit 200 \
+  | jq '
+      [ .[]
+        | select(.labels | map(.name) as $L
+          | (index("needs-grooming") | not)
+          and (index("blocked")        | not)
+          and (index("iterate-in-progress") | not))
+      ]
+      | (map(select(.labels | map(.name) | index("groomed"))) + map(select(.labels | map(.name) | index("groomed") | not)))
+      | sort_by(.number)
+      | .[0].number // empty')
 ```
 
-Empty → STOP `[iterate] No open issues found.` Otherwise `ISSUE_NUMBER=$PICK`.
+This prefers `groomed` issues; within each tier, oldest-first.
+
+**If `PICK` is non-empty:** record `OUTER_MODE=$MODE` (so Done-X handlers can chain), then set `MODE=issue`, `ISSUE_NUMBER=$PICK`, and immediately label the issue to claim it:
+
+```bash
+gh issue edit $ISSUE_NUMBER --add-label "iterate-in-progress"
+```
+
+The label is removed in Phase 2 / Done-Blocked / Done-TimedOut (whichever exit path runs).
+
+**If `PICK` is empty (backlog drained):**
+
+| Mode | Behavior |
+|---|---|
+| `drain-once` | STOP `[iterate] Backlog drained. No eligible open issues.` Exit. |
+| `continuous` | **Monitor mode.** Poll the backlog every 5 minutes (sleep 300, max 288 polls = 24 h, then STOP `[iterate] Monitor budget exhausted (24 h with no eligible issues).`). On each poll re-run the selection query. As soon as `PICK` becomes non-empty, claim it and proceed to 0d. While waiting, log a single line `[iterate] monitoring backlog — last check <ISO>, eligible=0` at most once per hour to avoid spam. |
 
 ### 0d. Load spec (issue mode)
 
@@ -78,15 +108,34 @@ Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines
 - Title (case-insensitive) starts with `bug:` | `fix:` | `regression:`, or contains `[bug]` | `[regression]`.
 - Body has `## Steps to reproduce` / `## Reproduction` / `## Expected` + `## Actual`.
 
-### 0e. Clarification questions (last user touch-point)
+### 0e. Clarification questions (no user prompt — defer to grooming)
 
-Bias is to **skip**. Bundle ≤3 blocking questions into ONE `ask_user` call only when the goal is genuinely ambiguous (scope boundaries, observable success signal, internal contradictions). **Never** ask about: implementation detail, anything answered by deep-dive docs, anything the assessor can discover, style/naming/framework.
+This skill **never calls `ask_user`**. If after reading the issue body, comments, deep-dive docs, and the assessor's view of `REQUIREMENTS` the goal is still genuinely ambiguous (scope boundaries, observable success signal, internal contradictions), do **not** guess and do **not** stop the autonomous run silently. Instead:
 
-Fold answers into the goal:
-- Goal mode: append `  (clarifications: <summary>)` to `GOAL_FOR_ASSESSOR`.
-- Issue mode: append `### Operator clarifications (captured <ISO date>)` section with verbatim Q&A to `SPEC_MARKDOWN`.
+1. **Goal mode** — there is no issue to update. Proceed with the most defensible interpretation of `GOAL_TEXT`, capture the ambiguity as a `### Operator clarifications (deferred)` block in the PR description, and continue.
 
-After 0f, no further user interaction.
+2. **Issue mode** — defer to grooming:
+   ```bash
+   gh issue comment $ISSUE_NUMBER --body "$(cat <<'EOF'
+   <!-- iterate-needs-grooming -->
+   ## /iterate halted — clarification needed before autonomous work can proceed
+
+   The autonomous iteration loop attempted to pick up this issue but found the goal under-specified for the assessor (scope, success signal, or internal contradictions). The following blocking questions need answers before /iterate can implement safely:
+
+   <numbered list of ≤5 questions, each one sentence, each citing the ambiguity in the spec>
+
+   Once answered, remove the `needs-grooming` label (or run `/groom-issues $ISSUE_NUMBER`). /iterate will pick this issue up automatically on its next sweep.
+   EOF
+   )"
+   gh issue edit $ISSUE_NUMBER --add-label "needs-grooming" --remove-label "iterate-in-progress"
+   ```
+   Then:
+   - `MODE=continuous` or `MODE=drain-once` → return to **0c** to pick the next eligible issue.
+   - `MODE=issue` (explicit single issue) → STOP `[iterate] Issue #$ISSUE_NUMBER deferred to grooming. See comment.` Exit.
+
+**Bias is to skip this branch entirely.** Never defer over: implementation detail, anything answered by deep-dive docs, anything the assessor can discover from the codebase, style/naming/framework choices. Only defer for genuine spec ambiguity.
+
+After 0f, no GitHub-side spec changes; the loop runs purely against the captured `REQUIREMENTS`.
 
 ### 0f. Compute branch / PR title / goal
 
@@ -572,229 +621,13 @@ Append one line to Step 8 comment (or post inline):
 
 ### Step 9 — Release-gate validation (Done-Achieved only)
 
-Runs the Windows + macOS Release Gate (real installers, signed builds) against accumulated work. Release Gate triggers on `release/*` branches; this step creates a mirror branch+PR at the iterate tip, validates there, forward-fixes on the **iterate branch** so humans review one PR.
-
-#### 9a. Mirror branch + PR
-```bash
-RELEASE_BRANCH="release/iterate-$(echo "$BRANCH" | sed 's|^[^/]*/||' | cut -c1-40)-$(date +%Y%m%d%H%M)"
-git checkout -b "$RELEASE_BRANCH"
-git push -u origin HEAD
-git checkout "$BRANCH"
-
-RELEASE_PR_URL=$(gh pr create --draft --base main --head "$RELEASE_BRANCH" \
-  --title "validate-release: $PR_TITLE" \
-  --body "Release-gate validation for #<PR_NUMBER>. Close with --delete-branch after validation.")
-RELEASE_PR_NUMBER=<parse>
-```
-
-Pre-existing `$RELEASE_BRANCH` → halt **Done-Blocked** reason `release-gate branch <…> already exists — delete and re-run step 9 manually`. Do NOT overwrite.
-
-```bash
-gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-start -->
-⏳ Release-gate validation started on $RELEASE_PR_URL"
-```
-
-#### 9b. Poll
-`general-purpose`:
-```
-Poll CI + Release Gate on PR <RELEASE_PR_NUMBER> every 60 s, max 60 min.
-  gh pr checks <RELEASE_PR_NUMBER>
-Stop when no check is pending/in_progress. Return PASS or FAIL + logs.
-```
-
-#### 9c. Forward-fix loop (max 5)
-
-On FAIL:
-1. `exe-task-implementer`:
-   ```
-   Fix Release Gate failures. No revert — forward fix.
-   Failed: <names>   Logs: <truncated>   Prior: <summaries>
-   Edit on iterate branch (current tree). Do NOT edit the release-mirror branch.
-   Return Implementation Summary.
-   ```
-2. Commit + push on iterate branch:
-   ```bash
-   git add <files>
-   git commit -m "fix(iter-release): <summary>"
-   git push
-   ```
-3. Fast-forward mirror to iterate tip:
-   ```bash
-   git checkout "$RELEASE_BRANCH"
-   git merge --ff-only "$BRANCH"
-   git push
-   git checkout "$BRANCH"
-   ```
-4. Re-run 9b.
-5. PASS → 9d. After 5 attempts still FAIL → halt **Done-Blocked** reason `release-gate failure after 5 forward-fix attempts`. Mirror PR stays draft; iterate PR stays draft.
-
-#### 9d. Close mirror, mark iterate ready
-
-Execute ALL in order:
-1. `gh pr close "$RELEASE_PR_NUMBER" --delete-branch`
-2. Refresh iterate PR body — tick all progress, summary "Ready for review — goal achieved, release gate passed". Issue mode: keep `Closes #<ISSUE_NUMBER>` trailer. `gh pr edit <PR_NUMBER> --body "<final>"`.
-3. `gh pr ready <PR_NUMBER>` (only place this skill flips iterate PR out of draft).
-4. State file:
-   ```markdown
-   ## Release-gate validation — PASSED
-   - Mirror PR: <URL> (closed --delete-branch)
-   - Fix attempts: <N>
-   - Commit validated: <iterate HEAD SHA>
-   - Iterate PR: <URL> (ready for review)
-   ```
-5. Comment on iterate PR:
-   ```bash
-   gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-done -->
-   🟢 Release gate validated on commit <sha>. Mirror PR closed. PR ready for review."
-   ```
-
-Proceed to **Done-Achieved** banner.
+See [references/release-gate.md](references/release-gate.md) for the full mirror-branch + 9a–9d flow. The loop returns to **Done-Achieved** banner on success, or halts **Done-Blocked** on pre-existing release branch / 5 forward-fix failures.
 
 ---
 
 ## Phase 2 — Improvement-spec synthesis (every terminal path)
 
-Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut.
-
-### 2a. Gate
-```bash
-SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
-RETRO_FILES=$(ls -1 ".claude/retrospectives/$SAFE_BRANCH-iter-"*.md 2>/dev/null || true)
-RETRO_COUNT=$(echo "$RETRO_FILES" | grep -c . || true)
-```
-
-Skip Phase 2 (go to terminal banner) if:
-- `RETRO_COUNT == 0`, OR
-- Every retro contains literally `_None — iteration was clean and adds no signal for Phase 2._` and nothing else under "Improvement candidates".
-
-When skipped: state file `## Phase 2 — SKIPPED (no actionable retrospective signal)`.
-
-### 2b. Synthesise
-
-`general-purpose` (single call). Pass every retro file content verbatim + terminal status.
-
-```
-Synthesise iterate-loop retros into ONE follow-up improvement spec.
-Loop terminated as: <Done-Achieved|Done-Blocked|Done-TimedOut>
-Branch: <BRANCH>   Iterate PR: <URL>   Issue: #<ISSUE_NUMBER>
-Total retros: <RETRO_COUNT>
-
-Retros (verbatim, in order, '---' separated):
-<concatenated $SAFE_BRANCH-iter-N.md>
-
-Pick the SINGLE highest-leverage candidate meeting ALL:
-1. Recurs across ≥2 retros, OR appears once with high-confidence + l/m size, OR is a `bug`/`agent`/`skill` candidate the loop itself hit.
-2. Source retros have enough specificity (file:line, agent, rule, log) to draft a concrete spec.
-3. In scope: iterate skill, .claude/agents/, docs/*.md, src/, src-tauri/, e2e/, .github/workflows/.
-4. Not duplicating an open issue. Verify: `gh issue list --state open --search "<keywords>" --limit 20`.
-
-If NO candidate clears all four, output exactly:
-NO_IMPROVEMENT_FOUND
-<one-paragraph justification>
-
-Otherwise output exactly this template — no preamble, no extra commentary:
-
-ISSUE_TITLE: <imperative, ≤70 chars>
-ISSUE_LABELS: <comma-separated; from {groomed, iterate-improvement} + exactly one of {process, tooling, test-strategy, architecture, docs, skill, agent, bug}>
-ISSUE_BODY:
-<problem statement, 1-2 paragraphs, citing retro file paths>
-
-## Why this matters
-<1 paragraph linking to docs/principles.md pillar(s)>
-
-## Evidence from retrospectives
-<bullets, each quoting retro verbatim + file>
-
-SPEC_BODY:
-<body of `<!-- mdownreview-spec -->` comment — self-contained for fresh /iterate run>
-
-# <ISSUE_TITLE>
-
-## Goal
-<one sentence, observable>
-
-## Acceptance criteria
-- [ ] <specific, measurable, file/path-cited>
-- [ ] …
-- [ ] Regression test (if behaviour change): <file path, layer, assertion>
-
-## Files likely to change
-<bullets>
-
-## Out of scope
-<bullets>
-
-## Notes
-<constraints — e.g. "must not regress test-strategy.md rule 5">
-```
-
-Capture `IMPROVEMENT_SYNTHESIS`.
-
-### 2c. Decision
-
-Begins with `NO_IMPROVEMENT_FOUND`:
-```markdown
-## Phase 2 — NO_IMPROVEMENT_FOUND
-- Justification: <verbatim>
-- Retrospectives reviewed: <paths>
-```
-Append, skip 2d/2e, banner.
-
-Else parse `ISSUE_TITLE`, `ISSUE_LABELS`, `ISSUE_BODY`, `SPEC_BODY`.
-
-### 2d. Create issue + spec
-
-```bash
-NEW_ISSUE_URL=$(gh issue create \
-  --title "$ISSUE_TITLE" \
-  --label "$ISSUE_LABELS" \
-  --body "$(printf '%s\n\nSurfaced by /iterate retrospectives on PR <PR_URL>.\n\n%s' "$ISSUE_BODY" "<links to each retro file in PR>")")
-NEW_ISSUE_NUMBER=<parsed>
-
-gh issue comment "$NEW_ISSUE_NUMBER" --body "$(cat <<EOF
-<!-- mdownreview-spec -->
-$SPEC_BODY
-EOF
-)"
-
-gh pr comment <PR_NUMBER> --body "<!-- iterate-followup -->
-🔁 Phase 2 surfaced a follow-up improvement: $NEW_ISSUE_URL"
-```
-
-State file:
-```markdown
-## Phase 2 — IMPROVEMENT_FOUND
-- New issue: <URL>
-- Title: <…>   Labels: <…>
-- Recursion: <will-recurse | skipped — see 2e>
-```
-
-### 2e. Optional auto-recursion (gated)
-
-Auto-recurse ONLY when ALL hold:
-- Loop ended **Done-Achieved**.
-- `.claude/iterate-recursion-depth` missing OR contains `0`.
-- New issue has `iterate-improvement` label (template enforces).
-
-Off → banner line:
-```
-   Follow-up: <NEW_ISSUE_URL> — run `/iterate <NEW_ISSUE_NUMBER>` to deliver it.
-```
-
-On:
-```bash
-echo 1 > .claude/iterate-recursion-depth
-```
-Print:
-```
-   Follow-up: <NEW_ISSUE_URL>
-   Auto-recursing into a fresh /iterate (recursion depth 1/1).
-```
-Invoke `iterate` skill with arg `<NEW_ISSUE_NUMBER>`. Recursive call sees depth=1 and refuses to recurse again at its own 2e. Outer skill exits after recursive call returns/errors.
-
-**Cleanup contract (implemented in 0b):** delete depth marker if older than 24 h OR points at a missing branch.
-
----
+Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut. Full 2a–2e flow (gate, synthesise, decision, create issue+spec, optional auto-recursion) lives in [references/phase-2.md](references/phase-2.md).
 
 ## Termination
 
@@ -807,131 +640,20 @@ Invoke `iterate` skill with arg `<NEW_ISSUE_NUMBER>`. Recursive call sees depth=
 
 **Phase 2 runs first on every terminal path.** `DEGRADED`/`SKIPPED` do NOT terminate.
 
-### Done-Achieved
+### Done-Achieved · Done-Blocked · Done-TimedOut
 
-Step 9 ran first; if it halted you are in Done-Blocked instead. Step 9d already closed mirror, refreshed PR body, marked PR ready. Run **Phase 2** (only path where 2e may auto-recurse).
-
-```
-✅ <MODE> — <ref>
-   PR: <URL> (ready for review, release gate passed)
-   Branch: <BRANCH>
-   Iterations: <passed_count> passed · <degraded_count> degraded
-   Release-gate fix attempts: <K>
-   Final assessor confidence: <%>
-   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | improvement issue $NEW_ISSUE_URL [auto-recursing]>
-```
-Exit.
-
-### Done-Blocked
-
-Run **Phase 2** first (synthesis only — 2e gated off; not Done-Achieved).
-
-PR stays draft. Comment:
-```bash
-gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
-<!-- iterate-blocked -->
-## ⚠️ Autonomous iteration halted at iteration <N>/30
-**Reason:** <BLOCKING_REASON | rebase-conflict summary | release-gate reason>
-**Last assessor evidence:** <…>
-<if rebase-conflict:> **Conflicted files:** <list>
-Iterations 1..<N-1> are pushed. Restart with `/iterate <same args>` after deletion, or continue manually.
-EOF
-)"
-```
-Issue mode: post the same on the issue (`<!-- iterate-blocked-issue -->`).
-
-```
-❌ <MODE> — <ref>
-   Halted at iteration <N>/30   Reason: <short>
-   PR (draft): <URL>   Branch: <BRANCH>
-   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL>
-```
-Exit.
-
-### Done-TimedOut
-
-Run **Phase 2** first (2e gated off). 30 iterations is the strongest possible signal that something structural needs to change.
-
-PR stays draft. Comment:
-```bash
-gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
-<!-- iterate-timeout -->
-## ⏱ Iteration cap reached (30)
-**Progress:** <passed_count> passed · <degraded_count> degraded
-**Final assessor confidence:** <%>
-**Last NEXT_REQUIREMENTS (still open):**
-<bullets>
-Review the branch — merge what is ready, continue manually, or restart with `/iterate <args>` after adjusting scope.
-EOF
-)"
-```
-Issue mode: post the same on the issue.
-
-```
-⏱  <MODE> — <ref>
-   Cap reached after 30 iterations
-   PR (draft, partial): <URL>   Branch: <BRANCH>
-   Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL>
-```
-Exit.
+Each terminal path: clear `iterate-in-progress` label, post the appropriate PR/issue comment, set the appropriate label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, then either chain back to **0b** (when `OUTER_MODE` is `continuous`/`drain-once`) or exit. Full handler scripts in [references/done-handlers.md](references/done-handlers.md).
 
 ---
 
 ## Halt semantics
 
-**Halt (loop ends, Phase 2 runs):**
-- Step 2 `blocked`
-- Step 1 abort after auto-resolution
-- Cap = 30
-- Step 9 fail after 5 forward-fix
-- Step 9 finds pre-existing release-mirror branch
-
-**`DEGRADED` (continue):**
-- Validate/CI fails after 5 forward-fix (Step 6)
-- Expert review still blocks after one fix round (Step 7)
-- `IS_BUG` and bug-expert RCA inconclusive (Step 3a)
-
-**`SKIPPED` (continue):**
-- `risk=high` plan rejected by `architect-expert` (Step 4)
-- Every implementer reports no-op (Step 5)
-
-**Pre-loop halt:**
-- Dirty tree at setup
-- Pre-existing target branch
-- Issue mode auto-pick finds no open issues at all
-
-**No longer halts:**
-- Issue has no `<!-- mdownreview-spec -->` comment (0d derives)
-- Auto-pick finds no `groomed` (0c falls back to oldest open)
-
----
+See [references/halt-semantics.md](references/halt-semantics.md) for the full enumeration of halt / DEGRADED / SKIPPED / pre-loop-halt / continuous-chaining triggers.
 
 ## Commit conventions
 
-| Situation | Mode | Message |
-|---|---|---|
-| Iteration impl | Issue | `feat(#<N>): iter <iteration> — <summary>\n\n<body>\n\nRefs #<N>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
-| Iteration impl | Goal | `auto-improve: iter <iteration> — <summary>\n\n<body>\n\nCo-authored-by: Claude Opus 4.7 <noreply@anthropic.com>` |
-| Forward-fix in iteration | Either | `fix(iter-<iteration>): <summary>` |
-| Rebase repair | Either | `fix(rebase): <summary>` |
-| Release-gate forward-fix | Either | `fix(iter-release): <summary>` |
-| Retrospective (8.5c) | Either | `chore(iter-<iteration>): retrospective\n\n<retro title>` |
-
-No "final" iteration commit — `achieved` skips Steps 3–8. Step 8.5 is the LAST commit of every iteration that ran 3–8 (DEGRADED/SKIPPED also write retros). Phase 2 does NOT push to the iterate branch — its artefact is the new GitHub issue (and optional recursion). Issue closure on merge is driven by the `Closes #<N>` trailer in the PR body (set in 0g), not commit messages.
-
----
+See [references/commit-conventions.md](references/commit-conventions.md) for the per-situation commit-message templates.
 
 ## Failure recovery
 
-If interrupted mid-loop:
-
-1. Read `.claude/iterate-state.md` for branch / PR / last iteration.
-2. `git checkout <BRANCH>`.
-3. If `.git/rebase-merge` or `.git/rebase-apply` exists, complete or abort before restart.
-4. ```bash
-   git config rerere.enabled true
-   git config rerere.autoupdate true
-   ```
-5. Inspect retros at `.claude/retrospectives/<safe-branch>-iter-*.md` — pushed retros are visible in PR; uncommitted ones can be reviewed locally.
-6. If `.claude/iterate-recursion-depth` exists from a crash, delete it (or wait 24 h for 0b to expire).
-7. **Restart is not supported** — Phase 0 halts on existing branch. To resume the work, delete the in-flight branch and re-invoke `/iterate <same args>` — Step 1's rebase + Step 2's assessor will fold in already-pushed work. Retros committed on the prior branch persist via the rebase and still drive Phase 2 of the next run.
+See [references/failure-recovery.md](references/failure-recovery.md) for the mid-loop interruption checklist (state file, rebase repair, rerere, retro inspection, recursion-marker hygiene, restart policy).

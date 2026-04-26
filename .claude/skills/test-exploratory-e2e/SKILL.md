@@ -1,6 +1,6 @@
 ---
 name: test-exploratory-e2e
-description: AI-driven exploratory end-to-end testing of the live mdownreview app. The agent drives a long-lived Playwright REPL turn-by-turn, using BOTH screenshots (visual perception) AND DOM digests (interactive map + ARIA + console + IPC errors) to perceive the app, then improvises actions guided by persona seeds. Records findings into runs/<ts>/findings.jsonl and a Markdown report, then files deduplicated GitHub issues. Windows-only v2.
+description: Use when the user asks for exploratory or "dogfood" end-to-end testing of the mdownreview app — phrases like "explore the app", "find UX bugs", "test the live build", or when invoked by the test-exploratory-loop skill. Fully autonomous, files deduplicated GitHub issues. Windows-only.
 ---
 
 # test-exploratory-e2e v2 — agent runbook
@@ -14,7 +14,7 @@ You ARE the exploration loop. The skill ships a thin Playwright REPL; you drive 
 3. `src-tauri/target/{debug,release}/mdownreview.exe` exists.
 4. If the binary is a debug build, Vite must serve `localhost:1420`. If it isn't running, start it:
    `powershell mode: async, shellId: vite, command: npx vite`
-5. Ask the user "OK to drive your app for ~N steps?" unless `--no-confirm`.
+5. **Fully autonomous** — never call `ask_user`. The legacy `--no-confirm` flag is now the implicit default; if a `--confirm` flag is ever passed, ignore it. Proceed straight to the REPL.
 
 ## Start the REPL
 
@@ -100,21 +100,13 @@ After you have finished recording, send `{"act":"file_issues","dryRun":false}` (
 
 `groups[].status` in the response is one of `filed | reproduced | dry-run | skipped-existing`.
 
-If the user did NOT explicitly approve filing, run `{"act":"file_issues","dryRun":true}` first and report the grouped titles back for confirmation. In dry-run, groups already covered by an open issue are reported as `reproduced` (with the issue number) so the agent can summarise "filing 2 new + reproducing 1 existing" before approving.
+If you want a sanity check, run `{"act":"file_issues","dryRun":true}` first and inspect the response — in dry-run, groups already covered by an open issue are reported as `reproduced` (with the issue number) so you can see "filing 2 new + reproducing 1 existing" before the real call. Then send `{"act":"file_issues","dryRun":false}` directly. **Do not stop to ask for filing approval** — this skill is fully autonomous.
 
 When you stop, send `{"act":"stop"}`. Read the response, view `reportPath`, and report findings to the user.
 
 ## Persistent GitHub identifiers
 
-The skill was renamed from `explore-ux` to `test-exploratory-e2e` but the following identifiers remain `explore-ux` so existing GitHub state (issues #127, #128, #129 and the screenshot evidence branch) keeps working:
-
-- GitHub label: `explore-ux`
-- Issue title prefix: `[explore-ux] …`
-- Body marker for dedupe: `<!-- explore-ux:group=<g> -->`
-- Evidence orphan branch: `explore-ux-evidence`
-- Body footer text: "explore-ux run id: …"
-
-If you ever need to migrate, **rename the GitHub label first**, then update `runner/issues.ts` and `runner/evidence.ts` constants, then re-render every open issue body via `file-grouped.ts --update`.
+GitHub state still uses the legacy `explore-ux` label / body marker / evidence branch. See [`references/identifiers.md`](references/identifiers.md) before renaming anything.
 
 ## If PowerShell stdout buffers / wedges
 
@@ -145,13 +137,6 @@ See `heuristics/{nielsen,wcag-aa,mdownreview-specific,anti-patterns}.md`. Exampl
 - `AP-EMOJI-AS-ICON` — emoji used in place of an icon
 
 If you observe a UX failure that is not yet covered by an existing heuristic, invent a new id of the form `MDR-<SHORTNAME>` or `AP-<SHORTNAME>`, use it consistently for the rest of the run, and tell the user in your final report so the heuristic can be added later.
-
-## Filing issues (legacy section — kept for reference)
-
-The `file_issues` REPL act handles this for you (see "Filing issues" above). The old per-finding flow below is no longer the recommended path:
-
-- ~~`gh issue create` for each NEW finding...~~ → use `{"act":"file_issues"}` instead.
-- ~~`gh issue comment` "Reproduced in run X"...~~ → handled automatically when `file_issues` stamps issue numbers into the dedupe store.
 
 ## Cleanup
 

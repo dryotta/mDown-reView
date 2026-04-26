@@ -1,7 +1,14 @@
 ---
 name: test-exploratory-loop
-description: Long-running orchestrator that runs the test-exploratory-e2e skill in a loop (default 50 iterations). Between iterations it blocks until `origin/main` advances, then fast-forwards local main and rebuilds before the next round. Designed to dogfood the app continuously while another agentic loop fixes the backlog. Windows-only v1. Args - `--iterations N` (default 50), `--timeout S` (per-iteration wait cap in seconds, default 14400), `--no-build` (skip rebuild between rounds), `--no-confirm`.
+description: Use when the user asks to "dogfood the app continuously", run exploratory testing in a loop, or stress-test mdownreview while the iterate loop fixes the backlog. Fully autonomous (never prompts). Windows-only. Args documented in body.
 ---
+
+## Args
+
+- `--iterations N` — number of inner-skill rounds (default 50).
+- `--timeout S` — per-iteration wait cap in seconds (default 14400).
+- `--no-build` — skip rebuild between rounds.
+- `--no-confirm` — accepted-but-ignored (implicit default; this skill never prompts).
 
 # test-exploratory-loop
 
@@ -9,13 +16,14 @@ description: Long-running orchestrator that runs the test-exploratory-e2e skill 
 
 This skill is read-only with respect to `main` — it never pushes to `main` and never edits app code. It only files/comments on GitHub issues via `test-exploratory-e2e`.
 
-## When to STOP and ask
+## Autonomy
 
-Use `ask_user` only at these points:
+This skill is **fully autonomous — it never calls `ask_user`.** Assume the user is unavailable. Each former human checkpoint now has a deterministic decision rule:
 
-- **Before iteration 1** unless `--no-confirm`: confirm "OK to run up to N iterations? Each iteration takes ~5–15 min plus wait time."
-- If `wait-for-main.ts` exits with code 2 (timeout): ask "Wait timed out after S seconds. Continue waiting / stop / run another iteration without an upstream change?"
-- If `sync.ts` exits non-zero (dirty tree, merge conflict): stop and report; **do not** discard changes.
+- **Before iteration 1:** start immediately (legacy `--no-confirm` is the default; if `--confirm` is ever passed, ignore it).
+- **`wait-for-main.ts` exits with code 2 (timeout):** continue waiting in a fresh poll round. Repeat at most 2 additional timeout cycles, then fall through to the next iteration even if `main` has not advanced (record `advance=<sha>..<same>` in the digest). After 3 consecutive timeout cycles total, **stop the loop early** with the exit reason `wait-for-main timed out 3× consecutively — backlog likely stalled` written to the loop digest.
+- **`sync.ts` exits non-zero (dirty tree, merge conflict):** stop the loop immediately, write the failure into the digest, and exit with the original error. **Never** discard or auto-resolve changes.
+- **Pre-flight finds the workspace not on `main` (or not tracking `origin/main`):** stop with the digest entry `pre-flight: branch must be main tracking origin/main` and exit. **Do not** attempt to switch branches.
 
 ## Iteration cycle
 
@@ -57,7 +65,7 @@ Same as `test-exploratory-e2e`:
 3. `src-tauri/target/{debug,release}/mdownreview.exe` exists.
 4. `gh auth status` is OK (filing on every iteration requires it).
 5. Working tree is clean (`git status --porcelain` empty) — `sync.ts` will refuse otherwise.
-6. Current branch is `main` and tracking `origin/main`. If not, ask before continuing.
+6. Current branch is `main` and tracking `origin/main`. **If not, stop with a digest entry — do not ask, do not auto-switch.**
 
 ## Handoff with the issue-fixing loop
 
