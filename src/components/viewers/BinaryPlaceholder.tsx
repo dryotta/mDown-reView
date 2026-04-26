@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { basename } from "@/lib/path-utils";
 import {
   getBinaryIconCategory,
@@ -8,6 +8,11 @@ import {
 } from "@/lib/file-types";
 import { copyToClipboard } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
+import { useComments } from "@/lib/vm/use-comments";
+import { useCommentActions } from "@/lib/vm/use-comment-actions";
+import { CommentThread } from "@/components/comments/CommentThread";
+import { CommentInput } from "@/components/comments/CommentInput";
+import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
 import { FileActionsBar } from "./FileActionsBar";
 import { HexView } from "./HexView";
 
@@ -97,10 +102,27 @@ function FileIcon({ category }: { category: BinaryIconCategory }) {
 
 export function BinaryPlaceholder({ path, size }: Props) {
   const [showHex, setShowHex] = useState(false);
+  const [showFileLevelInput, setShowFileLevelInput] = useState(false);
   const name = basename(path);
   const category = getBinaryIconCategory(path);
   const mime = getMimeHint(path);
   const sizeOk = size !== undefined && size < HEX_MAX_BYTES;
+
+  // #71 Group B (Binary/unsupported): render file-anchored threads inline so
+  // the file-level affordance is reachable without opening the comments
+  // pane. Filter to `kind: "file"` so non-file-anchored comments (which are
+  // possible if a sidecar was created with the file at a different type)
+  // remain owned by the comments panel.
+  const { threads } = useComments(path);
+  const fileThreads = useMemo(
+    () => threads.filter((t) => t.root.anchor_kind === "file"),
+    [threads],
+  );
+  const { addComment } = useCommentActions();
+  const handleSaveFileLevel = (text: string) => {
+    addComment(path, text, { kind: "file" }).catch(() => {});
+    setShowFileLevelInput(false);
+  };
 
   const handleCopy = () => {
     void copyToClipboard(path).catch((e) =>
@@ -147,6 +169,35 @@ export function BinaryPlaceholder({ path, size }: Props) {
         >
           Show as hex
         </button>
+        <button
+          type="button"
+          onClick={() => setShowFileLevelInput(true)}
+          disabled={showFileLevelInput}
+          aria-label="Comment on this file"
+          title="Comment on this file"
+        >
+          + Comment
+        </button>
+      </div>
+      <div className="binary-placeholder-comments">
+        {showFileLevelInput && (
+          <div className="binary-placeholder-comment-input">
+            <CommentInput
+              onSave={handleSaveFileLevel}
+              onClose={() => setShowFileLevelInput(false)}
+              placeholder="Comment on this file… (Ctrl+Enter to save, Escape to cancel)"
+              draftKey={`${path}::new::${fingerprintAnchor({ kind: "file" })}`}
+            />
+          </div>
+        )}
+        {fileThreads.map((t) => (
+          <CommentThread
+            key={t.root.id}
+            rootComment={t.root}
+            replies={t.replies}
+            filePath={path}
+          />
+        ))}
       </div>
     </div>
   );

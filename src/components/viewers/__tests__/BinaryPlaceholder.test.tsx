@@ -4,6 +4,13 @@ import { render, screen, fireEvent } from "@testing-library/react";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
+vi.mock("@/lib/vm/use-comments", () => ({
+  useComments: () => ({ threads: [], comments: [], loading: false, reload: () => {} }),
+}));
+vi.mock("@/lib/vm/use-comment-actions", () => ({
+  useCommentActions: () => ({ addComment: vi.fn().mockResolvedValue(undefined) }),
+}));
+
 vi.mock("../HexView", () => ({
   HexView: ({ path }: { path: string }) => (
     <div data-testid="hex-view-mock" data-path={path}>HEX</div>
@@ -25,12 +32,13 @@ beforeEach(() => {
 });
 
 describe("BinaryPlaceholder — Section E", () => {
-  it("renders all four action buttons", () => {
+  it("renders all five action buttons", () => {
     render(<BinaryPlaceholder path="/ws/sample.bin" size={512} />);
     expect(screen.getByRole("button", { name: /open in default app/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /reveal in folder/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy path/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /show as hex/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /comment on this file/i })).toBeInTheDocument();
   });
 
   it("renders the file name, MIME hint and human-readable size", () => {
@@ -86,5 +94,12 @@ describe("BinaryPlaceholder — Section E", () => {
     fireEvent.click(screen.getByRole("button", { name: /show as hex/i }));
     expect(screen.getByTestId("hex-view-mock")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open in default app/i })).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Comment on this file' opens the file-level CommentInput", () => {
+    render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
+    expect(screen.queryByPlaceholderText(/comment on this file/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /comment on this file/i }));
+    expect(screen.getByPlaceholderText(/comment on this file/i)).toBeInTheDocument();
   });
 });

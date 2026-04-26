@@ -170,4 +170,42 @@ test.describe("Iter 5 Group B — file-level comment entry points", () => {
     const calls = await readAddCommentCalls(page);
     expect(calls[calls.length - 1].anchor).toEqual({ kind: "file" });
   });
+
+  // #71 Group B (Binary/unsupported) — inline composer rendered *inside*
+  // .binary-placeholder so users never need to leave the viewer surface.
+  test("binary placeholder renders inline composer and the saved thread appears under it", async ({ page }) => {
+    await setupCommentOnFileMocks(page);
+    await page.goto("/");
+
+    await page.locator(".folder-tree").getByText("blob.bin").click();
+    const placeholder = page.locator(".binary-placeholder");
+    await expect(placeholder).toBeVisible();
+
+    // The inline + Comment button lives under .binary-actions (not the
+    // global viewer toolbar).
+    const inlineBtn = placeholder.locator(".binary-actions").getByRole("button", { name: /comment on this file/i });
+    await expect(inlineBtn).toBeVisible();
+    await inlineBtn.click();
+
+    const textarea = placeholder.locator(".binary-placeholder-comment-input .comment-textarea");
+    await expect(textarea).toBeVisible();
+    await textarea.fill("inline binary note");
+    await placeholder.locator(".binary-placeholder-comment-input").getByRole("button", { name: /^save$/i }).click();
+
+    await expect.poll(() => readAddCommentCalls(page).then((c) => c.length)).toBeGreaterThanOrEqual(1);
+    const calls = await readAddCommentCalls(page);
+    expect(calls[calls.length - 1].anchor).toEqual({ kind: "file" });
+
+    // The Rust mutation pipeline emits 'comments-changed' which `useComments`
+    // listens for to reload. The IPC mock doesn't model the emit, so we
+    // dispatch it manually here.
+    await page.evaluate((path) => {
+      (window as Record<string, unknown> & {
+        __DISPATCH_TAURI_EVENT__?: (e: string, p: unknown) => void;
+      }).__DISPATCH_TAURI_EVENT__?.("comments-changed", { file_path: path });
+    }, `${FIXTURES_DIR}/blob.bin`);
+
+    // The saved thread renders inside the placeholder (file-anchored, kind: "file").
+    await expect(placeholder.locator(".binary-placeholder-comments").getByText("inline binary note")).toBeVisible();
+  });
 });
