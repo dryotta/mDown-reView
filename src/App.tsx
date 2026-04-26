@@ -24,7 +24,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
-import { IconFile, IconFolder, IconComment, IconSettings } from "@/components/Icons";
+import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 
 export default function App() {
@@ -106,6 +106,7 @@ export default function App() {
     toggleCommentsPane,
     setTheme,
     setAboutOpen,
+    setSettingsOpen,
     checkForUpdate,
     startCommentOnSelection,
   };
@@ -194,14 +195,6 @@ export default function App() {
             title="Toggle comments pane (Ctrl+Shift+C)"
           >
             <IconComment /> Comments
-          </button>
-          <button
-            className="toolbar-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="Settings"
-            aria-label="Open settings"
-          >
-            <IconSettings /> Settings
           </button>
         </div>
         <ErrorBoundary>

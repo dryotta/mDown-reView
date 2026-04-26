@@ -100,7 +100,6 @@ vi.mock("@/components/Icons", () => ({
   IconFile: () => <span data-testid="icon-file" />,
   IconFolder: () => <span data-testid="icon-folder" />,
   IconComment: () => <span data-testid="icon-comment" />,
-  IconSettings: () => <span data-testid="icon-settings" />,
 }));
 
 import { showOpenDialog } from "@/lib/tauri-commands";

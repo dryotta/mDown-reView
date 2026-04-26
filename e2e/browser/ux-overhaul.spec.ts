@@ -359,3 +359,26 @@ test.describe("UX overhaul (#41) — hover-stable close button", () => {
     expect(closeBoxAfter.h).toBe(closeBoxBefore.h);
   });
 });
+
+test.describe("UX overhaul (#41) — toolbar enumeration", () => {
+  test("F8 — top toolbar exposes exactly [Open File, Open Folder, Comments]", async ({ page }) => {
+    await installMock(page, makeFiles(0));
+    await page.goto("/");
+
+    // Wait for the toolbar to mount
+    const group = page.locator(".toolbar .toolbar-btn-group");
+    await expect(group).toBeVisible();
+
+    // Exactly three buttons in the left button group.
+    await expect(group.locator("button")).toHaveCount(3);
+
+    // Order matters per AC.
+    const buttonTexts = await group.locator("button").allInnerTexts();
+    expect(buttonTexts.map((t) => t.trim())).toEqual(["Open File", "Open Folder", "Comments"]);
+
+    // No Settings/Theme/About buttons anywhere in the top toolbar.
+    await expect(page.locator(".toolbar button", { hasText: "Settings" })).toHaveCount(0);
+    await expect(page.locator(".toolbar button", { hasText: "Theme" })).toHaveCount(0);
+    await expect(page.locator(".toolbar button", { hasText: "About" })).toHaveCount(0);
+  });
+});

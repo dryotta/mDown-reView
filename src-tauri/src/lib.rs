@@ -109,6 +109,13 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+Shift+W"),
             )?;
+            let open_settings = MenuItem::with_id(
+                app,
+                "open-settings",
+                "Settings…",
+                true,
+                Some("CmdOrCtrl+,"),
+            )?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_file)
                 .item(&open_folder)
@@ -116,6 +123,8 @@ pub fn run() {
                 .separator()
                 .item(&close_tab)
                 .item(&close_all_tabs)
+                .separator()
+                .item(&open_settings)
                 .separator()
                 .quit()
                 .build()?;
@@ -198,6 +207,7 @@ pub fn run() {
                     "theme-light" => "menu-theme-light",
                     "theme-dark" => "menu-theme-dark",
                     "about" => "menu-about",
+                    "open-settings" => "menu-open-settings",
                     "check-updates" => "menu-check-updates",
                     "help-welcome" => "menu-help-welcome",
                     "help-setup" => "menu-help-setup",

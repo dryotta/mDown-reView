@@ -29,12 +29,13 @@ describe("useMenuListeners", () => {
     toggleCommentsPane: vi.fn(),
     setTheme: vi.fn(),
     setAboutOpen: vi.fn(),
+    setSettingsOpen: vi.fn(),
     checkForUpdate: vi.fn(),
   };
 
-  it("subscribes to all 15 menu events", () => {
+  it("subscribes to all 16 menu events", () => {
     renderHook(() => useMenuListeners(callbacks));
-    expect(listeners.size).toBe(15);
+    expect(listeners.size).toBe(16);
     expect(listeners.has("menu-open-file")).toBe(true);
     expect(listeners.has("menu-open-folder")).toBe(true);
     expect(listeners.has("menu-close-folder")).toBe(true);
@@ -47,6 +48,7 @@ describe("useMenuListeners", () => {
     expect(listeners.has("menu-theme-light")).toBe(true);
     expect(listeners.has("menu-theme-dark")).toBe(true);
     expect(listeners.has("menu-about")).toBe(true);
+    expect(listeners.has("menu-open-settings")).toBe(true);
     expect(listeners.has("menu-check-updates")).toBe(true);
     expect(listeners.has("menu-help-welcome")).toBe(true);
     expect(listeners.has("menu-help-setup")).toBe(true);
@@ -86,6 +88,12 @@ describe("useMenuListeners", () => {
     expect(callbacks.setAboutOpen).toHaveBeenCalledWith(true);
   });
 
+  it("calls setSettingsOpen(true) on menu-open-settings event", () => {
+    renderHook(() => useMenuListeners(callbacks));
+    listeners.get("menu-open-settings")?.();
+    expect(callbacks.setSettingsOpen).toHaveBeenCalledWith(true);
+  });
+
   it("calls checkForUpdate on menu-check-updates event", () => {
     renderHook(() => useMenuListeners(callbacks));
     listeners.get("menu-check-updates")?.();
@@ -112,7 +120,7 @@ describe("useMenuListeners", () => {
     const { unmount } = renderHook(() => useMenuListeners(callbacks));
     unmount();
     await vi.waitFor(() => {
-      expect(mockUnlisten).toHaveBeenCalledTimes(15);
+      expect(mockUnlisten).toHaveBeenCalledTimes(16);
     });
   });
 });

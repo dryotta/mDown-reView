@@ -43,6 +43,7 @@ export interface EventPayloads {
   "menu-theme-light": void;
   "menu-theme-dark": void;
   "menu-about": void;
+  "menu-open-settings": void;
   "menu-check-updates": void;
   "menu-help-welcome": void;
   "menu-help-setup": void;
