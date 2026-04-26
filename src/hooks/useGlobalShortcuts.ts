@@ -57,38 +57,27 @@ export function useGlobalShortcuts({
       // ALL shortcut branches below — Alt+Arrow as well as the Ctrl-modified set.
       if (isEditableTarget(e)) return;
 
-      // F6 — Shift+F10 / ContextMenu key dispatch a synthetic `contextmenu`
-      // mouse event at the current selection (if any) or the focused
-      // element's bounding rect. The viewer's onContextMenu handler picks it
-      // up; outside any viewer this is a clean no-op (no listener to catch).
+      // F6 — Shift+F10 / ContextMenu key invoke the active viewer's
+      // registered context-menu opener (commentsSlice.activeViewerContextMenu).
+      // Position priority: current selection rect → fallback (100, 100). Line
+      // resolution and `hasSelection` detection live in the registered
+      // callback (see `useViewerContextMenu`). Outside any commentable viewer
+      // the registration is null and this is a clean no-op.
       if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+        const open = useStore.getState().activeViewerContextMenu;
+        if (!open) return;
         const sel = window.getSelection();
-        const hasSel = !!sel && !sel.isCollapsed && sel.rangeCount > 0;
-        let rect: DOMRect | null = null;
-        if (hasSel) rect = sel.getRangeAt(0).getBoundingClientRect();
-        const focused = document.activeElement as HTMLElement | null;
-        const focusedUsable = focused && focused !== document.body ? focused : null;
-        if (!rect || (rect.width === 0 && rect.height === 0)) {
-          if (focusedUsable) rect = focusedUsable.getBoundingClientRect();
+        let x = 100;
+        let y = 100;
+        if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+          const r = sel.getRangeAt(0).getBoundingClientRect();
+          if (r.width > 0 || r.height > 0) {
+            x = r.left + Math.min(r.width, 16);
+            y = r.bottom;
+          }
         }
-        if (!rect) return;
-        const clientX = rect.left + Math.min(rect.width, 16);
-        const clientY = rect.bottom;
-        // Dispatch on the focused element when present (preferred — viewers
-        // attach onContextMenu to a focusable container); fall back to the
-        // selection's focusNode parent; finally body. `bubbles: true` lets
-        // ancestor handlers catch it regardless.
-        const target = focusedUsable
-          ?? (hasSel ? (sel.focusNode?.parentElement as HTMLElement | null) : null)
-          ?? document.body;
-        if (target === document.body) return; // no viewer-focused context
         e.preventDefault();
-        target.dispatchEvent(new MouseEvent("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          clientX,
-          clientY,
-        }));
+        open(x, y);
         return;
       }
 

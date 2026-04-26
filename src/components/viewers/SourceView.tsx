@@ -3,10 +3,7 @@ import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
-import {
-  CommentContextMenu,
-  type CommentContextMenuAction,
-} from "@/components/comments/CommentContextMenu";
+import { CommentContextMenu } from "@/components/comments/CommentContextMenu";
 import { useSearch } from "@/hooks/useSearch";
 import { useSourceHighlighting } from "@/hooks/useSourceHighlighting";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
@@ -14,8 +11,7 @@ import { useFolding } from "@/hooks/useFolding";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSourceLineModel, type SearchMatchInLine } from "@/hooks/useSourceLineModel";
-import { useContextMenu } from "@/hooks/useContextMenu";
-import { buildCommentLink } from "@/lib/comment-link";
+import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
@@ -161,40 +157,17 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
 
   // F6 — right-click context menu. Source view lines use `data-line-idx`
   // (0-indexed in DOM); commenter API is 1-indexed, so we add 1.
-  const ctxMenu = useContextMenu<{ line: number | null; hasSelection: boolean }>();
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    const lineEl = (e.target as HTMLElement).closest<HTMLElement>("[data-line-idx]");
-    let line: number | null = null;
-    if (lineEl?.dataset.lineIdx !== undefined) {
+  const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } = useViewerContextMenu({
+    filePath,
+    resolveLine: (target) => {
+      const lineEl = target.closest<HTMLElement>("[data-line-idx]");
+      if (!lineEl?.dataset.lineIdx) return null;
       const idx = Number(lineEl.dataset.lineIdx);
-      if (Number.isFinite(idx)) line = idx + 1;
-    }
-    const sel = window.getSelection();
-    const hasSelection = !!sel && !sel.isCollapsed && !!sel.toString().trim();
-    if (hasSelection) handleMouseUp();
-    e.preventDefault();
-    ctxMenu.openAt({ clientX: e.clientX, clientY: e.clientY }, { line, hasSelection });
-  }, [ctxMenu, handleMouseUp]);
-
-  const handleContextAction = useCallback((action: CommentContextMenuAction) => {
-    const payload = ctxMenu.state.payload;
-    if (!payload) return;
-    const { line } = payload;
-    if (action === "comment") {
-      void handleAddSelectionComment(setCommentingLine);
-    } else if (action === "copy-link") {
-      const link = buildCommentLink({
-        filePath,
-        line: line ?? undefined,
-        workspaceRoot: useStore.getState().root,
-      });
-      void navigator.clipboard?.writeText?.(link);
-    } else if (action === "discussed") {
-      if (line != null) {
-        void addComment(filePath, "discussed", { kind: "line", line }, undefined, "none");
-      }
-    }
-  }, [ctxMenu.state.payload, filePath, addComment, handleAddSelectionComment]);
+      return Number.isFinite(idx) ? idx + 1 : null;
+    },
+    primeSelection: handleMouseUp,
+    startSelectionComment: () => void handleAddSelectionComment(setCommentingLine),
+  });
 
   return (
     <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", fontSize: `${zoom * 100}%` }}>
@@ -261,8 +234,9 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
         x={ctxMenu.state.x}
         y={ctxMenu.state.y}
         hasSelection={ctxMenu.state.payload?.hasSelection ?? false}
+        hasLine={ctxMenu.state.payload?.line != null}
         onAction={handleContextAction}
-        onClose={ctxMenu.close}
+        onClose={closeContextMenu}
       />
     </div>
   );

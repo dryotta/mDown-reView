@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MarkdownViewer } from "../MarkdownViewer";
 
 vi.mock("@tauri-apps/api/core");
@@ -33,14 +33,16 @@ vi.mock("@/lib/vm/use-comments", () => ({
   useComments: vi.fn(() => ({ threads: [], comments: [], loading: false, reload: vi.fn() })),
 }));
 
+const addCommentMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/vm/use-comment-actions", () => ({
   useCommentActions: vi.fn(() => ({
-    addComment: vi.fn(),
+    addComment: addCommentMock,
     addReply: vi.fn(),
     editComment: vi.fn(),
     deleteComment: vi.fn(),
     resolveComment: vi.fn(),
     unresolveComment: vi.fn(),
+    commitMoveAnchor: vi.fn(),
   })),
 }));
 
@@ -287,3 +289,73 @@ describe("Iter 5 Wave 1 — split-preservation", () => {
   });
 });
 
+
+
+// ─── F6: right-click context menu ───────────────────────────────────────────
+describe("F6 – right-click context menu", () => {
+  const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(
+    Navigator.prototype,
+    "clipboard",
+  ) ?? Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
+  beforeEach(() => {
+    addCommentMock.mockClear();
+  });
+
+  afterEach(() => {
+    if (originalClipboardDescriptor) {
+      Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
+    } else {
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  async function openMenuOnLine(content: string, line: number) {
+    render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
+    await waitFor(() => {
+      expect(document.querySelector(".markdown-body")).toBeInTheDocument();
+    });
+    const lineEl = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-source-line="${line}"]`,
+      );
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.contextMenu(lineEl, { clientX: 50, clientY: 60 });
+    await waitFor(() => {
+      expect(document.querySelector(".comment-context-menu")).not.toBeNull();
+    });
+  }
+
+  it("right-click renders the menu with the three actions", async () => {
+    await openMenuOnLine("# heading\n\nbody line", 3);
+    expect(screen.getByRole("menuitem", { name: /Comment on selection/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Copy link to line/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Mark line as discussed/i })).toBeTruthy();
+  });
+
+  it("Mark line as discussed calls addComment with severity=none + body=discussed", async () => {
+    await openMenuOnLine("# heading\n\nbody line", 3);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mark line as discussed/i }));
+    await waitFor(() => expect(addCommentMock).toHaveBeenCalled());
+    const call = addCommentMock.mock.calls[0];
+    expect(call[0]).toBe(FILE_PATH);
+    expect(call[1]).toBe("discussed");
+    expect(call[2]).toEqual({ kind: "line", line: 3 });
+    expect(call[3]).toBeUndefined();
+    expect(call[4]).toBe("none");
+  });
+
+  it("Copy link to line writes mdrv:// URL to clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    await openMenuOnLine("# heading\n\nbody line", 3);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy link to line/i }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toMatch(/^mdrv:\/\/.*\?line=3$/);
+  });
+});

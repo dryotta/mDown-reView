@@ -16,6 +16,12 @@ interface Props {
   /** True iff there is a non-empty selection at the click site. Gates the
    *  "Comment on selection" action. */
   hasSelection: boolean;
+  /** True iff the click site resolved to a real source line. When false
+   *  (whitespace / between-elements / non-line surface), "Mark line as
+   *  discussed" is disabled and "Copy link to line" becomes "Copy link to
+   *  file" so it still does something useful. Defaults to true for
+   *  back-compat with viewers that have not yet been wired. */
+  hasLine?: boolean;
   onAction: (a: CommentContextMenuAction) => void;
   onClose: () => void;
 }
@@ -27,13 +33,16 @@ const MENU_H = 110;
  *  comment-on-selection, copy-link-to-line, mark-line-as-discussed.
  *  Auto-closes via the parent's `useContextMenu` hook (Esc / outside
  *  click / scroll); Enter on a focused item activates it. */
-export function CommentContextMenu({ open, x, y, hasSelection, onAction, onClose }: Props) {
+export function CommentContextMenu({ open, x, y, hasSelection, hasLine = true, onAction, onClose }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const items: Item[] = [
     { action: "comment", label: "💬 Comment on selection", disabled: !hasSelection },
-    { action: "copy-link", label: "🔗 Copy link to line" },
-    { action: "discussed", label: "✅ Mark line as discussed" },
+    {
+      action: "copy-link",
+      label: hasLine ? "🔗 Copy link to line" : "🔗 Copy link to file",
+    },
+    { action: "discussed", label: "✅ Mark line as discussed", disabled: !hasLine },
   ];
 
   // Auto-focus first enabled item on open.

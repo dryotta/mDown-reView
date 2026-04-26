@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { SourceView } from "../SourceView";
 
@@ -84,8 +84,25 @@ describe("SourceView", () => {
 });
 
 describe("SourceView — F6 right-click context menu", () => {
+  // Capture the original clipboard descriptor once so each test that
+  // installs a stub can restore the real navigator.clipboard afterwards
+  // (jsdom shares one navigator across the whole file).
+  const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(
+    Navigator.prototype,
+    "clipboard",
+  ) ?? Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
   beforeEach(() => {
     addCommentMock.mockClear();
+  });
+
+  afterEach(() => {
+    if (originalClipboardDescriptor) {
+      Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
+    } else {
+      // No descriptor existed (older jsdom) — drop the stub if any.
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
   });
 
   function openContextMenuOn(content: string, lineIdx: number) {

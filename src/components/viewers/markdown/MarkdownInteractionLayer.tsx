@@ -19,6 +19,7 @@ export interface CommentContextMenuState {
   x: number;
   y: number;
   hasSelection: boolean;
+  hasLine: boolean;
 }
 
 interface Props {
@@ -105,6 +106,7 @@ export function MarkdownInteractionLayer({
           x={contextMenu.x}
           y={contextMenu.y}
           hasSelection={contextMenu.hasSelection}
+          hasLine={contextMenu.hasLine}
           onAction={onContextMenuAction}
           onClose={onContextMenuClose}
         />

@@ -39,6 +39,14 @@ export interface PendingScrollTarget {
   commentId?: string;
 }
 
+/** F6 — viewer-registered "open context menu at (x,y)" callback.
+ *  The active commentable viewer registers its handler on mount and clears
+ *  it on unmount so the global Shift+F10 / ContextMenu key shortcut can
+ *  drive the same code path as a real right-click. Replaces the iter 11
+ *  synthetic `dispatchEvent("contextmenu")` hack, which never reached the
+ *  viewer because `document.activeElement` was rarely the viewer body. */
+export type OpenContextMenuFn = (x: number, y: number) => void;
+
 export interface CommentsSlice {
   focusedThreadId: string | null;
   pendingScrollTarget: PendingScrollTarget | null;
@@ -49,6 +57,9 @@ export interface CommentsSlice {
    * here at mount time.
    */
   _resolveFocusedThreadHandler: (() => Promise<void>) | null;
+  /** F6 — registered by the active commentable viewer; null when no
+   *  commentable viewer is mounted (so the shortcut is a clean no-op). */
+  activeViewerContextMenu: OpenContextMenuFn | null;
 
   setFocusedThread: (id: string | null) => void;
   setPendingScrollTarget: (target: PendingScrollTarget | null) => void;
@@ -58,6 +69,7 @@ export interface CommentsSlice {
   setResolveFocusedThreadHandler: (
     fn: (() => Promise<void>) | null,
   ) => void;
+  setActiveViewerContextMenu: (fn: OpenContextMenuFn | null) => void;
   resolveFocusedThread: () => Promise<void>;
   nextUnresolvedInActiveFile: () => Promise<void>;
   prevUnresolvedInActiveFile: () => Promise<void>;
@@ -99,8 +111,10 @@ export function createCommentsSlice(
     focusedThreadId: null,
     pendingScrollTarget: null,
     _resolveFocusedThreadHandler: null,
+    activeViewerContextMenu: null,
 
     setFocusedThread: (id) => set({ focusedThreadId: id }),
+    setActiveViewerContextMenu: (fn) => set({ activeViewerContextMenu: fn }),
 
     setPendingScrollTarget: (target) => {
       set({ pendingScrollTarget: target });

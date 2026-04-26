@@ -87,4 +87,20 @@ describe("CommentContextMenu", () => {
     setup({ hasSelection: false });
     expect((document.activeElement as HTMLElement).textContent).toMatch(/Copy link to line/);
   });
+
+  it("hasLine=false disables 'Mark line as discussed' and renames Copy link → file", () => {
+    const { onAction } = setup({ hasLine: false });
+    const discussed = screen.getByRole("menuitem", {
+      name: /Mark line as discussed/i,
+    }) as HTMLButtonElement;
+    expect(discussed.disabled).toBe(true);
+    // Copy-link relabels to "Copy link to file" and stays enabled.
+    const copyLink = screen.getByRole("menuitem", { name: /Copy link to file/i }) as HTMLButtonElement;
+    expect(copyLink.disabled).toBe(false);
+    // The line-form label is gone.
+    expect(screen.queryByRole("menuitem", { name: /Copy link to line/i })).toBeNull();
+    // Clicking discussed is still a no-op.
+    fireEvent.click(discussed);
+    expect(onAction).not.toHaveBeenCalledWith("discussed");
+  });
 });
