@@ -49,6 +49,7 @@ url = "2"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", features = ["sync"] }
+unicode-segmentation = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

@@ -1,5 +1,5 @@
-use clap::{CommandFactory, Parser, Subcommand};
 use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser, Subcommand};
 use mdown_review_lib::core::types::CommentMutation;
 use mdown_review_lib::core::{comments, paths, scanner, sidecar};
 use std::path::{Path, PathBuf};
@@ -70,11 +70,8 @@ fn main() -> ExitCode {
     // subcommand), dump top-level help followed by long help for every
     // subcommand so the user sees every flag in one shot.
     let raw_args: Vec<String> = std::env::args().collect();
-    let is_top_level_help = raw_args.len() <= 2
-        && raw_args
-            .iter()
-            .skip(1)
-            .any(|a| a == "--help" || a == "-h");
+    let is_top_level_help =
+        raw_args.len() <= 2 && raw_args.iter().skip(1).any(|a| a == "--help" || a == "-h");
     if is_top_level_help {
         let mut cmd = Cli::command();
         let _ = cmd.print_long_help();
@@ -202,9 +199,7 @@ fn filter_raw_comments(
                     if include_resolved {
                         true
                     } else {
-                        !c.get("resolved")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
+                        !c.get("resolved").and_then(|v| v.as_bool()).unwrap_or(false)
                     }
                 })
                 .cloned()
@@ -287,8 +282,17 @@ fn print_text_entry(
     include_resolved: bool,
 ) {
     let source_rel = entry["sourceFile"]["relative"].as_str().unwrap_or("?");
-    let label = if include_resolved { "all" } else { "unresolved" };
-    println!("-- {} ({} {} comments) --", source_rel, filtered.len(), label);
+    let label = if include_resolved {
+        "all"
+    } else {
+        "unresolved"
+    };
+    println!(
+        "-- {} ({} {} comments) --",
+        source_rel,
+        filtered.len(),
+        label
+    );
     for c in filtered {
         print!(
             "{}",

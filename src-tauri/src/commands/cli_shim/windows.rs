@@ -162,8 +162,9 @@ fn broadcast_environment_change() {
 // ---------------------------------------------------------------------------
 
 fn current_exe_dir() -> Result<String, CliShimError> {
-    let exe = std::env::current_exe()
-        .map_err(|e| CliShimError::Io { message: format!("current_exe: {e}") })?;
+    let exe = std::env::current_exe().map_err(|e| CliShimError::Io {
+        message: format!("current_exe: {e}"),
+    })?;
     exe.parent()
         .ok_or_else(|| CliShimError::Io {
             message: "current_exe has no parent".into(),

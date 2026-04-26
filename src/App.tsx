@@ -9,6 +9,8 @@ import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
+import { useAuthor } from "@/lib/vm/useAuthor";
+import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { FirstRunPanel } from "@/components/onboarding/FirstRunPanel";
 import { SetupPanel } from "@/components/onboarding/SetupPanel";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
@@ -17,11 +19,12 @@ import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
-import { IconFile, IconFolder, IconComment } from "@/components/Icons";
+import { IconFile, IconFolder, IconComment, IconSettings } from "@/components/Icons";
 import "@/styles/app.css";
 
 export default function App() {
@@ -44,18 +47,68 @@ export default function App() {
   const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
+  const isMoveAnchorMode = useStore((s) => s.moveAnchorTarget !== null);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
 
+  // F1 — register the VM resolveFocusedThread handler with the store so
+  // the `R` keyboard shortcut can route through `update_comment` (the
+  // single mutation chokepoint) without the slice importing IPC mutations.
+  const { resolveFocusedThread } = useCommentActions();
+  const setResolveFocusedThreadHandler = useStore((s) => s.setResolveFocusedThreadHandler);
+  useEffect(() => {
+    setResolveFocusedThreadHandler(resolveFocusedThread);
+    return () => setResolveFocusedThreadHandler(null);
+  }, [resolveFocusedThread, setResolveFocusedThreadHandler]);
+
+  // F1 — Ctrl/Cmd+Shift+M: trigger the existing selection-toolbar add-
+  // comment path. We dispatch a real bubbling `mouseup` from the end of
+  // the current selection so the viewer's existing onMouseUp handler
+  // (registered via React event delegation) pops the SelectionToolbar
+  // exactly as a mouse interaction would, then auto-click the toolbar's
+  // "Comment" button on the next frame to open the CommentInput.
+  // No-op when there is no usable selection.
+  const startCommentOnSelection = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+    const range = sel.getRangeAt(0);
+    const target =
+      (range.endContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.endContainer as Element)
+        : range.endContainer.parentElement) ?? document.body;
+    target.dispatchEvent(
+      new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+    );
+    requestAnimationFrame(() => {
+      const btn = document.querySelector(
+        ".selection-toolbar-btn",
+      ) as HTMLButtonElement | null;
+      btn?.click();
+    });
+  }, []);
+
+  // F1 — Esc: handled per-input by CommentInput's own keydown handler;
+  // no global plumb-through is needed.
+
   // Connect Rust file watcher to frontend event pipeline
   useFileWatcher();
 
-  const menuCallbacks = { handleOpenFile, handleOpenFolder, toggleCommentsPane, setTheme, setAboutOpen, checkForUpdate };
+  const menuCallbacks = {
+    handleOpenFile,
+    handleOpenFolder,
+    toggleCommentsPane,
+    setTheme,
+    setAboutOpen,
+    checkForUpdate,
+    startCommentOnSelection,
+  };
   useMenuListeners(menuCallbacks);
   useGlobalShortcuts(menuCallbacks);
   useLaunchArgsBootstrap();
@@ -66,11 +119,35 @@ export default function App() {
   // Onboarding: refresh status, maybe auto-show welcome, re-poll on focus
   useOnboardingBootstrap();
 
+  // Hydrate the persisted display name from disk so new comments get the
+  // OS-user fallback even before the user opens Settings (AC #71/F7).
+  useAuthor();
+
   // Background update check — 5 s delay, non-blocking
   useEffect(() => {
     const t = setTimeout(() => { checkForUpdate(); }, 5000);
     return () => clearTimeout(t);
   }, [checkForUpdate]);
+
+  // Move-anchor mode: toggle a body class so global CSS can swap the cursor
+  // for every element under <body> while the user picks a target line.
+  useEffect(() => {
+    document.body.classList.toggle("mode-move-anchor", isMoveAnchorMode);
+    return () => { document.body.classList.remove("mode-move-anchor"); };
+  }, [isMoveAnchorMode]);
+
+  // Move-anchor mode: global Esc cancels. Capture phase so it wins over
+  // any per-component keydown handler. Read the current value via getState()
+  // (rule 9) so the listener doesn't need to re-bind on every state change.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && useStore.getState().moveAnchorTarget !== null) {
+        useStore.getState().setMoveAnchorTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, []);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
@@ -96,6 +173,12 @@ export default function App() {
 
   return (
     <div className="app-layout">
+      {isMoveAnchorMode && (
+        <div className="move-anchor-banner" role="status" aria-live="polite" data-testid="move-anchor-banner">
+          Click a line to move the comment.{" "}
+          <button onClick={() => useStore.getState().setMoveAnchorTarget(null)}>Cancel</button>
+        </div>
+      )}
       <ErrorBoundary>
       <div className="toolbar">
         <div className="toolbar-btn-group">
@@ -111,6 +194,14 @@ export default function App() {
             title="Toggle comments pane (Ctrl+Shift+C)"
           >
             <IconComment /> Comments
+          </button>
+          <button
+            className="toolbar-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <IconSettings /> Settings
           </button>
         </div>
         <ErrorBoundary>
@@ -158,6 +249,7 @@ export default function App() {
       </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       <FirstRunPanel />
       <SetupPanel />
     </div>

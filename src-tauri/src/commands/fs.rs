@@ -106,7 +106,11 @@ pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
     })?;
     let line_count = content.lines().count();
 
-    Ok(TextFileResult { content, size_bytes, line_count })
+    Ok(TextFileResult {
+        content,
+        size_bytes,
+        line_count,
+    })
 }
 
 /// Read a binary file, returning base64-encoded content. Rejects files >10 MB.

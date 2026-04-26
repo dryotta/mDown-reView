@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { SourceView } from "../SourceView";
 
 vi.mock("@/lib/shiki", () => ({
@@ -20,14 +20,16 @@ vi.mock("@/lib/vm/use-comments", () => ({
   useComments: vi.fn(() => ({ threads: [], comments: [], loading: false, reload: vi.fn() })),
 }));
 
+const addCommentMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/vm/use-comment-actions", () => ({
   useCommentActions: vi.fn(() => ({
-    addComment: vi.fn(),
+    addComment: addCommentMock,
     addReply: vi.fn(),
     editComment: vi.fn(),
     deleteComment: vi.fn(),
     resolveComment: vi.fn(),
     unresolveComment: vi.fn(),
+    commitMoveAnchor: vi.fn(),
   })),
 }));
 
@@ -78,5 +80,77 @@ describe("SourceView", () => {
       expect(lineContents[0].innerHTML).toBe("highlighted");
       expect(lineContents[1].innerHTML).toBe("highlighted");
     });
+  });
+});
+
+describe("SourceView — F6 right-click context menu", () => {
+  // Capture the original clipboard descriptor once so each test that
+  // installs a stub can restore the real navigator.clipboard afterwards
+  // (jsdom shares one navigator across the whole file).
+  const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(
+    Navigator.prototype,
+    "clipboard",
+  ) ?? Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
+  beforeEach(() => {
+    addCommentMock.mockClear();
+  });
+
+  afterEach(() => {
+    if (originalClipboardDescriptor) {
+      Object.defineProperty(navigator, "clipboard", originalClipboardDescriptor);
+    } else {
+      // No descriptor existed (older jsdom) — drop the stub if any.
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  function openContextMenuOn(content: string, lineIdx: number) {
+    render(<SourceView content={content} path="/test.ts" filePath="/test.ts" />);
+    return waitFor(() => {
+      const lineEl = document.querySelector<HTMLElement>(`[data-line-idx="${lineIdx}"]`);
+      expect(lineEl).not.toBeNull();
+      fireEvent.contextMenu(lineEl!, { clientX: 50, clientY: 60 });
+      expect(document.querySelector(".comment-context-menu")).not.toBeNull();
+    });
+  }
+
+  it("right-click renders the menu with the three actions", async () => {
+    await openContextMenuOn("aaa\nbbb\nccc", 1);
+    expect(screen.getByRole("menuitem", { name: /Comment on selection/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Copy link to line/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Mark line as discussed/i })).toBeTruthy();
+  });
+
+  it("Comment on selection is disabled when there is no selection", async () => {
+    // Default jsdom has no Selection — collapsed.
+    await openContextMenuOn("aaa\nbbb", 0);
+    const btn = screen.getByRole("menuitem", { name: /Comment on selection/i }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("Mark line as discussed calls addComment with severity=none + text=discussed", async () => {
+    await openContextMenuOn("aaa\nbbb\nccc", 1);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mark line as discussed/i }));
+    await waitFor(() => expect(addCommentMock).toHaveBeenCalled());
+    const call = addCommentMock.mock.calls[0];
+    expect(call[0]).toBe("/test.ts");        // filePath
+    expect(call[1]).toBe("discussed");        // text
+    expect(call[2]).toEqual({ kind: "line", line: 2 }); // anchor (idx 1 + 1)
+    expect(call[3]).toBeUndefined();          // commentType
+    expect(call[4]).toBe("none");             // severity
+  });
+
+  it("Copy link to line writes mdrv:// URL to clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    await openContextMenuOn("aaa\nbbb\nccc", 2);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy link to line/i }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const link = writeText.mock.calls[0][0] as string;
+    expect(link).toMatch(/^mdrv:\/\/.*\?line=3$/);
   });
 });

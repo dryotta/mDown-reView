@@ -1,4 +1,18 @@
+//! Sidecar load / save / patch.
+//!
+//! Read-side I/O guards (size cap + YAML anchor rejection) live in
+//! [`io_guards`] — see that module's doc-comment for the threat model.
+//! All sidecar reads in this module MUST funnel through `read_capped`,
+//! and YAML reads MUST additionally pass `reject_yaml_anchors` BEFORE
+//! handing bytes to a parser. Order: `read_capped` → `reject_yaml_anchors`
+//! → parse. JSON reads intentionally skip the YAML anchor check (anchors
+//! are a YAML-only construct).
+
+mod io_guards;
+
+use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
+use io_guards::{read_capped, reject_yaml_anchors};
 use std::fmt;
 use std::path::Path;
 
@@ -39,8 +53,9 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
     let yaml_path = format!("{}.review.yaml", file_path);
     let json_path = format!("{}.review.json", file_path);
 
-    match std::fs::read_to_string(&yaml_path) {
+    match read_capped(&yaml_path) {
         Ok(content) => {
+            reject_yaml_anchors(&content)?;
             let sidecar: MrsfSidecar =
                 serde_yaml_ng::from_str(&content).map_err(SidecarError::YamlParse)?;
             return Ok(Some(sidecar));
@@ -51,7 +66,7 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
         _ => {} // Not found, try JSON
     }
 
-    match std::fs::read_to_string(&json_path) {
+    match read_capped(&json_path) {
         Ok(content) => {
             let sidecar: MrsfSidecar =
                 serde_json::from_str(&content).map_err(SidecarError::JsonParse)?;
@@ -79,7 +94,7 @@ pub fn save_sidecar(
     }
 
     let payload = MrsfSidecar {
-        mrsf_version: "1.0".to_string(),
+        mrsf_version: mrsf_version_for(comments).to_string(),
         document: document.to_string(),
         comments: comments.to_vec(),
     };
@@ -101,10 +116,13 @@ pub fn patch_comment(
     let json_path = format!("{}.review.json", file_path);
 
     // Determine which file exists and load as Value
-    let (content, _source_path) = match std::fs::read_to_string(&yaml_path) {
-        Ok(c) => (c, yaml_path.clone()),
+    let (content, _source_path) = match read_capped(&yaml_path) {
+        Ok(c) => {
+            reject_yaml_anchors(&c)?;
+            (c, yaml_path.clone())
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            match std::fs::read_to_string(&json_path) {
+            match read_capped(&json_path) {
                 Ok(c) => {
                     // Convert JSON to YAML Value
                     let json_val: serde_json::Value =
@@ -172,8 +190,7 @@ pub fn patch_comment(
                 match responses {
                     Some(seq) => seq.push(new_response),
                     None => {
-                        comment["responses"] =
-                            serde_yaml_ng::Value::Sequence(vec![new_response]);
+                        comment["responses"] = serde_yaml_ng::Value::Sequence(vec![new_response]);
                     }
                 }
             }
@@ -186,177 +203,6 @@ pub fn patch_comment(
     crate::core::atomic::write_atomic(Path::new(&yaml_path), yaml_out.as_bytes())?;
     Ok(())
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::types::MrsfComment;
-    use tempfile::TempDir;
-
-    fn sample_comment(id: &str) -> MrsfComment {
-        MrsfComment {
-            id: id.to_string(),
-            author: "test".to_string(),
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            text: "test comment".to_string(),
-            resolved: false,
-            line: Some(1),
-            end_line: None,
-            start_column: None,
-            end_column: None,
-            selected_text: None,
-            anchored_text: None,
-            selected_text_hash: None,
-            commit: None,
-            comment_type: None,
-            severity: None,
-            reply_to: None,
-        }
-    }
-
-    #[test]
-    fn load_sidecar_yaml() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        let sidecar_path = tmp.path().join("test.md.review.yaml");
-        std::fs::write(&file_path, "# Test").unwrap();
-        std::fs::write(
-            &sidecar_path,
-            r#"mrsf_version: "1.0"
-document: test.md
-comments:
-  - id: "c1"
-    author: "test"
-    timestamp: "2025-01-01T00:00:00Z"
-    text: "hello"
-    resolved: false
-"#,
-        )
-        .unwrap();
-
-        let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
-        assert!(result.is_some());
-        let sidecar = result.unwrap();
-        assert_eq!(sidecar.comments.len(), 1);
-        assert_eq!(sidecar.comments[0].id, "c1");
-    }
-
-    #[test]
-    fn load_sidecar_json_fallback() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        let json_path = tmp.path().join("test.md.review.json");
-        std::fs::write(&file_path, "# Test").unwrap();
-        std::fs::write(
-            &json_path,
-            r#"{"mrsf_version":"1.0","document":"test.md","comments":[{"id":"c1","author":"test","timestamp":"2025-01-01T00:00:00Z","text":"hello","resolved":false}]}"#,
-        )
-        .unwrap();
-
-        let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().comments[0].id, "c1");
-    }
-
-    #[test]
-    fn load_sidecar_missing_returns_none() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("nonexistent.md");
-        let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn save_sidecar_writes_yaml() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        std::fs::write(&file_path, "# Test").unwrap();
-
-        let comments = vec![sample_comment("c1")];
-        save_sidecar(file_path.to_str().unwrap(), "test.md", &comments).unwrap();
-
-        let sidecar_path = tmp.path().join("test.md.review.yaml");
-        assert!(sidecar_path.exists());
-        let content = std::fs::read_to_string(&sidecar_path).unwrap();
-        assert!(content.contains("mrsf_version"));
-        assert!(content.contains("c1"));
-    }
-
-    #[test]
-    fn save_sidecar_empty_deletes() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        let sidecar_path = tmp.path().join("test.md.review.yaml");
-        std::fs::write(&file_path, "# Test").unwrap();
-        std::fs::write(&sidecar_path, "dummy").unwrap();
-
-        save_sidecar(file_path.to_str().unwrap(), "test.md", &[]).unwrap();
-        assert!(!sidecar_path.exists());
-    }
-
-    #[test]
-    fn patch_comment_resolve() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        std::fs::write(&file_path, "# Test").unwrap();
-
-        let comments = vec![sample_comment("c1"), sample_comment("c2")];
-        save_sidecar(file_path.to_str().unwrap(), "test.md", &comments).unwrap();
-
-        patch_comment(
-            file_path.to_str().unwrap(),
-            "c1",
-            &[CommentMutation::SetResolved(true)],
-        )
-        .unwrap();
-
-        let loaded = load_sidecar(file_path.to_str().unwrap())
-            .unwrap()
-            .unwrap();
-        assert!(loaded.comments.iter().find(|c| c.id == "c1").unwrap().resolved);
-        assert!(!loaded.comments.iter().find(|c| c.id == "c2").unwrap().resolved);
-    }
-
-    #[test]
-    fn patch_comment_add_response() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        std::fs::write(&file_path, "# Test").unwrap();
-
-        let comments = vec![sample_comment("c1")];
-        save_sidecar(file_path.to_str().unwrap(), "test.md", &comments).unwrap();
-
-        patch_comment(
-            file_path.to_str().unwrap(),
-            "c1",
-            &[CommentMutation::AddResponse {
-                author: "agent".to_string(),
-                text: "fixed it".to_string(),
-                timestamp: "2025-01-02T00:00:00Z".to_string(),
-            }],
-        )
-        .unwrap();
-
-        let content =
-            std::fs::read_to_string(tmp.path().join("test.md.review.yaml")).unwrap();
-        assert!(content.contains("fixed it"));
-        assert!(content.contains("responses"));
-    }
-
-    #[test]
-    fn patch_comment_not_found() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.md");
-        std::fs::write(&file_path, "# Test").unwrap();
-
-        let comments = vec![sample_comment("c1")];
-        save_sidecar(file_path.to_str().unwrap(), "test.md", &comments).unwrap();
-
-        let result = patch_comment(
-            file_path.to_str().unwrap(),
-            "nonexistent",
-            &[CommentMutation::SetResolved(true)],
-        );
-        assert!(matches!(result, Err(SidecarError::CommentNotFound(_))));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

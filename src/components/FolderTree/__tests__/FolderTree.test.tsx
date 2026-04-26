@@ -9,8 +9,8 @@ vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
 // Mock the hook to avoid IPC / event listener setup in tests
-vi.mock("@/hooks/useUnresolvedCounts", () => ({
-  useUnresolvedCounts: () => ({}),
+vi.mock("@/hooks/useFileBadges", () => ({
+  useFileBadges: () => ({}),
 }));
 
 // Mock tauri-commands readDir so we can control what it returns

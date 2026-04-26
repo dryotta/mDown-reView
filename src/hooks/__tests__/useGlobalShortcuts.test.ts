@@ -7,6 +7,11 @@ const mockSetActiveTab = vi.fn();
 const mockBumpZoom = vi.fn();
 const mockBack = vi.fn();
 const mockForward = vi.fn();
+const mockNextUnresolvedInActiveFile = vi.fn();
+const mockPrevUnresolvedInActiveFile = vi.fn();
+const mockNextUnresolvedAcrossFiles = vi.fn();
+const mockResolveFocusedThread = vi.fn();
+const mockActiveViewerContextMenu = vi.fn();
 
 const storeState = {
   activeTabPath: "/a.md",
@@ -16,6 +21,13 @@ const storeState = {
   bumpZoom: mockBumpZoom,
   back: mockBack,
   forward: mockForward,
+  nextUnresolvedInActiveFile: mockNextUnresolvedInActiveFile,
+  prevUnresolvedInActiveFile: mockPrevUnresolvedInActiveFile,
+  nextUnresolvedAcrossFiles: mockNextUnresolvedAcrossFiles,
+  resolveFocusedThread: mockResolveFocusedThread,
+  activeViewerContextMenu: mockActiveViewerContextMenu as
+    | ((x: number, y: number) => void)
+    | null,
   zoomByFiletype: {} as Record<string, number>,
   viewModeByTab: {} as Record<string, "source" | "visual">,
   tabs: [
@@ -39,6 +51,7 @@ const callbacks = {
   handleOpenFile: vi.fn(),
   handleOpenFolder: vi.fn(),
   toggleCommentsPane: vi.fn(),
+  startCommentOnSelection: vi.fn(),
 };
 
 function fire(opts: { key: string; shift?: boolean; mod?: boolean; alt?: boolean; target?: EventTarget }) {
@@ -207,7 +220,54 @@ describe("useGlobalShortcuts", () => {
     });
   });
 
-  // B1 — editable-target guard.
+  // F6 — Shift+F10 / ContextMenu key reachability via registered callback.
+  describe("F6 keyboard reachability (Shift+F10 / ContextMenu)", () => {
+    beforeEach(() => {
+      mockActiveViewerContextMenu.mockReset();
+      storeState.activeViewerContextMenu = mockActiveViewerContextMenu as
+        | ((x: number, y: number) => void)
+        | null;
+    });
+
+    it("Shift+F10 invokes the registered active-viewer opener", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = new KeyboardEvent("keydown", {
+        key: "F10",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(ev);
+      expect(mockActiveViewerContextMenu).toHaveBeenCalledTimes(1);
+      const [x, y] = mockActiveViewerContextMenu.mock.calls[0];
+      expect(typeof x).toBe("number");
+      expect(typeof y).toBe("number");
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it("ContextMenu key invokes the registered opener", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }),
+      );
+      expect(mockActiveViewerContextMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it("Shift+F10 is a clean no-op when no viewer is registered", () => {
+      storeState.activeViewerContextMenu = null;
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = new KeyboardEvent("keydown", {
+        key: "F10",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(ev);
+      expect(mockActiveViewerContextMenu).not.toHaveBeenCalled();
+      expect(ev.defaultPrevented).toBe(false);
+    });
+  });
+
   describe("editable-target guard (B1)", () => {
     it("ignores Ctrl+= when target is an INPUT", () => {
       renderHook(() => useGlobalShortcuts(callbacks));
@@ -244,5 +304,65 @@ describe("useGlobalShortcuts", () => {
     unmount();
     fire({ key: "o" });
     expect(callbacks.handleOpenFile).not.toHaveBeenCalled();
+  });
+
+  // F1 — comment navigation/action shortcuts.
+  describe("F1 comment shortcuts", () => {
+    it("Ctrl+Shift+M calls startCommentOnSelection", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "M", shift: true });
+      expect(callbacks.startCommentOnSelection).toHaveBeenCalledOnce();
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it("J calls nextUnresolvedInActiveFile", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "j", mod: false });
+      expect(mockNextUnresolvedInActiveFile).toHaveBeenCalledOnce();
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it("K calls prevUnresolvedInActiveFile", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "k", mod: false });
+      expect(mockPrevUnresolvedInActiveFile).toHaveBeenCalledOnce();
+    });
+
+    it("N calls nextUnresolvedAcrossFiles", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "n", mod: false });
+      expect(mockNextUnresolvedAcrossFiles).toHaveBeenCalledOnce();
+    });
+
+    it("R calls resolveFocusedThread", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "r", mod: false });
+      expect(mockResolveFocusedThread).toHaveBeenCalledOnce();
+    });
+
+    it("Esc is not bound globally (handled per-input by CommentInput)", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "Escape", mod: false });
+      // No global handler should preventDefault on Escape; CommentInput
+      // owns Escape on its textarea blur.
+      expect(ev.defaultPrevented).toBe(false);
+    });
+
+    it("J/K/N/R/Ctrl+Shift+M skip when target is editable", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      fire({ key: "j", mod: false, target: input });
+      fire({ key: "k", mod: false, target: input });
+      fire({ key: "n", mod: false, target: input });
+      fire({ key: "r", mod: false, target: input });
+      fire({ key: "M", shift: true, target: input });
+      expect(mockNextUnresolvedInActiveFile).not.toHaveBeenCalled();
+      expect(mockPrevUnresolvedInActiveFile).not.toHaveBeenCalled();
+      expect(mockNextUnresolvedAcrossFiles).not.toHaveBeenCalled();
+      expect(mockResolveFocusedThread).not.toHaveBeenCalled();
+      expect(callbacks.startCommentOnSelection).not.toHaveBeenCalled();
+      input.remove();
+    });
   });
 });

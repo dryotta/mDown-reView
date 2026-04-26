@@ -91,7 +91,7 @@ The rules that operationalize the pillars and meta-principles live in domain doc
 
 | Document | Governs |
 |---|---|
-| [`docs/architecture.md`](architecture.md) | Layer separation, IPC contract, Zustand boundaries, file-size budgets, MRSF v1.0 schema |
+| [`docs/architecture.md`](architecture.md) | Layer separation, IPC contract, Zustand boundaries, file-size budgets, MRSF v1.0 + v1.1 schema |
 | [`docs/performance.md`](performance.md) | Numeric budgets, debounce windows, scan caps, render rules |
 | [`docs/security.md`](security.md) | IPC surface, path canonicalization, markdown XSS posture, CSP, sidecar atomicity |
 | [`docs/design-patterns.md`](design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture |

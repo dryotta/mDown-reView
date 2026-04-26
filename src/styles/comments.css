@@ -41,6 +41,12 @@
   cursor: pointer;
 }
 
+.comment-panel-item:focus-within {
+  outline: 2px solid var(--color-accent, #0969da);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
 .comment-panel-item-line {
   font-size: 11px;
   font-weight: 600;
@@ -205,6 +211,44 @@
   background: var(--color-accent-hover);
 }
 
+.comments-panel-status {
+  font-size: 11px;
+  color: var(--color-muted);
+  margin-left: auto;
+  font-style: italic;
+}
+
+/* Iter 6 F4 — quick-reaction row beneath each comment item. */
+.comment-reactions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.comment-reaction-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text-secondary, var(--color-muted));
+  cursor: pointer;
+}
+
+.comment-reaction-btn:hover {
+  background: var(--color-tab-hover);
+  color: var(--color-text);
+}
+
+.comment-reaction-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* Comment plus button in gutter */
 .comment-plus-btn {
   display: flex;
@@ -243,6 +287,14 @@
   padding: 6px;
 }
 
+/* A1 (iter 7) — full-width inline variant. Replaces the historical `left: 24px`
+ * inline-style hardcode. The popover stretches across its (relatively
+ * positioned) parent column rather than offsetting by a magic pixel value. */
+.md-comment-popover-inline {
+  left: 0;
+  right: 0;
+}
+
 /* Remove nested frame from comment input inside popover */
 .md-comment-popover .comment-input {
   padding: 0;
@@ -268,7 +320,8 @@
 
 /* Gutter button as ::before pseudo-element — always at left edge */
 .md-commentable-block::before,
-.md-commentable-li::before {
+.md-commentable-li::before,
+.md-commentable-cell::before {
   content: "+";
   position: absolute;
   left: 4px;
@@ -290,15 +343,22 @@
   z-index: 5;
 }
 
+/* Cells need their own positioning context for the ::before badge. */
+.md-commentable-cell {
+  position: relative;
+}
+
 /* Show on hover */
 .md-commentable-block:hover::before,
-.md-commentable-li:hover::before {
+.md-commentable-li:hover::before,
+.md-commentable-cell:hover::before {
   opacity: 0.6;
 }
 
 /* Lines with comments — always visible badge */
 .md-commentable-block.has-comments::before,
-.md-commentable-li.has-comments::before {
+.md-commentable-li.has-comments::before,
+.md-commentable-cell.has-comments::before {
   content: attr(data-comment-count);
   opacity: 0.8;
   background: var(--color-accent, #0969da);
@@ -308,7 +368,8 @@
 }
 
 .md-commentable-block.has-comments:hover::before,
-.md-commentable-li.has-comments:hover::before {
+.md-commentable-li.has-comments:hover::before,
+.md-commentable-cell.has-comments:hover::before {
   opacity: 1;
 }
 
@@ -343,6 +404,42 @@
 
 .selection-toolbar-btn:hover {
   background: var(--color-bg-hover, #f3f4f6);
+}
+
+/* F6 — Right-click context menu (CommentContextMenu) */
+.comment-context-menu {
+  position: fixed;
+  z-index: 110;
+  min-width: 200px;
+  background: var(--color-bg-elevated, #fff);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.comment-context-menu-item {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--color-fg-default, #1f2328);
+  text-align: left;
+}
+
+.comment-context-menu-item:hover:not(:disabled),
+.comment-context-menu-item:focus {
+  background: var(--color-bg-hover, #f3f4f6);
+  outline: none;
+}
+
+.comment-context-menu-item:disabled {
+  color: var(--color-muted, #8c959f);
+  cursor: default;
 }
 
 /* Selection highlight */
@@ -430,4 +527,83 @@
 .comment-char-count.over-limit {
   color: var(--error-color, #d32f2f);
   font-weight: 600;
+}
+
+
+/*  Move-anchor mode (transient UI; rule 9: triggered via store)  */
+body.mode-move-anchor,
+body.mode-move-anchor * {
+  cursor: crosshair !important;
+}
+
+.move-anchor-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-info-bg, #fff8e1);
+  color: var(--color-fg-default, inherit);
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--color-border, #d0d7de);
+}
+
+.move-anchor-banner button {
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+
+/* Iter 9 F3  filter row (search + severity chips + workspace toggle) */
+.comments-panel-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+.comments-filter-search {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.comments-filter-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.comments-filter-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.comments-filter-chip[aria-pressed="true"] { color: white; border-color: transparent; font-weight: 600; }
+.comments-filter-chip--high[aria-pressed="true"]   { background: #dc2626; }
+.comments-filter-chip--medium[aria-pressed="true"] { background: #ea580c; }
+.comments-filter-chip--low[aria-pressed="true"]    { background: #9ca3af; }
+.comments-filter-chip--none[aria-pressed="true"]   { background: #4b5563; }
+.comments-filter-workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.comment-panel-item-path {
+  font-size: 10px;
+  color: var(--color-muted);
+  margin-bottom: 2px;
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

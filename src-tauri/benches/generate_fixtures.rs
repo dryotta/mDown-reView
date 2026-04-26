@@ -228,10 +228,7 @@ pub fn generate_source_file(rng: &mut StdRng, line_count: usize) -> Vec<String> 
             ));
         } else {
             let fname = CODE_FUNCTION_NAMES[rng.gen_range(0..CODE_FUNCTION_NAMES.len())];
-            lines.push(format!(
-                "    let _ = {}.map(|v| v.to_string());",
-                fname
-            ));
+            lines.push(format!("    let _ = {}.map(|v| v.to_string());", fname));
         }
         i += 1;
     }
@@ -511,10 +508,8 @@ mod tests {
         generate_fixtures(tmp1.path()).unwrap();
         generate_fixtures(tmp2.path()).unwrap();
 
-        let content1 =
-            fs::read_to_string(tmp1.path().join("comments_50.review.yaml")).unwrap();
-        let content2 =
-            fs::read_to_string(tmp2.path().join("comments_50.review.yaml")).unwrap();
+        let content1 = fs::read_to_string(tmp1.path().join("comments_50.review.yaml")).unwrap();
+        let content2 = fs::read_to_string(tmp2.path().join("comments_50.review.yaml")).unwrap();
         assert_eq!(content1, content2, "fixture output must be deterministic");
     }
 
@@ -564,8 +559,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         generate_fixtures(tmp.path()).unwrap();
 
-        let content =
-            fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
         let sidecar: TestMrsfSidecar =
             serde_yaml_ng::from_str(&content).expect("sidecar must parse as valid YAML");
 
@@ -579,14 +573,17 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         generate_fixtures(tmp.path()).unwrap();
 
-        let content =
-            fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
         let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
 
         let resolved_count = sidecar.comments.iter().filter(|c| c.resolved).count();
         // 20% resolved = ~10 of 50, allow some variance from RNG
         assert!(resolved_count >= 3, "too few resolved: {}", resolved_count);
-        assert!(resolved_count <= 20, "too many resolved: {}", resolved_count);
+        assert!(
+            resolved_count <= 20,
+            "too many resolved: {}",
+            resolved_count
+        );
     }
 
     #[test]
@@ -594,11 +591,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         generate_fixtures(tmp.path()).unwrap();
 
-        let content =
-            fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
+        let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
         let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
 
-        let reply_count = sidecar.comments.iter().filter(|c| c.reply_to.is_some()).count();
+        let reply_count = sidecar
+            .comments
+            .iter()
+            .filter(|c| c.reply_to.is_some())
+            .count();
         assert!(reply_count >= 5, "too few replies: {}", reply_count);
         assert!(reply_count <= 30, "too many replies: {}", reply_count);
 
@@ -634,7 +634,11 @@ mod tests {
             let path = entry.path();
             if path.to_str().map_or(false, |s| s.ends_with(".review.yaml")) {
                 let count = count_sidecar_comments(&path);
-                assert_eq!(count, 10, "small sidecar {:?} should have 10 comments", path);
+                assert_eq!(
+                    count, 10,
+                    "small sidecar {:?} should have 10 comments",
+                    path
+                );
             }
         }
     }
@@ -658,7 +662,11 @@ mod tests {
             let path = entry.path();
             if path.to_str().map_or(false, |s| s.ends_with(".review.yaml")) {
                 let count = count_sidecar_comments(&path);
-                assert_eq!(count, 50, "medium sidecar {:?} should have 50 comments", path);
+                assert_eq!(
+                    count, 50,
+                    "medium sidecar {:?} should have 50 comments",
+                    path
+                );
             }
         }
     }
@@ -757,8 +765,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         generate_fixtures(tmp.path()).unwrap();
 
-        let file_content =
-            fs::read_to_string(tmp.path().join("file_100_lines.md")).unwrap();
+        let file_content = fs::read_to_string(tmp.path().join("file_100_lines.md")).unwrap();
         let file_lines: Vec<&str> = file_content.lines().collect();
 
         let sidecar_content =

@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
+import { useStore } from "@/store";
 import type { MatchedComment } from "@/lib/tauri-commands";
+import { deriveAnchor } from "@/types/comments";
+import { readDraft, writeDraft, clearDraft } from "@/lib/comment-drafts";
 import "@/styles/comments.css";
 
 // --- Type/severity badge maps ---
@@ -20,6 +23,53 @@ const SEVERITY_BADGE_CLASSES: Record<string, string> = {
   low: "comment-severity-badge--low",
 };
 
+// --- Quick reactions row ---
+// F4 — three quick-reaction buttons (👍 / ✓ / ✗) beneath each comment item.
+// Each button dispatches an `add_reaction` patch via `update_comment` (idempotent
+// on (user, kind) per the Rust chokepoint). Counts are derived from the
+// comment's `reactions` array, grouped by `kind`.
+const REACTIONS: ReadonlyArray<{ kind: string; glyph: string; label: string }> = [
+  { kind: "thumbsup", glyph: "👍", label: "Thumbs up" },
+  { kind: "ack", glyph: "✓", label: "Acknowledge" },
+  { kind: "dismiss", glyph: "✗", label: "Dismiss" },
+];
+
+function ReactionRow({
+  comment,
+  filePath,
+}: {
+  comment: MatchedComment;
+  filePath: string;
+}) {
+  const { addReaction } = useCommentActions();
+  const counts: Record<string, number> = {};
+  for (const r of comment.reactions ?? []) {
+    counts[r.kind] = (counts[r.kind] ?? 0) + 1;
+  }
+  return (
+    <div className="comment-reactions" onClick={(e) => e.stopPropagation()}>
+      {REACTIONS.map(({ kind, glyph, label }) => {
+        const count = counts[kind] ?? 0;
+        return (
+          <button
+            key={kind}
+            type="button"
+            className="comment-reaction-btn"
+            aria-label={label}
+            title={label}
+            onClick={() =>
+              addReaction(filePath, comment.id, kind).catch(() => {})
+            }
+          >
+            <span aria-hidden="true">{glyph}</span>
+            {count > 0 && <span className="comment-reaction-count">{count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // --- Single comment item (shared between root and reply rendering) ---
 function CommentItem({ comment, variant, filePath, onStartReply }: {
   comment: MatchedComment;
@@ -30,6 +80,13 @@ function CommentItem({ comment, variant, filePath, onStartReply }: {
   const { editComment, deleteComment, resolveComment, unresolveComment } = useCommentActions();
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
+  const isMoveActive = useStore((s) => s.moveAnchorTarget === comment.id);
+  // Move-anchor mode targets a source line. Only Line and File anchors map
+  // cleanly onto a clicked line; typed anchors (image rect, csv cell, etc.)
+  // would silently demote to Line on commit, which loses information. Hide
+  // the button entirely for those — users edit/delete to re-anchor instead.
+  const anchorKind = deriveAnchor(comment).kind;
+  const canMoveAnchor = anchorKind === "line" || anchorKind === "file";
 
   const handleSaveEdit = () => {
     if (editText.trim()) {
@@ -97,7 +154,19 @@ function CommentItem({ comment, variant, filePath, onStartReply }: {
             </button>
           )
         )}
+        {variant === "root" && canMoveAnchor && (
+          <button
+            className="comment-action-btn"
+            onClick={() => {
+              if (isMoveActive) useStore.getState().setMoveAnchorTarget(null);
+              else useStore.getState().setMoveAnchorTarget(comment.id);
+            }}
+          >
+            {isMoveActive ? "Cancel move" : "Move"}
+          </button>
+        )}
       </div>
+      <ReactionRow comment={comment} filePath={filePath} />
     </div>
   );
 }
@@ -111,8 +180,9 @@ interface CommentThreadProps {
 
 export function CommentThread({ rootComment, replies = [], filePath }: CommentThreadProps) {
   const { addReply } = useCommentActions();
+  const replyDraftKey = `${filePath}::reply::${rootComment.id}`;
   const [replying, setReplying] = useState(false);
-  const [replyText, setReplyText] = useState("");
+  const [replyText, setReplyText] = useState<string>(() => readDraft(replyDraftKey));
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -121,12 +191,24 @@ export function CommentThread({ rootComment, replies = [], filePath }: CommentTh
     }
   }, [replying]);
 
+  // Persist the reply draft on every change so reload mid-typing recovers.
+  useEffect(() => {
+    writeDraft(replyDraftKey, replyText);
+  }, [replyDraftKey, replyText]);
+
   const handleSendReply = () => {
     if (replyText.trim()) {
       addReply(filePath, rootComment.id, replyText.trim()).catch(() => {});
+      clearDraft(replyDraftKey);
       setReplyText("");
       setReplying(false);
     }
+  };
+
+  const handleCancelReply = () => {
+    clearDraft(replyDraftKey);
+    setReplyText("");
+    setReplying(false);
   };
 
   const resolvedClass = rootComment.resolved ? " comment-thread--resolved" : "";
@@ -159,7 +241,7 @@ export function CommentThread({ rootComment, replies = [], filePath }: CommentTh
           />
           <div className="comment-input-actions">
             <button className="comment-btn comment-btn-primary" onClick={handleSendReply}>Send</button>
-            <button className="comment-btn" onClick={() => { setReplyText(""); setReplying(false); }}>Cancel</button>
+            <button className="comment-btn" onClick={handleCancelReply}>Cancel</button>
           </div>
         </div>
       )}

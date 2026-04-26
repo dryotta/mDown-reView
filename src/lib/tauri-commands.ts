@@ -22,30 +22,23 @@ export interface LaunchArgs {
   folders: string[];
 }
 
-export interface MrsfComment {
-  id: string;
-  author: string;
-  timestamp: string;
-  text: string;
-  resolved: boolean;
-  line?: number;
-  end_line?: number;
-  start_column?: number;
-  end_column?: number;
-  selected_text?: string;
-  anchored_text?: string;
-  selected_text_hash?: string;
-  commit?: string;
-  type?: "suggestion" | "issue" | "question" | "accuracy" | "style" | "clarity";
-  severity?: "low" | "medium" | "high";
-  reply_to?: string;
-}
-
-export interface MrsfSidecar {
-  mrsf_version: string;
-  document: string;
-  comments: MrsfComment[];
-}
+// MRSF comment + anchor types live in `@/types/comments` (canonical home,
+// added in iter 2 Group B). Re-exported here for back-compat with existing
+// imports `from "@/lib/tauri-commands"`.
+export type {
+  Anchor,
+  CsvCellAnchor,
+  HtmlElementAnchor,
+  HtmlRangeAnchor,
+  ImageRectAnchor,
+  JsonPathAnchor,
+  MrsfComment,
+  MrsfSidecar,
+  Reaction,
+  WordRangeAnchor,
+} from "@/types/comments";
+import type { MrsfComment } from "@/types/comments";
+import type { Anchor } from "@/types/comments";
 
 // ── Typed wrappers ─────────────────────────────────────────────────────────
 
@@ -142,7 +135,7 @@ export const addComment = (
   filePath: string,
   author: string,
   text: string,
-  anchor?: CommentAnchor,
+  anchor?: CommentAnchor | import("@/types/comments").Anchor,
   commentType?: string,
   severity?: string,
   document?: string
@@ -178,18 +171,63 @@ export const deleteComment = (
 ): Promise<void> =>
   invoke<void>("delete_comment", { filePath, commentId });
 
-export const setCommentResolved = (
-  filePath: string,
-  commentId: string,
-  resolved: boolean
-): Promise<void> =>
-  invoke<void>("set_comment_resolved", { filePath, commentId, resolved });
-
 export const computeAnchorHash = (text: string): Promise<string> =>
   invoke<string>("compute_anchor_hash", { text });
 
-export const getUnresolvedCounts = (filePaths: string[]): Promise<Record<string, number>> =>
-  invoke<Record<string, number>>("get_unresolved_counts", { filePaths });
+// ── Iter 1 / F0 — new IPC surface (advisory #2/3) ────────────────────────
+
+/** Total order of comment severity. Mirrors `core::severity::Severity`. */
+export type Severity = "none" | "low" | "medium" | "high";
+
+/** Per-file badge payload returned by `get_file_badges` (count + worst severity). */
+export interface FileBadge {
+  count: number;
+  max_severity: Severity;
+}
+
+/**
+ * Discriminated patch payload for `update_comment`. Kinds mirror the Rust
+ * `CommentPatch` enum (snake_case). Adding a new patch variant requires
+ * editing both this union and `commands/comments/update.rs`.
+ */
+export type CommentPatch =
+  | { kind: "add_reaction"; data: { user: string; kind: string; ts: string } }
+  | { kind: "set_resolved"; data: { resolved: boolean } }
+  | { kind: "move_anchor"; data: { new_anchor: Anchor } };
+
+/** Apply a discriminated patch to a single comment. */
+export const updateComment = (
+  filePath: string,
+  commentId: string,
+  patch: CommentPatch,
+): Promise<void> =>
+  invoke<void>("update_comment", { filePath, commentId, patch });
+
+/** Per-file unresolved-thread count + worst severity. */
+export const getFileBadges = (
+  filePaths: string[],
+): Promise<Record<string, FileBadge>> =>
+  invoke<Record<string, FileBadge>>("get_file_badges", { filePaths });
+
+/** Render a markdown digest of every thread under `workspace`. */
+export const exportReviewSummary = (workspace: string): Promise<string> =>
+  invoke<string>("export_review_summary", { workspace });
+
+/** Discriminated error from `set_author`. */
+export type ConfigError =
+  | { kind: "InvalidAuthor"; reason: "empty" | "too_long" | "newline" | "control_char" }
+  | { kind: "IoError"; message: string };
+
+/** Persist the display name written into `MrsfComment.author`. Returns the
+ *  trimmed value on success; throws a typed `ConfigError` on validation /
+ *  persistence failure. */
+export const setAuthor = (name: string): Promise<string> =>
+  invoke<string>("set_author", { name });
+
+/** Read the persisted display name. Falls back to the OS user (USERNAME /
+ *  USER env var) and finally to `"anonymous"` on the Rust side — never
+ *  rejects on validation. */
+export const getAuthor = (): Promise<string> => invoke<string>("get_author");
 
 // ── Document search ──────────────────────────────────────────────────────
 
@@ -224,6 +262,21 @@ export const parseKql = (query: string): Promise<KqlPipelineStep[]> =>
 
 export const stripJsonComments = (text: string): Promise<string> =>
   invoke<string>("strip_json_comments", { text });
+
+// ── UAX #29 word tokeniser (Rust core, used by WordRange anchor) ─────────
+//
+// Single source of truth for word-stream offsets shared between the
+// renderer (selection/highlight) and the Rust matcher (anchor resolution).
+// Byte offsets are into the original UTF-8 input.
+
+export interface WordSpan {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export const tokenizeWords = (text: string): Promise<WordSpan[]> =>
+  invoke<WordSpan[]>("tokenize_words", { text });
 
 // ── Remote asset fetcher (bounded HTTPS image proxy) ─────────────────────
 // Renderer hands a remote URL to Rust; Rust returns a single binary blob

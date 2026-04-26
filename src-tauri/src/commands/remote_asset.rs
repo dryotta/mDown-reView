@@ -210,7 +210,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let resp = fetch_with_url(server_url(&server, "/img.png")).await.unwrap();
+        let resp = fetch_with_url(server_url(&server, "/img.png"))
+            .await
+            .unwrap();
         assert_eq!(resp.bytes, png_bytes);
         assert_eq!(resp.content_type, "image/png");
     }
@@ -311,13 +313,13 @@ mod tests {
             let next = format!("{}/r{}", server.uri(), i + 1);
             Mock::given(method("GET"))
                 .and(path(format!("/r{i}")))
-                .respond_with(
-                    ResponseTemplate::new(302).insert_header("location", next.as_str()),
-                )
+                .respond_with(ResponseTemplate::new(302).insert_header("location", next.as_str()))
                 .mount(&server)
                 .await;
         }
-        let err = fetch_with_url(server_url(&server, "/r0")).await.unwrap_err();
+        let err = fetch_with_url(server_url(&server, "/r0"))
+            .await
+            .unwrap_err();
         assert!(
             err.contains("redirect") || err.contains("too many"),
             "got: {err}"

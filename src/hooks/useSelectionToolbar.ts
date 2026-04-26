@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
+import { useStore } from "@/store";
 
 interface SelectionState {
   position: { top: number; left: number };
@@ -26,6 +27,13 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
   const [highlightedSelectionLines, setHighlightedSelectionLines] = useState<Set<number>>(new Set());
 
   const handleMouseUp = () => {
+    // Move-anchor mode short-circuits the selection composer. The
+    // MarkdownViewer / SourceView click handlers commit the move; we must
+    // not pop the selection toolbar in this mode.
+    if (useStore.getState().moveAnchorTarget !== null) {
+      setSelectionToolbar(null);
+      return;
+    }
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) { setSelectionToolbar(null); return; }
     const range = sel.getRangeAt(0);
@@ -39,9 +47,32 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
     const startIdx = Number(startEl.getAttribute(lineAttribute));
     const endIdx = Number(endEl.getAttribute(lineAttribute));
 
-    // Use last client rect for positioning near selection end
+    // Use last client rect for positioning near selection end. When
+    // `getClientRects()` returns nothing (Range collapsed-at-boundary,
+    // selection spanning hidden nodes, or some odd shadow-DOM cases),
+    // fall back to a temporary zero-width range placed at the selection's
+    // end point so we can still read a usable caret rect.
     const rects = range.getClientRects();
-    const lastRect = rects[rects.length - 1] || range.getBoundingClientRect();
+    let lastRect: DOMRect | null =
+      rects.length > 0 ? (rects[rects.length - 1] as DOMRect) : null;
+    if (!lastRect) {
+      try {
+        const caret = document.createRange();
+        caret.setStart(range.endContainer, range.endOffset);
+        caret.setEnd(range.endContainer, range.endOffset);
+        const caretRect = caret.getBoundingClientRect();
+        // Some browsers return an all-zero rect for an empty range — only
+        // accept the fallback when it carries usable coordinates.
+        if (caretRect.top !== 0 || caretRect.left !== 0 || caretRect.bottom !== 0) {
+          lastRect = caretRect;
+        }
+      } catch {
+        // Range construction can throw for detached nodes; keep lastRect null.
+      }
+    }
+    if (!lastRect) {
+      lastRect = range.getBoundingClientRect();
+    }
 
     // Position above selection, clamped to viewport
     const toolbarHeight = 36;
@@ -53,6 +84,12 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
     if (top < 4) {
       top = lastRect.bottom + 4;
     }
+
+    // Clamp to viewport bounds — top floor first, then bottom edge so the
+    // toolbar can't be rendered off-screen when a selection ends near the
+    // bottom of the window.
+    top = Math.max(4, top);
+    top = Math.min(top, window.innerHeight - toolbarHeight - 4);
 
     // Clamp horizontal
     left = Math.max(4, Math.min(left, window.innerWidth - toolbarWidth - 4));

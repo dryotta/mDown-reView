@@ -34,6 +34,8 @@ __pycache__/
 docs/superpowers/
 .claude/settings.local.json
 .claude/iterate-state.md
+.claude/spec*.md
+.claude/spec*.txt
 .e2e-native.pid
 *.review.yaml
 

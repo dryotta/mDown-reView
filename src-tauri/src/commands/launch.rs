@@ -33,7 +33,10 @@ pub fn drain_pending(state: &PendingArgsState) -> LaunchArgs {
     let batches: Vec<LaunchArgs> = match state.lock() {
         Ok(mut guard) => std::mem::take(&mut *guard),
         Err(e) => {
-            log::error!("[rust] drain_pending: PendingArgsState lock poisoned: {}", e);
+            log::error!(
+                "[rust] drain_pending: PendingArgsState lock poisoned: {}",
+                e
+            );
             return LaunchArgs::default();
         }
     };
@@ -131,7 +134,10 @@ pub async fn get_launch_args(state: State<'_, PendingArgsState>) -> Result<Launc
 #[tauri::command]
 pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
     let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
-    Ok(log_dir.join("mdownreview.log").to_string_lossy().into_owned())
+    Ok(log_dir
+        .join("mdownreview.log")
+        .to_string_lossy()
+        .into_owned())
 }
 
 /// Scan a directory tree for MRSF sidecar files (delegates to core::scanner).
@@ -199,7 +205,9 @@ mod tests {
         fs::canonicalize(p).unwrap().to_string_lossy().into_owned()
     }
 
-    fn s(v: &str) -> String { v.to_string() }
+    fn s(v: &str) -> String {
+        v.to_string()
+    }
 
     #[test]
     fn folder_then_relative_positional_resolves_under_folder() {
@@ -208,7 +216,11 @@ mod tests {
         fs::create_dir_all(proj.path().join("relative")).unwrap();
         fs::write(proj.path().join("relative/file.md"), "x").unwrap();
 
-        let args = vec![s("--folder"), s(proj.path().to_str().unwrap()), s("relative/file.md")];
+        let args = vec![
+            s("--folder"),
+            s(proj.path().to_str().unwrap()),
+            s("relative/file.md"),
+        ];
         let out = parse_launch_args(&args, cwd.path());
 
         assert_eq!(out.folders, vec![canon(proj.path())]);
@@ -223,11 +235,19 @@ mod tests {
         fs::write(proj.path().join("relative/file.md"), "x").unwrap();
 
         let a = parse_launch_args(
-            &[s("--folder"), s(proj.path().to_str().unwrap()), s("relative/file.md")],
+            &[
+                s("--folder"),
+                s(proj.path().to_str().unwrap()),
+                s("relative/file.md"),
+            ],
             cwd.path(),
         );
         let b = parse_launch_args(
-            &[s("relative/file.md"), s("--folder"), s(proj.path().to_str().unwrap())],
+            &[
+                s("relative/file.md"),
+                s("--folder"),
+                s(proj.path().to_str().unwrap()),
+            ],
             cwd.path(),
         );
         assert_eq!(a.files, b.files);
@@ -241,8 +261,10 @@ mod tests {
         fs::write(proj.path().join("doc.md"), "x").unwrap();
 
         let args = vec![
-            s("--file"), s("doc.md"),
-            s("--folder"), s(proj.path().to_str().unwrap()),
+            s("--file"),
+            s("doc.md"),
+            s("--folder"),
+            s(proj.path().to_str().unwrap()),
         ];
         let out = parse_launch_args(&args, cwd.path());
         assert_eq!(out.folders, vec![canon(proj.path())]);
@@ -258,7 +280,8 @@ mod tests {
         fs::write(&abs_file, "x").unwrap();
 
         let args = vec![
-            s("--folder"), s(proj.path().to_str().unwrap()),
+            s("--folder"),
+            s(proj.path().to_str().unwrap()),
             s(abs_file.to_str().unwrap()),
         ];
         let out = parse_launch_args(&args, cwd.path());
@@ -287,18 +310,27 @@ mod tests {
     #[test]
     fn queue_merges_and_dedupes_preserving_order() {
         let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
-        push_pending(&state, LaunchArgs {
-            files: vec![s("/a"), s("/b")],
-            folders: vec![s("/x")],
-        });
-        push_pending(&state, LaunchArgs {
-            files: vec![s("/b"), s("/c")],
-            folders: vec![s("/x"), s("/y")],
-        });
-        push_pending(&state, LaunchArgs {
-            files: vec![s("/d")],
-            folders: vec![],
-        });
+        push_pending(
+            &state,
+            LaunchArgs {
+                files: vec![s("/a"), s("/b")],
+                folders: vec![s("/x")],
+            },
+        );
+        push_pending(
+            &state,
+            LaunchArgs {
+                files: vec![s("/b"), s("/c")],
+                folders: vec![s("/x"), s("/y")],
+            },
+        );
+        push_pending(
+            &state,
+            LaunchArgs {
+                files: vec![s("/d")],
+                folders: vec![],
+            },
+        );
 
         let merged = drain_pending(&state);
         assert_eq!(merged.files, vec![s("/a"), s("/b"), s("/c"), s("/d")]);
@@ -323,14 +355,20 @@ mod tests {
     #[test]
     fn regression_two_pushes_both_retained() {
         let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
-        push_pending(&state, LaunchArgs {
-            files: vec![s("/first.md")],
-            folders: vec![],
-        });
-        push_pending(&state, LaunchArgs {
-            files: vec![s("/second.md")],
-            folders: vec![],
-        });
+        push_pending(
+            &state,
+            LaunchArgs {
+                files: vec![s("/first.md")],
+                folders: vec![],
+            },
+        );
+        push_pending(
+            &state,
+            LaunchArgs {
+                files: vec![s("/second.md")],
+                folders: vec![],
+            },
+        );
 
         let merged = drain_pending(&state);
         assert!(
@@ -358,18 +396,20 @@ mod tests {
         fs::write(proj.path().join("foo.md"), "x").unwrap();
 
         let args = vec![
-            s("--file"), s("foo.md"),
-            s("--folder"), s(proj.path().to_str().unwrap()),
+            s("--file"),
+            s("foo.md"),
+            s("--folder"),
+            s(proj.path().to_str().unwrap()),
         ];
         let out = parse_launch_args(&args, cwd.path());
 
         let folder_str = canon(proj.path());
-        let expected = crate::core::paths::resolve_path(
-            "foo.md",
-            Some(folder_str.as_str()),
-            cwd.path(),
-        );
-        let expected_canon = fs::canonicalize(&expected).unwrap().to_string_lossy().into_owned();
+        let expected =
+            crate::core::paths::resolve_path("foo.md", Some(folder_str.as_str()), cwd.path());
+        let expected_canon = fs::canonicalize(&expected)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
 
         assert_eq!(out.files, vec![expected_canon]);
     }
@@ -377,7 +417,9 @@ mod tests {
     #[test]
     fn parse_launch_args_handles_many_positional_files() {
         let cwd = tempdir().unwrap();
-        let names = ["a.md","b.md","c.md","d.md","e.md","f.md","g.md","h.md","i.md","j.md"];
+        let names = [
+            "a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "g.md", "h.md", "i.md", "j.md",
+        ];
         for n in &names {
             fs::write(cwd.path().join(n), "x").unwrap();
         }

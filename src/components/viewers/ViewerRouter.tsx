@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { SkeletonLoader } from "./SkeletonLoader";
@@ -11,6 +11,7 @@ import { BinaryPlaceholder } from "./BinaryPlaceholder";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
 import { FileActionsBar } from "./FileActionsBar";
+import { ViewerToolbar } from "./ViewerToolbar";
 
 interface Props {
   path: string;
@@ -23,6 +24,40 @@ export function ViewerRouter({ path }: Props) {
   const setScrollTop = useStore((s) => s.setScrollTop);
   const ghostEntries = useStore((s) => s.ghostEntries);
   const isGhost = ghostEntries.some((g) => g.sourcePath === path);
+  // B1 forward-fix: when a cross-file scroll target is queued for THIS
+  // viewer, suppress saved-scroll restore so the child's `useScrollToLine`
+  // mount-effect (which runs first) is not overwritten by the parent's
+  // restore (which runs second). React passive effects run child→parent.
+  const pendingScrollTarget = useStore((s) => s.pendingScrollTarget);
+
+  // Iter 11 re-fix: latch the suppression independently of the live store
+  // value. The child `useScrollToLine` consumes the pending target on mount
+  // (sets it to null), which re-renders ViewerRouter with
+  // `pendingScrollTarget === null`. If we keyed the early-return on the
+  // live store value, the restore effect would then re-fire UNGUARDED and
+  // overwrite the just-applied comment scroll. The ref records "I observed
+  // a matching pending target during this mount cycle" and stays set even
+  // after the child clears the store. Captured in a layout effect (runs
+  // before passive effects) so the latch is set before the child's mount
+  // useEffect consumes the store value. Reset on path change via cleanup.
+  const suppressRestoreRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const t = useStore.getState().pendingScrollTarget;
+    if (t?.filePath === path) {
+      suppressRestoreRef.current = path;
+    }
+    return () => {
+      suppressRestoreRef.current = null;
+    };
+  }, [path]);
+
+  // Iter 5 Group B — every viewer surfaces a file-anchored authoring entry
+  // point. Reading through `useStore.getState()` at click time (not via a
+  // selector) keeps this off the render path; the action itself is a stable
+  // store reference so callers don't need to re-render when it changes.
+  const handleCommentOnFile = useCallback(() => {
+    useStore.getState().requestFileLevelInput(path);
+  }, [path]);
 
   // Guard flag: suppresses scroll-save during programmatic scroll restore
   const restoringRef = useRef(false);
@@ -42,6 +77,14 @@ export function ViewerRouter({ path }: Props) {
   // infinite scroll oscillation.
   useEffect(() => {
     if (!scrollRef.current || status !== "ready") return;
+
+    // B1 forward-fix: skip the saved-scroll restore when a cross-file
+    // scroll target is/was queued for THIS file. The latch is set during
+    // render (see `suppressRestoreRef` above) and stays set even after
+    // `useScrollToLine` consumes the store value, which would otherwise
+    // re-fire this effect (deps include `pendingScrollTarget`) with
+    // `pendingScrollTarget === null` and undo the comment-anchored scroll.
+    if (suppressRestoreRef.current === path) return;
 
     const target = useStore.getState().tabs.find((t) => t.path === path)?.scrollTop ?? 0;
 
@@ -75,7 +118,7 @@ export function ViewerRouter({ path }: Props) {
       cancelled = true;
       restoringRef.current = false;
     };
-  }, [path, status, content]);
+  }, [path, status, content, pendingScrollTarget]);
 
   useEffect(() => {
     return () => {
@@ -107,12 +150,20 @@ export function ViewerRouter({ path }: Props) {
   // unmount+remount, which: (a) drops PdfViewer's stale `loadError`, (b) stops
   // audio/video playback that would otherwise continue after a tab switch,
   // (c) resets HexView byte state without an explicit `setBytes(null)` effect.
+  //
+  // Iter 5 Group B — media/binary viewers have no `EnhancedViewer` host, so we
+  // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
+  // to surface the file-anchored "Comment on file" entry point universally.
   if (status === "image") {
     return (
       <div className="viewer-media-container">
-        <div className="viewer-actions-row">
-          <FileActionsBar path={path} />
-        </div>
+        <ViewerToolbar
+          activeView="visual"
+          onViewChange={() => {}}
+          hidden
+          onCommentOnFile={handleCommentOnFile}
+          trailing={<FileActionsBar path={path} />}
+        />
         <ImageViewer key={path} path={path} />
       </div>
     );
@@ -121,9 +172,13 @@ export function ViewerRouter({ path }: Props) {
   if (status === "audio") {
     return (
       <div className="viewer-media-container">
-        <div className="viewer-actions-row">
-          <FileActionsBar path={path} mime={getAudioMime(path)} />
-        </div>
+        <ViewerToolbar
+          activeView="visual"
+          onViewChange={() => {}}
+          hidden
+          onCommentOnFile={handleCommentOnFile}
+          trailing={<FileActionsBar path={path} mime={getAudioMime(path)} />}
+        />
         <AudioViewer key={path} path={path} />
       </div>
     );
@@ -132,9 +187,13 @@ export function ViewerRouter({ path }: Props) {
   if (status === "video") {
     return (
       <div className="viewer-media-container">
-        <div className="viewer-actions-row">
-          <FileActionsBar path={path} mime={getVideoMime(path)} />
-        </div>
+        <ViewerToolbar
+          activeView="visual"
+          onViewChange={() => {}}
+          hidden
+          onCommentOnFile={handleCommentOnFile}
+          trailing={<FileActionsBar path={path} mime={getVideoMime(path)} />}
+        />
         <VideoViewer key={path} path={path} />
       </div>
     );
@@ -143,9 +202,13 @@ export function ViewerRouter({ path }: Props) {
   if (status === "pdf") {
     return (
       <div className="viewer-media-container">
-        <div className="viewer-actions-row">
-          <FileActionsBar path={path} />
-        </div>
+        <ViewerToolbar
+          activeView="visual"
+          onViewChange={() => {}}
+          hidden
+          onCommentOnFile={handleCommentOnFile}
+          trailing={<FileActionsBar path={path} />}
+        />
         <PdfViewer key={path} path={path} />
       </div>
     );
@@ -154,6 +217,12 @@ export function ViewerRouter({ path }: Props) {
   if (status === "too_large") {
     return (
       <div className="viewer-scroll-region">
+        <ViewerToolbar
+          activeView="visual"
+          onViewChange={() => {}}
+          hidden
+          onCommentOnFile={handleCommentOnFile}
+        />
         <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
       </div>
     );
@@ -162,6 +231,12 @@ export function ViewerRouter({ path }: Props) {
   if (status === "binary") {
     return (
       <div className="viewer-media-container">
+        <ViewerToolbar
+          activeView="visual"
+          onViewChange={() => {}}
+          hidden
+          onCommentOnFile={handleCommentOnFile}
+        />
         <BinaryPlaceholder key={path} path={path} size={sizeBytes} />
       </div>
     );
@@ -180,7 +255,14 @@ export function ViewerRouter({ path }: Props) {
 
   return (
     <div ref={scrollRef} className="viewer-scroll-region" onScroll={handleScroll}>
-      <EnhancedViewer key={path} content={content!} path={path} filePath={path} fileSize={fileSize} />
+      <EnhancedViewer
+        key={path}
+        content={content!}
+        path={path}
+        filePath={path}
+        fileSize={fileSize}
+        onCommentOnFile={handleCommentOnFile}
+      />
     </div>
   );
 }

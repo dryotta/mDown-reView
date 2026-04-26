@@ -9,6 +9,13 @@ interface MenuListenerCallbacks {
   setTheme: (theme: "system" | "light" | "dark") => void;
   setAboutOpen: (open: boolean) => void;
   checkForUpdate: () => void;
+  /**
+   * F1 — accepted so callers can share a single callbacks object with
+   * `useGlobalShortcuts` without TypeScript complaining about excess
+   * properties. No native menu event currently fires this; the
+   * keyboard shortcut alone drives it.
+   */
+  startCommentOnSelection?: () => void;
 }
 
 export function useMenuListeners({

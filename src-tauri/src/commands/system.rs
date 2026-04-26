@@ -69,6 +69,7 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<Command, SystemError> 
 /// workspace allowlist guarantee. Windows now goes through
 /// `tauri-plugin-opener::open_path` (ShellExecuteW under the hood), which
 /// opens the path verbatim with no shell expansion.
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn build_open_command(path: &Path) -> Result<Command, SystemError> {
     if cfg!(target_os = "macos") {
         let mut cmd = Command::new("open");
@@ -79,7 +80,7 @@ pub(crate) fn build_open_command(path: &Path) -> Result<Command, SystemError> {
         cmd.arg(path);
         Ok(cmd)
     } else {
-        // Windows + anything else: callers must dispatch via plugin-opener.
+        // Other Unix-like targets we don't ship for: surface as Unsupported.
         Err(SystemError::Unsupported)
     }
 }
@@ -125,8 +126,9 @@ pub fn open_in_default_app(
     {
         // `tauri_plugin_opener::open_path` calls ShellExecuteW with the path
         // as a verbatim argument — no shell expansion, no re-parsing.
-        tauri_plugin_opener::open_path(p, None::<&str>)
-            .map_err(|e| SystemError::IoError { message: e.to_string() })?;
+        tauri_plugin_opener::open_path(p, None::<&str>).map_err(|e| SystemError::IoError {
+            message: e.to_string(),
+        })?;
         Ok(())
     }
     #[cfg(not(target_os = "windows"))]
@@ -172,16 +174,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn build_open_command_uses_platform_binary() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        // Windows is routed via tauri-plugin-opener (see open_in_default_app)
-        // and therefore returns Unsupported here — there is intentionally no
-        // `Command` shape to assert.
-        if cfg!(target_os = "windows") {
-            let res = build_open_command(tmp.path());
-            assert!(matches!(res, Err(SystemError::Unsupported)));
-            return;
-        }
         let cmd = build_open_command(tmp.path()).expect("supported platform");
         let prog = cmd_program(&cmd);
         if cfg!(target_os = "macos") {

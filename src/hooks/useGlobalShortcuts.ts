@@ -6,6 +6,8 @@ interface ShortcutCallbacks {
   handleOpenFile: () => void;
   handleOpenFolder: () => void;
   toggleCommentsPane: () => void;
+  /** F1 — Ctrl/Cmd+Shift+M — start a comment on the current text selection. */
+  startCommentOnSelection?: () => void;
 }
 
 /** Resolve the filetype key the active viewer would use (#65 D1/D2/D3). */
@@ -47,12 +49,37 @@ export function useGlobalShortcuts({
   handleOpenFile,
   handleOpenFolder,
   toggleCommentsPane,
+  startCommentOnSelection,
 }: ShortcutCallbacks) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // B1: never intercept keystrokes destined for a text input. Applies to
       // ALL shortcut branches below — Alt+Arrow as well as the Ctrl-modified set.
       if (isEditableTarget(e)) return;
+
+      // F6 — Shift+F10 / ContextMenu key invoke the active viewer's
+      // registered context-menu opener (commentsSlice.activeViewerContextMenu).
+      // Position priority: current selection rect → fallback (100, 100). Line
+      // resolution and `hasSelection` detection live in the registered
+      // callback (see `useViewerContextMenu`). Outside any commentable viewer
+      // the registration is null and this is a clean no-op.
+      if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+        const open = useStore.getState().activeViewerContextMenu;
+        if (!open) return;
+        const sel = window.getSelection();
+        let x = 100;
+        let y = 100;
+        if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+          const r = sel.getRangeAt(0).getBoundingClientRect();
+          if (r.width > 0 || r.height > 0) {
+            x = r.left + Math.min(r.width, 16);
+            y = r.bottom;
+          }
+        }
+        e.preventDefault();
+        open(x, y);
+        return;
+      }
 
       // Alt+Left / Alt+Right — back/forward through tab history (no Ctrl/Meta).
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -77,7 +104,33 @@ export function useGlobalShortcuts({
       }
 
       const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
+      if (!mod) {
+        // F1 — single-key navigation shortcuts (no modifier).
+        // Only fire when no modifier; alt-only is already handled above.
+        if (!e.altKey && !e.shiftKey) {
+          if (e.key === "j" || e.key === "J") {
+            e.preventDefault();
+            void useStore.getState().nextUnresolvedInActiveFile();
+            return;
+          }
+          if (e.key === "k" || e.key === "K") {
+            e.preventDefault();
+            void useStore.getState().prevUnresolvedInActiveFile();
+            return;
+          }
+          if (e.key === "n" || e.key === "N") {
+            e.preventDefault();
+            void useStore.getState().nextUnresolvedAcrossFiles();
+            return;
+          }
+          if (e.key === "r" || e.key === "R") {
+            e.preventDefault();
+            void useStore.getState().resolveFocusedThread();
+            return;
+          }
+        }
+        return;
+      }
 
       if (!e.shiftKey && e.key === "o") {
         e.preventDefault();
@@ -92,6 +145,14 @@ export function useGlobalShortcuts({
       if (e.shiftKey && e.key === "C") {
         e.preventDefault();
         toggleCommentsPane();
+        return;
+      }
+      // F1 — Ctrl/Cmd+Shift+M starts a comment on the current selection.
+      if (e.shiftKey && (e.key === "M" || e.key === "m")) {
+        if (startCommentOnSelection) {
+          e.preventDefault();
+          startCommentOnSelection();
+        }
         return;
       }
       if (!e.shiftKey && e.key === "w") {
@@ -144,5 +205,5 @@ export function useGlobalShortcuts({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane]);
+  }, [handleOpenFile, handleOpenFolder, toggleCommentsPane, startCommentOnSelection]);
 }

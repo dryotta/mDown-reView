@@ -127,7 +127,11 @@ struct FuzzyMatch {
     anchored_text: String,
 }
 
-fn find_fuzzy_match(file_lines: &[&str], selected_text: &str, center_line: u32) -> Option<FuzzyMatch> {
+fn find_fuzzy_match(
+    file_lines: &[&str],
+    selected_text: &str,
+    center_line: u32,
+) -> Option<FuzzyMatch> {
     let mut best_line: Option<u32> = None;
     let mut best_score: f64 = 0.0;
     let mut best_text = String::new();
@@ -162,11 +166,7 @@ fn find_fuzzy_match(file_lines: &[&str], selected_text: &str, center_line: u32) 
 mod tests {
     use super::*;
 
-    fn make_comment(
-        id: &str,
-        line: Option<u32>,
-        selected_text: Option<&str>,
-    ) -> MrsfComment {
+    fn make_comment(id: &str, line: Option<u32>, selected_text: Option<&str>) -> MrsfComment {
         MrsfComment {
             id: id.to_string(),
             author: "test".to_string(),
@@ -184,6 +184,7 @@ mod tests {
             comment_type: None,
             severity: None,
             reply_to: None,
+            ..Default::default()
         }
     }
 
@@ -232,7 +233,11 @@ mod tests {
 
     #[test]
     fn fuzzy_match_below_threshold_orphan() {
-        let comments = vec![make_comment("c1", Some(1), Some("completely different text xyz"))];
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("completely different text xyz"),
+        )];
         let lines = vec!["aaa", "bbb", "ccc"];
         let result = match_comments(&comments, &lines);
         assert_eq!(result.len(), 1);

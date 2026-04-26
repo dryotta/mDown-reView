@@ -6,7 +6,7 @@ import {
   addReply as addReplyCmd,
   editComment as editCommentCmd,
   deleteComment as deleteCommentCmd,
-  setCommentResolved,
+  updateComment,
   computeAnchorHash,
 } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
@@ -24,7 +24,7 @@ vi.mock("@/lib/tauri-commands", () => ({
   addReply: vi.fn().mockResolvedValue(undefined),
   editComment: vi.fn().mockResolvedValue(undefined),
   deleteComment: vi.fn().mockResolvedValue(undefined),
-  setCommentResolved: vi.fn().mockResolvedValue(undefined),
+  updateComment: vi.fn().mockResolvedValue(undefined),
   computeAnchorHash: vi.fn().mockResolvedValue("auto-hash-123"),
 }));
 
@@ -338,19 +338,22 @@ describe("useCommentActions", () => {
   // ── resolveComment ───────────────────────────────────────────────────────
 
   describe("resolveComment", () => {
-    it("calls setCommentResolved with resolved=true", async () => {
+    it("dispatches updateComment with set_resolved patch (true)", async () => {
       const { result } = renderHook(() => useCommentActions());
 
       await act(async () => {
         await result.current.resolveComment("/test.md", "c1");
       });
 
-      expect(setCommentResolved).toHaveBeenCalledWith("/test.md", "c1", true);
+      expect(updateComment).toHaveBeenCalledWith("/test.md", "c1", {
+        kind: "set_resolved",
+        data: { resolved: true },
+      });
     });
 
     it("throws on failure", async () => {
       const err = new Error("resolve failed");
-      vi.mocked(setCommentResolved).mockRejectedValueOnce(err);
+      vi.mocked(updateComment).mockRejectedValueOnce(err);
 
       const { result } = renderHook(() => useCommentActions());
 
@@ -371,19 +374,22 @@ describe("useCommentActions", () => {
   // ── unresolveComment ─────────────────────────────────────────────────────
 
   describe("unresolveComment", () => {
-    it("calls setCommentResolved with resolved=false", async () => {
+    it("dispatches updateComment with set_resolved patch (false)", async () => {
       const { result } = renderHook(() => useCommentActions());
 
       await act(async () => {
         await result.current.unresolveComment("/test.md", "c1");
       });
 
-      expect(setCommentResolved).toHaveBeenCalledWith("/test.md", "c1", false);
+      expect(updateComment).toHaveBeenCalledWith("/test.md", "c1", {
+        kind: "set_resolved",
+        data: { resolved: false },
+      });
     });
 
     it("throws on failure", async () => {
       const err = new Error("unresolve failed");
-      vi.mocked(setCommentResolved).mockRejectedValueOnce(err);
+      vi.mocked(updateComment).mockRejectedValueOnce(err);
 
       const { result } = renderHook(() => useCommentActions());
 
@@ -391,6 +397,105 @@ describe("useCommentActions", () => {
       await act(async () => {
         try {
           await result.current.unresolveComment("/test.md", "c1");
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── commitMoveAnchor ─────────────────────────────────────────────────────
+
+  describe("commitMoveAnchor", () => {
+    it("dispatches updateComment with move_anchor patch carrying tagged Anchor", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.commitMoveAnchor("/test.md", "c1", { kind: "line", line: 7 });
+      });
+
+      expect(updateComment).toHaveBeenCalledWith("/test.md", "c1", {
+        kind: "move_anchor",
+        data: { new_anchor: { kind: "line", line: 7 } },
+      });
+    });
+
+    it("throws and logs on failure", async () => {
+      const err = new Error("move failed");
+      vi.mocked(updateComment).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.commitMoveAnchor("/test.md", "c1", { kind: "line", line: 1 });
+        } catch (e) {
+          thrownError = e;
+        }
+      });
+
+      expect(thrownError).toBe(err);
+      expect(logError).toHaveBeenCalled();
+    });
+  });
+
+  // ── addReaction ──────────────────────────────────────────────────────────
+
+  describe("addReaction", () => {
+    it("dispatches updateComment with add_reaction patch carrying user/kind/ts", async () => {
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addReaction("/test.md", "c1", "thumbsup");
+      });
+
+      expect(updateComment).toHaveBeenCalledTimes(1);
+      const [path, id, patch] = vi.mocked(updateComment).mock.calls[0];
+      expect(path).toBe("/test.md");
+      expect(id).toBe("c1");
+      expect(patch.kind).toBe("add_reaction");
+      const data = (patch as { data: { user: string; kind: string; ts: string } }).data;
+      expect(data.user).toBe("Test Author");
+      expect(data.kind).toBe("thumbsup");
+      // ts is an ISO date string
+      expect(typeof data.ts).toBe("string");
+      expect(Number.isNaN(Date.parse(data.ts))).toBe(false);
+    });
+
+    it('uses "Anonymous" when authorName is empty', async () => {
+      vi.mocked(useStore).mockImplementation(
+        ((selector: (state: { authorName: string }) => string) => {
+          const state = { authorName: "" };
+          return selector ? selector(state) : state;
+        }) as typeof useStore,
+      );
+
+      const { result } = renderHook(() => useCommentActions());
+
+      await act(async () => {
+        await result.current.addReaction("/test.md", "c1", "ack");
+      });
+
+      const data = vi.mocked(updateComment).mock.calls[0][2] as {
+        data: { user: string };
+      };
+      expect(data.data.user).toBe("Anonymous");
+    });
+
+    it("throws and logs on IPC failure", async () => {
+      const err = new Error("react failed");
+      vi.mocked(updateComment).mockRejectedValueOnce(err);
+
+      const { result } = renderHook(() => useCommentActions());
+
+      let thrownError: unknown;
+      await act(async () => {
+        try {
+          await result.current.addReaction("/test.md", "c1", "dismiss");
         } catch (e) {
           thrownError = e;
         }

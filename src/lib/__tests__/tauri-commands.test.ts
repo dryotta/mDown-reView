@@ -188,34 +188,6 @@ describe("comment-mutation wrappers", () => {
       commentId: "c2",
     });
   });
-
-  it("setCommentResolved forwards resolved flag to invoke", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const m = invoke as ReturnType<typeof vi.fn>;
-    m.mockClear();
-    m.mockResolvedValueOnce(undefined);
-    const { setCommentResolved } = await import("../tauri-commands");
-    await setCommentResolved("/p/file.md", "c3", true);
-    expect(m).toHaveBeenCalledWith("set_comment_resolved", {
-      filePath: "/p/file.md",
-      commentId: "c3",
-      resolved: true,
-    });
-  });
-
-  it("setCommentResolved supports false for unresolve", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const m = invoke as ReturnType<typeof vi.fn>;
-    m.mockClear();
-    m.mockResolvedValueOnce(undefined);
-    const { setCommentResolved } = await import("../tauri-commands");
-    await setCommentResolved("/p/file.md", "c4", false);
-    expect(m).toHaveBeenCalledWith("set_comment_resolved", {
-      filePath: "/p/file.md",
-      commentId: "c4",
-      resolved: false,
-    });
-  });
 });
 
 describe("installUpdate", () => {
@@ -236,6 +208,82 @@ describe("installUpdate", () => {
     m.mockRejectedValueOnce(new Error("bundle fetch failed"));
     const { installUpdate } = await import("../tauri-commands");
     await expect(installUpdate()).rejects.toThrow("bundle fetch failed");
+  });
+});
+
+describe("tokenizeWords", () => {
+  it("calls invoke('tokenize_words', { text }) and returns the spans", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce([
+      { start: 0, end: 5, text: "hello" },
+      { start: 6, end: 11, text: "world" },
+    ]);
+    const { tokenizeWords } = await import("../tauri-commands");
+    const spans = await tokenizeWords("hello world");
+    expect(m).toHaveBeenCalledWith("tokenize_words", { text: "hello world" });
+    expect(spans).toEqual([
+      { start: 0, end: 5, text: "hello" },
+      { start: 6, end: 11, text: "world" },
+    ]);
+  });
+
+  it("returns an empty array when invoke resolves with []", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    m.mockResolvedValueOnce([]);
+    const { tokenizeWords } = await import("../tauri-commands");
+    const spans = await tokenizeWords("");
+    expect(m).toHaveBeenCalledWith("tokenize_words", { text: "" });
+    expect(spans).toEqual([]);
+  });
+});
+
+describe("deriveAnchor — WordRange (Group D-wire, iter 3)", () => {
+  it("derives a word_range Anchor from the flat word_range payload sibling", async () => {
+    const { deriveAnchor } = await import("@/types/comments");
+    const a = deriveAnchor({
+      id: "c1",
+      author: "a",
+      timestamp: "t",
+      text: "x",
+      resolved: false,
+      anchor_kind: "word_range",
+      word_range: {
+        start_word: 2,
+        end_word: 5,
+        line: 7,
+        snippet: "the quick brown",
+        line_text_hash: "a".repeat(64),
+      },
+    });
+    expect(a.kind).toBe("word_range");
+    if (a.kind === "word_range") {
+      expect(a.start_word).toBe(2);
+      expect(a.end_word).toBe(5);
+      expect(a.line).toBe(7);
+      expect(a.snippet).toBe("the quick brown");
+      expect(a.line_text_hash.length).toBe(64);
+    }
+  });
+
+  it("falls through to derived line anchor when word_range payload is missing", async () => {
+    const { deriveAnchor } = await import("@/types/comments");
+    const a = deriveAnchor({
+      id: "c1",
+      author: "a",
+      timestamp: "t",
+      text: "x",
+      resolved: false,
+      anchor_kind: "word_range",
+      line: 9,
+    });
+    // Missing payload: deriveAnchor's switch breaks out and falls back to
+    // the flat-line constructor (matches the established sibling pattern).
+    expect(a.kind).toBe("line");
+    if (a.kind === "line") expect(a.line).toBe(9);
   });
 });
 
@@ -386,3 +434,202 @@ describe("system integration wrappers (Section E)", () => {
   });
 });
 
+
+
+//  Iter 1 / F0  new IPC surface dispatch table 
+
+describe("F0 IPC surface", () => {
+  // Re-import to pick up the same mocked invoke. These tests assert that the
+  // TS wrappers route to the correct Tauri command name with the correct
+  // argument shape  the dispatch contract that keeps the IPC chokepoint
+  // honest.
+  it("updateComment dispatches to update_comment with patch payload", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    const { updateComment } = await import("../tauri-commands");
+    await updateComment("/ws/a.md", "c1", {
+      kind: "set_resolved",
+      data: { resolved: true },
+    });
+    expect(invoke).toHaveBeenCalledWith("update_comment", {
+      filePath: "/ws/a.md",
+      commentId: "c1",
+      patch: { kind: "set_resolved", data: { resolved: true } },
+    });
+  });
+
+  it("updateComment forwards set_resolved=false for unresolve", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    const { updateComment } = await import("../tauri-commands");
+    await updateComment("/ws/a.md", "c2", {
+      kind: "set_resolved",
+      data: { resolved: false },
+    });
+    expect(invoke).toHaveBeenCalledWith("update_comment", {
+      filePath: "/ws/a.md",
+      commentId: "c2",
+      patch: { kind: "set_resolved", data: { resolved: false } },
+    });
+  });
+
+  it("updateComment dispatches move_anchor with tagged Anchor payload", async () => {
+    // Wire-shape contract: the tagged `{kind, anchor_kind, ...}` Anchor must
+    // pass through unchanged so the Rust `AnchorRepr` deserialiser accepts
+    // it. Asserting the exact patch object guards against an over-eager
+    // wrapper introducing accidental field reshaping.
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    const { updateComment } = await import("../tauri-commands");
+    await updateComment("/ws/a.md", "c3", {
+      kind: "move_anchor",
+      data: { new_anchor: { kind: "file" } },
+    });
+    expect(invoke).toHaveBeenCalledWith("update_comment", {
+      filePath: "/ws/a.md",
+      commentId: "c3",
+      patch: { kind: "move_anchor", data: { new_anchor: { kind: "file" } } },
+    });
+  });
+
+  it("getFileBadges dispatches to get_file_badges with filePaths", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce({ "/ws/a.md": { count: 2, max_severity: "high" } });
+    const { getFileBadges } = await import("../tauri-commands");
+    const out = await getFileBadges(["/ws/a.md"]);
+    expect(invoke).toHaveBeenCalledWith("get_file_badges", { filePaths: ["/ws/a.md"] });
+    expect(out["/ws/a.md"].count).toBe(2);
+    expect(out["/ws/a.md"].max_severity).toBe("high");
+  });
+
+  it("exportReviewSummary dispatches to export_review_summary", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce("# Review summary\n");
+    const { exportReviewSummary } = await import("../tauri-commands");
+    const out = await exportReviewSummary("/ws");
+    expect(invoke).toHaveBeenCalledWith("export_review_summary", { workspace: "/ws" });
+    expect(out).toContain("# Review summary");
+  });
+
+  it("setAuthor dispatches to set_author and returns trimmed name", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce("Alice");
+    const { setAuthor } = await import("../tauri-commands");
+    const out = await setAuthor("  Alice  ");
+    expect(invoke).toHaveBeenCalledWith("set_author", { name: "  Alice  " });
+    expect(out).toBe("Alice");
+  });
+
+  it("does not log to console.error during the dispatch happy path", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    const { updateComment } = await import("../tauri-commands");
+    await updateComment("/ws/a.md", "c1", {
+      kind: "add_reaction",
+      data: { user: "u", kind: "thumbs_up", ts: "2025-01-01T00:00:00Z" },
+    });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+// ── Iter 2 / Group B — Anchor discriminated union ────────────────────────
+//
+// `MrsfComment.anchor` is a tagged union whose `kind` matches the Rust
+// serde wire `anchor_kind` (snake_case). These tests exercise the IPC
+// mock fixture path: the wrapper returns shapes carrying `anchor` so
+// downstream consumers can discriminate on `anchor.kind` instead of the
+// removed flat sibling fields.
+
+describe("getFileComments — Anchor discriminated union", () => {
+  async function getInvoke() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const m = invoke as ReturnType<typeof vi.fn>;
+    m.mockClear();
+    return m;
+  }
+
+  it("returns comments with anchor.kind === 'line' for line-anchored fixture", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce([
+      {
+        root: {
+          id: "c-line",
+          author: "tester",
+          timestamp: "2025-01-01T00:00:00Z",
+          text: "line-anchored",
+          resolved: false,
+          line: 7,
+          matchedLineNumber: 7,
+          isOrphaned: false,
+          // NB: real wire never includes `anchor` for v1.0 line-anchored
+          // comments. Test mirrors that — derivation through `deriveAnchor`
+          // is what production code must use.
+        },
+        replies: [],
+      },
+    ]);
+    const { getFileComments } = await import("../tauri-commands");
+    const { deriveAnchor } = await import("@/types/comments");
+    const threads = await getFileComments("/ws/a.md");
+    expect(threads).toHaveLength(1);
+    const root = threads[0].root;
+    expect((root as { anchor?: unknown }).anchor).toBeUndefined();
+    const a = deriveAnchor(root);
+    expect(a.kind).toBe("line");
+    if (a.kind === "line") {
+      expect(a.line).toBe(7);
+    }
+  });
+
+  it("returns comments with anchor.kind === 'image_rect' for image-anchored fixture", async () => {
+    const m = await getInvoke();
+    m.mockResolvedValueOnce([
+      {
+        root: {
+          id: "c-img",
+          author: "tester",
+          timestamp: "2025-01-01T00:00:00Z",
+          text: "image-anchored",
+          resolved: false,
+          matchedLineNumber: 0,
+          isOrphaned: false,
+          anchor_kind: "image_rect",
+          image_rect: {
+            x_pct: 0.25,
+            y_pct: 0.5,
+            w_pct: 0.1,
+            h_pct: 0.1,
+          },
+        },
+        replies: [],
+      },
+    ]);
+    const { getFileComments } = await import("../tauri-commands");
+    const { deriveAnchor } = await import("@/types/comments");
+    const threads = await getFileComments("/ws/img.png");
+    expect(threads).toHaveLength(1);
+    const root = threads[0].root;
+    const a = deriveAnchor(root);
+    expect(a.kind).toBe("image_rect");
+    if (a.kind === "image_rect") {
+      expect(a.x_pct).toBeCloseTo(0.25);
+      expect(a.y_pct).toBeCloseTo(0.5);
+    }
+  });
+
+  it("does not log to console.error during the dispatch happy path", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const m = await getInvoke();
+    m.mockResolvedValueOnce([]);
+    const { getFileComments } = await import("../tauri-commands");
+    const threads = await getFileComments("/ws/empty.md");
+    expect(threads).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});

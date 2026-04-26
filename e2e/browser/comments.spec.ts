@@ -35,7 +35,7 @@ function setupCommentMock(page: Page, comments: unknown) {
           return null;
         }
         if (cmd === "get_file_comments") return toThreads(comments as Record<string, unknown> | null);
-        if (cmd === "set_comment_resolved") {
+        if (cmd === "update_comment") {
           ((window as Record<string, unknown>).__RESOLVE_CALLS__ as unknown[]).push(args);
           return null;
         }
@@ -178,7 +178,7 @@ test.describe("Comments Lifecycle", () => {
     await expect(page.getByText("Already addressed")).toBeVisible();
   });
 
-  test("23.7 - set_comment_resolved is called when comment is resolved", async ({ page }) => {
+  test("23.7 - update_comment is called when comment is resolved", async ({ page }) => {
     await setupCommentMock(page, {
       mrsf_version: "1.0",
       document: "sample.md",
@@ -207,12 +207,54 @@ test.describe("Comments Lifecycle", () => {
     // Wait for IPC call to complete
     await page.waitForTimeout(1500);
 
-    // Verify set_comment_resolved was called
+    // Verify update_comment was called
     const resolveCalls = await page.evaluate(
       () => (window as Record<string, unknown>).__RESOLVE_CALLS__
     );
     expect(Array.isArray(resolveCalls)).toBe(true);
     expect((resolveCalls as unknown[]).length).toBeGreaterThanOrEqual(1);
+    const first = (resolveCalls as Array<Record<string, unknown>>)[0];
+    const patch = first.patch as { kind: string; data: { resolved: boolean } };
+    expect(patch.kind).toBe("set_resolved");
+    expect(patch.data.resolved).toBe(true);
+  });
+
+  // Iter 6 F2 — Export review summary button copies markdown to clipboard.
+  test("23.8 - Export button calls export_review_summary IPC", async ({ page }) => {
+    await page.addInitScript(({ dir }: { dir: string }) => {
+      (window as Record<string, unknown>).__EXPORT_CALLS__ = [];
+      window.__TAURI_IPC_MOCK__ = async (cmd: string, args: Record<string, unknown>) => {
+        if (cmd === "get_launch_args") return { files: [], folders: [dir] };
+        if (cmd === "read_dir")
+          return [{ name: "sample.md", path: `${dir}/sample.md`, is_dir: false }];
+        if (cmd === "read_text_file") return "# x\n";
+        if (cmd === "get_file_comments") return [];
+        if (cmd === "load_review_comments") return null;
+        if (cmd === "check_path_exists") return "file";
+        if (cmd === "get_log_path") return "/mock/log.log";
+        if (cmd === "export_review_summary") {
+          ((window as Record<string, unknown>).__EXPORT_CALLS__ as unknown[]).push(args);
+          return "# Review Summary\n\n(no threads)";
+        }
+        return null;
+      };
+    }, { dir: FIXTURES_DIR });
+
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("sample.md").click();
+
+    const exportBtn = page.getByRole("button", { name: /export review summary/i });
+    await expect(exportBtn).toBeVisible();
+    await exportBtn.click();
+
+    // Either success or failure status surfaces (clipboard may be denied in
+    // headless contexts) — both prove the export branch ran end-to-end.
+    await expect(page.locator(".comments-panel-status")).toBeVisible();
+    const calls = await page.evaluate(
+      () => (window as Record<string, unknown>).__EXPORT_CALLS__,
+    );
+    expect((calls as unknown[]).length).toBe(1);
+    expect((calls as Array<Record<string, unknown>>)[0]).toHaveProperty("workspace");
   });
 });
 

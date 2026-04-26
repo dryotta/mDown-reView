@@ -9,7 +9,9 @@ use tauri::AppHandle;
 const SHIM_PATH: &str = "/usr/local/bin/mdownreview";
 
 fn io_err(e: std::io::Error) -> CliShimError {
-    CliShimError::Io { message: e.to_string() }
+    CliShimError::Io {
+        message: e.to_string(),
+    }
 }
 
 fn app_bundle_root(_app: &AppHandle) -> Result<PathBuf, CliShimError> {
@@ -74,7 +76,9 @@ fn map_install_err(e: std::io::Error, shim: &Path, target: &Path) -> CliShimErro
             path: shim.display().to_string(),
             target: target.display().to_string(),
         },
-        _ => CliShimError::Io { message: e.to_string() },
+        _ => CliShimError::Io {
+            message: e.to_string(),
+        },
     }
 }
 

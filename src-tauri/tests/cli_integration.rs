@@ -153,7 +153,9 @@ fn read_old_all_flag_is_rejected() {
     let (_stdout, stderr, code) = run_cli(&["read", "--folder", dir.to_str().unwrap(), "--all"]);
     assert_ne!(code, 0);
     assert!(
-        stderr.contains("unexpected") || stderr.contains("unrecognized") || stderr.contains("--all"),
+        stderr.contains("unexpected")
+            || stderr.contains("unrecognized")
+            || stderr.contains("--all"),
         "stderr was: {}",
         stderr
     );
@@ -186,8 +188,7 @@ fn read_json_envelope_has_review_and_source_files() {
 #[test]
 fn read_json_flag_equals_format_json() {
     let dir = fixtures_dir();
-    let (out_a, _, code_a) =
-        run_cli_bytes(&["read", "--folder", dir.to_str().unwrap(), "--json"]);
+    let (out_a, _, code_a) = run_cli_bytes(&["read", "--folder", dir.to_str().unwrap(), "--json"]);
     let (out_b, _, code_b) = run_cli_bytes(&[
         "read",
         "--folder",
@@ -197,7 +198,10 @@ fn read_json_flag_equals_format_json() {
     ]);
     assert_eq!(code_a, 0);
     assert_eq!(code_b, 0);
-    assert_eq!(out_a, out_b, "--json and --format json must be byte-identical");
+    assert_eq!(
+        out_a, out_b,
+        "--json and --format json must be byte-identical"
+    );
 }
 
 #[test]
@@ -329,7 +333,11 @@ fn respond_without_response_or_resolve_exits_2() {
         "mixed.md",
         "m1",
     ]);
-    assert_eq!(code, 2, "expected exit code 2; got {}; stderr={}", code, stderr);
+    assert_eq!(
+        code, 2,
+        "expected exit code 2; got {}; stderr={}",
+        code, stderr
+    );
     assert!(
         stderr.contains("must provide"),
         "stderr should mention requirement; got: {}",

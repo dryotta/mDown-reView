@@ -26,7 +26,10 @@ impl fmt::Display for CliShimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PermissionDenied { path, target } => {
-                write!(f, "permission denied creating symlink at {path} -> {target}")
+                write!(
+                    f,
+                    "permission denied creating symlink at {path} -> {target}"
+                )
             }
             Self::Io { message } => write!(f, "io error: {message}"),
         }

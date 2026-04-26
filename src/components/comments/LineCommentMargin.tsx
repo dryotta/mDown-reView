@@ -3,6 +3,7 @@ import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentInput } from "./CommentInput";
 import { CommentThread } from "./CommentThread";
 import { truncateSelectedText } from "@/lib/comment-utils";
+import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
 import type { CommentThread as CommentThreadType } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
@@ -16,10 +17,16 @@ interface Props {
   onSaveComment?: (text: string) => void;
   forceExpanded?: boolean;
   onRequestInput?: () => void;
+  // Optional override for the draft persistence key. When the input is
+  // driven by a richer selection anchor (e.g. a word-range selection in
+  // markdown), the parent passes a fingerprint of that anchor instead so
+  // the line-only default doesn't collide. Falls back to the line anchor
+  // when omitted.
+  draftKey?: string;
 }
 
 export function LineCommentMargin({
-  filePath, lineNumber, lineText, threads, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput,
+  filePath, lineNumber, lineText, threads, showInput, onCloseInput, onSaveComment, forceExpanded, onRequestInput, draftKey,
 }: Props) {
   const { addComment } = useCommentActions();
   const [expanded, setExpanded] = useState(false);
@@ -49,7 +56,11 @@ export function LineCommentMargin({
   return (
     <div className="line-comment-section">
       {showInput && (
-        <CommentInput onSave={handleSave} onClose={() => onCloseInput?.()} />
+        <CommentInput
+          onSave={handleSave}
+          onClose={() => onCloseInput?.()}
+          draftKey={draftKey ?? `${filePath}::new::${fingerprintAnchor({ kind: "line", line: lineNumber })}`}
+        />
       )}
       {shouldExpand && threads.map((t) => (
         <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />

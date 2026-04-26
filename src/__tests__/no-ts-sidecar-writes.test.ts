@@ -7,7 +7,7 @@ const SRC_ROOT = join(__dirname, "..");
 
 // Forbidden writes targeting `*.review.{yaml,json}` from TS code.
 // The Rust commands (add_comment / add_reply / edit_comment / delete_comment /
-// set_comment_resolved) are the only sanctioned writers via the
+// update_comment) are the only sanctioned writers via the
 // `with_sidecar_or_create` / `mutate_sidecar_or_create` chokepoint.
 //
 // We catch:

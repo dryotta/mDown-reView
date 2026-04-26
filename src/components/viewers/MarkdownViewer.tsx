@@ -7,41 +7,27 @@ import rehypeSlug from "rehype-slug";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
-import { getSharedHighlighter } from "@/lib/shiki";
-import { openExternalUrl } from "@/lib/tauri-commands";
-import { warn, info } from "@/logger";
-import { resolveWorkspacePath, dirname } from "@/lib/path-utils";
-import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 import { sanitizeSchema } from "./markdown/sanitizeSchema";
 import { rehypeFootnotePrefix } from "./markdown/rehype-footnote-prefix";
 import { rehypeKatexStyle } from "./markdown/rehype-katex-style";
-import { hasRemoteImageReferences } from "./markdown/useImgResolver";
-import { lazyWithSuspense } from "./lazy";
-import { useTheme } from "@/hooks/useTheme";
+import {
+  hasRemoteImageReferences,
+  useImgResolver,
+} from "./markdown/useImgResolver";
 import {
   useState,
   useEffect,
   useRef,
-  isValidElement,
   useMemo,
   useCallback,
-  type ComponentPropsWithoutRef,
-  type ReactElement,
-  type ReactNode,
 } from "react";
-import type { ExtraProps } from "react-markdown";
 import { FrontmatterBlock } from "./FrontmatterBlock";
 import { TableOfContents, extractHeadings } from "./TableOfContents";
-import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
+import { MdCommentContext } from "./markdown/CommentableBlocks";
+import { buildMarkdownComponents } from "./markdown/MarkdownComponentsMap";
+import { MarkdownInteractionLayer } from "./markdown/MarkdownInteractionLayer";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import {
-  MdCommentContext,
-  makeCommentableBlock,
-  CommentableLi,
-  MdCommentPopover,
-} from "./markdown/CommentableBlocks";
-import { useImgResolver } from "./markdown/useImgResolver";
 import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
@@ -50,6 +36,7 @@ import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
+import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import "@/styles/markdown.css";
 
 interface Props {
@@ -97,134 +84,6 @@ async function ensureKatexCssLoaded(): Promise<void> {
 // state, so this never needs to be rebuilt per render.
 const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkGithubAlerts] as const;
 
-function HighlightedCode({ code, lang }: { code: string; lang: string }) {
-  const [html, setHtml] = useState<string | null>(null);
-
-  // Track data-theme for reactive re-highlighting
-  const currentTheme = useTheme();
-
-  useEffect(() => {
-    const theme = currentTheme === "dark" ? "github-dark" : "github-light";
-
-    getSharedHighlighter()
-      .then(async (h) => {
-        const result = await h.codeToHtml(code, { lang, theme, defaultColor: false });
-        setHtml(result);
-      })
-      .catch(() => {});
-  }, [code, lang, currentTheme]);
-
-  if (html) {
-    return <div dangerouslySetInnerHTML={{ __html: html }} />;
-  }
-
-  return (
-    <pre>
-      <code className={`language-${lang}`}>{code}</code>
-    </pre>
-  );
-}
-
-// Embedded ```mermaid fenced blocks render inline via the existing
-// MermaidView (lazy chunk shared with the .mmd file viewer route).
-const MermaidEmbed = lazyWithSuspense<{ content: string }>(() =>
-  import("./MermaidView").then((m) => ({ default: m.MermaidView })),
-);
-
-// Module-scope components — no dependency on filePath or per-render state.
-// The `a` override is injected per-render in MarkdownViewer because it
-// closes over `filePath` for relative-path resolution.
-const MD_COMPONENTS: Record<string, unknown> = {
-  pre: ({ children, node: _node, ...props }: ComponentPropsWithoutRef<"pre"> & ExtraProps) => {
-    if (isValidElement(children)) {
-      const el = children as ReactElement<{ className?: string; children?: ReactNode }>;
-      if (el.type === "code") {
-        const { className, children: codeChildren } = el.props;
-        const lang = /language-([\w-]+)/.exec(className ?? "")?.[1];
-        if (lang?.toLowerCase() === "mermaid") {
-          const source = String(codeChildren ?? "").replace(/\n$/, "");
-          return <MermaidEmbed content={source} />;
-        }
-        if (lang) {
-          return (
-            <HighlightedCode
-              code={String(codeChildren ?? "").replace(/\n$/, "")}
-              lang={lang}
-            />
-          );
-        }
-      }
-    }
-    return <pre {...props}>{children}</pre>;
-  },
-  p: makeCommentableBlock("p"),
-  h1: makeCommentableBlock("h1"),
-  h2: makeCommentableBlock("h2"),
-  h3: makeCommentableBlock("h3"),
-  h4: makeCommentableBlock("h4"),
-  h5: makeCommentableBlock("h5"),
-  h6: makeCommentableBlock("h6"),
-  li: CommentableLi,
-};
-
-// Defense-in-depth: scheme classifiers for the anchor handler. `openExternalUrl`
-// already enforces an allowlist, but we should not even call it for known-bad
-// schemes — keeps blocking visible at the call site and avoids a logged warn
-// per click. Hoisted to `@/lib/url-policy` so MarkdownViewer, HtmlPreviewView,
-// and the openExternalUrl chokepoint share one definition.
-
-function makeAnchorComponent(filePath: string, workspaceRoot: string) {
-  const baseDir = filePath ? dirname(filePath) : "";
-  return function MarkdownAnchor({
-    href,
-    children,
-    node: _node,
-    ...props
-  }: ComponentPropsWithoutRef<"a"> & ExtraProps) {
-    const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!href) return;
-      // Case 1: in-document scroll — let the browser handle it natively.
-      if (href.startsWith("#")) return;
-      // Case 3: explicitly dangerous scheme — drop and warn.
-      if (BLOCKED_LINK_SCHEME.test(href)) {
-        e.preventDefault();
-        warn(`MarkdownViewer: blocked link scheme: ${href}`);
-        return;
-      }
-      // Case 2: external (http/https/mailto/tel) — defer to the OS opener.
-      if (EXTERNAL_LINK_SCHEME.test(href)) {
-        e.preventDefault();
-        openExternalUrl(href).catch(() => {});
-        return;
-      }
-      // Case 4: workspace-relative path — open inside the app, but ONLY if
-      // the resolved target is contained within the workspace root. Defends
-      // against `[x](/etc/passwd)` and `[x](../../../../etc/passwd)`.
-      e.preventDefault();
-      if (!baseDir) return;
-      const resolved = resolveWorkspacePath(workspaceRoot, baseDir, href);
-      if (!resolved) {
-        warn(`MarkdownViewer: dropped link outside workspace: ${href}`);
-        return;
-      }
-      // Capture the "from" tab so back/forward works even when the source
-      // tab was opened outside any pushHistory site (e.g. sidebar click).
-      // History recording is centralized in `tabs.openFile` (B2).
-      useStore.getState().openFile(resolved.path);
-      if (resolved.fragment) {
-        // Fragment scroll on the freshly opened tab is deferred — the new
-        // viewer mounts after a tick. Logging keeps the behaviour visible.
-        info(`MarkdownViewer: link fragment "#${resolved.fragment}" not yet scrolled`);
-      }
-    };
-    return (
-      <a href={href} onClick={handleClick} {...props}>
-        {children}
-      </a>
-    );
-  };
-}
-
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const { body, data } = useMemo(() => parseFrontmatter(content), [content]);
   const headings = useMemo(() => extractHeadings(body), [body]);
@@ -240,7 +99,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const lines = useMemo(() => body.split("\n"), [body]);
 
   const { threads } = useComments(filePath);
-  const { addComment } = useCommentActions();
+  const { addComment, commitMoveAnchor } = useCommentActions();
 
   const { threadsByLine, commentCountByLine } = useThreadsByLine(threads);
 
@@ -256,10 +115,10 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // Stable img resolver — only changes when filePath/allowance changes.
   const { img } = useImgResolver(filePath);
   const workspaceRoot = useStore((s) => s.root) ?? "";
-  const components = useMemo(() => {
-    const a = makeAnchorComponent(filePath, workspaceRoot);
-    return { ...MD_COMPONENTS, a, img };
-  }, [filePath, img, workspaceRoot]);
+  const components = useMemo(
+    () => buildMarkdownComponents({ filePath, workspaceRoot, img }),
+    [filePath, img, workspaceRoot],
+  );
 
   // A1 banner: only when the doc has remote-image refs AND the user hasn't
   // already opted in for this filePath.
@@ -305,9 +164,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   //                                   cannot be abused via raw markdown HTML.
   //   5. rehype-sanitize            → strip anything not in `sanitizeSchema`.
   //   6. rehype-slug + autolink     → assign ids and prepend anchors.
-  // Sanitization MUST happen between any HTML-injecting plugin and any
-  // downstream plugin that consumes it, so user/plugin HTML cannot piggy-back
-  // through with attributes the schema doesn't allow.
   const rehypePlugins = useMemo(
     () => {
       const plugins: unknown[] = [rehypeRaw, rehypeFootnotePrefix];
@@ -333,7 +189,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     setExpandedLine(line);
     setCommentingLine(null);
   }, []);
-  useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo);
+  useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo, filePath);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
@@ -353,6 +209,25 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   }), [commentCountByLine]);
 
   const handleGutterClick = useCallback((e: React.MouseEvent) => {
+    // Move-anchor mode: any click in the body re-anchors the active thread to
+    // the clicked source line. Read via getState() (rule 9 — imperative path).
+    const moveTarget = useStore.getState().moveAnchorTarget;
+    if (moveTarget !== null) {
+      const lineEl = (e.target as HTMLElement).closest("[data-source-line]");
+      const lineNumStr = lineEl?.getAttribute("data-source-line");
+      if (lineNumStr) {
+        const line = parseInt(lineNumStr, 10);
+        if (line > 0) {
+          void commitMoveAnchor(filePath, moveTarget, { kind: "line", line });
+          useStore.getState().setMoveAnchorTarget(null);
+          e.stopPropagation();
+        }
+      }
+      // No clickable line under the cursor → leave move mode active so a
+      // missed click does not silently exit. Esc / Cancel button still cancels.
+      return;
+    }
+
     const container = bodyRef.current;
     if (!container) return;
     const containerRect = container.getBoundingClientRect();
@@ -368,7 +243,29 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
     e.stopPropagation();
     handleLineClick(line);
-  }, [handleLineClick]);
+  }, [handleLineClick, commitMoveAnchor, filePath]);
+
+  const handleSelectionAdd = useCallback(() => {
+    handleAddSelectionComment((line) => {
+      setCommentingLine(line);
+      setExpandedLine(null);
+    });
+  }, [handleAddSelectionComment]);
+
+  // F6 — right-click context menu. Markdown nodes carry `data-source-line`
+  // (1-indexed). Selection-toolbar priming so "Comment on selection" routes
+  // through the same code path as the mouseup-driven flow.
+  const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } = useViewerContextMenu({
+    filePath,
+    resolveLine: (target) => {
+      const lineEl = target.closest<HTMLElement>("[data-source-line]");
+      if (!lineEl) return null;
+      const n = Number(lineEl.getAttribute("data-source-line"));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    },
+    primeSelection: handleMouseUp,
+    startSelectionComment: handleSelectionAdd,
+  });
 
   return (
     <div className="markdown-viewer" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
@@ -408,25 +305,23 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
         )}
         {data && <FrontmatterBlock data={data} />}
         <TableOfContents headings={headings} />
-      <MdCommentContext.Provider value={contextValue}>
-        <div
-          className="markdown-body"
-          ref={bodyRef}
-          onClick={handleGutterClick}
-          onMouseUp={handleMouseUp}
-          style={{ position: "relative" }}
-        >
-          <ReactMarkdown
-            remarkPlugins={REMARK_PLUGINS as never}
-            rehypePlugins={rehypePlugins as never}
-            components={components as never}
+        <MdCommentContext.Provider value={contextValue}>
+          <div
+            className="markdown-body"
+            ref={bodyRef}
+            onClick={handleGutterClick}
+            onMouseUp={handleMouseUp}
+            onContextMenu={handleContextMenu}
+            style={{ position: "relative" }}
           >
-            {body}
-          </ReactMarkdown>
-
-          {/* Comment popover for expanded/commenting line */}
-          {(expandedLine !== null || commentingLine !== null) && (
-            <MdCommentPopover
+            <ReactMarkdown
+              remarkPlugins={REMARK_PLUGINS as never}
+              rehypePlugins={rehypePlugins as never}
+              components={components}
+            >
+              {body}
+            </ReactMarkdown>
+            <MarkdownInteractionLayer
               expandedLine={expandedLine}
               commentingLine={commentingLine}
               bodyRef={bodyRef}
@@ -438,23 +333,24 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               setCommentingLine={setCommentingLine}
               setExpandedLine={setExpandedLine}
               clearSelection={clearSelection}
+              selectionToolbar={selectionToolbar}
+              dismissSelectionToolbar={() => setSelectionToolbar(null)}
+              onAddSelectionComment={handleSelectionAdd}
+              contextMenu={{
+                open: ctxMenu.state.open,
+                x: ctxMenu.state.x,
+                y: ctxMenu.state.y,
+                hasSelection: ctxMenu.state.payload?.hasSelection ?? false,
+                hasLine: ctxMenu.state.payload?.line != null,
+              }}
+              onContextMenuAction={handleContextAction}
+              onContextMenuClose={closeContextMenu}
             />
-          )}
-        </div>
-      </MdCommentContext.Provider>
+          </div>
+        </MdCommentContext.Provider>
         <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
         <ReadingWidthHandle containerRef={readingContainerRef} side="right" />
       </div>
-      {selectionToolbar && (
-        <SelectionToolbar
-          position={selectionToolbar.position}
-          onAddComment={() => handleAddSelectionComment((line) => {
-            setCommentingLine(line);
-            setExpandedLine(null);
-          })}
-          onDismiss={() => setSelectionToolbar(null)}
-        />
-      )}
     </div>
   );
 }

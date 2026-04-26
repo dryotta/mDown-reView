@@ -54,6 +54,40 @@ impl WatcherState {
         false
     }
 
+    /// Same as [`Self::is_path_allowed`] but ALSO accepts paths whose file
+    /// component does not exist — as long as the path's parent directory
+    /// canonicalizes inside an open workspace folder. This is the variant
+    /// every comment-mutation command must use: editor saves, OneDrive sync,
+    /// and the orphan-comment / DeletedFileViewer flow all routinely produce
+    /// requests against paths that have just been deleted, renamed, or
+    /// swapped under us, and rejecting those would silently break sidecar
+    /// writes against those files.
+    ///
+    /// Symlink safety still holds: the parent's canonical form is compared
+    /// against the watched dirs, so a symlink whose parent points outside
+    /// the workspace cannot smuggle through.
+    pub fn is_path_or_parent_allowed(&self, path: &Path) -> bool {
+        if self.is_path_allowed(path) {
+            return true;
+        }
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => return false,
+        };
+        let canonical_parent = match std::fs::canonicalize(parent) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        if let Ok(dirs) = self.tree_watched_dirs.lock() {
+            for dir in dirs.iter() {
+                if canonical_parent.starts_with(dir) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Replace the set of tree-watched dirs after validating each entry.
     /// Inputs are canonicalized internally — frontend may pass any absolute
     /// form (Windows `C:\...` or Unix `/...`); we normalize to the OS canonical

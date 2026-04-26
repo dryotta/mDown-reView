@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { copyToClipboard } from "@/lib/tauri-commands";
 import { useUpdateActions } from "@/lib/vm/use-update-actions";
 import { useAboutInfo } from "@/hooks/useAboutInfo";
@@ -36,14 +36,47 @@ export function AboutDialog({ onClose }: Props) {
 
   const isCanary = version.includes("-");
 
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  // Mirror SettingsDialog: open via showModal() for native focus trap +
+  // Esc handling + inert backdrop. Deliberately omit close() in cleanup —
+  // the dialog leaves the DOM on unmount and an explicit close() would
+  // dispatch the native `close` event into onClose, racing the unmount
+  // under React StrictMode.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) {
+      try {
+        dialog.showModal();
+      } catch {
+        // showModal can throw InvalidStateError if already open in a
+        // stale tree (StrictMode double-invoke) — best-effort.
+      }
+    }
+  }, []);
+
   return (
-    <div className="dialog-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
-        <div className="dialog-header">
-          <h2>mdownreview</h2>
-          <button className="dialog-close" onClick={onClose}>×</button>
-        </div>
-        <div className="dialog-body">
+    <dialog
+      ref={dialogRef}
+      className="dialog-box"
+      aria-labelledby="about-title"
+      onCancel={(e) => {
+        // Prevent native cancel from also firing onClose via the close event.
+        e.preventDefault();
+        onClose();
+      }}
+      onClose={onClose}
+      onClick={(e) => {
+        // Backdrop click: target is the dialog element itself, not children.
+        if (e.target === dialogRef.current) onClose();
+      }}
+    >
+      <div className="dialog-header">
+        <h2 id="about-title">mdownreview</h2>
+        <button className="dialog-close" onClick={onClose} aria-label="Close">×</button>
+      </div>
+      <div className="dialog-body">
           <p className="dialog-version">
             Version {version || "…"}
             {isCanary && <span className="canary-badge">canary</span>}
@@ -75,7 +108,6 @@ export function AboutDialog({ onClose }: Props) {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }

@@ -1,0 +1,30 @@
+.html-preview-comment-toggle {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border, #d0d7de);
+  background: var(--color-surface, #f6f8fa);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.html-preview-comment-toggle.is-active {
+  background: var(--color-accent-bg, #ddf4ff);
+  border-color: var(--color-accent, #0969da);
+}
+
+/* Floating composer over the iframe wrapper. The wrapper itself is
+   pointer-events: none so it never steals iframe interactions; the
+   composer re-enables pointer events on itself. */
+.html-preview-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.html-preview-overlay > * {
+  pointer-events: auto;
+}
+.html-preview-composer {
+  position: absolute;
+  z-index: 10;
+  max-width: 320px;
+}

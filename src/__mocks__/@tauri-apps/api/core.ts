@@ -2,6 +2,7 @@ import { vi } from "vitest";
 import type {
   CommentThread,
   DirEntry,
+  FileBadge,
   FoldRegion,
   KqlPipelineStep,
   LaunchArgs,
@@ -9,6 +10,7 @@ import type {
   MrsfSidecar,
   SearchMatch,
   TextFileResult,
+  WordSpan,
 } from "@/lib/tauri-commands";
 
 // Typed mock return values are validated at compile time against shared interfaces
@@ -23,7 +25,8 @@ type InvokeResult =
   | SearchMatch[]
   | FoldRegion[]
   | KqlPipelineStep[]
-  | Record<string, number>
+  | WordSpan[]
+  | Record<string, FileBadge>
   | TextFileResult
   | ArrayBuffer
   | "file"
@@ -63,6 +66,15 @@ export const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Pro
       new Uint8Array(buf, 4).set(ct);
       return buf;
     }
+    // Iter 1 / F0 defaults — return empty/no-op shapes so consumers don't
+    // need to special-case them. Tests override via mockResolvedValueOnce.
+    if (cmd === "get_file_badges") return {} as Record<string, FileBadge>;
+    if (cmd === "get_file_comments") return [] as CommentThread[];
+    if (cmd === "tokenize_words") return [] as WordSpan[];
+    if (cmd === "export_review_summary") return "";
+    if (cmd === "update_comment") return undefined;
+    if (cmd === "set_author") return "";
+    if (cmd === "get_author") return "Test User";
     return undefined;
   },
 );

@@ -82,14 +82,18 @@ fn img_re() -> &'static Regex {
 }
 fn link_rel_first_re() -> &'static Regex {
     LINK_REL_FIRST_RE.get_or_init(|| {
-        Regex::new(r#"(?i)(<link\b[^>]*?\brel=["']stylesheet["'][^>]*?\bhref=["'])([^"']+)(["'][^>]*?>)"#)
-            .unwrap()
+        Regex::new(
+            r#"(?i)(<link\b[^>]*?\brel=["']stylesheet["'][^>]*?\bhref=["'])([^"']+)(["'][^>]*?>)"#,
+        )
+        .unwrap()
     })
 }
 fn link_href_first_re() -> &'static Regex {
     LINK_HREF_FIRST_RE.get_or_init(|| {
-        Regex::new(r#"(?i)(<link\b[^>]*?\bhref=["'])([^"']+)(["'][^>]*?\brel=["']stylesheet["'][^>]*?>)"#)
-            .unwrap()
+        Regex::new(
+            r#"(?i)(<link\b[^>]*?\bhref=["'])([^"']+)(["'][^>]*?\brel=["']stylesheet["'][^>]*?>)"#,
+        )
+        .unwrap()
     })
 }
 
@@ -159,7 +163,7 @@ pub fn resolve_local_assets(html: &str, html_dir: &Path) -> String {
     let mut all = resolve_images(html, html_dir);
     all.extend(resolve_stylesheets(html, html_dir));
     // Apply from end → start so earlier indices remain valid
-    all.sort_by(|a, b| b.index.cmp(&a.index));
+    all.sort_by_key(|r| std::cmp::Reverse(r.index));
 
     let mut result = html.to_string();
     for r in all {
@@ -252,7 +256,10 @@ mod tests {
         write(tmp.path(), "weird.xyz", b"BLOB");
         let html = r#"<img src="weird.xyz">"#;
         let out = resolve_local_assets(html, tmp.path());
-        assert!(out.contains(&format!("data:application/octet-stream;base64,{}", b64(b"BLOB"))));
+        assert!(out.contains(&format!(
+            "data:application/octet-stream;base64,{}",
+            b64(b"BLOB")
+        )));
     }
 
     #[test]

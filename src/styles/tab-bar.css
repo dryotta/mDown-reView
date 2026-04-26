@@ -94,6 +94,9 @@
   color: var(--color-badge-text);
   flex-shrink: 0;
 }
+.tab-badge[data-severity="low"] { background: #9ca3af; color: white; }
+.tab-badge[data-severity="medium"] { background: #ea580c; color: white; }
+.tab-badge[data-severity="high"] { background: #dc2626; color: white; }
 
 .tab-close {
   visibility: hidden;

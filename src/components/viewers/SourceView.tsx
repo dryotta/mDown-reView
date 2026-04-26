@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
+import { CommentContextMenu } from "@/components/comments/CommentContextMenu";
 import { useSearch } from "@/hooks/useSearch";
 import { useSourceHighlighting } from "@/hooks/useSourceHighlighting";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
@@ -9,6 +11,7 @@ import { useFolding } from "@/hooks/useFolding";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSourceLineModel, type SearchMatchInLine } from "@/hooks/useSourceLineModel";
+import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
@@ -34,7 +37,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   const sourceLinesRef = useRef<HTMLDivElement>(null);
 
   const { threads } = useComments(filePath);
-  const { addComment } = useCommentActions();
+  const { addComment, commitMoveAnchor } = useCommentActions();
 
   const lines = useMemo(() => content.split("\n"), [content]);
 
@@ -92,7 +95,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
     setExpandedLine(line);
     setCommentingLine(null);
   }, []);
-  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo);
+  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo, filePath);
 
   // Stable handlers — recompute identity only when their dependencies actually
   // change. This is what allows `React.memo` on `SourceLine` to skip re-renders
@@ -133,6 +136,39 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
+  const handleSourceLinesClick = useCallback((e: React.MouseEvent) => {
+    const moveTarget = useStore.getState().moveAnchorTarget;
+    if (moveTarget === null) return;
+    const lineEl = (e.target as HTMLElement).closest<HTMLElement>("[data-line-idx]");
+    const idxStr = lineEl?.dataset.lineIdx;
+    if (idxStr !== undefined) {
+      const lineIdx = parseInt(idxStr, 10);
+      if (!Number.isNaN(lineIdx)) {
+        // Source view is 0-indexed in DOM; commenter API is 1-indexed.
+        const line = lineIdx + 1;
+        void commitMoveAnchor(filePath, moveTarget, { kind: "line", line });
+        useStore.getState().setMoveAnchorTarget(null);
+        e.stopPropagation();
+      }
+    }
+    // Missed click (no [data-line-idx] under target, or NaN) → leave move
+    // mode active. Esc / Cancel button still cancels.
+  }, [commitMoveAnchor, filePath]);
+
+  // F6 — right-click context menu. Source view lines use `data-line-idx`
+  // (0-indexed in DOM); commenter API is 1-indexed, so we add 1.
+  const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } = useViewerContextMenu({
+    filePath,
+    resolveLine: (target) => {
+      const lineEl = target.closest<HTMLElement>("[data-line-idx]");
+      if (!lineEl?.dataset.lineIdx) return null;
+      const idx = Number(lineEl.dataset.lineIdx);
+      return Number.isFinite(idx) ? idx + 1 : null;
+    },
+    primeSelection: handleMouseUp,
+    startSelectionComment: () => void handleAddSelectionComment(setCommentingLine),
+  });
+
   return (
     <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", fontSize: `${zoom * 100}%` }}>
       {searchOpen && (
@@ -151,7 +187,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
         </div>
       )}
-      <div className="source-lines" ref={sourceLinesRef} onMouseUp={handleMouseUp}>
+      <div className="source-lines" ref={sourceLinesRef} onClick={handleSourceLinesClick} onMouseUp={handleMouseUp} onContextMenu={handleContextMenu}>
         {model.map((item) => {
           // Build the per-line save callback only for the currently-commenting
           // line; all other lines receive `undefined` (a stable reference) so
@@ -193,6 +229,15 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
           onDismiss={() => setSelectionToolbar(null)}
         />
       )}
+      <CommentContextMenu
+        open={ctxMenu.state.open}
+        x={ctxMenu.state.x}
+        y={ctxMenu.state.y}
+        hasSelection={ctxMenu.state.payload?.hasSelection ?? false}
+        hasLine={ctxMenu.state.payload?.line != null}
+        onAction={handleContextAction}
+        onClose={closeContextMenu}
+      />
     </div>
   );
 }

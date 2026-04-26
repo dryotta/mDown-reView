@@ -65,7 +65,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 15. Levenshtein uses O(min(m,n)) memory — never a full m×n matrix. (`matching.rs:184-217`.)
 16. Fuzzy matching short-circuits identical/substring cases before computing Levenshtein. (`matching.rs:168-173`.)
 17. Sidecar mutations go through `with_sidecar_mut` (load → mutate → save → emit) — never from the frontend. (`commands/comments.rs:13`.)
-18. Batch counts for N files are a single IPC call (`get_unresolved_counts`), not N calls. (`commands/comments.rs:215`.)
+18. Batch counts for N files are a single IPC call (`get_file_badges`), not N calls. (`commands/comments/badges.rs:24`.)
 19. Line counting is amortized inside `read_text_file`: `content.lines().count()` runs once per read (`commands/fs.rs:107`) and the result is returned in `TextFileResult.line_count`. Frontend consumers (StatusBar) read it from the `fileMetaByPath` cache populated by `useFileContent` — they never recompute line counts in TS.
 
 ### StatusBar timer
@@ -89,6 +89,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 
 ### User expectations
 29. `MarkdownViewer` and `SourceView` display a "large file" warning above `SIZE_WARN_THRESHOLD` so users expect slower rendering instead of assuming a hang. (`MarkdownViewer.tsx:321,371-375`; `SourceView.tsx:113,128-132`.)
+30. `tokenize_words` rejects inputs > 65 536 bytes with a typed `Err`; callers in word-range anchor creation short-circuit. Silent truncation was rejected — typed failure allows the caller to surface a user-visible warning. (`commands/word_tokens.rs`.)
 
 ## Gaps
 
@@ -101,4 +102,4 @@ Unique to performance. Rust-First is a charter meta-principle.
 - `MarkdownViewer` re-parses markdown on every `content` change, including watcher reloads (`MarkdownViewer.tsx:276,282`). For >1 MB files this blocks the main thread.
 - No memory ceiling test. Per-tab and 100-file workspace memory are aspirational budgets.
 - Watcher event volume is bounded by OS but not by the app. `rm -rf` on a 10K-file folder emits bursts; debouncer smooths at 300 ms but no upper forward-per-tick cap exists.
-- `get_unresolved_counts` is linear in N × sidecar-read I/O. 10K sidecars would stall the folder tree; consider caching per-file counts invalidated on `comments-changed`.
+- `get_file_badges` loads one sidecar per file per call. For workspaces >500 files consider a Rust-side per-file cache invalidated on `comments-changed`; deferred (iter 4 perf budget: O(N) is acceptable for current target workspace sizes).

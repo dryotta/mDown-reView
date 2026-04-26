@@ -14,7 +14,7 @@ After the post-redesign cleanup, the toolbar carries no theme dropdown or About 
 
 ### Viewer toolbar (sticky)
 
-Each viewer renders a `ViewerToolbar` overlay at the top of its scroll container. It is `position: sticky; top: 0; z-index: 2`, so it stays in view as the body scrolls. It carries the active-view toggle (Source ↔ Visual) for files that support both, plus a Wrap toggle for source views.
+Each viewer renders a `ViewerToolbar` overlay at the top of its scroll container. It is `position: sticky; top: 0; z-index: 2`, so it stays in view as the body scrolls. It carries the active-view toggle (Source ↔ Visual) for files that support both, plus a Wrap toggle for source views, a **Comment on file** button (opens an inline file-level composer in the comments panel), and a **Next unresolved (workspace-wide)** button that jumps to the next file in the workspace with unresolved threads — the same action chord-bound to `N`.
 
 ### Status bar
 

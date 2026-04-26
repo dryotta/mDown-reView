@@ -34,13 +34,17 @@ fn medium_braced(lines: usize) -> String {
             let indent = "    ".repeat(d);
             s.push_str(&format!("{}fn f_{}_{}() {{\n", indent, written, d));
             written += 1;
-            if written >= lines { break; }
+            if written >= lines {
+                break;
+            }
         }
         for d in (0..depth).rev() {
             let indent = "    ".repeat(d);
             s.push_str(&format!("{}}}\n", indent));
             written += 1;
-            if written >= lines { break; }
+            if written >= lines {
+                break;
+            }
         }
     }
     s
@@ -167,5 +171,10 @@ fn bench_strip_json_comments(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_fold_regions, bench_parse_kql, bench_strip_json_comments);
+criterion_group!(
+    benches,
+    bench_fold_regions,
+    bench_parse_kql,
+    bench_strip_json_comments
+);
 criterion_main!(benches);

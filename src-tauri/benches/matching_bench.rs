@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use mdown_review_lib::core::{
-    matching,
-    sidecar,
+    fuzzy::{fuzzy_score, levenshtein},
+    matching, sidecar,
     types::MrsfComment,
 };
 use std::path::PathBuf;
@@ -50,6 +50,7 @@ fn synthetic_comments(lines: &[String], count: usize, stride: usize) -> Vec<Mrsf
                 comment_type: None,
                 severity: None,
                 reply_to: None,
+                ..Default::default()
             }
         })
         .collect()
@@ -94,7 +95,7 @@ fn bench_levenshtein(c: &mut Criterion) {
     let b = "fn calculate_perf_metrics(data: &[f64], config: &Config) -> PerfMetrics";
 
     c.bench_function("levenshtein_70_chars", |b_iter| {
-        b_iter.iter(|| matching::levenshtein(a, b))
+        b_iter.iter(|| levenshtein(a, b))
     });
 }
 
@@ -103,9 +104,14 @@ fn bench_fuzzy_score(c: &mut Criterion) {
     let b = "fn calculate_perf_metrics(data: &[f64], config: &Config) -> PerfMetrics";
 
     c.bench_function("fuzzy_score_70_chars", |b_iter| {
-        b_iter.iter(|| matching::fuzzy_score(a, b))
+        b_iter.iter(|| fuzzy_score(a, b))
     });
 }
 
-criterion_group!(benches, bench_match_comments, bench_levenshtein, bench_fuzzy_score);
+criterion_group!(
+    benches,
+    bench_match_comments,
+    bench_levenshtein,
+    bench_fuzzy_score
+);
 criterion_main!(benches);

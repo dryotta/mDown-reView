@@ -1,8 +1,5 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use mdown_review_lib::core::{
-    sidecar,
-    types::CommentMutation,
-};
+use mdown_review_lib::core::{sidecar, types::CommentMutation};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -81,5 +78,10 @@ fn bench_patch_comment(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_load_sidecar, bench_save_sidecar, bench_patch_comment);
+criterion_group!(
+    benches,
+    bench_load_sidecar,
+    bench_save_sidecar,
+    bench_patch_comment
+);
 criterion_main!(benches);

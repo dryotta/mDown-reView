@@ -11,6 +11,16 @@ test.describe("Native IPC commands", () => {
     fs.writeFileSync(sourceFile, "# Doc");
 
     try {
+      // Register tmpDir as a tree-watched dir so the iter-1 workspace gate
+      // (enforce_workspace_path) accepts the IPC call.
+      await nativePage.evaluate((root: string) => {
+        // @ts-ignore
+        return window.__TAURI_INTERNALS__.invoke("update_tree_watched_dirs", {
+          root,
+          dirs: [root],
+        });
+      }, tmpDir);
+
       await nativePage.evaluate(
         ({ filePath, document }: { filePath: string; document: string }) => {
           // @ts-ignore

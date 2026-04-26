@@ -14,3 +14,27 @@
 .mermaid-toolbar button:hover {
   background: var(--color-hover, #f3f4f6);
 }
+
+/* F1 — overlay parent hosts the rendered SVG plus absolute-positioned
+   per-node comment badges and the inline composer. `display: inline-block`
+   keeps the parent's box flush with the SVG so coordinates derived from
+   getBoundingClientRect() line up with what the user sees. */
+.mermaid-overlay-parent {
+  position: relative;
+  display: inline-block;
+}
+.mermaid-node-badge-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  z-index: 5;
+}
+.mermaid-node-composer {
+  min-width: 240px;
+  z-index: 10;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 4px;
+  padding: 4px;
+}

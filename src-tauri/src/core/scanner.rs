@@ -350,8 +350,7 @@ comments: []
     #[test]
     fn cleanup_handles_mixed_yaml_and_json() {
         let tmp = TempDir::new().unwrap();
-        let yaml_resolved =
-            write_yaml_with(tmp.path(), "a.md", &yaml_one_comment("a.md", true));
+        let yaml_resolved = write_yaml_with(tmp.path(), "a.md", &yaml_one_comment("a.md", true));
         let json_resolved = write_json_with(
             tmp.path(),
             "b.md",

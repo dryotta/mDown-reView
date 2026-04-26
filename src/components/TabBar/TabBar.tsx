@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/store";
-import { useUnresolvedCounts } from "@/hooks/useUnresolvedCounts";
+import { useFileBadges } from "@/hooks/useFileBadges";
+import { CommentBadge } from "@/components/comments/CommentBadge";
+import type { Severity } from "@/lib/tauri-commands";
 import "@/styles/tab-bar.css";
 import { basename } from "@/lib/path-utils";
 
@@ -9,10 +11,12 @@ const SCROLL_STEP_PX = 200;
 function TabItem({
   path,
   unresolvedCount,
+  severity,
   tabRef,
 }: {
   path: string;
   unresolvedCount: number;
+  severity?: Severity;
   tabRef?: (el: HTMLDivElement | null) => void;
 }) {
   const activeTabPath = useStore((s) => s.activeTabPath);
@@ -34,9 +38,7 @@ function TabItem({
       aria-selected={isActive}
     >
       <span className="tab-name">{name}</span>
-      {unresolvedCount > 0 && (
-        <span className="tab-badge">{unresolvedCount}</span>
-      )}
+      <CommentBadge count={unresolvedCount} severity={severity} className="tab-badge" />
       <button
         className="tab-close"
         aria-label={`Close ${name}`}
@@ -55,7 +57,7 @@ export function TabBar() {
   const tabs = useStore((s) => s.tabs);
   const activeTabPath = useStore((s) => s.activeTabPath);
   const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs]);
-  const unresolvedCounts = useUnresolvedCounts(tabPaths);
+  const fileBadges = useFileBadges(tabPaths);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -148,7 +150,8 @@ export function TabBar() {
           <TabItem
             key={tab.path}
             path={tab.path}
-            unresolvedCount={unresolvedCounts[tab.path] ?? 0}
+            unresolvedCount={fileBadges[tab.path]?.count ?? 0}
+            severity={fileBadges[tab.path]?.max_severity}
             tabRef={setTabRef(tab.path)}
           />
         ))}

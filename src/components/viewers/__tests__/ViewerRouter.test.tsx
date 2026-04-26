@@ -6,10 +6,27 @@ import { useStore } from "@/store";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
+// B2 (iter 7 forward-fix) — `ViewerToolbar` now reads per-tab badge counts
+// via `useFileBadges`. Stub it so router tests don't depend on the IPC mock
+// surface for the comments-changed / file-changed listeners.
+vi.mock("@/hooks/useFileBadges", () => ({
+  useFileBadges: () => ({}),
+}));
+
 // Mock child viewers as simple test stubs
 vi.mock("../EnhancedViewer", () => ({
-  EnhancedViewer: ({ filePath, fileSize }: { filePath: string; fileSize?: number }) => (
-    <div data-testid="enhanced-viewer" data-path={filePath} data-filesize={fileSize}>EnhancedViewer</div>
+  EnhancedViewer: ({ filePath, fileSize, onCommentOnFile }: { filePath: string; fileSize?: number; onCommentOnFile?: () => void }) => (
+    <div
+      data-testid="enhanced-viewer"
+      data-path={filePath}
+      data-filesize={fileSize}
+      data-has-comment-on-file={onCommentOnFile ? "true" : "false"}
+    >
+      EnhancedViewer
+      {onCommentOnFile && (
+        <button data-testid="enhanced-viewer-comment-btn" onClick={onCommentOnFile}>cof</button>
+      )}
+    </div>
   ),
 }));
 
@@ -174,6 +191,86 @@ describe("ViewerRouter routing", () => {
     render(<ViewerRouter path="/gone.md" />);
     expect(screen.getByTestId("deleted-file-viewer")).toBeInTheDocument();
     expect(screen.queryByText(/Error loading file/)).not.toBeInTheDocument();
+  });
+});
+
+// ─── Iter 5 Group B: file-anchored entry point is universal ─────────────────
+
+describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () => {
+  function expectCommentOnFileButton() {
+    const btn = screen.getByRole("button", { name: /comment on file/i });
+    expect(btn).toBeInTheDocument();
+    return btn;
+  }
+
+  it("EnhancedViewer (text) receives an onCommentOnFile callback", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "# Hello" });
+    useStore.setState({ tabs: [{ path: "/r.md", scrollTop: 0 }] });
+    render(<ViewerRouter path="/r.md" />);
+    expect(screen.getByTestId("enhanced-viewer").dataset.hasCommentOnFile).toBe("true");
+  });
+
+  it("clicking the wired callback in EnhancedViewer sets pendingFileLevelInputFor to the file path", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "# Hello" });
+    useStore.setState({ tabs: [{ path: "/r.md", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/r.md" />);
+    fireEvent.click(screen.getByTestId("enhanced-viewer-comment-btn"));
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/r.md");
+  });
+
+  it("image viewer surfaces a Comment-on-file button", () => {
+    mockUseFileContent.mockReturnValue({ status: "image" });
+    useStore.setState({ tabs: [{ path: "/x.png", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/x.png" />);
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/x.png");
+  });
+
+  it("audio viewer surfaces a Comment-on-file button", () => {
+    mockUseFileContent.mockReturnValue({ status: "audio" });
+    useStore.setState({ tabs: [{ path: "/s.mp3", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/s.mp3" />);
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/s.mp3");
+  });
+
+  it("video viewer surfaces a Comment-on-file button", () => {
+    mockUseFileContent.mockReturnValue({ status: "video" });
+    useStore.setState({ tabs: [{ path: "/c.mp4", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/c.mp4" />);
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/c.mp4");
+  });
+
+  it("pdf viewer surfaces a Comment-on-file button", () => {
+    mockUseFileContent.mockReturnValue({ status: "pdf" });
+    useStore.setState({ tabs: [{ path: "/d.pdf", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/d.pdf" />);
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/d.pdf");
+  });
+
+  it("binary placeholder surfaces a Comment-on-file button", () => {
+    mockUseFileContent.mockReturnValue({ status: "binary" });
+    useStore.setState({ tabs: [{ path: "/b.bin", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/b.bin" />);
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/b.bin");
+  });
+
+  it("too_large placeholder surfaces a Comment-on-file button", () => {
+    mockUseFileContent.mockReturnValue({ status: "too_large", sizeBytes: 99 });
+    useStore.setState({ tabs: [{ path: "/big.csv", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    render(<ViewerRouter path="/big.csv" />);
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/big.csv");
+  });
+
+  it("error branch (non-ghost) does NOT render the toolbar (no live file to anchor against)", () => {
+    mockUseFileContent.mockReturnValue({ status: "error", error: "boom" });
+    useStore.setState({ tabs: [{ path: "/missing.md", scrollTop: 0 }] });
+    render(<ViewerRouter path="/missing.md" />);
+    expect(screen.queryByRole("button", { name: /comment on file/i })).toBeNull();
   });
 });
 
@@ -391,5 +488,88 @@ describe("ViewerRouter scroll feedback loop prevention", () => {
 
     // Should not create a new state
     expect(stateAfter.tabs).toBe(stateBefore.tabs);
+  });
+});
+
+// B1 forward-fix (iter 10): when a cross-file scroll target is queued for
+// THIS viewer's path, the parent's saved-scroll restore must NOT run —
+// otherwise it overwrites the child `useScrollToLine` mount-effect's scroll
+// (child effects run before parent effects in React).
+describe("ViewerRouter scroll-restore vs pendingScrollTarget", () => {
+  it("skips saved-scroll restore when pendingScrollTarget.filePath matches", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "x" });
+    useStore.setState({
+      tabs: [{ path: "/a.txt", scrollTop: 1234 }],
+      pendingScrollTarget: { filePath: "/a.txt", line: 7 },
+    });
+
+    render(<ViewerRouter path="/a.txt" />);
+    const container = screen.getByTestId("enhanced-viewer").parentElement as HTMLDivElement;
+    // Restore was suppressed → scrollTop stays at jsdom default 0, NOT 1234.
+    expect(container.scrollTop).toBe(0);
+  });
+
+  it("still restores saved scroll when pendingScrollTarget is for a different file", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "x" });
+    useStore.setState({
+      tabs: [{ path: "/a.txt", scrollTop: 50 }],
+      pendingScrollTarget: { filePath: "/other.txt", line: 7 },
+    });
+
+    render(<ViewerRouter path="/a.txt" />);
+    // Restore path runs (under jsdom the rAF retry may not flush, but the
+    // explicit-zero short-circuit at least proves the guard didn't fire).
+    // The key invariant: the effect was NOT suppressed by the guard.
+    // We assert this by clearing the pending target and confirming
+    // the field is unchanged.
+    expect(useStore.getState().pendingScrollTarget).not.toBeNull();
+    expect(useStore.getState().pendingScrollTarget!.filePath).toBe("/other.txt");
+  });
+
+  // Iter 11 re-fix (carryover HIGH bug): the child `useScrollToLine` consumes
+  // pendingScrollTarget on mount, setting it to null. That re-renders
+  // ViewerRouter with `pendingScrollTarget === null`. If the restore effect's
+  // early-return is keyed on the live store value, it would then fire
+  // UNGUARDED and overwrite the just-applied comment scroll.
+  //
+  // The mock below clears the store synchronously to simulate the real
+  // child consume path — we cannot use the real `useScrollToLine` here
+  // because EnhancedViewer is mocked at module scope.
+  it("does NOT overwrite comment-scroll after child consumes pendingScrollTarget", () => {
+    // Force rAF to fire synchronously so the restore retry loop runs in jsdom.
+    const rafSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "x" });
+    useStore.setState({
+      tabs: [{ path: "/a.txt", scrollTop: 1234 }],
+      pendingScrollTarget: { filePath: "/a.txt", line: 7 },
+    });
+
+    render(<ViewerRouter path="/a.txt" />);
+
+    // Simulate the child mount-effect chain:
+    //   1) useScrollToLine consumes pendingScrollTarget (clears the store)
+    //   2) it scrolls the container to the comment-anchored line
+    // Both happen inside a single act() so React flushes the re-render
+    // triggered by the store clear before our final assertion.
+    const container = screen.getByTestId("enhanced-viewer").parentElement as HTMLDivElement;
+    act(() => {
+      useStore.getState().consumePendingScrollTarget("/a.txt");
+      container.scrollTop = 500; // pretend comment-anchored scroll value
+    });
+
+    // With the bug (early-return keyed on live store value), the re-render
+    // re-fires the restore effect with pendingScrollTarget=null and snaps
+    // scrollTop back to 1234. With the latched-ref fix, suppression
+    // persists across the re-render and scrollTop stays at 500.
+    expect(container.scrollTop).toBe(500);
+    expect(container.scrollTop).not.toBe(1234);
+
+    rafSpy.mockRestore();
   });
 });

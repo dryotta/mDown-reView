@@ -59,11 +59,7 @@ pub fn source_for_sidecar(p: &Path) -> Option<PathBuf> {
 /// Always returns a canonical [`PathBuf`] (TOCTOU defense). When `folder`
 /// is provided, the canonical result must start with the canonical folder
 /// — symlinks pointing outside the folder are rejected.
-pub fn resolve_sidecar(
-    input: &str,
-    folder: Option<&str>,
-    cwd: &Path,
-) -> Result<PathBuf, String> {
+pub fn resolve_sidecar(input: &str, folder: Option<&str>, cwd: &Path) -> Result<PathBuf, String> {
     let resolved = resolve_path(input, folder, cwd);
 
     let candidate = if input.ends_with(".review.yaml") || input.ends_with(".review.json") {
@@ -145,11 +141,7 @@ mod tests {
         let abs_s = abs.path().to_string_lossy().to_string();
         let folder = tempdir().unwrap();
         let cwd = tempdir().unwrap();
-        let r = resolve_path(
-            &abs_s,
-            Some(&folder.path().to_string_lossy()),
-            cwd.path(),
-        );
+        let r = resolve_path(&abs_s, Some(&folder.path().to_string_lossy()), cwd.path());
         assert_eq!(r, abs.path());
     }
 

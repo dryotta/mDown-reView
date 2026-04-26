@@ -137,6 +137,9 @@
   margin-left: auto;
   flex-shrink: 0;
 }
+.tree-comment-badge[data-severity="low"] { background: #9ca3af; }
+.tree-comment-badge[data-severity="medium"] { background: #ea580c; }
+.tree-comment-badge[data-severity="high"] { background: #dc2626; }
 
 /* ── Section headers (Other files, filter groups) ───────────────────────── */
 .folder-tree-section-header {

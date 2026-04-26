@@ -8,6 +8,10 @@ interface Props {
 }
 
 export function SelectionToolbar({ position, onAddComment, onDismiss }: Props) {
+  // TODO(iter 9 B carry-over): wire useCollisionLayout to nudge `top` upward
+  // when the toolbar would overlap the focused thread's rect. Requires
+  // plumbing the focused-thread DOM rect into this component (>50 LOC of
+  // store/IPC changes) — deferred to a later iter.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onDismiss();

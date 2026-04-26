@@ -12,7 +12,8 @@ import { useShallow } from "zustand/shallow";
 import { useFolderChildren } from "@/hooks/useFolderChildren";
 import { useFolderTree } from "@/hooks/useFolderTree";
 import { useTreeWatcher } from "@/hooks/useTreeWatcher";
-import { useUnresolvedCounts } from "@/hooks/useUnresolvedCounts";
+import { useFileBadges } from "@/hooks/useFileBadges";
+import { CommentBadge } from "@/components/comments/CommentBadge";
 import {
   pathStartsWithRootCrossPlatform,
   getAncestors,
@@ -90,7 +91,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
 
   // Collect visible file paths for badge counts
   const filePaths = useMemo(() => navRows.filter((r) => !r.isDir).map((r) => r.path), [navRows]);
-  const unresolvedCounts = useUnresolvedCounts(filePaths);
+  const fileBadges = useFileBadges(filePaths);
 
   // ── Optimistic toggle ─────────────────────────────────────────────────────
   const handleToggle = (path: string, isDir: boolean) => {
@@ -216,8 +217,12 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
           {opts.isDir ? (expanded ? "▾" : "▸") : "·"}
         </span>
         <span className="tree-name" title={opts.titleOverride ?? path}>{name}</span>
-        {!opts.isDir && unresolvedCounts?.[path] > 0 && (
-          <span className="tree-comment-badge">{unresolvedCounts[path]}</span>
+        {!opts.isDir && (
+          <CommentBadge
+            count={fileBadges[path]?.count ?? 0}
+            severity={fileBadges[path]?.max_severity}
+            className="tree-comment-badge"
+          />
         )}
       </div>
     );

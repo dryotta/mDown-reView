@@ -47,7 +47,7 @@ Every rule is numbered and citable as "violates rule N in `docs/X.md`". Each doc
 | Document | Governs |
 |---|---|
 | [`docs/principles.md`](docs/principles.md) | Charter — 5 pillars, 3 meta-principles, Non-Goals |
-| [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC/logger chokepoints, state stratification, file-size budgets, MRSF v1.0 schema, 4-step re-anchoring |
+| [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC/logger chokepoints, state stratification, file-size budgets, MRSF v1.0 + v1.1 schema, 4-step re-anchoring |
 | [`docs/performance.md`](docs/performance.md) | Numeric budgets, debounce windows, scan caps, render rules, Shiki singleton, Rust hot paths |
 | [`docs/security.md`](docs/security.md) | File-read bounds, path canonicalization, sidecar atomicity, CSP, capability ACL, markdown XSS posture |
 | [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture, cross-hook communication |
@@ -115,23 +115,27 @@ src/
       ViewerRouter.tsx      ← routes to appropriate viewer (incl. ghost detection)
       BinaryPlaceholder.tsx
       MermaidView.tsx
-    comments/               ← CommentInput, CommentThread, CommentsPanel, LineCommentMargin, SelectionToolbar
+    comments/               ← CommentInput, CommentThread, CommentsPanel, CommentBadge, LineCommentMargin, SelectionToolbar
     AboutDialog.tsx
     ErrorBoundary.tsx
   store/                    ← Zustand slices
+  types/                    ← shared TS contracts (Anchor discriminated union mirrored from core/types/wire.rs)
 
 src-tauri/src/
   commands/                 ← Tauri commands grouped by feature area:
-    fs.rs · comments.rs · search.rs · html.rs · launch.rs
+    fs.rs · comments/ · search.rs · html.rs · launch.rs
+    config.rs               ← author / preferences IPC (set_author, get_author)
     onboarding.rs           ← onboarding state IPC (load/save/skip)
     cli_shim.rs             ← CLI shim install/status/remove (+ macos/windows/unsupported submodules)
     default_handler.rs      ← .md default-handler status + open System Settings (+ os submodules)
     folder_context.rs       ← Windows folder context menu register/unregister/status (+ os submodules)
+    word_tokens.rs          ← UAX#29 word segmentation IPC (tokenize_words) — peer of compute_anchor_hash
     mod.rs                  ← flat re-exports so lib.rs/tests keep using commands::xxx paths
   watcher.rs                ← file system watcher (notify-debouncer-mini, 300 ms)
   lib.rs                    ← plugin registration, setup hook, panic hook
-  core/                     ← anchors, atomic (write_atomic helper), comments, matching,
-                              onboarding (schema-versioned state), paths, scanner, sidecar, threads, types
+  core/                     ← anchors, atomic (write_atomic helper), comments, export, matching,
+                              mrsf_version, onboarding (schema-versioned state), paths, scanner,
+                              severity, sidecar, threads, types, word_tokens
   installer/installer-hooks.nsh ← NSIS POST/PREINSTALL hooks (HKCU PATH + folder context)
   dmg/                      ← DMG layout assets (background image, README.txt)
 

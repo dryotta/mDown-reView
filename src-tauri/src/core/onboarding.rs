@@ -15,6 +15,12 @@ pub struct OnboardingState {
     pub last_welcomed_version: Option<String>,
     #[serde(default)]
     pub last_seen_sections: Vec<String>,
+    /// Display name written into `MrsfComment.author` for new comments.
+    /// Set via `commands::config::set_author`. Persisted alongside other
+    /// onboarding bits because it's a one-off, settings-shaped value with no
+    /// natural home elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 impl Default for OnboardingState {
@@ -23,6 +29,7 @@ impl Default for OnboardingState {
             schema_version: SCHEMA_VERSION,
             last_welcomed_version: None,
             last_seen_sections: Vec::new(),
+            author: None,
         }
     }
 }
@@ -69,9 +76,11 @@ mod tests {
     fn save_then_load_roundtrip() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("onboarding.json");
-        let mut original = OnboardingState::default();
-        original.last_welcomed_version = Some("0.3.4".into());
-        original.last_seen_sections = vec!["cli".into(), "default-handler".into()];
+        let original = OnboardingState {
+            last_welcomed_version: Some("0.3.4".into()),
+            last_seen_sections: vec!["cli".into(), "default-handler".into()],
+            ..Default::default()
+        };
         save_at(&path, &original).unwrap();
         let loaded = load_at(&path);
         assert_eq!(loaded.last_welcomed_version, Some("0.3.4".into()));

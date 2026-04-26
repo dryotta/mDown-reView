@@ -12,6 +12,7 @@ const mockResolveComment = vi.fn().mockResolvedValue(undefined);
 const mockUnresolveComment = vi.fn().mockResolvedValue(undefined);
 const mockAddReply = vi.fn().mockResolvedValue(undefined);
 const mockAddComment = vi.fn().mockResolvedValue(undefined);
+const mockAddReaction = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/lib/vm/use-comment-actions", () => ({
   useCommentActions: vi.fn(() => ({
@@ -21,6 +22,7 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
     deleteComment: mockDeleteComment,
     resolveComment: mockResolveComment,
     unresolveComment: mockUnresolveComment,
+    addReaction: mockAddReaction,
   })),
 }));
 
@@ -38,6 +40,7 @@ function makeComment(overrides: Partial<MatchedComment> = {}): MatchedComment {
     line: 1,
     matchedLineNumber: 1,
     isOrphaned: false,
+    anchor: { kind: "line", line: 1 },
     ...overrides,
   };
 }
@@ -344,5 +347,108 @@ describe("CommentThread - Markdown rendering", () => {
     const commentText = document.querySelector(".comment-text");
     expect(commentText).toBeInTheDocument();
     expect(commentText?.tagName).toBe("DIV");
+  });
+});
+
+// ─── Move button gating (iter-4 P1) ────────────────────────────────────────────
+//
+// Move-anchor mode targets a source line. Line/File anchors map cleanly; typed
+// anchors (CSV cell, JSON path, HTML range/element, image rect, word range)
+// would silently demote to Line on commit, losing payload information. The
+// button must be hidden on those root comments.
+
+describe("CommentThread - Move button anchor-kind gating", () => {
+  it("shows Move button for line-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ anchor: { kind: "line", line: 1 } })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+  });
+
+  it("shows Move button for file-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ anchor: { kind: "file" } })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+  });
+
+  it("hides Move button for csv_cell-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({
+          anchor: {
+            kind: "csv_cell",
+            row_idx: 1,
+            col_idx: 2,
+            col_header: "name",
+          },
+        })}
+        filePath="/test/file.csv"
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+  });
+
+  it("hides Move button for html_range-anchored root comment", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({
+          anchor: {
+            kind: "html_range",
+            selector_path: "p",
+            start_offset: 0,
+            end_offset: 5,
+            selected_text: "hello",
+          },
+        })}
+        filePath="/test/file.html"
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+  });
+});
+
+// ─── Iter 6 F4 — quick reactions row ───────────────────────────────────────
+
+describe("CommentThread — quick reactions (iter 6 F4)", () => {
+  it("renders 👍 / ✓ / ✗ reaction buttons under the comment", () => {
+    render(<CommentThread rootComment={makeComment()} filePath="/test/file.md" />);
+    expect(screen.getByRole("button", { name: /thumbs up/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /acknowledge/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dismiss/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["thumbs up", "thumbsup"],
+    ["acknowledge", "ack"],
+    ["dismiss", "dismiss"],
+  ])("clicking %s button dispatches addReaction with kind=%s", (label, kind) => {
+    render(<CommentThread rootComment={makeComment({ id: "c-42" })} filePath="/test/file.md" />);
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(label, "i") }));
+    expect(mockAddReaction).toHaveBeenCalledWith("/test/file.md", "c-42", kind);
+  });
+
+  it("renders existing reaction counts grouped by kind", () => {
+    const c = makeComment({
+      reactions: [
+        { user: "alice", kind: "thumbsup", ts: "2024-01-01T00:00:00Z" },
+        { user: "bob", kind: "thumbsup", ts: "2024-01-02T00:00:00Z" },
+        { user: "alice", kind: "ack", ts: "2024-01-03T00:00:00Z" },
+      ],
+    });
+    render(<CommentThread rootComment={c} filePath="/test/file.md" />);
+    const thumbsup = screen.getByRole("button", { name: /thumbs up/i });
+    expect(thumbsup.querySelector(".comment-reaction-count")?.textContent).toBe("2");
+    const ack = screen.getByRole("button", { name: /acknowledge/i });
+    expect(ack.querySelector(".comment-reaction-count")?.textContent).toBe("1");
+    // Dismiss has no reactions, so no count badge.
+    const dismiss = screen.getByRole("button", { name: /dismiss/i });
+    expect(dismiss.querySelector(".comment-reaction-count")).toBeNull();
   });
 });

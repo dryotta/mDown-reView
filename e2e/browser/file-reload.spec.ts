@@ -51,7 +51,7 @@ async function setupFileReloadMocks(
         }
         if (cmd === "get_file_comments")
           return toThreads((window as Record<string, unknown>).__MOCK_COMMENTS__);
-        if (cmd === "set_comment_resolved") return null;
+        if (cmd === "update_comment") return null;
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";
         return null;

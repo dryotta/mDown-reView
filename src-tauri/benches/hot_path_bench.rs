@@ -45,7 +45,7 @@ fn bench_get_file_comments(c: &mut Criterion) {
                 author: "bench".to_string(),
                 timestamp: "2025-01-01T00:00:00Z".to_string(),
                 text: format!("Hot path comment {}", i),
-                resolved: i % 5 == 0,
+                resolved: i.is_multiple_of(5),
                 line: Some((line_idx as u32) + 1),
                 end_line: None,
                 start_column: None,
@@ -57,6 +57,7 @@ fn bench_get_file_comments(c: &mut Criterion) {
                 comment_type: None,
                 severity: None,
                 reply_to: None,
+                ..Default::default()
             }
         })
         .collect();

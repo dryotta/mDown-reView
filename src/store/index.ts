@@ -25,6 +25,7 @@ import {
 } from "./tabs";
 import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
 import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
+import { createCommentsSlice, type CommentsSlice } from "./comments";
 
 export type { OnboardingState, Tab, TabsSlice, FileMeta };
 export { MAX_TABS, filterStaleTabs };
@@ -65,11 +66,23 @@ interface UISlice {
   authorName: string;
   /** Reading column width (CSS pixels). Persisted. Clamped to [400, 1600]. */
   readingWidth: number;
+  /** Transient: ID of the comment thread being re-anchored, or null. NOT persisted. */
+  moveAnchorTarget: string | null;
+  /**
+   * Transient: file path whose `CommentsPanel` should auto-open its inline
+   * file-level input on the next render. Cleared by the panel after it
+   * consumes the request. Iter 5 Group B — entry points for File anchors.
+   * NOT persisted (never carried across reloads).
+   */
+  pendingFileLevelInputFor: string | null;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
   toggleCommentsPane: () => void;
   setAuthorName: (name: string) => void;
   setReadingWidth: (n: number) => void;
+  setMoveAnchorTarget: (id: string | null) => void;
+  requestFileLevelInput: (filePath: string) => void;
+  clearFileLevelInput: () => void;
 }
 
 // ── Watcher slice ──────────────────────────────────────────────────────────
@@ -150,7 +163,7 @@ interface OnboardingSlice {
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice & TabHistorySlice;
+export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice & TabHistorySlice & CommentsSlice;
 
 
 export const useStore = create<Store>()(
@@ -182,17 +195,25 @@ export const useStore = create<Store>()(
       // Intentionally NOT added to `partialize` below (session-only).
       ...createTabHistorySlice(set, get),
 
+      // Comments (F1 nav state). Session-only — never persisted.
+      ...createCommentsSlice(set, get),
+
       // UI
       theme: "system",
       folderPaneWidth: 240,
       commentsPaneVisible: true,
       authorName: "",
       readingWidth: 720,
+      moveAnchorTarget: null,
+      pendingFileLevelInputFor: null,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
+      setMoveAnchorTarget: (id) => set({ moveAnchorTarget: id }),
+      requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath }),
+      clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
 
       // Watcher
       ghostEntries: [],

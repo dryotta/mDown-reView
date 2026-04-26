@@ -59,3 +59,53 @@
 [data-theme="dark"] .json-string { color: #6a9955; }
 [data-theme="dark"] .json-number { color: #569cd6; }
 [data-theme="dark"] .json-boolean { color: #b267e6; }
+
+.json-node-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+.json-path-add {
+  /* D3 — was `visibility: hidden`, which removed the button from the
+     accessibility tree and made it unreachable by Tab. Switching to
+     opacity + pointer-events keeps it focusable; `:focus-visible` on the
+     button itself ensures keyboard users see it appear when it gains
+     focus. */
+  opacity: 0;
+  pointer-events: none;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+  margin-left: 8px;
+  color: var(--color-muted);
+}
+.json-node:hover > .json-node-row > .json-path-add,
+.json-node:focus-within > .json-node-row > .json-path-add,
+.json-node-row:focus-within .json-path-add,
+.json-path-add:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.json-path-add:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.json-path-badge-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.json-path-composer {
+  margin-top: 4px;
+  margin-left: 20px;
+  min-width: 240px;
+  width: 100%;
+}

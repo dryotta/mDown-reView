@@ -39,11 +39,7 @@ fn update_tree_watched_dirs_rejects_over_cap() {
     let root_dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(root_dir.path()).unwrap();
     let dirs: Vec<String> = (0..MAX_TREE_WATCHED_DIRS + 1)
-        .map(|i| {
-            root.join(format!("d{}", i))
-                .to_string_lossy()
-                .into_owned()
-        })
+        .map(|i| root.join(format!("d{}", i)).to_string_lossy().into_owned())
         .collect();
     let state = make_state();
 
@@ -68,11 +64,7 @@ fn update_tree_watched_dirs_rejects_non_directory() {
             vec![file_canonical.to_string_lossy().into_owned()],
         )
         .unwrap_err();
-    assert!(
-        err.contains("not a directory"),
-        "unexpected error: {}",
-        err
-    );
+    assert!(err.contains("not a directory"), "unexpected error: {}", err);
 }
 
 /// Regression: on Windows, `canonicalize` returns `\\?\C:\...` UNC form, but
@@ -110,8 +102,7 @@ fn folder_changed_emitted_for_writes_in_watched_dir() {
     std::fs::write(&new_file, "x").unwrap();
     let new_file_canonical = std::fs::canonicalize(&new_file).unwrap();
 
-    let (file_event, folder_dir) =
-        classify_event(&new_file_canonical, &watched_paths, &tree_dirs);
+    let (file_event, folder_dir) = classify_event(&new_file_canonical, &watched_paths, &tree_dirs);
     assert!(
         file_event.is_none(),
         "file-changed must not fire for non-watched file"

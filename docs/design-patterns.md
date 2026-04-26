@@ -26,7 +26,7 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 6. Every `useEffect` subscribing to a `Promise<UnlistenFn>` adds `.catch(() => {})` on the unlisten rejection to avoid unhandled-rejection noise on hot-reload. (`App.tsx:108,248`.)
 
 ### React 19 idioms
-7. In-flight async work in effects uses a `cancelled` flag to drop stale responses. (`useFileContent.ts:44-59`; `useUnresolvedCounts.ts:22-41`.)
+7. In-flight async work in effects uses a `cancelled` flag to drop stale responses. (`useFileContent.ts:44-59`; `useFileBadges.ts:20-44`.)
 8. Debounced timers in hooks live in a `useRef` and clear on unmount. (`useFileWatcher.ts:16,77`.)
 9. Store reads inside imperative handlers use `useStore.getState()`; subscriptions use narrow selectors or `useShallow`. (`App.tsx:3,55-62,159,164`.)
 10. DOM-attribute external stores are read with `useSyncExternalStore`, not `useEffect`-polled state. (`useTheme.ts:1-22`.)
@@ -51,6 +51,10 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 
 ### Console hygiene
 21. Legitimate non-error warnings use `console.warn` (or migrate to `logger.warn`) — never `console.error`. The Vitest `test-setup.ts:13-14` fails tests on any `console.error`.
+
+### Cross-component handoff
+22. **Pending-target store handoff.** Cross-file scroll-to-line uses a `pendingScrollTarget` field on `commentsSlice` (`src/store/comments.ts`) — the producer (`CommentsPanel`) writes it, the destination viewer's `useScrollToLine` (`src/hooks/useScrollToLine.ts`) consumes it on mount via `consumePendingScrollTarget(filePath)` which atomically clears the field iff the queued path matches. Replaces the iter 9 `setTimeout`/rAF race-the-mount hack. Producers do not block on consumer readiness; rapid producer writes supersede earlier targets via plain overwrite. (`src/store/comments.ts:36-128`; `src/hooks/useScrollToLine.ts:40-53`.)
+23. **postMessage source-window + nonce filter.** Iframe-to-host `postMessage` channels validate BOTH `event.source === iframeRef.current.contentWindow` AND a per-mount `nonce` before accepting any payload. The nonce is a `crypto.randomUUID()` generated on viewer mount and never logged/persisted. Belt-and-braces against (a) other windows/extensions posting into the page, (b) cross-iframe message leakage from earlier mounts. (`src/components/viewers/HtmlPreviewView.tsx`; `src/lib/html-bridge.ts`.)
 
 ### Cross-doc references
 - Module-scope `MD_COMPONENTS`: rules 9-10 in [`docs/performance.md`](performance.md).

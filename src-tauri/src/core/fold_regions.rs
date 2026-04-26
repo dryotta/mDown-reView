@@ -89,7 +89,10 @@ fn compute_brace_regions(lines: &[&str]) -> Vec<FoldRegion> {
                         let end = (i + 1) as u32;
                         stack.remove(j);
                         if end >= start + 2 {
-                            regions.push(FoldRegion { start_line: start, end_line: end });
+                            regions.push(FoldRegion {
+                                start_line: start,
+                                end_line: end,
+                            });
                         }
                         break;
                     }
@@ -120,7 +123,13 @@ fn compute_indent_regions(lines: &[&str]) -> Vec<FoldRegion> {
     // -1 means blank line (skip).
     let indents: Vec<i32> = lines
         .iter()
-        .map(|l| if l.trim().is_empty() { -1 } else { indent_width(l) })
+        .map(|l| {
+            if l.trim().is_empty() {
+                -1
+            } else {
+                indent_width(l)
+            }
+        })
         .collect();
 
     for i in 0..lines.len() {
@@ -136,11 +145,11 @@ fn compute_indent_regions(lines: &[&str]) -> Vec<FoldRegion> {
             continue;
         }
         let mut end = next_non_blank;
-        for j in (next_non_blank + 1)..lines.len() {
-            if indents[j] < 0 {
+        for (j, ind) in indents.iter().enumerate().skip(next_non_blank + 1) {
+            if *ind < 0 {
                 continue;
             }
-            if indents[j] <= base {
+            if *ind <= base {
                 break;
             }
             end = j;
@@ -186,7 +195,10 @@ mod tests {
     use super::*;
 
     fn fr(start: u32, end: u32) -> FoldRegion {
-        FoldRegion { start_line: start, end_line: end }
+        FoldRegion {
+            start_line: start,
+            end_line: end,
+        }
     }
 
     fn run(lines: &[&str]) -> Vec<FoldRegion> {
@@ -253,7 +265,10 @@ mod tests {
 
     #[test]
     fn detects_simple_brace_block() {
-        assert_eq!(run(&["function foo() {", "  return 1;", "}"]), vec![fr(1, 3)]);
+        assert_eq!(
+            run(&["function foo() {", "  return 1;", "}"]),
+            vec![fr(1, 3)]
+        );
     }
 
     #[test]
@@ -281,7 +296,10 @@ mod tests {
 
     #[test]
     fn detects_bracket_blocks() {
-        assert_eq!(run(&["const arr = [", "  1,", "  2,", "];"]), vec![fr(1, 4)]);
+        assert_eq!(
+            run(&["const arr = [", "  1,", "  2,", "];"]),
+            vec![fr(1, 4)]
+        );
     }
 
     #[test]

@@ -51,6 +51,8 @@ vi.mock("@/lib/tauri-commands", () => ({
   unregisterFolderContext: vi.fn().mockResolvedValue(undefined),
   getAppVersion: vi.fn().mockResolvedValue("0.0.0-test"),
   getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
+  getAuthor: vi.fn().mockResolvedValue("Test User"),
+  setAuthor: vi.fn().mockResolvedValue("Test User"),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({
@@ -98,6 +100,7 @@ vi.mock("@/components/Icons", () => ({
   IconFile: () => <span data-testid="icon-file" />,
   IconFolder: () => <span data-testid="icon-folder" />,
   IconComment: () => <span data-testid="icon-comment" />,
+  IconSettings: () => <span data-testid="icon-settings" />,
 }));
 
 import { showOpenDialog } from "@/lib/tauri-commands";

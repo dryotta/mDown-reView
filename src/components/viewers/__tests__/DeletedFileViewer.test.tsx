@@ -40,6 +40,7 @@ function makeComment(
     line: 1,
     matchedLineNumber: overrides.matchedLineNumber ?? overrides.line ?? 1,
     isOrphaned: true,
+    anchor: { kind: "line", line: overrides.line ?? 1 },
     ...overrides,
   };
 }

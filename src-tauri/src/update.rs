@@ -52,14 +52,13 @@ fn installed_channel(app: &AppHandle) -> &'static str {
 /// For cross-channel switches the version comparator is overridden
 /// to accept any different version (enabling "downgrades").
 #[tauri::command]
-pub async fn check_update(
-    app: AppHandle,
-    channel: String,
-) -> Result<Option<UpdateInfo>, String> {
+pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<UpdateInfo>, String> {
     let endpoint = endpoint_for_channel(&channel);
     let cross_channel = installed_channel(&app) != channel.as_str();
 
-    let url: url::Url = endpoint.parse().map_err(|e: url::ParseError| e.to_string())?;
+    let url: url::Url = endpoint
+        .parse()
+        .map_err(|e: url::ParseError| e.to_string())?;
     let mut builder = app
         .updater_builder()
         .endpoints(vec![url])
