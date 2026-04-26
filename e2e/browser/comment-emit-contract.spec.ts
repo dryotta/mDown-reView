@@ -36,21 +36,34 @@ test.describe("comment-emit IPC contract", () => {
 
     await page.goto("/");
 
-    // Subscribe via the production listen() path, then drive each mutation
-    // command through the production invoke wrapper.
+    // Subscribe via the same internals the production `@tauri-apps/api/event`
+    // listen() uses, then drive each mutation through the same invoke entry
+    // point. We don't import `@tauri-apps/api/event` inside page.evaluate
+    // because bare ES specifiers are not resolvable in raw browser context
+    // (no importmap is served by the dev server for evaluated code).
     await page.evaluate(async () => {
       const log = (window as Record<string, unknown>).__EMIT_LOG__ as Array<{
         cmd: string;
         file_path: string;
       }>;
-      const { listen } = await import("@tauri-apps/api/event");
-      const { invoke } = await import("@tauri-apps/api/core");
+      const internals = (
+        window as unknown as {
+          __TAURI_INTERNALS__: {
+            transformCallback: (cb: (...args: unknown[]) => void, once: boolean) => number;
+            invoke: (cmd: string, args?: unknown) => Promise<unknown>;
+          };
+        }
+      ).__TAURI_INTERNALS__;
 
       let lastCmd = "";
-      await listen("comments-changed", (e: { payload: unknown }) => {
+      const callbackId = internals.transformCallback((e: unknown) => {
         const fp =
-          (e.payload as { file_path?: string } | null | undefined)?.file_path ?? "";
+          ((e as { payload?: { file_path?: string } } | undefined)?.payload?.file_path) ?? "";
         log.push({ cmd: lastCmd, file_path: fp });
+      }, false);
+      await internals.invoke("plugin:event|listen", {
+        event: "comments-changed",
+        handler: callbackId,
       });
 
       const file = "/tmp/x.md";
@@ -65,7 +78,7 @@ test.describe("comment-emit IPC contract", () => {
       ];
       for (const [cmd, args] of cmds) {
         lastCmd = cmd;
-        await invoke(cmd, args);
+        await internals.invoke(cmd, args);
       }
     });
 
