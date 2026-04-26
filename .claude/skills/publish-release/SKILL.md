@@ -1,230 +1,136 @@
 ---
 name: publish-release
-description: Use when publishing a new release of mdownreview. Bumps the version, updates the changelog, and creates a release tag that triggers the CI/CD build workflow.
+description: Bump version, update changelog, tag, and push — triggers the release CI/CD workflow.
 ---
 
-# Publish Release Skill
+**Never skip the confirmation in Step 5.**
 
-You are implementing a release workflow for the mdownreview Tauri desktop application. This skill publishes a new version by bumping the version number, updating the changelog, and creating a release tag.
+## 1. Pre-flight
 
-**⚠️ CRITICAL: Do not skip the confirmation step.** Always show the user the proposed version and wait for their explicit approval before making any changes to files or git history.
+- `git status --porcelain` — non-empty → stop (commit/stash first).
+- `git branch --show-current` — not `main` → warn, ask explicit confirmation.
+- `git --no-pager fetch origin --tags`.
 
-## Step 1: Pre-flight Safety Checks
+## 2. Last release
 
-Before anything else, verify the workspace is in a safe state:
+`git --no-pager describe --tags --abbrev=0`. If no tags, baseline = `package.json` `version`.
 
-1. **Clean working tree** — run `git status --porcelain`. If there is any output, stop and tell the user to commit or stash their changes first.
-2. **Correct branch** — run `git branch --show-current`. If the branch is not `main`, warn the user and ask for explicit confirmation before proceeding.
-3. **Sync with remote** — run `git --no-pager fetch origin --tags` to ensure local tags and history are up to date.
+## 3. Unreleased commits
 
-## Step 2: Determine Last Release
+`git --no-pager log {last-tag}..HEAD --pretty=format:"%s"` (or `git log --pretty=format:"%s"` if no tags). Exclude merges and `chore: release v` commits. **Zero commits → stop ("nothing to release").**
 
-Run `git --no-pager describe --tags --abbrev=0` to get the most recent tag.
+## 4. Classify + suggest bump
 
-- If tags exist, use that tag as the baseline (e.g., `v0.1.0`)
-- If **no tags exist yet**, read `package.json` and use the `version` field as the baseline (treat all commits since the repo's start as unreleased)
+| Subject pattern | Bump |
+|---|---|
+| `^.+!:` or body has `BREAKING CHANGE:` | **major** (1.x.0 → 2.0.0) |
+| `^feat(\(.*\))?:` | **minor** (0.2.0 → 0.3.0) |
+| `^(fix\|perf)(\(.*\))?:` | **patch** (0.2.0 → 0.2.1) |
 
-## Step 3: Collect Unreleased Commits
+Highest bump wins.
 
-Run `git --no-pager log {last-tag}..HEAD --pretty=format:"%s"` to get commit subjects since the last release.
+## 5. Confirm
 
-If there are no tags, use `git --no-pager log --pretty=format:"%s"` to get all commits.
-
-**If there are zero commits since the last tag, stop and tell the user there is nothing to release.**
-
-Exclude merge commits and previous release commits (matching `chore: release v`).
-
-## Step 4: Classify Commits and Suggest Version Bump
-
-Examine each commit subject and classify using **conventional commit** patterns, including scoped and bang forms:
-
-- **Major bump** — subject matches `^.+!:` (bang before colon, e.g., `feat!:`, `feat(auth)!:`) or full commit body contains `BREAKING CHANGE:`
-  → increment the first version number (e.g., 0.2.0 → 1.0.0)
-- **Minor bump** — subject matches `^feat(\(.*\))?:` (e.g., `feat:`, `feat(menu):`)
-  → increment the middle version number (e.g., 0.2.0 → 0.3.0)
-- **Patch bump** — subject matches `^(fix|perf)(\(.*\))?:` (e.g., `fix:`, `fix(viewer):`, `perf:`)
-  → increment the last version number (e.g., 0.2.0 → 0.2.1)
-
-**Priority rule:** If multiple bump types are present, apply the **highest** bump (major > minor > patch).
-
-Calculate the next version based on the classification.
-
-## Step 5: Show User and Request Confirmation
-
-Display to the user:
-
+Show:
 ```
-Last tag: {last-tag or package.json version}
+Last tag: <tag>
 Commits since last release:
-{commit list}
-
-Suggested next version: v{next-version}
+<list>
+Suggested next version: v<next>
 ```
 
-**Ask the user to confirm the version** using the ask_user tool with choices:
-- `v{next-version} (suggested)`
-- `cancel`
+Use `ask_user` with `v<next> (suggested)` | `cancel` (allow freeform). Strip leading `v`. Validate semver. Reject if tag already exists (`git tag -l v<version>`). **Do not proceed without confirmation.**
 
-Allow freeform input so the user can type a different version (e.g., `v0.3.0`).
+## 6. Update version (3 files, no `v` prefix)
 
-**Validation:** If the user provides a version, strip the leading `v` if present, verify it is valid semver (X.Y.Z), and confirm the tag `v{version}` does not already exist (check with `git --no-pager tag -l v{version}`). If validation fails, ask again.
+1. `package.json` → `"version"`
+2. `src-tauri/Cargo.toml` → `version` under `[package]`
+3. `src-tauri/tauri.conf.json` → `"version"`
 
-Do not proceed past this step until you have explicit confirmation.
-
-## Step 6: Update Version in Three Files
-
-Once the version is confirmed, strip any leading `v` from the version before writing to files. For example, if the user typed `v0.2.0`, write `0.2.0` in all three files.
-
-Update the version string in exactly these **3 files** (they must stay in sync):
-
-1. **`package.json`** → Update the `"version"` field
-2. **`src-tauri/Cargo.toml`** → Update the `version` field under `[package]`
-3. **`src-tauri/tauri.conf.json`** → Update the `"version"` field
-
-Note: Use the version without the `v` prefix in the files (e.g., `0.2.0`).
-
-## Step 7: Update CHANGELOG.md
-
-Prepend a new entry to `CHANGELOG.md` (create the file if it doesn't exist).
-
-Format each section with commit messages grouped by type:
+## 7. CHANGELOG.md (prepend; create if missing)
 
 ```
-## v{version} — {YYYY-MM-DD}
+## v<version> — YYYY-MM-DD
 
 ### Features
-- {feat commits, one per line}
+- <feat …>
 
 ### Fixes
-- {fix/perf commits, one per line}
+- <fix/perf …>
 
 ### Other
-- {remaining commits, one per line}
+- <rest>
 ```
 
-**Rules:**
-- Only include a section (Features/Fixes/Other) if there are commits for that category
-- Use today's date in YYYY-MM-DD format
-- Preserve any existing changelog entries below this new entry
+Skip empty sections. Preserve existing entries below.
 
-## Step 8: Create Release Branch, Stage and Commit
+## 8. Branch + commit (separate commands)
 
-Create a release branch, sync lockfiles, then stage and commit all files.
-
-Run each command separately (do not chain with `&&`):
-
-1. `git checkout -b release/v{version}`
-2. `npm install --package-lock-only`
-3. `cargo generate-lockfile --manifest-path src-tauri/Cargo.toml`
-4. `git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md`
-5. `git commit -m "chore: release v{version}"`
-
-## Step 8.5: Local Test Gate (Native E2E)
-
-Native E2E tests cannot run in GitHub Actions (WebView2 + CDP not available on headless runners). They must pass locally before pushing the release branch.
-
-**This step only runs on Windows.** If the current machine is not Windows, tell the user they need to run native E2E on a Windows machine before proceeding, then skip to Step 9.
-
-1. Run all three test suites in order. Stop at the first failure:
-   - `npm test` (Vitest unit tests)
-   - `npm run test:e2e` (Playwright browser E2E)
-   - `npm run test:e2e:native:build` (builds debug binary + runs native E2E)
-
-2. **If any test suite fails**, show the failure output and stop. Do not push or create a PR until all tests pass.
-
-3. **If all tests pass**, print:
-   ```
-   ✅ All local tests passed (unit, browser e2e, native e2e).
-   Proceeding to push release branch...
-   ```
-
-## Step 9: Push Branch, Create Pull Request, and Wait for CI
-
-Push the release branch and open a PR against `main`:
-
-1. `git push origin release/v{version}`
-2. Create PR via `gh pr create --base main --head release/v{version} --title "chore: release v{version}" --body "Version bump to v{version}. Merge this PR after CI passes, then the release tag will be created."`
-
-Print the PR URL and tell the user:
-
-```
-PR created: {pr_url}
-Waiting for release-gate CI checks to complete...
+```bash
+git checkout -b release/v<version>
+npm install --package-lock-only
+cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
+git commit -m "chore: release v<version>"
 ```
 
-### Wait for CI checks
+## 8.5. Local native E2E gate (Windows only)
 
-Wait 30 seconds for GitHub to register the workflow run, then poll CI:
+Native E2E cannot run in GitHub Actions (WebView2/CDP unavailable headless). Skip on non-Windows but tell user to run on Windows before continuing.
 
-Run `gh pr checks {pr_url} --watch` using async mode (this blocks until all checks resolve, which may take 20+ minutes for cross-platform builds).
+```bash
+npm test
+npm run test:e2e
+npm run test:e2e:native:build
+```
 
-**Read the exit code and output:**
+Stop on first failure. On all-pass print `✅ All local tests passed`.
 
-- **Exit code 0 (all checks passed):**
+## 9. Push, PR, wait for CI
 
-  Print to the user:
+```bash
+git push origin release/v<version>
+gh pr create --base main --head release/v<version> --title "chore: release v<version>" --body "Version bump to v<version>. Merge after CI passes; tag will trigger build."
+```
 
-  ```
-  ✅ All release-gate checks passed!
-  Please merge the PR on GitHub, then come back and confirm.
+Print PR URL. Wait 30 s, then `gh pr checks <pr_url> --watch` (async — may take 20+ min).
+
+- **Exit 0:** print "All release-gate checks passed — merge the PR, then confirm." Use `ask_user` with `Merged — create the tag` | `Cancel release`.
+- **Non-zero:** print failed-check output. Choices: `I pushed a fix — re-check` | `Cancel release`. Re-check loops back to `--watch` after 10 s. Cancel:
+  ```bash
+  git checkout main
+  git branch -D release/v<version>
+  git push origin --delete release/v<version>
   ```
 
-  Then ask the user to confirm using the ask_user tool with choices:
-  - `Merged — create the tag`
-  - `Cancel release`
+## 10. Tag the merged commit
 
-- **Non-zero exit code (some checks failed):**
-
-  Print the `gh pr checks` output so the user can see which checks failed. Then ask using the ask_user tool with choices:
-  - `I pushed a fix — re-check`
-  - `Cancel release`
-
-  If the user chose to re-check, wait 10 seconds then run `gh pr checks {pr_url} --watch` again (loop back to the polling step).
-
-  If the user cancels, clean up: run each command separately:
-  1. `git checkout main`
-  2. `git branch -D release/v{version}`
-  3. `git push origin --delete release/v{version}`
-  Then stop.
-
-## Step 10: Verify CI and Tag the Merged Commit
-
-After the user confirms the PR is merged:
-
-1. `git checkout main`
-2. `git pull origin main`
-
-**Verify checks one final time** by running `gh pr checks {pr_url}`. If any check is not passing, warn the user and ask for confirmation before proceeding.
-
-3. `git tag -a v{version} -m "Release v{version}"`
-4. `git push origin v{version}`
-
-The tag push triggers the release workflow (`.github/workflows/release.yml`).
-
-## Step 11: Print Release Information
-
-Print a link to view the GitHub Actions workflow:
-
-```
-Release v{version} tagged and pushed!
-Monitor the build at: https://github.com/dryotta/mdownreview/actions
+```bash
+git checkout main
+git pull origin main
+gh pr checks <pr_url>           # final verify; warn + confirm if not green
+git tag -a v<version> -m "Release v<version>"
+git push origin v<version>
 ```
 
-The CI/CD workflow will automatically build and publish the release.
+Tag push triggers `.github/workflows/release.yml`.
+
+## 11. Print
+
+```
+Release v<version> tagged and pushed!
+Monitor: https://github.com/dryotta/mdownreview/actions
+```
 
 ---
 
-## One-Time Setup
-
-Before the auto-updater can work, a developer needs to set up signing keys once:
+## One-time signing setup
 
 ```bash
 npx tauri signer generate -w ~/.tauri/mdownreview.key
 ```
 
-Then:
-- Add the **private key** to GitHub Secrets as `TAURI_SIGNING_PRIVATE_KEY`
-- Set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to an empty string in GitHub Secrets
-- Copy the **public key** to `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`
+- GitHub Secrets: `TAURI_SIGNING_PRIVATE_KEY` (private key), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty string).
+- `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` (public key).
 
-This setup only needs to be done once; the release workflow will use these credentials automatically.
+Done once; release workflow uses these.

@@ -1,211 +1,120 @@
 ---
 name: groom-issues
-description: Grooms ungroomed GitHub issues by running an interactive brainstorming session for each, generating a spec, and attaching it as a comment. Accepts optional issue numbers to target specific issues.
+description: Brainstorm requirements with the user for ungroomed GitHub issues, then attach a structured spec comment.
 ---
 
-# Groom Issues Skill
+**RIGID. Follow each step.** Specs live as issue comments tagged `<!-- mdownreview-spec -->` so re-grooming finds and updates them. Charter rules in AGENTS.md apply: an issue mapping to a Non-Goal is closed, not groomed.
 
-Interactively grooms GitHub issues by brainstorming requirements with the user and attaching a structured spec as a comment on each issue.
+## Input
 
-**This skill is RIGID. Follow each step exactly.**
-
-## Charter alignment
-
-Every issue is evaluated against the product charter during brainstorming. An issue that would damage a pillar is downgraded or rejected.
-
-- **Charter:** [`docs/principles.md`](../../../docs/principles.md) — 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) + Non-Goals list. An issue that maps to a Non-Goal is closed with an explanation, not groomed.
-- When proposing approaches in brainstorming, cross-check against [`docs/architecture.md`](../../../docs/architecture.md), [`docs/performance.md`](../../../docs/performance.md), [`docs/security.md`](../../../docs/security.md), [`docs/design-patterns.md`](../../../docs/design-patterns.md), and [`docs/test-strategy.md`](../../../docs/test-strategy.md). If the natural approach would violate a rule, either (a) choose a different approach or (b) include a rule-change proposal in the spec.
-
-## Accepting User Input
-
-This skill accepts optional issue numbers from the user to target specific issues. The input is whatever the user typed after the skill invocation.
-
-### How to detect user input
-
-- If the user provided issue numbers (e.g., `/groom-issues #36 #42` or `/groom-issues 36 42`), extract them as the **Target Issues** list.
-- If the user provided no issue numbers (bare `/groom-issues`), the Target Issues list is **empty** and the skill uses label-based discovery (default behavior).
+`/groom-issues` (no args) → label-based discovery. `/groom-issues 36 42` or `#36 #42` → those issues.
 
 ## Labels
 
-Two GitHub labels control the grooming lifecycle:
-
 | Label | Meaning |
 |---|---|
-| `needs-grooming` | Issue is ungroomed or has been ungroomed for re-processing |
-| `groomed` | Issue has a spec attached and is ready for implementation |
+| `needs-grooming` | ungroomed, or re-queued |
+| `groomed` | spec attached, ready for implementation |
 
-To **re-groom** an issue: remove `groomed`, add `needs-grooming`. The skill will find and update the existing spec comment.
+Re-groom: remove `groomed`, add `needs-grooming`.
 
 ## Steps
 
-### Step 1 — Ensure labels exist
-
-Create the labels if they don't already exist on the repository:
-
+### 1. Ensure labels
 ```bash
 gh label create "needs-grooming" --description "Issue needs grooming / spec generation" --color "FBCA04" --force
-gh label create "groomed" --description "Issue has been groomed with a spec attached" --color "0E8A16" --force
+gh label create "groomed" --description "Issue groomed with a spec attached" --color "0E8A16" --force
 ```
 
-### Step 2 — Collect issues to groom
+### 2. Collect issues
+- **Targeted:** `gh issue view <n> --json number,title,body,labels,comments` per number.
+- **Default:** `gh issue list --label "needs-grooming" --state open --json number,title,body,labels --limit 100`. If empty, tell user to add the label or pass numbers, then exit.
 
-**If Target Issues were provided:**
+Sort ascending by number.
 
-Fetch each specified issue by number:
-```bash
-gh issue view <number> --json number,title,body,labels,comments
-```
-Process these regardless of their current labels.
-
-**If no Target Issues (default):**
-
-Fetch all open issues with the `needs-grooming` label:
-```bash
-gh issue list --label "needs-grooming" --state open --json number,title,body,labels --limit 100
-```
-
-If no issues found, report:
-> "No issues with `needs-grooming` label found. Add the label to issues you want groomed, or specify issue numbers directly: `/groom-issues #36 #42`"
-
-Then **exit**.
-
-Sort by issue number ascending (oldest first).
-
-### Step 3 — Display queue
-
-Print the list of issues to be groomed:
-
+### 3. Show queue
 ```
 📋 Issues to groom:
-  #36 — CLI improvements
-  #42 — Add export feature
-  ...
-
-Starting with #36...
+  #36 — <title>
+  …
+Starting with #36…
 ```
 
-### Step 4 — Groom one issue
+### 4. Per-issue groom
 
-For the current issue:
+a. Print title + body + existing comments.
+b. Search comments for `<!-- mdownreview-spec -->` → if present, this is a re-groom; capture comment id; show user.
+c. Read codebase areas the issue touches (key files only).
+d. **Brainstorm interactively:**
+   - One clarifying question at a time via `ask_user` (multiple choice when possible).
+   - **Pillar check:** name which pillar this strengthens (Non-Goal → propose closing). Flag pillars at risk.
+   - Propose 2–3 approaches with trade-offs, your recommendation, and rule-compatibility against the deep-dive docs (see AGENTS.md). If natural approach would break a rule, either pick a different approach or include a rule-change proposal in the spec.
+   - Get explicit approval.
+e. Generate spec (template below), present, then post.
 
-#### 4a — Display issue context
-
-Print the issue title, body, and any existing comments for context:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Grooming #36: CLI improvements
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<issue body>
-```
-
-#### 4b — Check for existing spec comment
-
-Search the issue's comments for one containing the HTML marker `<!-- mdownreview-spec -->`. If found, this is a **re-groom** — note the comment ID for later update. Show the user the existing spec so they know what's being revised.
-
-#### 4c — Explore codebase context
-
-Before asking questions, briefly explore the codebase areas relevant to the issue. Use the issue title/body to identify which files, modules, or systems are involved. Read key files to understand current state.
-
-#### 4d — Interactive brainstorming
-
-Run an interactive brainstorming session with the user:
-
-1. **Ask clarifying questions one at a time** — understand the exact requirements, constraints, edge cases, and success criteria. Use multiple choice via `ask_user` when possible.
-2. **Pillar check** — before proposing approaches, name which of the 5 pillars (docs/principles.md) this issue strengthens. If it maps to a Non-Goal, flag it and ask whether to close the issue. If it risks another pillar, call that out explicitly.
-3. **Propose 2-3 approaches** — with trade-offs, your recommendation, and each approach's compatibility with the rules in docs/architecture.md, docs/performance.md, docs/security.md, docs/design-patterns.md, docs/test-strategy.md. If an approach would require a rule change, state it.
-4. **Get user approval** on the chosen approach.
-
-Keep the session focused on this single issue. Typical sessions are 3-6 questions depending on complexity.
-
-#### 4e — Generate spec
-
-Produce a structured spec in this format:
-
+#### Spec template
 ```markdown
 <!-- mdownreview-spec -->
-## 📋 Specification for #<number>: <title>
+## 📋 Specification for #<n>: <title>
 
 ### Problem Statement
-<What problem does this solve? Who is affected?>
+<problem · who is affected>
 
 ### Pillar impact
-<Which of the 5 pillars (Professional, Reliable, Performant, Lean, Architecturally Sound) this strengthens; which it risks, if any. See docs/principles.md.>
+<pillars strengthened · pillars at risk · cite docs/principles.md>
 
 ### Proposed Approach
-<Chosen approach from brainstorming, with enough detail to implement>
+<chosen approach, implementable detail>
 
 ### Acceptance Criteria
-- [ ] <Criterion 1>
-- [ ] <Criterion 2>
-- ...
+- [ ] …
 
 ### Technical Notes
-<Key files involved, architectural considerations, dependencies. Cite rules from docs/architecture.md, docs/performance.md, docs/security.md, docs/design-patterns.md, docs/test-strategy.md where relevant.>
+<key files · architectural notes · cite rules from docs/{architecture,performance,security,design-patterns,test-strategy}.md>
 
 ### Constraints & Non-Goals
-<What is explicitly out of scope>
+<out of scope>
 
 ### Rule-change proposals (if any)
-<If this issue's natural implementation would violate a rule in a deep-dive doc, propose the rule change here as a separate step — do not silently bypass. "None" if fully compatible.>
+<"None" if fully compatible>
 
 ### Open Questions
-<Any remaining unknowns — or "None" if fully resolved>
+<"None" if resolved>
 
 ---
-*Spec generated by `/groom-issues`. To re-groom: remove `groomed` label, add `needs-grooming`.*
+*Spec generated by `/groom-issues`. To re-groom: remove `groomed`, add `needs-grooming`.*
 ```
 
-Present the spec to the user for review before posting.
-
-#### 4f — Post or update spec comment
-
-**If re-groom** (existing spec comment found in 4b):
+f. Post or update:
 ```bash
+# new
+gh issue comment <n> --body "<spec>"
+# re-groom
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh api repos/$REPO/issues/comments/<comment-id> -X PATCH -f body="<spec>"
 ```
 
-**If new groom:**
+g. Update labels:
 ```bash
-gh issue comment <number> --body "<spec>"
+gh issue edit <n> --remove-label "needs-grooming" --add-label "groomed"
 ```
 
-#### 4g — Update labels
+Print `✅ #<n> groomed`.
 
-```bash
-gh issue edit <number> --remove-label "needs-grooming" --add-label "groomed"
-```
+### 5. Continue prompt
 
-Print confirmation:
-```
-✅ #36 groomed — spec attached, labeled as groomed.
-```
-
-### Step 5 — Continue or stop
-
-If there are more issues in the queue, ask:
-
-> "Continue to the next issue (#<next-number>: <title>)?"
-
-With choices: **Yes** / **No, stop here**
-
-If the user says yes, go back to Step 4 with the next issue. If no, exit.
+Ask: `Continue to #<next>?` choices `Yes` | `No, stop here`. Loop or exit.
 
 ### Done
 
-Print a summary:
 ```
 📊 Grooming session complete:
-  ✅ #36 — CLI improvements
-  ✅ #42 — Add export feature
+  ✅ #36 — …
   ⏭️ #50 — Skipped (user stopped)
 ```
 
 ## Notes
 
-- Specs are stored as issue comments, not in the repository. They travel with the issue.
-- The `<!-- mdownreview-spec -->` HTML marker is invisible in rendered markdown but allows the skill to find and update specs on re-groom.
-- The `--force` flag on `gh label create` is idempotent — safe to run every time.
-- This skill does NOT write design docs to the repo or invoke writing-plans. It only produces issue-level specs. Implementation planning happens separately.
+- Specs travel with the issue (comment, not repo file).
+- `<!-- mdownreview-spec -->` HTML marker is invisible in rendered MD; lets re-groom find and update.
+- This skill produces issue-level specs only — implementation planning is `/iterate`.
