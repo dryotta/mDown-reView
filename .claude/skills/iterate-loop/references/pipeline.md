@@ -89,53 +89,31 @@ If `git worktree remove --force` fails (e.g. open file handle on Windows), log `
 
 ## Yield points
 
-The scheduler probes the `rg_pending` entry **only** at safe checkpoints. Mid-rebase, between `git add` and `git commit`, between `git commit` and `git push` are forbidden — the inner skill must finish its current sub-step.
+The scheduler probes the `rg_pending` entry **only** at safe checkpoints. Mid-rebase, between `git add` and `git commit`, between `git commit` and `git push` are forbidden — the inner skill must finish its current sub-step before the loop is allowed to drive a resume.
 
 | # | Yield point | What it does |
 |---|---|---|
-| 1 | **Inside the active round's Step 6c CI poller** | Replace the inner skill's single-target poll (PR `<active>` checks) with a multi-target poll watching **both** the active PR and the `rg_pending` workflow run. Returns on first completion of either. See [Multi-target CI poller](#multi-target-ci-poller) below. |
-| 2 | **Between Step 8.5 and Step 1** of the active round (iteration boundary) | Non-blocking probe: `gh run view <rg_pending.rg_run_id> --json status,conclusion`. If `completed`, drive resume now. |
-| 3 | **On any inner-skill exit** (Done-X marker emitted, or 0d deferral, or hard halt) | Same probe as #2, but unconditional — even if the active round is wrapping up. This is the path Step 6.5 uses. |
+| 1 | **Between Step 8.5 and Step 1** of the active round (iteration boundary) | Non-blocking probe: `gh run view <rg_pending.rg_run_id> --json status,conclusion`. If `completed`, drive resume now. |
+| 2 | **On any inner-skill exit** (Done-X marker emitted, or 0d deferral, or hard halt) | Same probe as #1, but unconditional — even if the active round is wrapping up. This is the path Step 6.5 uses. |
 
-Yield-point #1 requires the inner skill to accept the multi-target poller spec from this skill. It is delivered via the **same parallel-message contract** the inner skill already uses for Step 6c-B (see `iterate-one-issue/SKILL.md` Step 6c) — the only change is the prompt body sent to the `general-purpose` poller agent. The inner skill does not need to change its surrounding 6c orchestration.
-
----
-
-## Multi-target CI poller
-
-Replaces the prompt body of `iterate-one-issue` Step 6c-B when running under `--pipeline` AND `rg_pending != null`. Sequential mode (or pipelined mode with `rg_pending == null`) uses the original single-target prompt unchanged.
-
-```
-Poll BOTH of these every 30 s, max 30 min:
-  A) PR checks for active iterate PR:
-       gh pr checks <ACTIVE_PR_NUMBER>
-     A is "complete" when no check is "pending" or "in_progress".
-  B) Workflow run for prior round's release-gate:
-       gh run view <RG_RUN_ID> --json status,conclusion --jq '{status,conclusion}'
-     B is "complete" when status != "in_progress" and != "queued".
-
-Return as soon as EITHER completes, identifying which (A or B) and its result:
-  - If A completes first: PASS (all green) or FAIL with failed-check names + last 200 lines per failed check.
-  - If B completes first: PASS (conclusion=success) or FAIL with last 200 lines from `gh run view <RG_RUN_ID> --log-failed | tail -n 200`.
-Ignore further completions on the other target — caller will re-probe later (yield-point #2 or #3).
-```
-
-Caller responsibility: when B fires first, the caller must **suspend** the active round at the next safe checkpoint, drive [§ RG-completion handling](#rg-completion-handling), then resume the active round (which will re-enter its own Step 6c with a fresh poll — but now with `rg_pending == null`, so the single-target prompt is used).
+**Inner-skill probes are deliberately omitted.** A previous design proposed a "multi-target CI poller" inside the inner skill's Step 6c that would also watch the prior round's release-gate workflow. It was removed because (a) the inner skill has no clean control path to suspend its in-flight A/B/C parallel agents and call back to the loop, and (b) the cap-protection at Step 5 (drain prior `rg_pending` BEFORE moving the new active into `rg_pending`) makes inside-the-round probing unnecessary for safety. The two-yield-point design above is sufficient: the longest the loop can hold an `rg_pending` past completion is one full active round (because cap-protection drains it at the end of any round that would otherwise overflow the slot).
 
 ---
 
 ## RG-completion handling
 
-Triggered when any yield point sees `gh run view <RG_RUN_ID>` report `status=completed`.
+Triggered when any yield point sees `gh run view <RG_RUN_ID>` report `status=completed`, **or** when Step 5's cap-protection rule needs to drain the existing `rg_pending` slot before moving a new entry into it.
 
-1. **Suspend the active round at the next safe checkpoint.** Forbidden mid-rebase, between `git add` and `git commit`, between `git commit` and `git push`. In practice: finish the current sub-step and don't start the next one yet. Yield points #1 and #3 are already at safe checkpoints by construction; yield point #2 is the explicit between-iterations boundary.
+1. **Suspend the active round at the next safe checkpoint.** Forbidden mid-rebase, between `git add` and `git commit`, between `git commit` and `git push`. In practice: finish the current sub-step and don't start the next one yet. Both yield points are already at safe checkpoints by construction; the cap-protection call site (end of Step 5) is also safe by construction (the inner skill has already exited).
 2. `cd $RG_PENDING_WORKTREE`.
 3. Invoke `/iterate-one-issue --resume-rg <RG_PENDING_BRANCH>`. The inner skill's Phase 0a parser routes this to its 9b–d-resume entry; pre-conditions are: cwd is the worktree, branch is checked out, `git status` clean, state file's `release_gate.state` ∈ {`dispatched`, `failed`}.
 4. Parse the new `ITERATE_OUTCOME` marker:
-   - `Done-Achieved` → tally as `Done-Achieved`, run optional Step 5b auto-merge, write a follow-up Step 6 row, **tear down** the worktree, clear `rg_pending`.
-   - `Done-Blocked` → tally as `Done-Blocked`, write Step 6 row, **tear down**, clear `rg_pending`.
-   - `Done-Achieved-RG-Pending` → 9c forward-fixed and re-dispatched. **Keep** the worktree; update `rg_pending.rg_run_id` + `dispatched_at` from the new marker; do **not** clear the entry; do **not** write a "complete" Step 6 row (one will come on the next resume).
+   - `Done-Achieved` → tally as `Done-Achieved`, run optional Step 5b auto-merge, write a follow-up Step 6 row, **tear down** the worktree, **release the `iterate-in-progress` claim label** for that issue (it was held since the original Step 5 round), clear `rg_pending`.
+   - `Done-Blocked` → tally as `Done-Blocked`, write Step 6 row, **tear down**, **release the claim label**, clear `rg_pending`.
+   - `Done-Achieved-RG-Pending` → 9c forward-fixed and re-dispatched. **Keep** the worktree; **keep** the claim label; update `rg_pending.rg_run_id` + `dispatched_at` from the new marker; do **not** clear the entry; do **not** write a "complete" Step 6 row (one will come on the next resume). When invoked from cap-protection, loop step 3 immediately (drain again until the resumed outcome is `Done-Achieved` or `Done-Blocked`).
 5. `cd` back to the active round's worktree (or the main worktree if there is no active round) and resume.
+
+> **Cap-protection invariant.** Step 5's call into this section MUST loop until the slot is cleared (i.e. the resumed outcome is final). A re-dispatch from 9c re-fills the slot and restarts the wait; the loop must drain it again before the new active entry is allowed to take the slot. This guarantees `len(active) + len(rg_pending) ≤ 2` at all observable times.
 
 ### Resume bookkeeping
 
@@ -159,13 +137,15 @@ The eventual `Done-Achieved` / `Done-Blocked` from a resumed round writes a foll
 Phase 3 of `iterate-loop/SKILL.md` calls into this section. For every persisted artefact:
 
 1. Read `$LOOP_DIGEST_DIR/scheduler.json` (newest under `.claude/iterate-loop/runs/`). Use its `run_tag`, `mode`, `auto_merge`, `counters` as ground truth.
-2. For each `active`/`rg_pending` slot, cross-check against the per-branch state file `.claude/iterate-state-<branch-slug>.md` inside the slot's `worktree`:
+2. **Walk every worktree** (`git worktree list --porcelain` → `worktree <path>` lines) and inspect `<path>/.claude/iterate-state-*.md` inside each. Per-branch state files live inside their worktree, so the main worktree alone does not show them. For each `active`/`rg_pending` slot in `scheduler.json`, cross-check against the matching state file:
    - State file missing OR worktree gone → drop the slot, log orphan, attempt teardown.
    - State file `release_gate.state == passed` but PR still draft → call `/iterate-one-issue --resume-rg <branch>` (9b will short-circuit on the already-passed state and run only 9d).
    - State file `release_gate.state ∈ {dispatched, failed}` AND `gh run view <run_id>` says `completed` → drive [§ RG-completion handling](#rg-completion-handling) immediately.
    - State file `release_gate.state ∈ {dispatched, failed}` AND run still in flight → leave slot intact; main loop picks it up at the next yield point.
    - State file `release_gate.state == not-started` (active was killed mid-iteration) → no recovery; tear down, log as `Done-Blocked` reason `interrupted mid-iteration; resume not supported`, drop slot.
-3. Every per-branch state file in `.claude/iterate-state-*.md` that is **not** referenced by any scheduler slot AND has no live worktree → orphan. Move the state file to `.claude/iterate-loop/runs/$RUN_TAG/orphans/` for human inspection; do not delete.
+3. **Adopt unreferenced live state.** Any per-branch state file found inside a live worktree but **not** referenced by any scheduler slot is the most-important recovery case (loop crashed between 9a writing state and `scheduler.json` being saved). For each:
+   - If `release_gate.state ∈ {dispatched, failed, passed}` → reconstruct an `rg_pending` entry from the state file (`issue` parsed from branch name, `worktree` = parent of the `.claude/` dir, `branch` from state header, `rg_run_id` from `workflow_run_id`, `dispatched_at` from same), insert into `scheduler.json`, then re-run case 2.
+   - If `release_gate.state == not-started` → orphan; move the state file to `.claude/iterate-loop/runs/$RUN_TAG/orphans/` for human inspection; do not delete; tear down the worktree.
 4. Restore counters from `scheduler.json`. If absent, recompute from `$LOOP_LOG` row count and `Outcome:` lines.
 
 After reconciliation, return to `iterate-loop` Step 1 with `PIPELINE=true`.

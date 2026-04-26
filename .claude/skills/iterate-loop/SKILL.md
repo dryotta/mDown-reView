@@ -23,7 +23,7 @@ Args are parsed positionally; flags may be combined freely.
 |---|---|
 | (none) | **Default.** PRs from each round are left in the `ready-for-review` state set by `iterate-one-issue` — a human merges. |
 | `--auto-merge` | After every `Done-Achieved` round, poll the PR's required checks until they finish, then squash-merge directly via `gh pr merge --squash --delete-branch`. Does **not** use GitHub's `--auto` queueing feature (which requires the repo-level "Allow auto-merge" setting). Done-Blocked / Done-TimedOut PRs are never touched. |
-| `--pipeline` | **Opt-in pipelined scheduler.** While the active iterate round is running, the previous round's release-gate workflow is allowed to run concurrently on GitHub. Active set capped at 2 entries (1 active + 1 RG-pending). Each active round runs in its own `git worktree`. Scheduler probes RG completion at defined yield points (Step 6c poller, between rounds, on inner-skill exit) and re-enters `iterate-one-issue --resume-rg <branch>` to finish 9b–d. Full spec: [references/pipeline.md](references/pipeline.md). When omitted, the loop's behaviour is byte-for-byte identical to non-pipelined mode. |
+| `--pipeline` | **Opt-in pipelined scheduler.** While the active iterate round is running, the previous round's release-gate workflow is allowed to run concurrently on GitHub. Active set capped at 2 entries (1 active + 1 RG-pending). Each active round runs in its own `git worktree`. Scheduler probes RG completion at two safe yield points (between rounds, and on inner-skill exit) and re-enters `iterate-one-issue --resume-rg <branch>` to finish 9b–d. Full spec: [references/pipeline.md](references/pipeline.md). When omitted, the loop's behaviour is byte-for-byte identical to non-pipelined mode. |
 
 Anything else → STOP `[iterate-loop] Unknown arg "<ARG>". Use empty (continuous), --once, or --resume, optionally with --auto-merge and/or --pipeline.`
 
@@ -169,9 +169,10 @@ Wait for the inner skill to return. Capture full final stdout into `INNER_OUTPUT
 
 ### Step 5 — Release the claim & route the outcome
 
-Whatever the outcome, the `iterate-in-progress` label must come off so future sweeps see the issue clearly. The inner skill's Done-X handlers DO add `blocked` (Done-Blocked) or leave it alone (Done-Achieved → closure on PR merge), so this skill only owns the claim label:
+The `iterate-in-progress` claim label gates Step 1's auto-pick — keeping it on while a release gate is still pending prevents the loop from re-claiming the same issue on the next round. The label is therefore released **only on FINAL outcomes**: `Done-Achieved`, `Done-Blocked`, `Done-TimedOut`, `Deferred-Grooming`. For `Done-Achieved-RG-Pending` the label stays on; it is released later by the resume-bookkeeping step in [references/pipeline.md § RG-completion handling](references/pipeline.md#rg-completion-handling) when the resumed outcome is final.
 
 ```bash
+# Only on FINAL outcomes — see table below.
 gh issue edit $PICK --remove-label "iterate-in-progress" 2>/dev/null || true
 ```
 
@@ -179,12 +180,12 @@ gh issue edit $PICK --remove-label "iterate-in-progress" 2>/dev/null || true
 
 | Outcome | Sequential mode | Pipelined mode |
 |---|---|---|
-| `Done-Achieved` | Tally + Step 5b auto-merge + Step 6 log + Step 7. | Tear down `active.worktree` (`git worktree remove --force`). Tally + 5b + 6 + 7. |
-| `Done-Achieved-RG-Pending` | **N/A** — inner skill never emits this without `ITERATE_PIPELINE_AWARE=1`. If seen, treat as a contract violation and STOP. | **Move** the active entry into `rg_pending` (capture `worktree=`, `rg_run=`). Do NOT tear down the worktree. Skip 5b (auto-merge waits until 9b–d completes). Tally as a "dispatched" intermediate, then proceed to Step 6 (log Mode/Worktree) and Step 7 (loop guard) — the round is **complete from the active slot's perspective**. |
-| `Done-Blocked` / `Done-TimedOut` | Tally + 6 + 7. | Tear down `active.worktree`. Tally + 6 + 7. |
-| `Deferred-Grooming` (no marker emitted) | Tally + 6 + 7. | Tear down `active.worktree`. Tally + 6 + 7. |
+| `Done-Achieved` | Release claim. Tally + Step 5b auto-merge + Step 6 log + Step 7. | Release claim. Tear down `active.worktree` (`git worktree remove --force`). Tally + 5b + 6 + 7. |
+| `Done-Achieved-RG-Pending` | **N/A** — inner skill never emits this without `ITERATE_PIPELINE_AWARE=1`. If seen, treat as a contract violation and STOP. | **Cap-protect first.** If `rg_pending != null` (a prior round's RG is still pending), drain it now: `cd $RG_PENDING_WORKTREE`, `/iterate-one-issue --resume-rg <branch>`, drive [§ RG-completion handling](references/pipeline.md#rg-completion-handling) to a final `Done-Achieved`/`Done-Blocked` (loop until cleared — re-dispatch from 9c counts as still-pending), `cd` back. **Do NOT release the claim** for the current issue. **Move** the active entry into `rg_pending` (capture `worktree=`, `rg_run=`). Skip 5b. Tally as a "dispatched" intermediate, then proceed to Step 6 (log Mode/Worktree) and Step 7 (loop guard). |
+| `Done-Blocked` / `Done-TimedOut` | Release claim. Tally + 6 + 7. | Release claim. Tear down `active.worktree`. Tally + 6 + 7. |
+| `Deferred-Grooming` (no marker emitted) | Release claim. Tally + 6 + 7. | Release claim. Tear down `active.worktree`. Tally + 6 + 7. |
 
-After Step 5 completes for a `Done-Achieved-RG-Pending` round, the loop now has both an empty active slot AND an `rg_pending` entry — Step 1 of the next round may claim a new issue immediately. See [references/pipeline.md § Yield points](references/pipeline.md#yield-points) for when the scheduler probes the `rg_pending` entry.
+After Step 5 completes for a `Done-Achieved-RG-Pending` round, the loop has an empty active slot, an `rg_pending` entry holding the just-dispatched run, AND the `iterate-in-progress` claim label is still on the just-pipelined issue. Step 1 of the next round excludes that issue automatically because the label gate filters it out — the loop picks a *different* eligible issue, never the same one twice. See [references/pipeline.md § Yield points](references/pipeline.md#yield-points) for when the scheduler probes the `rg_pending` entry.
 
 ### Step 5b — Auto-merge (only when `AUTO_MERGE=true`)
 
@@ -323,9 +324,13 @@ Triggered by `/iterate-loop --resume`. Use when a previous run was killed mid-fl
 ### 3a. Discover prior runs
 
 ```bash
-git worktree list --porcelain
-ls -1t .claude/iterate-loop/runs/ 2>/dev/null
-ls -1 .claude/iterate-state-*.md 2>/dev/null
+git worktree list --porcelain                                            # all worktrees (active and rg_pending alike)
+ls -1t .claude/iterate-loop/runs/ 2>/dev/null                            # newest scheduler.json wins
+# Walk every worktree for per-branch state files — pipeline mode places
+# them inside the worktree, so a single `ls` on the main worktree misses them.
+for WT in $(git worktree list --porcelain | awk '/^worktree / {print $2}'); do
+  ls -1 "$WT"/.claude/iterate-state-*.md 2>/dev/null
+done
 ```
 
 Newest scheduler.json under `.claude/iterate-loop/runs/<RUN_TAG>/scheduler.json` is the canonical resume target. Reuse its `RUN_TAG`; do NOT mint a new one (so its retrospective + digest stay in one place).
