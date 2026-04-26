@@ -71,7 +71,7 @@ Acceptance-criteria derivation (in order):
 - Body has `## Acceptance` / `## Success` / `## Done when` → convert that section's bullets to `- [ ]`.
 - Free-form → synthesise 1–3 minimal items, e.g. `- [ ] $ISSUE_TITLE — verifiable by <signal>`.
 
-Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines).
+Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines). This becomes the assessor's `REQUIREMENTS` (see 0f) — the **only** definition of done for issue mode.
 
 **Bug-mode flag.** `IS_BUG = true` if any:
 - `LABELS` ∋ `bug` | `regression` | `defect`.
@@ -95,6 +95,7 @@ After 0f, no further user interaction.
 | `BRANCH` | `feature/issue-$ISSUE_NUMBER-<3–5-word slug>` | `auto-improve/<slug, 40-cap>-$(date +%Y%m%d)` |
 | `PR_TITLE` | `feat: implement #$ISSUE_NUMBER — $ISSUE_TITLE` | `auto-improve: $GOAL_TEXT` |
 | `GOAL_FOR_ASSESSOR` | `Satisfy all acceptance criteria of #$ISSUE_NUMBER: $ISSUE_TITLE` | `$GOAL_TEXT` |
+| `REQUIREMENTS` | `$ACCEPTANCE_CRITERIA` (verbatim `- [ ]` / `- [x]` lines) | synthesise 1–3 `- [ ]` items from `$GOAL_TEXT`, e.g. `- [ ] <one-line restatement> — verifiable by <signal>` |
 | `PR_CLOSE_TRAILER` | `Closes #$ISSUE_NUMBER` | (omit) |
 
 Slug: lowercase, non-alphanum → `-`, collapse runs, trim.
@@ -116,8 +117,8 @@ git config rerere.autoupdate true
 ```
 
 `PR_BODY`:
-- Issue mode: links to issue · pastes full `ACCEPTANCE_CRITERIA` checklist (unchecked) · trailer `Closes #$ISSUE_NUMBER`.
-- Goal mode: header quotes goal · empty progress list.
+- Issue mode: links to issue · pastes full `$REQUIREMENTS` checklist (unchecked) · trailer `Closes #$ISSUE_NUMBER`.
+- Goal mode: header quotes `$GOAL_TEXT` · pastes `$REQUIREMENTS` checklist (unchecked) under a `## Progress` heading. Step 8 ticks these as the assessor marks them `met`.
 
 ```bash
 gh pr create --draft --title "$PR_TITLE" --body "$PR_BODY"
@@ -233,7 +234,16 @@ If sanity gate fails → `exe-task-implementer` fixes as follow-up commit; commi
 
 ### Step 2 — Assess
 
-Spawn `exe-goal-assessor` (one call). Inputs: goal, iteration counters, full state-file content. Issue mode also pass: title, body, `SPEC_MARKDOWN`, open AC bullets. Instruction: read code from scratch, ignore prior specs, return STATUS / CONFIDENCE / NEXT_REQUIREMENTS / EVIDENCE / BLOCKING_REASON. Issue mode: per-AC verdict with file:line evidence; empty `NEXT_REQUIREMENTS` + open AC ⇒ `blocked` pointing at unreachable AC.
+Spawn `exe-goal-assessor` (one call). Pass:
+- `goal = $GOAL_FOR_ASSESSOR`
+- `requirements = $REQUIREMENTS` (verbatim — the per-item checklist is the **only** source of truth for "done")
+- `iteration_number`
+- `iteration_log` = full state-file content (outcomes only — never prior specs)
+- `context` (optional) = SPEC_MARKDOWN excerpt clarifying what each requirement means; in goal mode, omit or pass a one-paragraph restatement.
+
+Do **not** pass `ISSUE_NUMBER`, `ISSUE_TITLE`, `ISSUE_BODY`, the `<!-- mdownreview-spec -->` marker, or any GitHub-shaped reference. The assessor is intentionally GitHub-agnostic so it cannot lean on issue context to declare done — only the explicit requirements list.
+
+Instruction: read code from scratch, mark every requirement `met` or `unmet` with file:line or command output, and return the exact template (STATUS / CONFIDENCE / REQUIREMENTS / NEXT_REQUIREMENTS / BLOCKING_REASON). `achieved` requires every requirement `met`; even one `unmet` ⇒ `in_progress`. Empty `NEXT_REQUIREMENTS` with ≥1 unmet requirement ⇒ `blocked` pointing at the unreachable requirement.
 
 Routing:
 - `achieved` → **Done-Achieved** (no commit).
@@ -258,7 +268,7 @@ Scan `NEXT_REQUIREMENTS` for triggers; spawn matched experts in ONE parallel mes
 Each prompt:
 ```
 Iteration <N> for <MODE> <ref>.  Goal: <GOAL_FOR_ASSESSOR>
-NEXT_REQUIREMENTS: <…>   EVIDENCE: <…>
+NEXT_REQUIREMENTS: <…>   REQUIREMENTS (with met/unmet evidence): <…>
 From your area: (1) considerations, (2) risks, (3) files to modify and how.
 Cite file:line for every recommendation; cite rule numbers from docs/*.md when applicable. If sound, say so in one line.
 ```
@@ -458,7 +468,7 @@ Append to state file:
 ```
 
 Update PR:
-- Body: tick AC checkboxes confirmed by assessor or implementers (issue mode); append completed requirement groups (goal mode). `gh pr edit <PR_NUMBER> --body "<…>"`.
+- Body: tick the requirement checkboxes the assessor marked `met` in its `REQUIREMENTS:` block — issue mode and goal mode alike. Do not tick a box without an assessor `met` verdict for that exact line. `gh pr edit <PR_NUMBER> --body "<…>"`.
 - Comment:
   ```bash
   gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
