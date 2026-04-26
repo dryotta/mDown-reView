@@ -15,14 +15,11 @@ import * as fs from "fs";
 test.describe("Scroll Stability", () => {
   /**
    * Helper: find the actual scroll container (the ViewerRouter wrapper div
-   * with overflow:auto that wraps the viewer content).
+   * with class "viewer-scroll-region" that wraps the viewer content).
    */
   async function getScrollContainer(nativePage: import("@playwright/test").Page) {
-    // The scroll container is the parent of EnhancedViewer/MarkdownViewer/SourceView
-    // It has style="flex: 1; overflow: auto" set by ViewerRouter
     return nativePage.evaluate(() => {
-      // Find by looking for the element that has both overflow and scrollHeight > clientHeight
-      const candidates = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+      const candidates = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
       for (const el of candidates) {
         if (el.scrollHeight > el.clientHeight + 10) return true;
       }
@@ -62,7 +59,7 @@ test.describe("Scroll Stability", () => {
         const targetScroll = (step + 1) * 200;
 
         const actualPos = await nativePage.evaluate((target) => {
-          const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               el.scrollTop = target;
@@ -77,7 +74,7 @@ test.describe("Scroll Stability", () => {
 
         // Re-read the position to check for oscillation
         const settledPos = await nativePage.evaluate(() => {
-          const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               return el.scrollTop;
@@ -140,7 +137,7 @@ test.describe("Scroll Stability", () => {
 
       // Programmatically scroll down
       await nativePage.evaluate(() => {
-        const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             el.scrollTop = 500;
@@ -154,7 +151,7 @@ test.describe("Scroll Stability", () => {
       const samples: number[] = [];
       for (let i = 0; i < 5; i++) {
         const pos = await nativePage.evaluate(() => {
-          const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               return el.scrollTop;
@@ -221,7 +218,7 @@ test.describe("Scroll Stability", () => {
       await nativePage.waitForTimeout(1000);
 
       const posAfterWheel = await nativePage.evaluate(() => {
-        const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             return el.scrollTop;
@@ -236,7 +233,7 @@ test.describe("Scroll Stability", () => {
         // Verify position is stable after wheel stops
         await nativePage.waitForTimeout(500);
         const posAfterSettle = await nativePage.evaluate(() => {
-          const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               return el.scrollTop;
@@ -254,7 +251,7 @@ test.describe("Scroll Stability", () => {
       // Also verify programmatic scroll still works correctly
       const scrollTarget = 400;
       await nativePage.evaluate((target) => {
-        const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             el.scrollTop = target;
@@ -266,7 +263,7 @@ test.describe("Scroll Stability", () => {
       await nativePage.waitForTimeout(500);
 
       const finalPos = await nativePage.evaluate(() => {
-        const containers = document.querySelectorAll<HTMLElement>('[style*="overflow"]');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             return el.scrollTop;

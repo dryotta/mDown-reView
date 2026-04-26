@@ -106,11 +106,30 @@ jobs:
       - name: Build Tauri app
         shell: bash
         run: |
-          if [ -n "${{ matrix.tauri_args }}" ]; then
-            npm run tauri:build -- ${{ matrix.tauri_args }}
-          else
-            npm run tauri:build
-          fi
+          # Retry to absorb the well-known macOS bundle_dmg.sh / hdiutil /
+          # AppleScript flakiness (tauri-apps/tauri#3055, electron-builder#3115).
+          attempt=1
+          max_attempts=2
+          while [ $attempt -le $max_attempts ]; do
+            echo "::group::Build attempt $attempt of $max_attempts"
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              killall Finder 2>/dev/null || true
+              hdiutil info | awk '/image-path/ {print $NF}' | while read -r p; do
+                hdiutil detach "$p" -force 2>/dev/null || true
+              done
+              rm -rf src-tauri/target/release/bundle/dmg src-tauri/target/*/release/bundle/dmg 2>/dev/null || true
+            fi
+            if [ -n "${{ matrix.tauri_args }}" ]; then
+              npm run tauri:build -- ${{ matrix.tauri_args }} && { echo "::endgroup::"; exit 0; }
+            else
+              npm run tauri:build && { echo "::endgroup::"; exit 0; }
+            fi
+            echo "::warning::Build attempt $attempt failed"
+            echo "::endgroup::"
+            attempt=$((attempt + 1))
+          done
+          echo "::error::All $max_attempts build attempts failed"
+          exit 1
         env:
           STAGE_CLI_TARGET: ${{ matrix.rust_target }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

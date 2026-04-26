@@ -7,6 +7,13 @@ import * as fs from "node:fs";
 // .exe, and PATH manipulation hits HKCU\Environment which only exists on
 // Windows. Skipping on macOS / Linux runners keeps the suite green there.
 test.skip(process.platform !== "win32", "Windows-only installer test");
+// In release-gate the installer .exe is already produced and validated by the
+// CI `build (windows-x64)` job on the same commit, so we skip the 10-minute
+// rebuild here. Set MDR_NATIVE_SKIP_INSTALLER=0 (or unset) to run locally.
+test.skip(
+  process.env.MDR_NATIVE_SKIP_INSTALLER === "1",
+  "installer build validated by CI build job",
+);
 
 function readUserPath(): string {
   return execSync(
