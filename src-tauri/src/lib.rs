@@ -240,8 +240,6 @@ pub fn run() {
                 commands::comments::edit_comment,
                 commands::comments::delete_comment,
                 commands::comments::compute_anchor_hash,
-                commands::comments::resolve_comment,
-                commands::comments::move_anchor,
                 commands::comments::update::update_comment,
                 commands::comments::badges::get_file_badges,
                 commands::comments::export::export_review_summary,

@@ -56,23 +56,26 @@ pub(crate) fn enforce_workspace_path(state: &WatcherState, file_path: &str) -> R
     }
 }
 
-/// Test seam over the renderer-event channel. Production calls go to
-/// `AppHandle::emit("comments-changed", payload)` (the AC-mandated
-/// chokepoint — uses `Emitter::emit`, NOT `Emitter::emit_to("main", …)`,
-/// so global listeners and the `tauri::test::mock_app()` listener both
-/// fire). Tests substitute a counter-backed mock to assert the wrappers
-/// emit exactly once per mutation and skip emit on no-op patches.
+/// Test seam over the renderer-event channel. Production calls go through
+/// `Emitter::emit_to(self, "main", …)` per `docs/design-patterns.md` rule 4
+/// (Rust emits window-scoped events, never app-wide broadcasts). The trait
+/// exists *only* so integration tests can substitute a counter-backed mock —
+/// `tauri::test::mock_app()` cannot run on the Windows dev host (the test
+/// feature pulls webview2/wry GUI DLLs that fail with
+/// STATUS_ENTRYPOINT_NOT_FOUND), so a real-runtime emit is not reachable
+/// from a `cargo test` binary.
 pub trait CommentsEmitter {
     fn emit_comments_changed(&self, file_path: &str);
 }
 
 impl<R: Runtime> CommentsEmitter for AppHandle<R> {
     fn emit_comments_changed(&self, file_path: &str) {
-        // CONTRACT (issue #112 AC): renderer subscribers register via
-        // `listen("comments-changed", …)` (global). Must use `.emit(...)`
-        // here, not `.emit_to("main", ...)`, or those listeners stay dark.
-        if let Err(e) = Emitter::emit(
+        // Window-scoped emit per docs/design-patterns.md rule 4. The renderer
+        // subscribes via `listen("comments-changed", …)` on the "main" window,
+        // which receives both window-scoped and app-wide events.
+        if let Err(e) = Emitter::emit_to(
             self,
+            "main",
             "comments-changed",
             CommentsChangedEvent {
                 file_path: file_path.to_string(),
@@ -447,77 +450,7 @@ pub fn compute_anchor_hash(text: String) -> String {
     crate::core::anchors::compute_selected_text_hash(&text)
 }
 
-/// Toggle a comment's `resolved` bit. Thin wrapper around
-/// [`update::update_comment_apply`] with a `SetResolved` patch — exists
-/// as a discrete `#[tauri::command]` per the AC contract so the JS side
-/// can invoke `resolve_comment` directly without constructing a
-/// `CommentPatch` envelope. Emits `comments-changed` only when the
-/// resolved bit actually flipped (the `update_comment_apply` `bool`
-/// gate prevents spurious events on no-op resolves).
-#[tauri::command]
-pub fn resolve_comment<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, WatcherState>,
-    file_path: String,
-    comment_id: String,
-    resolved: bool,
-) -> Result<(), String> {
-    resolve_comment_inner(&app, &state, file_path, comment_id, resolved)
-}
-
-/// Test seam for [`resolve_comment`]. See [`add_comment_inner`] for rationale.
-pub fn resolve_comment_inner<E: CommentsEmitter>(
-    emitter: &E,
-    state: &WatcherState,
-    file_path: String,
-    comment_id: String,
-    resolved: bool,
-) -> Result<(), String> {
-    enforce_workspace_path(state, &file_path)?;
-    let changed = update::update_comment_apply(
-        &file_path,
-        &comment_id,
-        update::CommentPatch::SetResolved { resolved },
-    )?;
-    if changed {
-        emitter.emit_comments_changed(&file_path);
-    }
-    Ok(())
-}
-
-/// Replace a comment's canonical anchor and push the prior value
-/// through the FIFO-clamped history list. Discrete `#[tauri::command]`
-/// wrapper around [`update::update_comment_apply`] with a `MoveAnchor`
-/// patch, mirroring `resolve_comment`. Equal-anchor moves are no-ops
-/// at the apply layer so this command only emits when the swap
-/// actually mutated the sidecar.
-#[tauri::command]
-pub fn move_anchor<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, WatcherState>,
-    file_path: String,
-    comment_id: String,
-    new_anchor: Anchor,
-) -> Result<(), String> {
-    move_anchor_inner(&app, &state, file_path, comment_id, new_anchor)
-}
-
-/// Test seam for [`move_anchor`]. See [`add_comment_inner`] for rationale.
-pub fn move_anchor_inner<E: CommentsEmitter>(
-    emitter: &E,
-    state: &WatcherState,
-    file_path: String,
-    comment_id: String,
-    new_anchor: Anchor,
-) -> Result<(), String> {
-    enforce_workspace_path(state, &file_path)?;
-    let changed = update::update_comment_apply(
-        &file_path,
-        &comment_id,
-        update::CommentPatch::MoveAnchor { new_anchor },
-    )?;
-    if changed {
-        emitter.emit_comments_changed(&file_path);
-    }
-    Ok(())
-}
+// Note: `set_resolved` and `move_anchor` are exposed via `update_comment` patch
+// kinds (see `update.rs::CommentPatch`). The frontend uses
+// `updateComment(...)` with `{ kind: "set_resolved" | "move_anchor", ... }`
+// rather than dedicated IPC commands.

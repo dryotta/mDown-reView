@@ -1,23 +1,20 @@
 //! Regression suite for issue #112 — comment-mutation commands MUST
-//! emit `comments-changed` to the renderer's GLOBAL listener channel
-//! (i.e. via `Emitter::emit(...)`, NOT `Emitter::emit_to("main", ...)`),
-//! and they must SKIP the emit on no-op patches to avoid renderer event
-//! storms.
+//! emit `comments-changed` to the renderer's "main"-window listener
+//! channel via `Emitter::emit_to(self, "main", …)` per
+//! `docs/design-patterns.md` rule 4 (Rust emits window-scoped events,
+//! never app-wide broadcasts), and they must SKIP the emit on no-op
+//! patches to avoid renderer event storms.
 //!
 //! These tests exercise the `*_inner` variants of each command, which
 //! delegate to a `CommentsEmitter` trait — the production impl is
-//! `AppHandle<R>` and uses `Emitter::emit`. Reverting that swap in
-//! `src/commands/comments/mod.rs` (changing the `Emitter::emit` call in
-//! the `impl<R: Runtime> CommentsEmitter for AppHandle<R>` block to
-//! `Emitter::emit_to("main", …)`) does not break the trait — the
-//! `MockEmitter` here intercepts the abstraction, so the contract these
-//! tests guard is "the wrappers DO call `emit_comments_changed` exactly
-//! once per real mutation, and zero times per no-op."
+//! `AppHandle<R>` and uses `Emitter::emit_to(self, "main", …)`. The
+//! `MockEmitter` here intercepts at the trait boundary, so the contract
+//! these tests guard is "the wrappers DO call `emit_comments_changed`
+//! exactly once per real mutation, and zero times per no-op."
 //!
-//! The "use `.emit()` not `.emit_to()`" half of the contract is enforced
-//! by the trait impl itself — see the inline contract comment in
-//! `commands/comments/mod.rs` and the doc comment on
-//! `impl<R: Runtime> CommentsEmitter for AppHandle<R>`.
+//! The "use `.emit_to("main", …)` not `.emit(...)`" half of the contract
+//! is enforced by the trait impl itself — see
+//! `commands/comments/mod.rs::impl<R: Runtime> CommentsEmitter for AppHandle<R>`.
 //!
 //! Why not `tauri::test::mock_app()` for end-to-end emit verification?
 //! The `tauri = features = ["test"]` dev-dep pulls webview2/wry GUI DLLs
@@ -33,8 +30,8 @@
 
 use mdown_review_lib::commands::{
     add_comment_inner, add_reply_inner, delete_comment_inner, edit_comment_inner,
-    move_anchor_inner, mutate_sidecar_or_create, resolve_comment_inner, update_comment_inner,
-    CommentPatch, CommentsEmitter, MrsfComment, NewCommentAnchor,
+    mutate_sidecar_or_create, update_comment_inner, CommentPatch, CommentsEmitter, MrsfComment,
+    NewCommentAnchor,
 };
 use mdown_review_lib::core::sidecar::load_sidecar;
 use mdown_review_lib::core::types::{Anchor, MrsfSidecar};
@@ -289,48 +286,4 @@ fn update_comment_move_anchor_no_op_does_not_emit() {
     .unwrap();
 
     assert_eq!(emitter.count(), 0, "equal-anchor MoveAnchor must not emit");
-}
-
-// ── resolve_comment (new wrapper) ──────────────────────────────────────────
-
-#[test]
-fn resolve_comment_emits_once() {
-    let dir = TempDir::new().unwrap();
-    let state = watcher_allowing(dir.path());
-    let emitter = MockEmitter::default();
-    let file_path = seed_with_comment(dir.path(), "doc.md", "c1");
-
-    resolve_comment_inner(&emitter, &state, file_path.clone(), "c1".into(), true).unwrap();
-
-    assert_eq!(emitter.count(), 1);
-    let saved = load_sidecar(&file_path).unwrap().unwrap();
-    assert!(saved.comments[0].resolved);
-}
-
-// ── move_anchor (new wrapper) ──────────────────────────────────────────────
-
-#[test]
-fn move_anchor_emits_once() {
-    let dir = TempDir::new().unwrap();
-    let state = watcher_allowing(dir.path());
-    let emitter = MockEmitter::default();
-    let file_path = seed_with_comment(dir.path(), "doc.md", "c1");
-
-    let new_anchor = Anchor::File;
-    move_anchor_inner(
-        &emitter,
-        &state,
-        file_path.clone(),
-        "c1".into(),
-        new_anchor,
-    )
-    .unwrap();
-
-    assert_eq!(emitter.count(), 1);
-    let saved = load_sidecar(&file_path).unwrap().unwrap();
-    assert!(
-        matches!(saved.comments[0].anchor, Anchor::File),
-        "expected File anchor after move, got {:?}",
-        saved.comments[0].anchor
-    );
 }

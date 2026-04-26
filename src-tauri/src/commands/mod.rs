@@ -28,8 +28,7 @@ pub use comments::{
     add_comment, add_comment_inner, add_reply, add_reply_inner, check_workspace_for,
     compute_anchor_hash, delete_comment, delete_comment_inner, edit_comment, edit_comment_inner,
     export_review_summary, export_review_summary_inner, get_file_badges, get_file_badges_inner,
-    get_file_comments, get_file_comments_inner, move_anchor, move_anchor_inner,
-    mutate_sidecar_or_create, resolve_comment, resolve_comment_inner, update_comment,
+    get_file_comments, get_file_comments_inner, mutate_sidecar_or_create, update_comment,
     update_comment_apply, update_comment_inner, CommentPatch, CommentsChangedEvent, CommentsEmitter,
     FileBadge, NewCommentAnchor, TaggedNewAnchor,
 };

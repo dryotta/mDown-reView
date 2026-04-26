@@ -205,30 +205,6 @@ export const updateComment = (
 ): Promise<void> =>
   invoke<void>("update_comment", { filePath, commentId, patch });
 
-/**
- * Toggle a comment's resolved flag. Convenience wrapper around the
- * dedicated `resolve_comment` Rust command (which is preferred over a
- * `set_resolved` patch when callers only need the boolean).
- */
-export const resolveComment = (
-  filePath: string,
-  commentId: string,
-  resolved: boolean,
-): Promise<void> =>
-  invoke<void>("resolve_comment", { filePath, commentId, resolved });
-
-/**
- * Move a comment's anchor to a new location. Convenience wrapper around
- * the dedicated `move_anchor` Rust command (preferred when relocating a
- * single comment without going through the discriminated patch API).
- */
-export const moveAnchor = (
-  filePath: string,
-  commentId: string,
-  newAnchor: Anchor,
-): Promise<void> =>
-  invoke<void>("move_anchor", { filePath, commentId, newAnchor });
-
 /** Per-file unresolved-thread count + worst severity. */
 export const getFileBadges = (
   filePaths: string[],

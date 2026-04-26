@@ -1,5 +1,6 @@
 import { test as base, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { COMMENT_MUTATION_COMMANDS } from "../../../src/lib/comment-mutation-commands";
 
 interface ErrorTrackingOptions {
   consoleErrorAllowlist: string[];
@@ -19,7 +20,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
     // Provide __TAURI_INTERNALS__ before page scripts run so that
     // @tauri-apps/api's invoke() and listen() work in the Vite dev server.
     // Tests set window.__TAURI_IPC_MOCK__ to handle specific commands.
-    await page.addInitScript(() => {
+    await page.addInitScript((commentMutations: readonly string[]) => {
       const callbacks: Record<number, { callback: (...args: unknown[]) => void; once: boolean }> =
         {};
       const eventListeners: Record<string, number[]> = {};
@@ -76,20 +77,12 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (typeof mock === "function") {
             const result = await mock(cmd, args ?? {});
             // Auto-emit `comments-changed` after every successful sidecar
-            // mutation invoke. Mirrors the Rust contract (Emitter::emit
+            // mutation invoke. Mirrors the Rust contract (Emitter::emit_to
             // after save) so specs don't need to dispatch the event by
             // hand — preventing skew between renderer subscribers and
-            // the production wire format.
-            const COMMENT_MUTATIONS = [
-              "add_comment",
-              "edit_comment",
-              "delete_comment",
-              "add_reply",
-              "update_comment",
-              "resolve_comment",
-              "move_anchor",
-            ];
-            if (COMMENT_MUTATIONS.indexOf(cmd) !== -1) {
+            // the production wire format. The list is passed in from
+            // `lib/comment-mutation-commands.ts` (single source of truth).
+            if (commentMutations.indexOf(cmd) !== -1) {
               const a = (args ?? {}) as Record<string, unknown>;
               const filePath =
                 (typeof a.filePath === "string" && a.filePath) ||
@@ -207,7 +200,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
         registerListener: () => {},
         unregisterListener: () => {},
       };
-    });
+    }, [...COMMENT_MUTATION_COMMANDS]);
 
     page.on("pageerror", (error) => {
       pageErrors.push(error);

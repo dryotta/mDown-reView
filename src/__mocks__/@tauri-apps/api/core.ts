@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import { __IPC_MOCK_EMIT } from "./__bus";
+import { COMMENT_MUTATION_COMMANDS as MUTATION_COMMAND_LIST } from "@/lib/comment-mutation-commands";
 import type {
   CommentThread,
   DirEntry,
@@ -55,18 +56,12 @@ export function resetLaunchArgsMock(): void {
 const EMPTY_LAUNCH_ARGS: LaunchArgs = { files: [], folders: [] };
 
 // Tauri commands that mutate sidecar state and, in production, trigger a
-// `comments-changed` emit downstream of `Emitter::emit(...)`. Mirrored
-// here so unit tests don't need to dispatch the event manually after each
-// invoke — preventing renderer subscribers from going stale under jsdom.
-const COMMENT_MUTATION_COMMANDS = new Set([
-  "add_comment",
-  "edit_comment",
-  "delete_comment",
-  "add_reply",
-  "update_comment",
-  "resolve_comment",
-  "move_anchor",
-]);
+// `comments-changed` emit downstream of `Emitter::emit_to("main", …)`.
+// Mirrored here so unit tests don't need to dispatch the event manually
+// after each invoke — preventing renderer subscribers from going stale
+// under jsdom. Sourced from `lib/comment-mutation-commands.ts` so the
+// list has a single source of truth.
+const COMMENT_MUTATION_COMMANDS = new Set<string>(MUTATION_COMMAND_LIST);
 
 export const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<InvokeResult>>(
   async (cmd, args) => {
