@@ -160,6 +160,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Only the main branch publishes the cache; PR jobs restore-only.
+          # Saves ~2m of post-job cache packing per PR.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
@@ -177,11 +180,11 @@ jobs:
         working-directory: src-tauri
         run: cargo build
 
-      - name: Build release NSIS installer (for installer.spec.ts)
-        run: npm run tauri:build
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # NOTE: We deliberately do NOT run `tauri:build` here. The release NSIS
+      # installer is already produced and validated by the CI `build
+      # (windows-x64)` job on the same commit (see .github/workflows/ci.yml).
+      # Rebuilding it here adds ~10 minutes for no extra coverage.
+      # `installer.spec.ts` is skipped via MDR_NATIVE_SKIP_INSTALLER=1.
 
       - name: Get Playwright version
         id: pw-version
@@ -198,13 +201,13 @@ jobs:
       - name: Install Playwright (Chromium only)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright system deps only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        # `playwright install-deps` is a Linux-only apt-get shim; on Windows it
+        # is a 3-minute no-op, so we omit it on the cache-hit path.
 
       - name: Native E2E tests
         run: npm run test:e2e:native
+        env:
+          MDR_NATIVE_SKIP_INSTALLER: "1"
 
       - name: Upload Playwright report
         if: failure()
