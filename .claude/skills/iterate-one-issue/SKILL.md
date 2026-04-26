@@ -575,26 +575,21 @@ Use the R1 prompt from the shared spec, with skill-specific context block:
 
 Write output verbatim to `$RETRO_FILE`.
 
-#### 8.5c. Commit + push retro
-```bash
-git add "$RETRO_FILE"
-git commit -m "$(cat <<EOF
-chore(iter-$N): retrospective
+#### 8.5c. Persist retro to disk (no commit)
 
-$(head -n 1 "$RETRO_FILE" | sed 's/^# //')
-EOF
-)"
-git push
+The retro file lives under `.claude/retrospectives/`, which is `.gitignore`d as a runtime artifact. Do **not** commit or push it — the next iteration's tip stays clean for Step 9a's release-gate dispatch, and resume from any worktree just reads the local file.
+
+```bash
+# $RETRO_FILE was already written in 8.5a/8.5b; nothing to add or commit.
+ls -l "$RETRO_FILE" >/dev/null   # sanity check the write succeeded
 ```
 
-If Step 9a was dispatched in parallel, the retro commit lands on the iterate tip *after* Step 9a captured `iter_base_sha`. That is intentional — Step 9b polls the workflow run dispatched at the pre-retro tip, which is fine because the retro itself is a `.claude/retrospectives/**` change that release-gate's path filter ignores.
-
-Retrospective is now part of PR diff; merging persists every retro into `main`.
+If `$RETRO_FILE` is missing here, log `[step8.5] retro not written — synthesis output unrecoverable` and continue (do not block the iteration on it).
 
 #### 8.5d. Link from progress comment
-Append one line to Step 8 comment (or post inline):
+Append one line to Step 8 comment (or post inline). Because the retro is not committed, link to the local path rather than a blob URL:
 ```
-**Retrospective:** [`$RETRO_FILE`](<repo-blob-url>) — <count> improvement candidate(s)
+**Retrospective:** `<RETRO_FILE>` (runtime artefact, not committed) — <count> improvement candidate(s)
 ```
 
 **Termination check after 8.5:** `iteration > 30` → **Done-TimedOut**. Else loop back to Step 1.
@@ -625,24 +620,28 @@ Full flow lives in [references/release-gate.md](references/release-gate.md).
 
 ---
 
-## Phase 2 — Improvement-spec synthesis (every terminal path)
+## Phase 2 — Improvement-spec synthesis (every terminal path **except** `Done-Achieved-RG-Pending`)
 
-Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut. Full 2a–2e flow (gate, synthesise, decision, create issue+spec, optional auto-recursion) lives in [references/phase-2.md](references/phase-2.md).
+Runs first on every terminal Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut. Full 2a–2e flow (gate, synthesise, decision, create issue+spec, optional auto-recursion) lives in [references/phase-2.md](references/phase-2.md).
+
+**Phase 2 is deferred for `Done-Achieved-RG-Pending`.** That outcome is terminal *for this skill invocation* only — the loop will re-enter via `--resume-rg` later, and the resumed call's `Done-Achieved` (or `Done-Blocked` from 9c forward-fix exhaustion) is where Phase 2 runs. Running Phase 2 on the dispatch invocation would race the release-gate result and could synthesise improvements against an outcome that may flip to `Done-Blocked`.
 
 ## Termination
 
-| Trigger | Path |
-|---|---|
-| Step 1 abort (rebase) | **Done-Blocked** (skip 2–9) |
-| Step 2 `achieved` AND `DIFF_CLASS != code` | **Done-Achieved** (Step 9 skipped) |
-| Step 2 `achieved` AND `DIFF_CLASS == code`, single-issue mode | **Done-Achieved** (run 9b–d-resume synchronously after 9a-dispatch) |
-| Step 2 `achieved` AND `DIFF_CLASS == code`, pipeline mode (loop signalled it) | **Done-Achieved-RG-Pending** (return after 9a-dispatch; loop calls 9b–d-resume later) |
-| Step 2 `blocked` | **Done-Blocked** (skip 3–9) |
-| End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** |
+| Trigger | Path | Phase 2? |
+|---|---|---|
+| Step 1 abort (rebase) | **Done-Blocked** (skip 2–9) | yes |
+| Step 2 `achieved` AND `DIFF_CLASS != code` | **Done-Achieved** (Step 9 skipped) | yes |
+| Step 2 `achieved` AND `DIFF_CLASS == code`, single-issue mode | **Done-Achieved** (run 9b–d-resume synchronously after 9a-dispatch) | yes |
+| Step 2 `achieved` AND `DIFF_CLASS == code`, pipeline mode (loop signalled it) | **Done-Achieved-RG-Pending** (return after 9a-dispatch; loop calls 9b–d-resume later) | **no — deferred** |
+| Re-entered via `--resume-rg`, 9b–d completed PASS | **Done-Achieved** | yes |
+| Re-entered via `--resume-rg`, 9c exhausted forward-fix budget | **Done-Blocked** | yes |
+| Step 2 `blocked` | **Done-Blocked** (skip 3–9) | yes |
+| End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** | yes |
 
-**Phase 2 runs first on every terminal path.** `DEGRADED`/`SKIPPED` do NOT terminate.
+**Phase 2 runs first on every terminal path *except* `Done-Achieved-RG-Pending`.** `DEGRADED`/`SKIPPED` do NOT terminate.
 
-`Done-Achieved-RG-Pending` is terminal **for this skill** (this invocation exits cleanly) but non-terminal **for the loop** (loop will dispatch 9b–d-resume later and may then transition to `Done-Achieved` or `Done-Blocked`). See [references/done-handlers.md](references/done-handlers.md).
+`Done-Achieved-RG-Pending` is terminal **for this skill invocation** (this CLI call exits cleanly) but non-terminal **for the loop** (loop will dispatch 9b–d-resume later and may then transition to `Done-Achieved` or `Done-Blocked`, at which point Phase 2 runs). See [references/done-handlers.md](references/done-handlers.md).
 
 ### Done-Achieved · Done-Achieved-RG-Pending · Done-Blocked · Done-TimedOut
 

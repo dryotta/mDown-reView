@@ -1,15 +1,19 @@
 ### Done-Achieved
 
-Step 9 ran first; if it halted you are in Done-Blocked instead. Step 9d already closed mirror, refreshed PR body, marked PR ready. Run **Phase 2** (only path where 2e may auto-recurse).
+Reached when:
+- Step 2 returned `achieved` AND `DIFF_CLASS != code` (Step 9 skipped — non-buildable diff), OR
+- Step 9b–d-resume completed with `release_gate.state = passed` (whether called synchronously after 9a in single-issue mode, or later by `iterate-loop` in pipeline mode).
+
+Step 9d (when it ran) already closed any pending state, refreshed PR body, marked PR ready. On the `DIFF_CLASS != code` path, Step 9-skip jumps here directly — handler must run the equivalent of 9d itself: refresh PR body summary, `gh pr ready <PR_NUMBER>`, post a comment noting `Release gate skipped — DIFF_CLASS=<…>, not applicable to non-buildable diffs`. Run **Phase 2** (only path where 2e may auto-recurse).
 
 Closure of the source issue happens automatically on PR merge via the `Closes #<N>` trailer. The `iterate-in-progress` claim label is owned by `iterate-loop` (when this skill was invoked from the loop) and is cleared by `iterate-loop` after parsing the `ITERATE_OUTCOME` marker — this skill does not touch it.
 
 ```
 ✅ <MODE> — <ref>
-   PR: <URL> (ready for review, release gate passed)
+   PR: <URL> (ready for review, release gate <passed | skipped: DIFF_CLASS=<…>>)
    Branch: <BRANCH>
    Iterations: <passed_count> passed · <degraded_count> degraded
-   Release-gate fix attempts: <K>
+   Release-gate fix attempts: <K | n/a>
    Final assessor confidence: <%>
    Phase 2: <skipped | NO_IMPROVEMENT_FOUND | improvement issue $NEW_ISSUE_URL [auto-recursing]>
 ```
@@ -19,6 +23,29 @@ ITERATE_OUTCOME: Done-Achieved issue=<N|n/a> branch=<BRANCH> pr=<URL>
 ```
 
 Then exit cleanly. Chaining to the next issue (if any) is `iterate-loop`'s responsibility.
+
+### Done-Achieved-RG-Pending
+
+Reached when: Step 2 returned `achieved`, `DIFF_CLASS=code`, **and** the inner skill is running in pipeline mode (`ITERATE_PIPELINE_AWARE=1` set by `iterate-loop --pipeline`). Step 9a has already dispatched the workflow and persisted `release_gate.state=dispatched` to the state file.
+
+This outcome is **terminal for this skill invocation** (the agent exits cleanly so the loop can claim the next issue) but **non-terminal for the loop** — the loop will call back into 9b–d-resume from a yield point in a later round. Once 9b–d-resume completes, the same skill (different invocation, same state file) emits either `Done-Achieved` or `Done-Blocked`.
+
+No PR comment is posted here beyond the one Step 9a already wrote (`<!-- iterate-release-gate-dispatched -->`). PR stays draft. No `blocked` label.
+
+Phase 2 (improvement-spec synthesis) is **deferred** — running it now would race the release-gate result. The loop runs Phase 2 once 9b–d-resume reaches `Done-Achieved` or `Done-Blocked` for this issue.
+
+```
+⏳ <MODE> — <ref>
+   PR (draft): <URL>   Branch: <BRANCH>   Worktree: <WORKTREE>
+   Iterations: <passed_count> passed · <degraded_count> degraded   Final assessor confidence: <%>
+   Release gate: dispatched (run <RG_RUN_ID>) — loop will resume validation
+```
+
+```
+ITERATE_OUTCOME: Done-Achieved-RG-Pending issue=<N|n/a> branch=<BRANCH> pr=<URL> worktree=<WORKTREE> rg_run=<RG_RUN_ID>
+```
+
+Then exit cleanly.
 
 ### Done-Blocked
 
