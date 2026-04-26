@@ -57,6 +57,19 @@ Every rule is numbered and citable as "violates rule N in `docs/X.md`". Each doc
 
 **When reviewing:** cite specific rule numbers ("violates rule 14 in `docs/architecture.md`", "violates rule `architecture-avoid-boolean-props` in `docs/best-practices-common/react/composition-patterns.md`"). Do not hand-wave.
 
+## Behavioral Specs
+
+Given/When/Then specifications for behaviour at the binary boundary
+(CLI surface, OS file-open, single-instance argv forwarding). Feature
+overview docs in `docs/features/` describe **what** the area does;
+specs in `docs/specs/` describe **how it must behave** scenario-by-scenario
+and are the source of truth for regression tests.
+
+| Spec | Governs |
+|---|---|
+| [`docs/specs/cli-mdownreview-cli.md`](docs/specs/cli-mdownreview-cli.md) | `mdownreview-cli` binary — every subcommand, every flag, JSON + text output shapes, path-resolution rules, exit codes, source-vs-sidecar auto-detection. |
+| [`docs/specs/cli-file-open.md`](docs/specs/cli-file-open.md) | GUI launch arguments, `parse_launch_args` two-pass parser, pending-args queue, single-instance forwarding, Explorer/Finder multi-select, OS shell integration. |
+
 ## What This Is
 
 A slim, fast desktop app for browsing, viewing, and reviewing markdown, code, and other text files on Windows and macOS. Users open folders of `.md`/`.mdx` files, read and navigate them, and attach inline review comments. **Viewer/reviewer, not an editor.** Primary users are developers who receive batches of files from AI tools.

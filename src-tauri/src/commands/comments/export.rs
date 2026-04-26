@@ -40,7 +40,7 @@ pub fn export_review_summary_inner(workspace: &str) -> String {
     // if canonicalization fails (e.g. file doesn't exist on disk).
     let single_file_canonical: Option<String> = single_file
         .as_deref()
-        .map(|p| canonicalize_string(p));
+        .map(canonicalize_string);
 
     let scan_root = root.to_string_lossy().to_string();
     let pairs = crate::core::scanner::find_review_files(&scan_root, 10_000);
