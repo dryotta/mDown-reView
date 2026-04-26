@@ -1,6 +1,6 @@
 ---
 name: iterate-loop
-description: Use when the user wants to drain the GitHub issue backlog autonomously — phrases like "drain the backlog", "work through the issues", "auto-fix open issues", or just empty `/iterate-loop`. Continuous orchestrator that picks the next eligible issue, dispatches `iterate-one-issue` against it, and loops. Default is continuous (drain + monitor); `--once` drains once and exits. Never prompts. Pair with `test-exploratory-loop` running in another terminal for the full self-improvement dogfood.
+description: Use when the user wants to drain the GitHub issue backlog autonomously — phrases like "drain the backlog", "work through the issues", "auto-fix open issues", or just empty `/iterate-loop`. Continuous orchestrator that picks the next eligible issue, dispatches `iterate-one-issue` against it, and loops. Default is continuous (drain + monitor); `--once` drains once and exits. PRs are left ready-for-review by default; pass `--auto-merge` to squash-merge each Done-Achieved PR automatically. Never prompts. Pair with `test-exploratory-loop` running in another terminal for the full self-improvement dogfood.
 ---
 
 **RIGID. Fully autonomous — never calls `ask_user`.** This skill is the **outer orchestrator** for the issue-fix loop. It picks the next eligible issue from the GitHub backlog, claims it (`iterate-in-progress` label), invokes `iterate-one-issue` against it, releases the claim, and repeats. When the backlog drains, it either exits (`--once`) or polls indefinitely waiting for new issues (default).
@@ -11,12 +11,21 @@ For single-issue or freeform-goal work, the user invokes `iterate-one-issue` dir
 
 ## Args
 
+Args are parsed positionally; `--auto-merge` may be combined with either mode.
+
 | Arg | Mode | Behavior when backlog empty |
 |---|---|---|
 | empty | `continuous` | Poll backlog every 5 min, max 24 h. Then halt. |
 | `--once` | `drain-once` | Halt immediately. |
 
-Anything else → STOP `[iterate-loop] Unknown arg "<ARG>". Use empty (continuous) or --once.`
+| Flag | Effect |
+|---|---|
+| (none) | **Default.** PRs from each round are left in the `ready-for-review` state set by `iterate-one-issue` — a human merges. |
+| `--auto-merge` | After every `Done-Achieved` round, squash-merge the PR via `gh pr merge --squash --delete-branch --auto` (waits on required checks if branch protection is enabled). Done-Blocked / Done-TimedOut PRs are never touched. |
+
+Anything else → STOP `[iterate-loop] Unknown arg "<ARG>". Use empty (continuous) or --once, optionally with --auto-merge.`
+
+Set `AUTO_MERGE=true|false` from arg parsing; default `false`.
 
 ---
 
@@ -58,9 +67,11 @@ ROUNDS_DEFERRED=0   # iterate-one-issue exited via 0d (needs-grooming)
 
 Print banner:
 ```
-[iterate-loop] Mode: <continuous|drain-once> | Run tag: <RUN_TAG>
+[iterate-loop] Mode: <continuous|drain-once> | Auto-merge: <on|off> | Run tag: <RUN_TAG>
 Watching backlog (skip: needs-grooming, blocked, iterate-in-progress)
 ```
+
+`ROUNDS_AUTO_MERGED=0` (only incremented when `AUTO_MERGE=true` and merge enqueues successfully).
 
 ---
 
@@ -134,6 +145,25 @@ Whatever the outcome, the `iterate-in-progress` label must come off so future sw
 gh issue edit $PICK --remove-label "iterate-in-progress" 2>/dev/null || true
 ```
 
+### Step 5b — Auto-merge (only when `AUTO_MERGE=true`)
+
+**Skip unless all of these hold:**
+- `AUTO_MERGE=true`
+- `ITERATE_OUTCOME=Done-Achieved`
+- A PR URL was captured from `INNER_OUTPUT`
+
+Then:
+
+```bash
+gh pr merge "$PR_URL" --squash --delete-branch --auto
+```
+
+`--auto` queues the merge to fire once required status checks pass; if no required checks are configured, GitHub merges immediately. Either way, this skill does **not** wait for the merge to land — it logs the enqueue result and moves on. The next round's `git pull --ff-only` at Step 3 picks up the merged commit naturally.
+
+If the `gh pr merge` call exits non-zero, log `[iterate-loop] auto-merge failed for #$PICK ($PR_URL): <stderr first line>` and continue. Do **not** halt the loop and do **not** retry — the PR remains ready-for-review for human handling. `ROUNDS_AUTO_MERGE_FAILED += 1`.
+
+On success: `ROUNDS_AUTO_MERGED += 1`.
+
 ### Step 6 — Tally + per-round log
 
 Parse `INNER_OUTPUT`. Append one row to `$LOOP_LOG`:
@@ -143,6 +173,7 @@ Parse `INNER_OUTPUT`. Append one row to `$LOOP_LOG`:
 - Started: <ISO>   Finished: <ISO>   Duration: <h:mm>
 - Outcome: <Done-Achieved|Done-Blocked|Done-TimedOut|Deferred-Grooming>
 - Branch: <BRANCH>   PR: <URL or n/a>
+- Auto-merge: <enqueued | failed: <reason> | n/a (Done-Blocked|TimedOut|Deferred) | off>
 - Phase 2 (inner): <improvement issue URL | NO_IMPROVEMENT_FOUND | skipped>
 ```
 
@@ -186,9 +217,9 @@ End with the shared banner so logs are greppable:
 
 Then print the loop summary:
 ```
-[iterate-loop] Run complete — RUN_TAG=<…>
+[iterate-loop] Run complete — RUN_TAG=<…>   Auto-merge: <on|off>
 Rounds processed: <N>
-  ✅ Done-Achieved: <a>
+  ✅ Done-Achieved: <a>   (auto-merged: <m>, merge-failed: <f>)
   ❌ Done-Blocked:  <b>
   ⏱  Done-TimedOut: <c>
   📝 Deferred-Grooming: <d>
@@ -238,3 +269,4 @@ Both loops re-sync to `origin/main` between rounds. Bugs filed by Terminal B get
 - This skill never opens PRs of its own — only the inner `iterate-one-issue` does.
 - This skill never closes GitHub issues — closure happens via PR-merge `Closes #<N>` trailers.
 - This skill never modifies app source — only the inner skill does.
+- This skill never merges PRs unless `--auto-merge` was passed at invocation. There is no mid-run upgrade path; choose merge policy up-front.

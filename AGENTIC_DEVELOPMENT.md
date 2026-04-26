@@ -49,6 +49,14 @@ Terminal A (fix loop):
 /iterate-loop
 ```
 
+PRs land in `ready-for-review` for human merge. To have the loop squash-merge each green PR automatically, pass `--auto-merge`:
+
+```
+/iterate-loop --auto-merge
+```
+
+(Choose merge policy up-front — there's no mid-run toggle. `--auto-merge` only fires on `Done-Achieved` rounds; `Done-Blocked`/`Done-TimedOut` PRs are always left for a human.)
+
 Terminal B (explore loop, Windows-only):
 ```
 /test-exploratory-loop
@@ -67,21 +75,7 @@ When you have a freeform goal that doesn't decompose into known issues, hand it 
 /iterate-one-issue make the cold-start time on Windows under 800 ms
 ```
 
-The skill assesses, plans, implements, runs gates, opens PR, retros. No issue required.
-
----
-
-## PR merge policy
-
-**Skills never merge.** `iterate-one-issue` ends by flipping the PR out of draft (`gh pr ready`) once the release gate passes — the PR is left **"ready for review"** for a human (or follow-up prompt) to merge. `iterate-loop` releases the issue claim and moves on; merged or not, merging is out of scope for the autonomous loops.
-
-To merge after a successful run, prompt explicitly, e.g.:
-
-```
-> the PR from /iterate-one-issue #142 is green — squash-merge it and delete the branch
-```
-
-This default keeps a human in the loop for the only irreversible step (mutating `main`) while letting everything up to that point run autonomously.
+The skill assesses, plans, implements, runs gates, opens PR, retros. No issue required. The PR is left ready-for-review — `iterate-one-issue` itself never merges (only `iterate-loop --auto-merge` does).
 
 ---
 
@@ -93,7 +87,7 @@ Skills live in `.claude/skills/<name>/SKILL.md`. You invoke skills.
 
 | Skill | Use when |
 |---|---|
-| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop` |
+| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop`. Add `--auto-merge` to squash-merge each Done-Achieved PR. |
 | **`iterate-one-issue`** | One issue, one freeform goal, or `--once` style runs |
 | **`test-exploratory-loop`** | Continuous dogfood, files new bugs (Windows only) |
 | **`test-exploratory-e2e`** | One round of dogfood (Windows only) |
