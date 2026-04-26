@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import type { DirEntry } from "@/lib/tauri-commands";
 import type { GhostEntry } from "@/store";
-import { stripVerbatimPrefix } from "@/lib/paths";
 
 export type TreeNode = {
   path: string;
@@ -49,25 +48,22 @@ export function buildFolderTree(
   const merged: TreeNode[] = [...flatList];
 
   if (root) {
-    // Defensive: compare ghost vs flat-list paths in their bare-form so a
-    // residual `\\?\` in either source still dedupes correctly. Issue #89
-    // closes the producer-side leak (`core::paths::canonicalize_no_verbatim`)
-    // but this guard means a single regression in scanner.rs won't surface
-    // duplicate ghost rows in the FolderTree.
-    const flatBarePaths = new Set(flatList.map((n) => stripVerbatimPrefix(n.path)));
+    // Producer-side fix lives in `core::paths::canonicalize_no_verbatim` —
+    // every Rust path crossing IPC is bare-form, so plain string equality
+    // suffices here. See `docs/security.md` rules 11+ and issue #89.
+    const flatPaths = new Set(flatList.map((n) => n.path));
     for (const ghost of ghostEntries) {
-      const ghostBare = stripVerbatimPrefix(ghost.sourcePath);
-      if (flatBarePaths.has(ghostBare)) continue;
+      if (flatPaths.has(ghost.sourcePath)) continue;
 
-      const sep = ghostBare.includes("/") ? "/" : "\\";
-      const parts = ghostBare.split(sep);
+      const sep = ghost.sourcePath.includes("/") ? "/" : "\\";
+      const parts = ghost.sourcePath.split(sep);
       const parentPath = parts.slice(0, -1).join(sep);
       const fileName = parts[parts.length - 1];
 
       const parentIdx = merged.findIndex(
-        (n) => stripVerbatimPrefix(n.path) === parentPath && n.isDir,
+        (n) => n.path === parentPath && n.isDir,
       );
-      if (parentIdx === -1 && parentPath !== stripVerbatimPrefix(root)) continue;
+      if (parentIdx === -1 && parentPath !== root) continue;
 
       const parentDepth = parentIdx >= 0 ? merged[parentIdx].depth : -1;
       const ghostDepth = parentDepth + 1;
@@ -78,7 +74,7 @@ export function buildFolderTree(
       }
 
       merged.splice(insertIdx, 0, {
-        path: ghostBare,
+        path: ghost.sourcePath,
         isDir: false,
         depth: ghostDepth,
         name: fileName,

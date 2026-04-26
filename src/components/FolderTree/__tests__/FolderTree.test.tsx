@@ -410,31 +410,3 @@ describe("6.11 – grouped flat filter view", () => {
 });
 
 
-//  6.8: issue #89  cross-form "Other files" filter 
-
-describe('6.8  "Other files" filter is form-agnostic (issue #89)', () => {
-  it('does NOT render "Other files" when a tab is verbatim and root is bare', async () => {
-    // Pre-fix: a tab whose path was `\\\\?\\C:\\proj\\a.md` and a root of
-    // `C:\\proj` failed `pathStartsWithRootCrossPlatform` (string-equality
-    // miss), so the tab was mis-classified as "Other files". Producer-side
-    // fix (AC #4) plus the helper's defensive verbatim-strip (AC #8)
-    // together close the gap; this test pins the post-fix behaviour.
-    mockReadDir.mockImplementation((path: string) => {
-      if (path === "C:\\proj") return Promise.resolve([
-        { name: "a.md", path: "C:\\proj\\a.md", is_dir: false },
-      ] as DirEntry[]);
-      return Promise.resolve([]);
-    });
-    useStore.setState({
-      root: "C:\\proj",
-      expandedFolders: {},
-      tabs: [{ path: "\\\\?\\C:\\proj\\a.md", scrollTop: 0, lastAccessedAt: 1 }],
-      activeTabPath: "\\\\?\\C:\\proj\\a.md",
-      folderPaneWidth: 240,
-    });
-    render(<FolderTree onFileOpen={vi.fn()} onCloseFolder={vi.fn()} />);
-    await waitFor(() => screen.getByText("a.md"));
-    // The "Other files" section header must not be rendered.
-    expect(screen.queryByText(/^Other files/)).not.toBeInTheDocument();
-  });
-});

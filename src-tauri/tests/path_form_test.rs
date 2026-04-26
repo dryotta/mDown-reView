@@ -11,8 +11,9 @@
 #![cfg(windows)]
 
 use mdown_review_lib::commands::{parse_launch_args, read_dir, scan_review_files};
+use mdown_review_lib::watcher::WatcherState;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
 const VERBATIM: &str = r"\\?\";
@@ -83,6 +84,91 @@ fn scan_review_files_emits_no_verbatim_prefix() {
         assert_no_verbatim("scan_review_files.sidecar", sidecar);
         assert_no_verbatim("scan_review_files.source", source);
     }
+}
+
+/// Regression for issue #89 iter-2: on Windows GitHub runners `os.tmpdir()`
+/// returns the 8.3 short-name form (`C:\Users\RUNNER~1\…`). The frontend
+/// passes that string into both `set_tree_watched_dirs` (workspace setup)
+/// and `get_file_comments` / mutation commands (per-tab). Both Rust sides
+/// canonicalize via `core::paths::canonicalize_no_verbatim`, which must
+/// resolve 8.3 short components to long form so prefix-matching succeeds —
+/// otherwise `enforce_workspace_path` rejects every comment IPC with
+/// `path not in workspace` and the DeletedFileViewer flow breaks.
+#[test]
+fn is_path_or_parent_allowed_accepts_8dot3_short_name_input() {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    extern "system" {
+        fn GetShortPathNameW(
+            lpsz_long_path: *const u16,
+            lpsz_short_path: *mut u16,
+            cch_buffer: u32,
+        ) -> u32;
+    }
+
+    let parent = tempdir().unwrap();
+    // Long-named subdir so an 8.3 alias actually exists.
+    let workspace = parent.path().join("a-very-long-workspace-name-2026");
+    fs::create_dir(&workspace).unwrap();
+    let target = workspace.join("todelete.md");
+    fs::write(&target, "x").unwrap();
+
+    // Resolve the workspace's 8.3 short-name form (mirrors what GitHub's
+    // Windows runner emits via `os.tmpdir()`).
+    let wide: Vec<u16> = workspace
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut buf = vec![0u16; 1024];
+    let len = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) };
+    assert!(len > 0, "GetShortPathNameW failed");
+    let short_workspace = PathBuf::from(OsString::from_wide(&buf[..len as usize]));
+    // Sanity: the short form must differ from the long form, otherwise the
+    // host filesystem isn't generating 8.3 aliases and this test is
+    // vacuous (skip rather than false-pass).
+    if short_workspace == workspace {
+        eprintln!("skipping: host fs has 8.3 generation disabled");
+        return;
+    }
+
+    // Watcher is set up with the long form (production path: frontend
+    // canonicalizes-on-store via the Rust set_tree_watched_dirs guard,
+    // which always emits the long form regardless of input alias).
+    let (tx, _rx) = std::sync::mpsc::sync_channel::<()>(1);
+    let state = WatcherState::new(tx);
+    state
+        .set_tree_watched_dirs(
+            workspace.to_string_lossy().into_owned(),
+            vec![workspace.to_string_lossy().into_owned()],
+        )
+        .expect("set_tree_watched_dirs");
+
+    // Frontend now sends the short-name form for a per-tab IPC. The guard
+    // must accept it.
+    let short_target = short_workspace.join("todelete.md");
+    assert!(
+        state.is_path_or_parent_allowed(&short_target),
+        "is_path_or_parent_allowed must accept 8.3 short-name input \
+         (long workspace: {}; short input: {})",
+        workspace.display(),
+        short_target.display(),
+    );
+    // is_path_allowed (existing-file variant) must also accept it.
+    assert!(
+        state.is_path_allowed(&short_target),
+        "is_path_allowed must accept 8.3 short-name input"
+    );
+    // After deletion, is_path_or_parent_allowed must still accept the
+    // short-name form (DeletedFileViewer / orphan-comment path).
+    fs::remove_file(&target).unwrap();
+    assert!(
+        state.is_path_or_parent_allowed(&short_target),
+        "is_path_or_parent_allowed must accept 8.3 short-name input after deletion"
+    );
+    // Quiet unused-import warning when the test body grows.
+    let _ = Path::new(".");
 }
 
 /// Cross-command consistency: emitted paths from `scan_review_files` must

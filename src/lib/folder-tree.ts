@@ -1,23 +1,18 @@
 import type { DirEntry } from "@/lib/tauri-commands";
-import { stripVerbatimPrefix } from "@/lib/paths";
 
 /**
  * Cross-platform path prefix check. Returns true when `filePath` lies inside
  * (or is equal to) `root`, normalising `\\` and `/` separators so a Windows
  * tab that came from a posix-style root still matches.
  *
- * Issue #89: also strips Windows `\\?\` verbatim prefixes from both sides
- * before comparing so a bare-form `root` (`C:\proj`) matches a tab whose
- * `path` is in verbatim form (`\\?\C:\proj\a.md`). Production paths are
- * normalised at the Rust IPC chokepoint
- * (`core::paths::canonicalize_no_verbatim`); this is defence-in-depth so
- * a single regression there does not silently mis-classify open tabs as
- * "Other files" living outside the workspace root.
+ * Path strings are bare-form (no Windows `\\?\` verbatim prefix) — every
+ * Rust→TS path is normalised at the IPC chokepoint
+ * (`core::paths::canonicalize_no_verbatim`), and persisted snapshots
+ * written by pre-#89 clients are upgraded by the v1 Zustand migration.
  */
 export function pathStartsWithRootCrossPlatform(filePath: string, root: string): boolean {
   if (!filePath || !root) return false;
-  const norm = (p: string) =>
-    stripVerbatimPrefix(p).replace(/\\/g, "/").replace(/\/+$/, "");
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
   const np = norm(filePath);
   const nr = norm(root);
   return np === nr || np.startsWith(nr + "/");

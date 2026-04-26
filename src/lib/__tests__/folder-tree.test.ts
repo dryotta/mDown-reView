@@ -25,29 +25,6 @@ describe("pathStartsWithRootCrossPlatform", () => {
     expect(pathStartsWithRootCrossPlatform("", "/r")).toBe(false);
     expect(pathStartsWithRootCrossPlatform("/r", "")).toBe(false);
   });
-  // Issue #89 — defensive normalisation of Windows verbatim prefixes.
-  // Production paths are stripped at the Rust IPC chokepoint
-  // (`core::paths::canonicalize_no_verbatim`); these tests pin the
-  // renderer-side fallback so a single regression upstream does not
-  // mis-classify in-workspace tabs as "Other files".
-  it("matches when filePath is verbatim and root is bare", () => {
-    expect(
-      pathStartsWithRootCrossPlatform("\\\\?\\C:\\proj\\a.md", "C:\\proj"),
-    ).toBe(true);
-  });
-  it("matches when filePath is bare and root is verbatim", () => {
-    expect(
-      pathStartsWithRootCrossPlatform("C:\\proj\\a.md", "\\\\?\\C:\\proj"),
-    ).toBe(true);
-  });
-  it("matches when both sides are verbatim", () => {
-    expect(
-      pathStartsWithRootCrossPlatform(
-        "\\\\?\\C:\\proj\\a.md",
-        "\\\\?\\C:\\proj",
-      ),
-    ).toBe(true);
-  });
 });
 
 describe("getAncestors", () => {
