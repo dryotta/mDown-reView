@@ -2,11 +2,7 @@
 
 Step 9 ran first; if it halted you are in Done-Blocked instead. Step 9d already closed mirror, refreshed PR body, marked PR ready. Run **Phase 2** (only path where 2e may auto-recurse).
 
-In issue mode, also clear the claim label so the issue is no longer flagged as in-flight (closure happens automatically on PR merge via the `Closes #<N>` trailer):
-
-```bash
-gh issue edit $ISSUE_NUMBER --remove-label "iterate-in-progress" 2>/dev/null || true
-```
+Closure of the source issue happens automatically on PR merge via the `Closes #<N>` trailer. The `iterate-in-progress` claim label is owned by `iterate-loop` (when this skill was invoked from the loop) and is cleared by `iterate-loop` after parsing the `ITERATE_OUTCOME` marker — this skill does not touch it.
 
 ```
 ✅ <MODE> — <ref>
@@ -18,7 +14,11 @@ gh issue edit $ISSUE_NUMBER --remove-label "iterate-in-progress" 2>/dev/null || 
    Phase 2: <skipped | NO_IMPROVEMENT_FOUND | improvement issue $NEW_ISSUE_URL [auto-recursing]>
 ```
 
-**Continuous-mode handoff:** if `OUTER_MODE` was `continuous` or `drain-once` (and 2e did not auto-recurse), return to **0b** for the next eligible issue. Otherwise exit.
+```
+ITERATE_OUTCOME: Done-Achieved issue=<N|n/a> branch=<BRANCH> pr=<URL>
+```
+
+Then exit cleanly. Chaining to the next issue (if any) is `iterate-loop`'s responsibility.
 
 ### Done-Blocked
 
@@ -32,7 +32,7 @@ gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
 **Reason:** <BLOCKING_REASON | rebase-conflict summary | release-gate reason>
 **Last assessor evidence:** <…>
 <if rebase-conflict:> **Conflicted files:** <list>
-Iterations 1..<N-1> are pushed. Restart with `/iterate <same args>` after deletion, or continue manually.
+Iterations 1..<N-1> are pushed. Restart with `/iterate-one-issue <same args>` after deletion, or continue manually.
 EOF
 )"
 ```
@@ -42,16 +42,18 @@ Issue mode: post the same on the issue (`<!-- iterate-blocked-issue -->`) **and 
 ```bash
 gh issue comment $ISSUE_NUMBER --body "$(cat <<'EOF'
 <!-- iterate-blocked-issue -->
-## ⚠️ /iterate halted — Done-Blocked at iteration <N>/30
+## ⚠️ /iterate-one-issue halted — Done-Blocked at iteration <N>/30
 **Reason:** <BLOCKING_REASON>
 **Branch:** $BRANCH (draft PR: <URL>)
 **Last assessor evidence:** <…>
 
-This issue has been labelled `blocked`; the autonomous loop will skip it on subsequent sweeps. Resolve the blocker, remove the `blocked` label (and remove the draft branch if you want a clean restart), then `/iterate` will pick it up again.
+This issue has been labelled `blocked`; subsequent `/iterate-loop` sweeps will skip it until the label is removed. Resolve the blocker, remove the `blocked` label (and remove the draft branch if you want a clean restart), then the next `/iterate-loop` sweep will pick it up.
 EOF
 )"
-gh issue edit $ISSUE_NUMBER --add-label "blocked" --remove-label "iterate-in-progress"
+gh issue edit $ISSUE_NUMBER --add-label "blocked"
 ```
+
+The `iterate-in-progress` claim label is owned by `iterate-loop`; it clears that label after parsing `ITERATE_OUTCOME`.
 
 ```
 ❌ <MODE> — <ref>
@@ -60,7 +62,11 @@ gh issue edit $ISSUE_NUMBER --add-label "blocked" --remove-label "iterate-in-pro
    Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL>
 ```
 
-**Continuous-mode handoff:** if `OUTER_MODE` was `continuous` or `drain-once`, do **not** exit. Return to **0b** (pre-flight on `main`) and pick the next eligible issue. Otherwise exit.
+```
+ITERATE_OUTCOME: Done-Blocked issue=<N|n/a> branch=<BRANCH> pr=<URL>
+```
+
+Then exit cleanly.
 
 ### Done-TimedOut
 
@@ -75,15 +81,17 @@ gh pr comment <PR_NUMBER> --body "$(cat <<'EOF'
 **Final assessor confidence:** <%>
 **Last NEXT_REQUIREMENTS (still open):**
 <bullets>
-Review the branch — merge what is ready, continue manually, or restart with `/iterate <args>` after adjusting scope.
+Review the branch — merge what is ready, continue manually, or restart with `/iterate-one-issue <args>` after adjusting scope.
 EOF
 )"
 ```
-Issue mode: post the same on the issue, clear the claim label, and add `blocked` so the autonomous sweep skips this issue until a human revises scope:
+Issue mode: post the same on the issue and add `blocked` so the autonomous sweep skips this issue until a human revises scope:
 
 ```bash
-gh issue edit $ISSUE_NUMBER --add-label "blocked" --remove-label "iterate-in-progress"
+gh issue edit $ISSUE_NUMBER --add-label "blocked"
 ```
+
+The `iterate-in-progress` claim label is owned by `iterate-loop`.
 
 ```
 ⏱  <MODE> — <ref>
@@ -92,4 +100,8 @@ gh issue edit $ISSUE_NUMBER --add-label "blocked" --remove-label "iterate-in-pro
    Phase 2: <skipped | NO_IMPROVEMENT_FOUND | follow-up issue $NEW_ISSUE_URL>
 ```
 
-**Continuous-mode handoff:** same as Done-Blocked — if `OUTER_MODE` was `continuous` or `drain-once`, return to **0b** for the next eligible issue. Otherwise exit.
+```
+ITERATE_OUTCOME: Done-TimedOut issue=<N|n/a> branch=<BRANCH> pr=<URL>
+```
+
+Then exit cleanly.

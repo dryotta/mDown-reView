@@ -1,6 +1,6 @@
 # Phase 2 — Improvement-spec synthesis (every terminal path)
 
-Iterate's binding of **Step R2** in [`../../shared/retrospective.md`](../../../shared/retrospective.md). Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut.
+`iterate-one-issue`'s binding of **Step R2** in [`../../shared/retrospective.md`](../../../shared/retrospective.md). Runs first on every Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut.
 
 ## 2a. Gate
 
@@ -18,13 +18,13 @@ Apply the shared **R2a** gate (skip when no retros, or every retro is the litera
 ## 2b. Synthesise
 
 Apply shared **R2b** with these iterate-specific bindings passed into the synthesis prompt:
-- `SKILL_TAG=iterate`
+- `SKILL_TAG=iterate-one-issue`
 - `RUN_TAG=$SAFE_BRANCH` (covers all iterations of this run)
 - `OUTCOME=<Done-Achieved|Done-Blocked|Done-TimedOut>`
 - Branch / Iterate PR / Issue context
 - Concatenate all `$SAFE_BRANCH-iter-N.md` in order (separated by `---`)
 
-Capture as `IMPROVEMENT_SYNTHESIS`. The synthesis output already enforces the `iterate-improvement` + `self-improve:iterate` labels via shared R2b.
+Capture as `IMPROVEMENT_SYNTHESIS`. The synthesis output already enforces the `iterate-improvement` + `self-improve:iterate-one-issue` labels via shared R2b.
 
 ## 2c. Decision + dedupe + create
 
@@ -57,7 +57,7 @@ Iterate is the **only** skill that opts into shared **R2g**. Auto-recurse ONLY w
 
 Off → banner line:
 ```
-   Follow-up: <NEW_ISSUE_URL> — run `/iterate <NEW_ISSUE_NUMBER>` to deliver it.
+   Follow-up: <NEW_ISSUE_URL> — the next `/iterate-loop` sweep will pick it up automatically (or run `/iterate-one-issue <NEW_ISSUE_NUMBER>`).
 ```
 
 On:
@@ -67,9 +67,9 @@ echo 1 > .claude/iterate-recursion-depth
 Print:
 ```
    Follow-up: <NEW_ISSUE_URL>
-   Auto-recursing into a fresh /iterate (recursion depth 1/1).
+   Auto-recursing into a fresh /iterate-one-issue (recursion depth 1/1).
 ```
-Invoke `iterate` skill with arg `<NEW_ISSUE_NUMBER>`. Recursive call sees depth=1 and refuses to recurse again at its own 2e. Outer skill exits after recursive call returns/errors.
+Invoke `iterate-one-issue` skill with arg `<NEW_ISSUE_NUMBER>`. Recursive call sees depth=1 and refuses to recurse again at its own 2e. Outer skill exits after recursive call returns/errors.
 
 **Cleanup contract (implemented in 0b):** delete depth marker if older than 24 h OR points at a missing branch.
 

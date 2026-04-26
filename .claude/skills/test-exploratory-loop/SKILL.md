@@ -73,7 +73,7 @@ Improvement candidates here typically target **the orchestrator itself**:
 - Persona seeds that reach saturation too early.
 - Synchronisation gaps with the fix loop (e.g. issues filed but never picked up).
 
-Run R1 then R2 per the shared spec. The created issue carries `iterate-improvement` + `self-improve:test-exploratory-loop` and feeds the next `/iterate` run.
+Run R1 then R2 per the shared spec. The created issue carries `iterate-improvement` + `self-improve:test-exploratory-loop` and feeds the next `/iterate-loop` run.
 
 End with:
 ```

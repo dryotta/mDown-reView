@@ -119,7 +119,7 @@ Improvement candidates here typically target **the skill itself, the persona see
 - A REPL action that wedged or buffered → propose a runner fix.
 - An app bug class the skill keeps missing → propose a new heuristic or seed.
 
-Run R1 (write the retro), then R2 (gate / synthesise / dedupe / create) per the shared spec. The created issue carries `iterate-improvement` + `self-improve:test-exploratory-e2e` labels and will be picked up by the next `/iterate` run automatically.
+Run R1 (write the retro), then R2 (gate / synthesise / dedupe / create) per the shared spec. The created issue carries `iterate-improvement` + `self-improve:test-exploratory-e2e` labels and will be picked up by the next `/iterate-loop` run automatically.
 
 End with the shared banner line so logs are greppable:
 ```

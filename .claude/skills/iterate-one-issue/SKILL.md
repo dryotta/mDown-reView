@@ -1,9 +1,11 @@
 ---
-name: iterate
-description: Fully autonomous single-branch/single-PR iteration loop. Args - empty (continuous mode - drain the backlog and then monitor for new issues), `42`/`#42`/`issue-42`/issue URL (single-issue mode), `--once` (drain backlog once and exit), or free text (goal mode). Auto-skips issues labelled `needs-grooming`, `blocked`, or `iterate-in-progress`. Ambiguous issues get a clarification comment + `needs-grooming` label rather than a user prompt. Done-Blocked outcomes label the issue `blocked`. Bug-labelled issues run root-cause + test-gap analysis. Charter rules in AGENTS.md govern every iteration.
+name: iterate-one-issue
+description: Use when the user asks to fix a specific GitHub issue, references one (`#42`, `issue-42`, an issue URL), or asks to pursue a freeform engineering goal — phrases like "work on issue 42", "implement #87", "fix this bug", "add a CSV export". Fully autonomous single-branch / single-PR loop. Does NOT pick from the backlog — pair with `iterate-loop` for that. Bug-labelled issues run root-cause + test-gap analysis. Charter rules in AGENTS.md govern every iteration.
 ---
 
-**RIGID. Follow every step exactly.** This skill is **fully autonomous — it never calls `ask_user`.** Assume the user is unavailable. Where a human checkpoint used to exist (clarification, sign-off), the skill now writes the question or status to GitHub (issue comment + label) and either skips the issue or halts gracefully. Pre-consult experts and the diff-review panel cite specific rule numbers; rule-violating diffs block at review even if green.
+**RIGID. Follow every step exactly.** This skill is **fully autonomous — it never calls `ask_user`.** Assume the user is unavailable. Where a human checkpoint used to exist (clarification, sign-off), the skill now writes the question or status to GitHub (issue comment + label) and either defers the issue (issue mode) or halts gracefully (goal mode). Pre-consult experts and the diff-review panel cite specific rule numbers; rule-violating diffs block at review even if green.
+
+This skill owns **one issue or one goal** end-to-end: branch → plan → implement → test → review → PR → retrospective → terminal Done-X. It never reads the backlog and never picks the next thing. The companion skill **`iterate-loop`** handles backlog selection, claiming (`iterate-in-progress` label), and chaining.
 
 ---
 
@@ -15,15 +17,12 @@ Let `ARG` = trimmed string after skill name. First match wins:
 
 | Pattern | Result |
 |---|---|
-| empty | `MODE=continuous`, drain backlog then monitor (0c) |
-| `--once` | `MODE=drain-once`, drain backlog and exit (0c, no monitor) |
 | `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
 | `^#(\d+)$` | `MODE=issue`, group 1 |
 | `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
 | `^https?://github\.com/[^/]+/[^/]+/issues/(\d+)([/#?].*)?$` | `MODE=issue`, group 1 |
+| empty | STOP `[iterate-one-issue] No issue or goal supplied. Pass an issue ref (#42 / URL) or a freeform goal sentence; for backlog drain use \`/iterate-loop\`.` |
 | else | `MODE=goal`, `GOAL_TEXT=ARG` (strip surrounding quotes) |
-
-`MODE=continuous` and `MODE=drain-once` both run the auto-pick loop in 0c. The only difference is what happens when the backlog is empty (see 0c).
 
 ### 0b. Pre-flight (parallel)
 
@@ -33,7 +32,7 @@ git branch --show-current
 git rev-parse HEAD
 ```
 
-- Dirty tree → STOP `[iterate] Working tree is dirty. Commit or stash first.`
+- Dirty tree → STOP `[iterate-one-issue] Working tree is dirty. Commit or stash first.`
 - Not on `main` → `git checkout main && git pull --ff-only`.
 
 **Recursion-marker hygiene** (Phase 2e cleanup contract):
@@ -45,47 +44,7 @@ if [ -f "$DEPTH_FILE" ]; then
 fi
 ```
 
-### 0c. Auto-pick (only when MODE is `continuous` or `drain-once`)
-
-**Skip filter** — never pick issues with these labels:
-- `needs-grooming` (open clarification questions outstanding)
-- `blocked` (previous Done-Blocked outcome — needs human attention)
-- `iterate-in-progress` (another iterate run owns it)
-
-**Selection (one query):**
-
-```bash
-PICK=$(gh issue list --state open --json number,labels --limit 200 \
-  | jq '
-      [ .[]
-        | select(.labels | map(.name) as $L
-          | (index("needs-grooming") | not)
-          and (index("blocked")        | not)
-          and (index("iterate-in-progress") | not))
-      ]
-      | (map(select(.labels | map(.name) | index("groomed"))) + map(select(.labels | map(.name) | index("groomed") | not)))
-      | sort_by(.number)
-      | .[0].number // empty')
-```
-
-This prefers `groomed` issues; within each tier, oldest-first.
-
-**If `PICK` is non-empty:** record `OUTER_MODE=$MODE` (so Done-X handlers can chain), then set `MODE=issue`, `ISSUE_NUMBER=$PICK`, and immediately label the issue to claim it:
-
-```bash
-gh issue edit $ISSUE_NUMBER --add-label "iterate-in-progress"
-```
-
-The label is removed in Phase 2 / Done-Blocked / Done-TimedOut (whichever exit path runs).
-
-**If `PICK` is empty (backlog drained):**
-
-| Mode | Behavior |
-|---|---|
-| `drain-once` | STOP `[iterate] Backlog drained. No eligible open issues.` Exit. |
-| `continuous` | **Monitor mode.** Poll the backlog every 5 minutes (sleep 300, max 288 polls = 24 h, then STOP `[iterate] Monitor budget exhausted (24 h with no eligible issues).`). On each poll re-run the selection query. As soon as `PICK` becomes non-empty, claim it and proceed to 0d. While waiting, log a single line `[iterate] monitoring backlog — last check <ISO>, eligible=0` at most once per hour to avoid spam. |
-
-### 0d. Load spec (issue mode)
+### 0c. Load spec (issue mode)
 
 ```bash
 gh issue view $ISSUE_NUMBER --json number,title,body,labels,comments
@@ -101,14 +60,14 @@ Acceptance-criteria derivation (in order):
 - Body has `## Acceptance` / `## Success` / `## Done when` → convert that section's bullets to `- [ ]`.
 - Free-form → synthesise 1–3 minimal items, e.g. `- [ ] $ISSUE_TITLE — verifiable by <signal>`.
 
-Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines). This becomes the assessor's `REQUIREMENTS` (see 0f) — the **only** definition of done for issue mode.
+Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines). This becomes the assessor's `REQUIREMENTS` (see 0e) — the **only** definition of done for issue mode.
 
 **Bug-mode flag.** `IS_BUG = true` if any:
 - `LABELS` ∋ `bug` | `regression` | `defect`.
 - Title (case-insensitive) starts with `bug:` | `fix:` | `regression:`, or contains `[bug]` | `[regression]`.
 - Body has `## Steps to reproduce` / `## Reproduction` / `## Expected` + `## Actual`.
 
-### 0e. Clarification questions (no user prompt — defer to grooming)
+### 0d. Clarification questions (no user prompt — defer to grooming)
 
 This skill **never calls `ask_user`**. If after reading the issue body, comments, deep-dive docs, and the assessor's view of `REQUIREMENTS` the goal is still genuinely ambiguous (scope boundaries, observable success signal, internal contradictions), do **not** guess and do **not** stop the autonomous run silently. Instead:
 
@@ -118,26 +77,24 @@ This skill **never calls `ask_user`**. If after reading the issue body, comments
    ```bash
    gh issue comment $ISSUE_NUMBER --body "$(cat <<'EOF'
    <!-- iterate-needs-grooming -->
-   ## /iterate halted — clarification needed before autonomous work can proceed
+   ## /iterate-one-issue halted — clarification needed before autonomous work can proceed
 
-   The autonomous iteration loop attempted to pick up this issue but found the goal under-specified for the assessor (scope, success signal, or internal contradictions). The following blocking questions need answers before /iterate can implement safely:
+   The autonomous iteration loop attempted to pick up this issue but found the goal under-specified for the assessor (scope, success signal, or internal contradictions). The following blocking questions need answers before /iterate-one-issue can implement safely:
 
    <numbered list of ≤5 questions, each one sentence, each citing the ambiguity in the spec>
 
-   Once answered, remove the `needs-grooming` label (or run `/groom-issues $ISSUE_NUMBER`). /iterate will pick this issue up automatically on its next sweep.
+   Once answered, remove the `needs-grooming` label (or run `/groom-issues $ISSUE_NUMBER`). The next `/iterate-loop` sweep will pick this issue up automatically.
    EOF
    )"
-   gh issue edit $ISSUE_NUMBER --add-label "needs-grooming" --remove-label "iterate-in-progress"
+   gh issue edit $ISSUE_NUMBER --add-label "needs-grooming"
    ```
-   Then:
-   - `MODE=continuous` or `MODE=drain-once` → return to **0c** to pick the next eligible issue.
-   - `MODE=issue` (explicit single issue) → STOP `[iterate] Issue #$ISSUE_NUMBER deferred to grooming. See comment.` Exit.
+   Then STOP `[iterate-one-issue] Issue #$ISSUE_NUMBER deferred to grooming. See comment.` Exit cleanly so the calling `iterate-loop` (if any) can move on to the next eligible issue.
 
 **Bias is to skip this branch entirely.** Never defer over: implementation detail, anything answered by deep-dive docs, anything the assessor can discover from the codebase, style/naming/framework choices. Only defer for genuine spec ambiguity.
 
-After 0f, no GitHub-side spec changes; the loop runs purely against the captured `REQUIREMENTS`.
+After 0e, no GitHub-side spec changes; the loop runs purely against the captured `REQUIREMENTS`.
 
-### 0f. Compute branch / PR title / goal
+### 0e. Compute branch / PR title / goal
 
 | Var | Issue mode | Goal mode |
 |---|---|---|
@@ -149,14 +106,14 @@ After 0f, no GitHub-side spec changes; the loop runs purely against the captured
 
 Slug: lowercase, non-alphanum → `-`, collapse runs, trim.
 
-### 0g. Branch + draft PR
+### 0f. Branch + draft PR
 
 ```bash
 git checkout main && git pull --ff-only
 git checkout -b "$BRANCH"
 ```
 
-Pre-existing branch (local OR remote) → STOP `[iterate] Branch $BRANCH already exists. Delete or pick a different invocation — resume not supported.` Do **not** delete.
+Pre-existing branch (local OR remote) → STOP `[iterate-one-issue] Branch $BRANCH already exists. Delete or pick a different invocation — resume not supported.` Do **not** delete.
 
 ```bash
 git commit --allow-empty -m "chore(iterate): start — $GOAL_FOR_ASSESSOR"
@@ -175,7 +132,7 @@ gh pr create --draft --title "$PR_TITLE" --body "$PR_BODY"
 
 Capture `PR_NUMBER`, `PR_URL`.
 
-### 0h. State file — `.claude/iterate-state.md`
+### 0g. State file — `.claude/iterate-state.md`
 
 ```markdown
 ---
@@ -191,10 +148,10 @@ iteration_cap: 30
 # Iteration Log
 ```
 
-### 0i. Banner
+### 0h. Banner
 
 ```
-[iterate] Mode: <MODE> | Goal: <GOAL_FOR_ASSESSOR>
+[iterate-one-issue] Mode: <MODE> | Goal: <GOAL_FOR_ASSESSOR>
 <issue mode:> Issue: #<ISSUE_NUMBER> | Spec source: <SPEC_SOURCE> | Bug-mode: <IS_BUG>
 Branch: <BRANCH> | PR: <PR_URL>
 Starting autonomous loop — cap 30. Per-iteration retrospectives committed to this branch.
@@ -535,18 +492,18 @@ Update PR:
 
 ### Step 8.5 — Retrospective (committed every iteration)
 
-Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Iterate-specific bindings:
+Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Skill-specific bindings:
 
-- `SKILL_TAG=iterate`
+- `SKILL_TAG=iterate-one-issue`
 - `RUN_TAG=$(echo "$BRANCH" | tr '/' '-')-iter-$N`
-- `RETRO_FILE=".claude/retrospectives/$RUN_TAG.md"` (the SAFE_BRANCH prefix from earlier iterate versions is already encoded in `RUN_TAG`)
+- `RETRO_FILE=".claude/retrospectives/$RUN_TAG.md"`
 - `OUTCOME=<PASSED|DEGRADED|SKIPPED>` (per Step 2 + Step 7 result)
 - For bug-mode iterations, append a `## BUG_RCA` section (verbatim from Step 3a) after `## Carry-over to the next run`.
-- Phase 2 (below) is iterate's binding of **Step R2** — it runs once at terminal Done-X, not per iteration. **Skip the per-iteration R2 call** — only Step 8.5's R1 (write the file) runs inside the loop.
+- Phase 2 (below) is this skill's binding of **Step R2** — it runs once at terminal Done-X, not per iteration. **Skip the per-iteration R2 call** — only Step 8.5's R1 (write the file) runs inside the loop.
 
 #### 8.5a–b. Generate
 
-Use the R1 prompt from the shared spec, with iterate-specific context block:
+Use the R1 prompt from the shared spec, with skill-specific context block:
 ```
 - Mode: <MODE>   Goal: <GOAL_FOR_ASSESSOR>   Issue: #<ISSUE_NUMBER or n/a>
 - Bug-mode: <IS_BUG>   Outcome: <PASSED|DEGRADED|SKIPPED>
@@ -606,13 +563,18 @@ Runs first on every Done-X — before banner, before exit. Highest signal value 
 
 ### Done-Achieved · Done-Blocked · Done-TimedOut
 
-Each terminal path: clear `iterate-in-progress` label, post the appropriate PR/issue comment, set the appropriate label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, then either chain back to **0b** (when `OUTER_MODE` is `continuous`/`drain-once`) or exit. Full handler scripts in [references/done-handlers.md](references/done-handlers.md).
+Each terminal path: post the appropriate PR/issue comment, set the appropriate label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, then **exit cleanly with the outcome on stdout**. The companion `iterate-loop` (if any) parses the outcome to decide whether to chain into the next issue. Full handler scripts in [references/done-handlers.md](references/done-handlers.md).
+
+**Outcome marker (last line printed before exit, machine-parseable for `iterate-loop`):**
+```
+ITERATE_OUTCOME: <Done-Achieved|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL>
+```
 
 ---
 
 ## Halt semantics
 
-See [references/halt-semantics.md](references/halt-semantics.md) for the full enumeration of halt / DEGRADED / SKIPPED / pre-loop-halt / continuous-chaining triggers.
+See [references/halt-semantics.md](references/halt-semantics.md) for the full enumeration of halt / DEGRADED / SKIPPED / pre-loop-halt triggers.
 
 ## Commit conventions
 

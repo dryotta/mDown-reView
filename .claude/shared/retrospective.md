@@ -128,7 +128,7 @@ ISSUE_BODY:
 - Surfaced via: <link to PR / run folder / loop digest>
 
 SPEC_BODY:
-<body of `<!-- mdownreview-spec -->` comment — self-contained for fresh /iterate run>
+<body of `<!-- mdownreview-spec -->` comment — self-contained for fresh /iterate-one-issue run>
 
 # <ISSUE_TITLE>
 
@@ -206,7 +206,7 @@ EOF
 )"
 ```
 
-The `iterate-improvement` label means the next `/iterate` run on the backlog will pick this issue up automatically (per `iterate` 0c selection). The `self-improve:<SKILL_TAG>` sub-label lets humans filter by source skill.
+The `iterate-improvement` label means the next `/iterate-loop` sweep will pick this issue up automatically (per `iterate-loop` Step 1 selection). The `self-improve:<SKILL_TAG>` sub-label lets humans filter by source skill.
 
 ### R2f. Cross-link
 
@@ -220,7 +220,7 @@ For test-exploratory-e2e / -loop: log the URL to the run folder's `loop.md` / fi
 
 ### R2g. Optional auto-recursion
 
-Off by default. Only `iterate` opts in (with the `.claude/iterate-recursion-depth` safeguard documented in `.claude/skills/iterate/references/phase-2.md`). Other skills must NOT auto-recurse.
+Off by default. Only `iterate-one-issue` opts in (with the `.claude/iterate-recursion-depth` safeguard documented in `.claude/skills/iterate-one-issue/references/phase-2.md`). Other skills must NOT auto-recurse.
 
 ---
 
