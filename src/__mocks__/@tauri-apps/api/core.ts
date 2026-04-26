@@ -106,6 +106,12 @@ async function defaultInvoke(
   if (cmd === "update_comment") return undefined;
   if (cmd === "set_author") return "";
   if (cmd === "get_author") return "Test User";
+  if (cmd === "canonicalize_path") {
+    // Default: identity. Tests that exercise canonicalisation override
+    // via mockResolvedValueOnce / mockImplementation.
+    const p = (_args?.path as string | undefined) ?? "";
+    return p;
+  }
   return undefined;
 }
 

@@ -1,3 +1,4 @@
+use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::MrsfSidecar;
 use std::path::{Path, PathBuf};
 
@@ -40,7 +41,7 @@ pub fn delete_resolved_sidecars(
             Ok(s) => s,
             Err(_) => {
                 // Unparseable sidecar — preserve it.
-                let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+                let abs = canonicalize_no_verbatim(path).unwrap_or_else(|_| path.to_path_buf());
                 report.skipped.push(abs);
                 continue;
             }
@@ -54,7 +55,7 @@ pub fn delete_resolved_sidecars(
             sidecar.comments.iter().all(|c| c.resolved)
         };
 
-        let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let abs = canonicalize_no_verbatim(path).unwrap_or_else(|_| path.to_path_buf());
 
         if should_delete {
             if !dry_run {
@@ -73,11 +74,27 @@ pub fn delete_resolved_sidecars(
 /// YAML takes priority over JSON when both exist for the same source file.
 /// Results are capped at `cap` entries.
 /// Returns (sidecar_path, source_file_path) pairs.
+///
+/// `root` is canonicalized via [`canonicalize_no_verbatim`] before walking so
+/// every emitted `(sidecar, source)` pair shares the same path form as
+/// [`std::fs::read_dir`] output for the same workspace. This guarantees
+/// string-equality matches for the frontend's ghost-vs-real dedupe and
+/// "Other files" filter on Windows (issue #89: previously the scanner
+/// silently leaked the user-supplied form, so a workspace opened via a
+/// dialog (`C:\…`) and a workspace opened via an OS handler (`\\?\C:\…`)
+/// produced cross-form strings the renderer could not reconcile).
 pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
     let mut results = Vec::new();
     let mut seen_sources = std::collections::HashSet::new();
 
-    let walker = walkdir::WalkDir::new(root)
+    // Canonicalize root once so emitted paths share the form `read_dir`
+    // produces for the same workspace. Fall back to the raw input if
+    // canonicalize fails (e.g. caller passed a non-existent path) — the
+    // walker will then yield zero entries, the same behaviour as before.
+    let root_owned: PathBuf = canonicalize_no_verbatim(Path::new(root))
+        .unwrap_or_else(|_| PathBuf::from(root));
+
+    let walker = walkdir::WalkDir::new(&root_owned)
         .max_depth(50)
         .into_iter()
         .filter_map(|e| e.ok());
@@ -276,7 +293,7 @@ comments: []
     }
 
     fn canon(p: &std::path::Path) -> std::path::PathBuf {
-        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+        canonicalize_no_verbatim(p).unwrap_or_else(|_| p.to_path_buf())
     }
 
     #[test]

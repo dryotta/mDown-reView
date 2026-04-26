@@ -28,7 +28,7 @@ export function useDialogActions() {
     try {
       const selected = await showOpenDialog({ directory: true, multiple: false });
       if (typeof selected === "string") {
-        setRoot(selected);
+        await setRoot(selected);
         addRecentItem(selected, "folder");
       }
     } catch {

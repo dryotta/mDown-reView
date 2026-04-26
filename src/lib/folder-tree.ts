@@ -4,6 +4,11 @@ import type { DirEntry } from "@/lib/tauri-commands";
  * Cross-platform path prefix check. Returns true when `filePath` lies inside
  * (or is equal to) `root`, normalising `\\` and `/` separators so a Windows
  * tab that came from a posix-style root still matches.
+ *
+ * Path strings are bare-form (no Windows `\\?\` verbatim prefix) — every
+ * Rust→TS path is normalised at the IPC chokepoint
+ * (`core::paths::canonicalize_no_verbatim`), and persisted snapshots
+ * written by pre-#89 clients are upgraded by the v1 Zustand migration.
  */
 export function pathStartsWithRootCrossPlatform(filePath: string, root: string): boolean {
   if (!filePath || !root) return false;

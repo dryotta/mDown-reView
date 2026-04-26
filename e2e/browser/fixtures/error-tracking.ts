@@ -146,6 +146,13 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
                 cmd === "unregister_folder_context"
               )
                 return undefined;
+              // Identity default for canonicalize_path so test mocks that
+              // don't override it still return a usable string. Tests that
+              // exercise canonicalisation override via __TAURI_IPC_MOCK__.
+              if (cmd === "canonicalize_path") {
+                const a = (args ?? {}) as Record<string, unknown>;
+                return typeof a.path === "string" ? a.path : "";
+              }
             }
             return result;
           }
@@ -178,6 +185,10 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             cmd === "unregister_folder_context"
           )
             return undefined;
+          if (cmd === "canonicalize_path") {
+            const a = (args ?? {}) as Record<string, unknown>;
+            return typeof a.path === "string" ? a.path : "";
+          }
           return null;
         },
       };

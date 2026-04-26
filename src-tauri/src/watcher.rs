@@ -1,3 +1,4 @@
+use crate::core::paths::canonicalize_no_verbatim;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -35,7 +36,7 @@ impl WatcherState {
     /// Returns `false` for paths that fail to canonicalize (deleted files,
     /// permission errors) — callers should fail closed.
     pub fn is_path_allowed(&self, path: &Path) -> bool {
-        let canonical = match std::fs::canonicalize(path) {
+        let canonical = match canonicalize_no_verbatim(path) {
             Ok(c) => c,
             Err(_) => return false,
         };
@@ -74,7 +75,7 @@ impl WatcherState {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => return false,
         };
-        let canonical_parent = match std::fs::canonicalize(parent) {
+        let canonical_parent = match canonicalize_no_verbatim(parent) {
             Ok(c) => c,
             Err(_) => return false,
         };
@@ -100,16 +101,16 @@ impl WatcherState {
                 MAX_TREE_WATCHED_DIRS
             ));
         }
-        let canonical_root =
-            std::fs::canonicalize(&root).map_err(|e| format!("invalid root {}: {}", root, e))?;
+        let canonical_root = canonicalize_no_verbatim(Path::new(&root))
+            .map_err(|e| format!("invalid root {}: {}", root, e))?;
         if !canonical_root.is_dir() {
             return Err(format!("root is not a directory: {}", root));
         }
 
         let mut new_set: HashSet<PathBuf> = HashSet::with_capacity(dirs.len());
         for d in &dirs {
-            let canonical =
-                std::fs::canonicalize(d).map_err(|e| format!("invalid dir {}: {}", d, e))?;
+            let canonical = canonicalize_no_verbatim(Path::new(d))
+                .map_err(|e| format!("invalid dir {}: {}", d, e))?;
             if !canonical.is_dir() {
                 return Err(format!("not a directory: {}", d));
             }
@@ -300,7 +301,7 @@ pub fn update_watched_files(
 
     for path_str in &paths {
         let path = PathBuf::from(path_str);
-        if let Ok(canonical) = std::fs::canonicalize(&path) {
+        if let Ok(canonical) = canonicalize_no_verbatim(&path) {
             watched.insert(canonical);
         }
         // Always store the raw path too — on deletion, canonicalize fails
@@ -309,7 +310,7 @@ pub fn update_watched_files(
         // Also watch sidecars
         for ext in &[".review.yaml", ".review.json"] {
             let sidecar = PathBuf::from(format!("{}{}", path_str, ext));
-            if let Ok(canonical) = std::fs::canonicalize(&sidecar) {
+            if let Ok(canonical) = canonicalize_no_verbatim(&sidecar) {
                 watched.insert(canonical);
             }
             watched.insert(sidecar);
@@ -334,7 +335,7 @@ pub(crate) fn classify_event(
     watched_paths: &HashSet<PathBuf>,
     tree_dirs: &HashSet<PathBuf>,
 ) -> (Option<FileChangeEvent>, Option<PathBuf>) {
-    let canonical = std::fs::canonicalize(path).ok();
+    let canonical = canonicalize_no_verbatim(path).ok();
 
     // file-changed: match against watched_paths.
     let file_event = {

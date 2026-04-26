@@ -19,11 +19,11 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const mod = isMac ? "⌘" : "Ctrl";
 
-  const handleRecentClick = (item: RecentItem) => {
+  const handleRecentClick = async (item: RecentItem) => {
     const status = pathStatus[item.path];
     if (status === "missing") return;
     if (item.type === "folder") {
-      setRoot(item.path);
+      await setRoot(item.path);
       addRecentItem(item.path, "folder");
     } else {
       openFile(item.path);

@@ -48,16 +48,21 @@ export function buildFolderTree(
   const merged: TreeNode[] = [...flatList];
 
   if (root) {
+    // Producer-side fix lives in `core::paths::canonicalize_no_verbatim` —
+    // every Rust path crossing IPC is bare-form, so plain string equality
+    // suffices here. See `docs/security.md` rules 11+ and issue #89.
+    const flatPaths = new Set(flatList.map((n) => n.path));
     for (const ghost of ghostEntries) {
-      const alreadyInTree = flatList.some((n) => n.path === ghost.sourcePath);
-      if (alreadyInTree) continue;
+      if (flatPaths.has(ghost.sourcePath)) continue;
 
       const sep = ghost.sourcePath.includes("/") ? "/" : "\\";
       const parts = ghost.sourcePath.split(sep);
       const parentPath = parts.slice(0, -1).join(sep);
       const fileName = parts[parts.length - 1];
 
-      const parentIdx = merged.findIndex((n) => n.path === parentPath && n.isDir);
+      const parentIdx = merged.findIndex(
+        (n) => n.path === parentPath && n.isDir,
+      );
       if (parentIdx === -1 && parentPath !== root) continue;
 
       const parentDepth = parentIdx >= 0 ? merged[parentIdx].depth : -1;

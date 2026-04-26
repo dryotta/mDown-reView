@@ -142,6 +142,7 @@ pub fn open_in_default_app(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::paths::canonicalize_no_verbatim;
 
     fn cmd_program(c: &Command) -> String {
         c.get_program().to_string_lossy().into_owned()
@@ -192,7 +193,7 @@ mod tests {
     fn workspace_allowlist_accepts_inside_rejects_outside() {
         let workspace = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        let workspace_canonical = std::fs::canonicalize(workspace.path()).unwrap();
+        let workspace_canonical = canonicalize_no_verbatim(workspace.path()).unwrap();
 
         let inside_file = workspace_canonical.join("inside.bin");
         std::fs::write(&inside_file, b"data").unwrap();
@@ -219,8 +220,8 @@ mod tests {
     fn workspace_allowlist_blocks_dot_dot_traversal() {
         let workspace = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        let workspace_canonical = std::fs::canonicalize(workspace.path()).unwrap();
-        let outside_canonical = std::fs::canonicalize(outside.path()).unwrap();
+        let workspace_canonical = canonicalize_no_verbatim(workspace.path()).unwrap();
+        let outside_canonical = canonicalize_no_verbatim(outside.path()).unwrap();
 
         let outside_file = outside_canonical.join("secret.bin");
         std::fs::write(&outside_file, b"secret").unwrap();

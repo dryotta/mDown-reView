@@ -144,6 +144,7 @@ pub fn get_file_badges_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::paths::canonicalize_no_verbatim;
     use crate::core::sidecar::save_sidecar;
     use crate::core::types::{
         Anchor, CsvCellAnchor, HtmlElementAnchor, JsonPathAnchor, MrsfComment,
@@ -151,7 +152,7 @@ mod tests {
     use crate::watcher::WatcherState;
 
     fn watcher_state_allowing(dir: &std::path::Path) -> WatcherState {
-        let canonical = std::fs::canonicalize(dir).unwrap();
+        let canonical = canonicalize_no_verbatim(dir).unwrap();
         let (tx, _rx) = std::sync::mpsc::sync_channel(1);
         let state = WatcherState::new(tx);
         state
@@ -208,7 +209,7 @@ mod tests {
     #[test]
     fn typed_anchor_comments_counted_without_parsing() {
         let dir = tempfile::tempdir().unwrap();
-        let canonical = std::fs::canonicalize(dir.path()).unwrap();
+        let canonical = canonicalize_no_verbatim(dir.path()).unwrap();
         // NB: file intentionally NOT created. If badges code reads it, the
         // matcher path runs over an empty `Vec<&str>` and orphans are
         // produced — but these typed anchors must not flow through the
@@ -249,7 +250,7 @@ mod tests {
     #[test]
     fn mixed_typed_and_line_anchors() {
         let dir = tempfile::tempdir().unwrap();
-        let canonical = std::fs::canonicalize(dir.path()).unwrap();
+        let canonical = canonicalize_no_verbatim(dir.path()).unwrap();
         let file = canonical.join("doc.md");
         std::fs::write(&file, "alpha\nbeta\n").unwrap();
         let file_path = file.to_string_lossy().into_owned();

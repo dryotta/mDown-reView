@@ -56,21 +56,21 @@ describe("recentItems — addRecentItem", () => {
 });
 
 describe("closeFolder", () => {
-  it("sets root to null", () => {
-    useStore.getState().setRoot("/workspace");
+  it("sets root to null", async () => {
+    await useStore.getState().setRoot("/workspace");
     useStore.getState().closeFolder();
     expect(useStore.getState().root).toBeNull();
   });
 
-  it("clears expandedFolders", () => {
-    useStore.getState().setRoot("/workspace");
+  it("clears expandedFolders", async () => {
+    await useStore.getState().setRoot("/workspace");
     useStore.getState().setFolderExpanded("/workspace/sub", true);
     useStore.getState().closeFolder();
     expect(useStore.getState().expandedFolders).toEqual({});
   });
 
-  it("keeps open tabs unchanged", () => {
-    useStore.getState().setRoot("/workspace");
+  it("keeps open tabs unchanged", async () => {
+    await useStore.getState().setRoot("/workspace");
     useStore.getState().openFile("/workspace/readme.md");
     useStore.getState().closeFolder();
     expect(useStore.getState().tabs).toHaveLength(1);

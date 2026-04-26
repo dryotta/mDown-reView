@@ -23,9 +23,9 @@ export function useLaunchArgsBootstrap() {
   useEffect(() => {
     const drain = () => {
       getLaunchArgs()
-        .then(({ files, folders }) => {
+        .then(async ({ files, folders }) => {
           if (files.length === 0 && folders.length === 0) return;
-          openFilesFromArgs(files, folders, useStore.getState());
+          await openFilesFromArgs(files, folders, useStore.getState());
         })
         .catch(() => {});
     };
