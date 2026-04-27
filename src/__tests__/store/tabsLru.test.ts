@@ -98,20 +98,6 @@ describe("tabs slice — LRU eviction (MAX_TABS)", () => {
     expect(s.lastSaveByPath["/p1.md"]).toBeUndefined();
   });
 
-  it("evicts lastFileReloadedAt and lastCommentsReloadedAt entries for the evicted tab", () => {
-    const store = useStore.getState();
-    store.openFile("/p1.md");
-    useStore.getState().setLastFileReloadedAt("/p1.md", 111);
-    useStore.getState().setLastCommentsReloadedAt("/p1.md", 222);
-    for (let i = 2; i <= MAX_TABS; i++) {
-      useStore.getState().openFile(`/p${i}.md`);
-    }
-    useStore.getState().openFile(`/p${MAX_TABS + 1}.md`);
-    const s = useStore.getState();
-    expect(s.tabs.find((t) => t.path === "/p1.md")).toBeUndefined();
-    expect(s.lastFileReloadedAt["/p1.md"]).toBeUndefined();
-    expect(s.lastCommentsReloadedAt["/p1.md"]).toBeUndefined();
-  });
 });
 
 describe("filterStaleTabs — MAX_TABS rehydration cap", () => {

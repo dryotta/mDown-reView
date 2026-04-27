@@ -36,8 +36,9 @@ export function truncatePath(path: string, max = 60): string {
  * does NOT call `useFileContent` — that hook is the SOLE issuer of
  * `read_text_file`, and ViewerRouter already mounts it. Reading file metadata
  * here would double the IPC + UTF-8 decode + line-count cost on every tab
- * activation. Instead, `useFileContent` populates `fileMetaByPath` in the
- * store on success, and we read the cached value.
+ * activation. Instead, `useFileContent` and `use-comments` populate
+ * `fileMetaByPath` (size, line count, file mtime, comments-sidecar mtime) on
+ * each successful load, and we read the cached values.
  */
 export function StatusBar() {
   const activeTabPath = useStore((s) => s.activeTabPath);

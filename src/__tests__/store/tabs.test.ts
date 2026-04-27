@@ -97,20 +97,6 @@ describe("tabs slice – closeTab", () => {
     useStore.getState().closeTab("/a.md");
     expect(useStore.getState().activeTabPath).toBe("/b.md");
   });
-
-  it("evicts lastFileReloadedAt and lastCommentsReloadedAt for the closed path", () => {
-    useStore.getState().openFile("/a.md");
-    useStore.getState().openFile("/b.md");
-    useStore.getState().setLastFileReloadedAt("/a.md", 111);
-    useStore.getState().setLastCommentsReloadedAt("/a.md", 222);
-    useStore.getState().setLastFileReloadedAt("/b.md", 333);
-    useStore.getState().closeTab("/a.md");
-    const s = useStore.getState();
-    expect(s.lastFileReloadedAt["/a.md"]).toBeUndefined();
-    expect(s.lastCommentsReloadedAt["/a.md"]).toBeUndefined();
-    // unrelated paths preserved
-    expect(s.lastFileReloadedAt["/b.md"]).toBe(333);
-  });
 });
 
 describe("tabs slice – setScrollTop", () => {
@@ -161,15 +147,6 @@ describe("tabs slice – closeAllTabs", () => {
     expect(useStore.getState().viewModeByTab).toEqual({});
   });
 
-  it("clears lastFileReloadedAt and lastCommentsReloadedAt", () => {
-    useStore.getState().openFile("/a.md");
-    useStore.getState().setLastFileReloadedAt("/a.md", 111);
-    useStore.getState().setLastCommentsReloadedAt("/a.md", 222);
-    useStore.getState().closeAllTabs();
-    expect(useStore.getState().lastFileReloadedAt).toEqual({});
-    expect(useStore.getState().lastCommentsReloadedAt).toEqual({});
-  });
-
   it("is a no-op when there are no tabs", () => {
     useStore.getState().closeAllTabs();
     expect(useStore.getState().tabs).toHaveLength(0);
@@ -196,12 +173,6 @@ describe("view mode per tab", () => {
 });
 
 describe("tabs slice – setFileMeta", () => {
-  it("stores sizeBytes and lineCount via the legacy positional signature", () => {
-    useStore.getState().setFileMeta("/a.md", 1234, 56);
-    const meta = useStore.getState().fileMetaByPath["/a.md"];
-    expect(meta).toEqual({ sizeBytes: 1234, lineCount: 56 });
-  });
-
   it("stores fields via the patch signature", () => {
     useStore.getState().setFileMeta("/a.md", { fileMtime: 1700000000000, commentsMtime: null });
     const meta = useStore.getState().fileMetaByPath["/a.md"];
@@ -213,16 +184,5 @@ describe("tabs slice – setFileMeta", () => {
     useStore.getState().setFileMeta("/a.md", { fileMtime: 123 });
     const meta = useStore.getState().fileMetaByPath["/a.md"];
     expect(meta).toEqual({ sizeBytes: 10, fileMtime: 123 });
-  });
-
-  it("mixes legacy positional and patch calls for the same path", () => {
-    useStore.getState().setFileMeta("/a.md", 999, 42);
-    useStore.getState().setFileMeta("/a.md", { commentsMtime: 1700000000001 });
-    const meta = useStore.getState().fileMetaByPath["/a.md"];
-    expect(meta).toEqual({
-      sizeBytes: 999,
-      lineCount: 42,
-      commentsMtime: 1700000000001,
-    });
   });
 });

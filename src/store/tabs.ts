@@ -5,10 +5,12 @@
  * Owns the open-tabs list, active tab pointer, and a small set of session-only
  * per-path maps that are NEVER persisted (rule 15):
  *   - viewModeByTab — last chosen viewer mode (source/visual)
- *   - lastFileReloadedAt / lastCommentsReloadedAt — wall-clock reload timestamps
- *   - fileMetaByPath — { sizeBytes, lineCount } cached from `read_text_file`
- *     so the StatusBar can show file metadata without a second IPC round-trip
- *     (the canonical TextFileResult chokepoint — see commands/fs.rs:71-109).
+ *   - fileMetaByPath — { sizeBytes, lineCount, fileMtime, commentsMtime } cached
+ *     from `read_text_file` / `get_file_comments`. The StatusBar reads mtimes
+ *     from this map (see `FileMeta` below); there is no separate
+ *     reload-timestamp map (the historic `lastFileReloadedAt` /
+ *     `lastCommentsReloadedAt` slices were removed once mtimes covered the use
+ *     case). Canonical TextFileResult chokepoint — see commands/fs.rs:71-109.
  *
  * The slice creator function is composed into the combined store in
  * `src/store/index.ts`. It uses the typed `set`/`get` signatures from
@@ -57,10 +59,6 @@ export interface TabsSlice {
   tabs: Tab[];
   activeTabPath: string | null;
   viewModeByTab: Record<string, "source" | "visual">;
-  /** Wall-clock timestamps of last successful file content load per path. Session-only (not persisted). */
-  lastFileReloadedAt: Record<string, number>;
-  /** Wall-clock timestamps of last successful comments load per path. Session-only (not persisted). */
-  lastCommentsReloadedAt: Record<string, number>;
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
@@ -69,19 +67,8 @@ export interface TabsSlice {
   setActiveTab: (path: string, opts?: { recordHistory?: boolean }) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
   setViewMode: (path: string, mode: "source" | "visual") => void;
-  setLastFileReloadedAt: (path: string, ts: number) => void;
-  setLastCommentsReloadedAt: (path: string, ts: number) => void;
-  /**
-   * Merge a partial `FileMeta` patch into the cached entry for `path`.
-   * Overload preserves the legacy positional `(path, sizeBytes, lineCount)`
-   * call shape so Group D can migrate consumers (`useFileContent`) without
-   * a flag-day. The patch shape is the canonical form for new code (Group D
-   * also writes `fileMtime` and `commentsMtime`).
-   */
-  setFileMeta: {
-    (path: string, patch: Partial<FileMeta>): void;
-    (path: string, sizeBytes: number, lineCount: number): void;
-  };
+  /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
+  setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
 }
 
 export function filterStaleTabs(
@@ -127,8 +114,6 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     tabs: [],
     activeTabPath: null,
     viewModeByTab: {},
-    lastFileReloadedAt: {},
-    lastCommentsReloadedAt: {},
     fileMetaByPath: {},
 
     openFile: (path, opts) => {
@@ -157,14 +142,10 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           const { [victim.path]: _v, ...restView } = get().viewModeByTab;
           const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
           const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
-          const { [victim.path]: _fr, ...restFileReload } = get().lastFileReloadedAt;
-          const { [victim.path]: _cr, ...restCommentsReload } = get().lastCommentsReloadedAt;
           set({
             viewModeByTab: restView,
             lastSaveByPath: restSave,
             fileMetaByPath: restMeta,
-            lastFileReloadedAt: restFileReload,
-            lastCommentsReloadedAt: restCommentsReload,
           });
         }
       }
@@ -187,16 +168,12 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
       const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
       const { [path]: _unusedMeta, ...restMeta } = get().fileMetaByPath;
-      const { [path]: _unusedFileReload, ...restFileReload } = get().lastFileReloadedAt;
-      const { [path]: _unusedCommentsReload, ...restCommentsReload } = get().lastCommentsReloadedAt;
       set({
         tabs: newTabs,
         activeTabPath: newActive,
         viewModeByTab: restViewModes,
         lastSaveByPath: restSaveByPath,
         fileMetaByPath: restMeta,
-        lastFileReloadedAt: restFileReload,
-        lastCommentsReloadedAt: restCommentsReload,
       });
     },
 
@@ -207,8 +184,6 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         viewModeByTab: {},
         lastSaveByPath: {},
         fileMetaByPath: {},
-        lastFileReloadedAt: {},
-        lastCommentsReloadedAt: {},
       }),
 
     setActiveTab: (path, opts) => {
@@ -234,27 +209,12 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         viewModeByTab: { ...s.viewModeByTab, [path]: mode },
       })),
 
-    setLastFileReloadedAt: (path, ts) =>
-      set((s) => ({ lastFileReloadedAt: { ...s.lastFileReloadedAt, [path]: ts } })),
-
-    setLastCommentsReloadedAt: (path, ts) =>
-      set((s) => ({ lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, [path]: ts } })),
-
-    setFileMeta: ((
-      path: string,
-      second: number | Partial<FileMeta>,
-      third?: number,
-    ) => {
-      const patch: Partial<FileMeta> =
-        typeof second === "number"
-          ? { sizeBytes: second, lineCount: third }
-          : second;
+    setFileMeta: (path, patch) =>
       set((s) => ({
         fileMetaByPath: {
           ...s.fileMetaByPath,
           [path]: { ...s.fileMetaByPath[path], ...patch },
         },
-      }));
-    }) as TabsSlice["setFileMeta"],
+      })),
   };
 }

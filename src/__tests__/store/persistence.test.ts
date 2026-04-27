@@ -98,14 +98,6 @@ describe("persistence partialize contract", () => {
     expect(snapshot).toHaveProperty("readingWidth", 900);
   });
 
-  it("does NOT persist lastFileReloadedAt or lastCommentsReloadedAt", () => {
-    useStore.getState().setLastFileReloadedAt("/a.md", 12345);
-    useStore.getState().setLastCommentsReloadedAt("/a.md", 67890);
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).not.toHaveProperty("lastFileReloadedAt");
-    expect(snapshot).not.toHaveProperty("lastCommentsReloadedAt");
-  });
-
   it("theme defaults to 'system' before any change", () => {
     const snapshot = getPersistedSnapshot();
     expect(snapshot.theme).toBe("system");
