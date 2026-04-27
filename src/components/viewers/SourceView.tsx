@@ -15,7 +15,6 @@ import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
-import { useZoom } from "@/hooks/useZoom";
 import "@/styles/source-viewer.css";
 
 interface Props {
@@ -24,15 +23,18 @@ interface Props {
   filePath: string;
   fileSize?: number;
   wordWrap?: boolean;
+  zoom: number;
 }
 
-export function SourceView({ content, path, filePath, fileSize, wordWrap }: Props) {
+export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }: Props) {
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  // Source view uses its own filetype key so source-mode zoom is independent
-  // of visual-mode zoom for the same document (#65 D1/D2/D3).
-  const { zoom } = useZoom(".source");
+  // Zoom is owned by `EnhancedViewer` (single owner of `useZoom` for the
+  // active sub-view) and forwarded as a prop. The `--source-zoom` CSS
+  // custom property below scales `.source-lines` text in CSS itself,
+  // so toolbar buttons and Ctrl+= / Ctrl+- / Ctrl+0 all reach the
+  // visible source text via one code path (#92).
   const { query, setQuery, matches, currentIndex, next, prev } = useSearch(content);
   const sourceLinesRef = useRef<HTMLDivElement>(null);
 
@@ -170,7 +172,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap }: Prop
   });
 
   return (
-    <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", fontSize: `${zoom * 100}%` }}>
+    <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", "--source-zoom": zoom } as React.CSSProperties}>
       {searchOpen && (
         <SearchBar
           query={query}

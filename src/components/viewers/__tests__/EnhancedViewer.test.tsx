@@ -8,7 +8,9 @@ vi.mock("../MarkdownViewer", () => ({
   MarkdownViewer: () => <div data-testid="markdown-viewer">MarkdownViewer</div>,
 }));
 vi.mock("../SourceView", () => ({
-  SourceView: () => <div data-testid="source-view">SourceView</div>,
+  SourceView: ({ zoom }: { zoom: number }) => (
+    <div data-testid="source-view" data-zoom={zoom}>SourceView</div>
+  ),
 }));
 vi.mock("../JsonTreeView", () => ({
   JsonTreeView: ({ content }: { content: string }) => {
@@ -101,5 +103,18 @@ describe("EnhancedViewer", () => {
   it("hides Print button for plain .txt files", () => {
     render(<EnhancedViewer content="hello" path="/test.txt" filePath="/test.txt" />);
     expect(screen.queryByRole("button", { name: /^print$/i })).toBeNull();
+  });
+
+  // #92 — single owner of `useZoom` lives in EnhancedViewer; SourceView
+  // accepts `zoom` as a prop. Clicking the toolbar zoom-in must update
+  // the value the SourceView receives so its `--source-zoom` CSS var
+  // (and thus the visible source text) actually scales.
+  it("forwards zoom to SourceView and updates it on toolbar Zoom in click (#92)", () => {
+    render(<EnhancedViewer content="hello" path="/test.txt" filePath="/test.txt" />);
+    const sv = screen.getByTestId("source-view");
+    expect(sv.getAttribute("data-zoom")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
+    const after = Number(sv.getAttribute("data-zoom"));
+    expect(after).toBeGreaterThan(1);
   });
 });
