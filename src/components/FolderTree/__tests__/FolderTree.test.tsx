@@ -450,6 +450,21 @@ describe("filter input Escape behavior", () => {
     expect(document.activeElement).not.toBe(input);
   });
 
+  it("Escape during IME composition is ignored (filter not cleared, focus retained)", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "README" } });
+    input.focus();
+    expect(input.value).toBe("README");
+
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+
+    expect(input.value).toBe("README");
+    expect(document.activeElement).toBe(input);
+  });
+
   it("Escape on already-empty filter blurs without changing state", async () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
