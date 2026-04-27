@@ -257,6 +257,20 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
           placeholder="Filter files…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            // Let IME consume Escape to cancel composition; don't hijack it as filter-clear.
+            if (e.nativeEvent.isComposing) return;
+            // Precedence: always preventDefault; non-empty filter clears + stops propagation
+            // (so global Escape handlers don't also fire); empty filter only blurs and lets
+            // the event bubble so global shortcuts can react.
+            e.preventDefault();
+            if (filter !== "") {
+              e.stopPropagation();
+              setFilter("");
+            }
+            e.currentTarget.blur();
+          }}
         />
       </div>
 

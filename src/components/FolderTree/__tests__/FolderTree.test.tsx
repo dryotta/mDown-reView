@@ -409,4 +409,129 @@ describe("6.11 – grouped flat filter view", () => {
   });
 });
 
+// ─── filter input Escape behavior ────────────────────────────────────────────
+
+describe("filter input Escape behavior", () => {
+  it("Escape on non-empty filter clears the filter and restores hidden entries", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "README" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+    });
+
+    input.focus();
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(input.value).toBe("");
+      // No grouped-filter UI remains.
+      expect(document.querySelectorAll(".folder-tree-filter-group-header").length).toBe(0);
+      expect(document.querySelectorAll(".folder-tree-filter-group").length).toBe(0);
+      // Previously-hidden entry is visible again.
+      expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    });
+  });
+
+  it("Escape on non-empty filter blurs the input", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "README" } });
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("Escape during IME composition is ignored (filter not cleared, focus retained)", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "README" } });
+    input.focus();
+    expect(input.value).toBe("README");
+
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+
+    expect(input.value).toBe("README");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("Escape on already-empty filter blurs without changing state", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    input.focus();
+    expect(input.value).toBe("");
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(input.value).toBe("");
+    expect(document.activeElement).not.toBe(input);
+    // Tree still fully visible.
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  });
+
+  it("Escape stops propagation when filter is non-empty, lets it bubble when empty; preventDefault always called", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+
+    // ── Non-empty: stopPropagation prevents window listener from seeing the event ──
+    fireEvent.change(input, { target: { value: "README" } });
+    await waitFor(() => {
+      expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+    });
+
+    const windowSpyNonEmpty = vi.fn();
+    window.addEventListener("keydown", windowSpyNonEmpty);
+
+    const evt1 = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    const preventDefaultSpy1 = vi.spyOn(evt1, "preventDefault");
+    const stopPropagationSpy1 = vi.spyOn(evt1, "stopPropagation");
+    input.focus();
+    act(() => {
+      input.dispatchEvent(evt1);
+    });
+
+    expect(preventDefaultSpy1).toHaveBeenCalled();
+    expect(stopPropagationSpy1).toHaveBeenCalled();
+    expect(windowSpyNonEmpty).not.toHaveBeenCalled();
+
+    window.removeEventListener("keydown", windowSpyNonEmpty);
+
+    // Wait for the clear to settle before next phase.
+    await waitFor(() => expect(input.value).toBe(""));
+
+    // ── Empty: event bubbles, no stopPropagation ─────────────────────────────
+    const windowSpyEmpty = vi.fn();
+    window.addEventListener("keydown", windowSpyEmpty);
+
+    const evt2 = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    const preventDefaultSpy2 = vi.spyOn(evt2, "preventDefault");
+    const stopPropagationSpy2 = vi.spyOn(evt2, "stopPropagation");
+    input.focus();
+    act(() => {
+      input.dispatchEvent(evt2);
+    });
+
+    expect(preventDefaultSpy2).toHaveBeenCalled();
+    expect(stopPropagationSpy2).not.toHaveBeenCalled();
+    expect(windowSpyEmpty).toHaveBeenCalled();
+
+    window.removeEventListener("keydown", windowSpyEmpty);
+  });
+});
+
 
