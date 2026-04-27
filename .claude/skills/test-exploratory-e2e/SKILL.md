@@ -12,8 +12,16 @@ You ARE the exploration loop. The skill ships a thin Playwright REPL; you drive 
 1. OS is Windows.
 2. Port 9222 is free.
 3. `src-tauri/target/{debug,release}/mdownreview.exe` exists.
-4. If the binary is a debug build, Vite must serve `localhost:1420`. If it isn't running, start it:
-   `powershell mode: async, shellId: vite, command: npx vite`
+4. If the binary is a debug build, Vite must serve `localhost:1420`. **HTTP-probe the port** with a 3-second timeout, do not just trust that the `vite` shell process is alive — Vite occasionally keeps the process alive after its TCP listener has crashed silently (issue #155). If the probe fails, kill the stale shell and respawn `npx vite`, then re-probe until 200:
+
+   ```powershell
+   # Probe (run from any shell, including powershell tool)
+   try { (Invoke-WebRequest -Uri http://localhost:1420 -UseBasicParsing -TimeoutSec 3).StatusCode } catch { 'DOWN' }
+   ```
+
+   - If output is `200`: ready, proceed.
+   - If output is `DOWN` or any non-2xx: `Stop-Process -Id <vite-shell-pid> -Force` (look up the PID via the `vite` shellId), then `powershell mode: async, shellId: vite, command: npx vite`, wait ~3 s, re-probe. Refuse to launch the REPL until a probe returns 200. Never use `Stop-Process -Name node` (other Node processes may be running).
+   - If Vite is not running at all (no `vite` shellId in `list_powershell`): start it: `powershell mode: async, shellId: vite, command: npx vite`, then probe.
 5. **Fully autonomous** — never call `ask_user`. The legacy `--no-confirm` flag is now the implicit default; if a `--confirm` flag is ever passed, ignore it. Proceed straight to the REPL.
 
 ## Start the REPL

@@ -30,29 +30,38 @@ This skill is **fully autonomous — it never calls `ask_user`.** Assume the use
 For `i = 1 .. iterations`:
 
 1. **Record baseline** — `git rev-parse origin/main` → baseline SHA. Save it.
-2. **Run one round** — invoke the **test-exploratory-e2e** skill in full:
+2. **Per-iteration Vite health probe** (debug-build runs only) — Vite's TCP listener can crash silently while the hosting `vite` shell process keeps reporting `ready in <ms>` (issue #155). Before invoking the inner skill, HTTP-probe `localhost:1420` with a 3-second timeout:
+
+   ```powershell
+   try { (Invoke-WebRequest -Uri http://localhost:1420 -UseBasicParsing -TimeoutSec 3).StatusCode } catch { 'DOWN' }
+   ```
+
+   - If `200`: proceed to step 3.
+   - If `DOWN` or any non-2xx: `Stop-Process -Id <vite-shell-pid> -Force` (look up the PID via the `vite` shellId in `list_powershell`), then `powershell mode: async, shellId: vite, command: npx vite`, wait ~3 s, re-probe. Refuse to invoke the inner skill until a probe returns 200.
+   - This is the orchestrator's responsibility on every iteration; the inner skill's pre-flight is a defence-in-depth (it runs the same probe at i=0 of the *inner* run, which only fires once per iteration).
+3. **Run one round** — invoke the **test-exploratory-e2e** skill in full:
    - Pre-flight (build, port 9222, Vite if debug binary).
    - Drive the REPL for the configured step budget (defaults to ~30–50 actions; respects the agent's own judgement).
    - Record findings with `group` tags (responsive-layout, modal-ux, accessibility, visual-polish, errors, misc).
    - `{"act":"file_issues","dryRun":false}` — files NEW groups, comments on REPRODUCED groups via the `<!-- explore-ux:group=<g> -->` marker.
    - `{"act":"stop"}` — emit the run report.
-3. **Wait for main to advance**:
+4. **Wait for main to advance**:
    ```powershell
    npx tsx .claude/skills/test-exploratory-loop/runner/wait-for-main.ts `
      --since <baseline-sha> --timeout <S> --poll 60
    ```
    Blocks until `origin/main` differs from baseline. Exit 0 = advanced, 2 = timeout, 1 = git error.
-4. **Sync the workspace** (only if iteration < iterations):
+5. **Sync the workspace** (only if iteration < iterations):
    ```powershell
    npx tsx .claude/skills/test-exploratory-loop/runner/sync.ts
    ```
    Fetches origin, fast-forwards `main`. Refuses if the working tree is dirty outside the allow-list (only `.claude/retrospectives/**.md` is allowed; those are stashed across the ff and restored).
-5. **Rebuild** (unless `--no-build`):
+6. **Rebuild** (unless `--no-build`):
    ```powershell
    npm run tauri -- build --debug   # or `npm run tauri:build` for release
    ```
    Skip if the user is running Vite-served debug — the binary already follows source.
-6. Brief progress report: `[loop i/N] new=X reproduced=Y filed=Z; advance=<old>..<new>`.
+7. Brief progress report: `[loop i/N] new=X reproduced=Y filed=Z; advance=<old>..<new>`.
 
 After the last iteration, write a session digest to `.claude/test-exploratory-loop/runs/<ISO-ts>/loop.md` summarising per-iteration counts, all baseline→advance SHA pairs, and links to filed/reproduced issues.
 
