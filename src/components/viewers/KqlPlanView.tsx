@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { parseKql, type KqlPipelineStep } from "@/lib/tauri-commands";
 import { formatStepsForDisplay } from "@/lib/kql-format";
+import { useZoom } from "@/hooks/useZoom";
 import "@/styles/kql-plan.css";
 
 interface KqlPlanViewProps {
@@ -33,6 +34,7 @@ const KQL_OPERATORS = new Set([
 
 export function KqlPlanView({ content }: KqlPlanViewProps) {
   const [steps, setSteps] = useState<KqlPipelineStep[]>([]);
+  const { zoom } = useZoom(".kql");
 
   useEffect(() => {
     if (!content.trim()) {
@@ -57,7 +59,7 @@ export function KqlPlanView({ content }: KqlPlanViewProps) {
 
   if (!content.trim()) {
     return (
-      <div className="kql-plan-container">
+      <div className="kql-plan-container" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
         <div className="kql-empty">No query to display</div>
       </div>
     );
@@ -99,7 +101,7 @@ export function KqlPlanView({ content }: KqlPlanViewProps) {
   };
 
   return (
-    <div className="kql-plan-container">
+    <div className="kql-plan-container" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
       <div className="kql-formatted-query">{highlightKeywords(formattedQuery)}</div>
 
       <table className="kql-operator-table">

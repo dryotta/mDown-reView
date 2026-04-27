@@ -4,7 +4,7 @@
   background: var(--color-surface, #f6f8fa);
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
 }
 .html-preview-comment-toggle.is-active {
   background: var(--color-accent-bg, #ddf4ff);
