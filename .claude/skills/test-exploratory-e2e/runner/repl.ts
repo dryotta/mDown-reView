@@ -116,8 +116,12 @@ async function observe(page: Page): Promise<Observation> {
       select: "combobox", nav: "navigation", header: "banner", main: "main",
       footer: "contentinfo", aside: "complementary", dialog: "dialog",
     };
-    // Mirrors observe-dom.ts ariaBool — kept inline so this evaluate body
-    // is self-contained when serialized into Playwright's page context.
+    // ⚠️  CRITICAL: Every function inside this page.evaluate body MUST be a
+    // plain JS function with NO TypeScript type annotations. tsx/esbuild's
+    // --keepNames injects __name() wrappers around typed functions, and
+    // __name doesn't exist in the browser context → ReferenceError (#177).
+    // The addInitScript shim in setup() is defence-in-depth only.
+    // Regression test: observe-dom.test.ts "__name injection guard (#177)".
     function ariaBool(el, attr) {
       if (!el.hasAttribute(attr)) return null;
       var v = el.getAttribute(attr);
@@ -272,7 +276,62 @@ async function execute(cmd: Command, s: Session): Promise<Response> {
       case "press":      await s.page.keyboard.press(cmd.key); return ok({ ok: true });
       case "type":       await s.page.fill(cmd.selector, cmd.text, { timeout: 3000 }); return ok({ ok: true });
       case "hover":      await s.page.hover(cmd.selector, { timeout: 3000 }); return ok({ ok: true });
+      case "select_text": {
+        await s.page.evaluate(
+          function (sel, startOff, endOff) {
+            var target = document.querySelector(sel);
+            if (!target) throw new Error("select_text: selector not found: " + sel);
+            var textNode = target.firstChild;
+            if (textNode && textNode.nodeType !== Node.TEXT_NODE) {
+              var walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+              textNode = walker.nextNode();
+            }
+            if (!textNode) throw new Error("select_text: no text node in " + sel);
+            var len = textNode.textContent ? textNode.textContent.length : 0;
+            var range = document.createRange();
+            range.setStart(textNode, Math.min(startOff, len));
+            range.setEnd(textNode, Math.min(endOff, len));
+            var selection = window.getSelection();
+            if (selection) {
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+            document.dispatchEvent(new Event("selectionchange"));
+          },
+          cmd.selector,
+          cmd.startOffset ?? 0,
+          cmd.endOffset ?? 999999,
+        );
+        return ok({ ok: true });
+      }
       case "resize":     await s.page.setViewportSize({ width: cmd.width, height: cmd.height }); return ok({ ok: true });
+      case "scroll": {
+        if (cmd.selector) {
+          await s.page.evaluate(
+            function (sel, x, y) {
+              var el = document.querySelector(sel);
+              if (el) el.scrollTo(x, y);
+            },
+            cmd.selector,
+            cmd.x ?? 0,
+            cmd.y ?? 0,
+          );
+        } else {
+          await s.page.evaluate(
+            function (x, y) { window.scrollTo(x, y); },
+            cmd.x ?? 0,
+            cmd.y ?? 0,
+          );
+        }
+        return ok({ ok: true });
+      }
+      case "wait_for_selector": {
+        await s.page.waitForSelector(cmd.selector, {
+          state: cmd.state ?? "visible",
+          timeout: cmd.timeout ?? 5000,
+        });
+        return ok({ ok: true });
+      }
       case "emit": {
         const event = cmd.event;
         await s.page.evaluate(async (ev) => {

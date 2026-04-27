@@ -206,3 +206,25 @@ describe("ariaName / focusSelector", () => {
     expect(focusSelector(clsEl)).toBe("button.btn");
   });
 });
+
+describe("__name injection guard (#177)", () => {
+  it("inline ariaBool in repl.ts observe body must be a plain function, not a typed arrow", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(
+      ".claude/skills/test-exploratory-e2e/runner/repl.ts",
+      "utf8",
+    );
+    // Find the interactives evaluate body
+    const evalMatch = src.match(
+      /const interactives = await page\.evaluate\(([\s\S]*?)}, makeSelectorFn\(\)\);/,
+    );
+    expect(evalMatch).not.toBeNull();
+    const evalBody = evalMatch![1];
+    // ariaBool must NOT have TypeScript type annotations
+    expect(evalBody).not.toMatch(/function ariaBool\([^)]*:[^)]*\)/);
+    // Strip single-line comments before checking for __name() calls —
+    // the warning comment itself legitimately mentions __name().
+    const codeOnly = evalBody.replace(/\/\/.*$/gm, "");
+    expect(codeOnly).not.toContain("__name(");
+  });
+});
