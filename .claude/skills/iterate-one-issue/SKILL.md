@@ -17,7 +17,7 @@ Let `ARG` = trimmed string after skill name. First match wins:
 
 | Pattern | Result |
 |---|---|
-| `^--resume-rg\s+(\S+)$` | `MODE=resume-rg`, `BRANCH=$1`. Skips 0b–0h entirely; jumps to Step 9b–d-resume per [references/release-gate.md § 9b–d](references/release-gate.md#9bd--resume-idempotent-re-entry). Pre-conditions (caller's responsibility): cwd is the worktree where `<BRANCH>` is checked out, `git status` is clean, and `.claude/iterate-state-<branch-slug>.md` exists with `release_gate.state ∈ {dispatched, failed, passed}`. Used by `iterate-loop --pipeline` from yield points. |
+| `^--resume-rg\s+(\S+)$` | `MODE=resume-rg`, `BRANCH=$1`. Skips 0b–0h; jumps to [release-gate.md § 9b–d](references/release-gate.md#9bd--resume-idempotent-re-entry). Caller pre-conditions: cwd = worktree with `<BRANCH>` checked out · clean tree · `.claude/iterate-state-<branch-slug>.md` has `release_gate.state ∈ {dispatched, failed, passed}`. Used by `iterate-loop --pipeline` at yield points. |
 | `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
 | `^#(\d+)$` | `MODE=issue`, group 1 |
 | `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
@@ -160,7 +160,7 @@ release_gate:
 # Iteration Log
 ```
 
-**Resume contract.** Every field above is the source of truth — Step 9b–d-resume reads cold from this file and may run from a different CLI session than the one that wrote 9a. The companion `iterate-loop` (in pipeline mode) and the `/iterate-resume` entry point both rely on this. Other steps update `iter_base_sha` (Step 1) and `release_gate.*` (Step 9a/c/d); never write through these from anywhere else.
+**Resume contract.** This file is the source of truth — 9b–d-resume reads it cold and may run from a different CLI session than 9a. `iterate-loop --pipeline` and `/iterate-resume` both depend on it. Only Step 1 writes `iter_base_sha`; only Step 9a/c/d writes `release_gate.*`.
 
 ### 0h. Banner
 
@@ -410,7 +410,7 @@ echo "[diff-class] $DIFF_CLASS — $(echo "$DIFF_FILES" | wc -l) files"
 
 #### 6c. Local validate ∥ CI poll ∥ Expert diff review (parallel)
 
-ONE message, three agents launched together. The expert panel does NOT wait for local/CI — it runs against the diff that's already on the branch.
+ONE message, three agents launched together. The expert panel runs against the pushed diff — does not wait for local/CI.
 
 **A — `exe-implementation-validator` (diff-scoped):**
 
@@ -436,7 +436,7 @@ Stop when no check is "pending"/"in_progress".
 Return PASS or FAIL with failed-check names + logs.
 ```
 
-CI itself is path-filtered (see `.github/workflows/ci.yml`), so on `prompt-only`/`docs-only` diffs every check correctly skips green within ~30 s of dispatch — the poller still runs (cheap), just exits fast.
+CI is path-filtered (`.github/workflows/ci.yml`); on `prompt-only`/`docs-only` diffs every check skips green within ~30 s — poller exits fast.
 
 **C — Expert diff review panel (diff-scoped, see Step 7).** Launched in the SAME parallel message as A and B; details in Step 7.
 
@@ -471,7 +471,7 @@ git diff $ITER_BASE_SHA HEAD --stat
 git diff $ITER_BASE_SHA HEAD
 ```
 
-Spawn the panel in the SAME parallel message as the validators (6c-C). Panel composition is **demand-driven by `DIFF_CLASS` and path triggers** — mirrors Step 3's rule.
+Spawn the panel in the SAME parallel message as the validators (6c-C). Composition is demand-driven by `DIFF_CLASS` + path triggers (mirrors Step 3).
 
 **Always included** (every diff): `lean-expert`, `rubber-duck`.
 
@@ -483,8 +483,6 @@ Spawn the panel in the SAME parallel message as the validators (6c-C). Panel com
 | `prompt-only` | `documentation-expert` (the prompt itself is documentation), `architect-expert` (skill/agent contracts shape downstream IPC and dispatch). Skip the rest — `react-tauri-expert`/`performance-expert`/`bug-expert`/`security-expert`/`test-expert` have nothing to say about a markdown contract change. |
 | `docs-only` | `documentation-expert` only. |
 | `none` | Skip Step 7 entirely. |
-
-This implements the diff-scoped tightening called out in retrospective `feature-issue-105-assessor-path-check-iter-1.md`: prompt/docs-only iterations no longer dispatch the full 8-expert panel.
 
 Each prompt:
 ```
@@ -506,7 +504,7 @@ BLOCK on any of these — APPROVE otherwise. Cite specific rule numbers from doc
 Return APPROVE or BLOCK with file:line + "violates rule N in docs/X.md".
 ```
 
-Findings flow into 6d's single forward-fix wave alongside validator/CI failures. There is no separate "Step 7 forward-fix loop" any more — convergence is owned by 6d.
+Findings flow into 6d's forward-fix wave alongside validator/CI failures. Convergence is owned by 6d — no separate Step 7 forward-fix loop.
 
 ### Step 8 — Record
 
@@ -548,16 +546,16 @@ Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](.
 - `RUN_TAG=$(echo "$BRANCH" | tr '/' '-')-iter-$N`
 - `RETRO_FILE=".claude/retrospectives/$RUN_TAG.md"`
 - `OUTCOME=<PASSED|DEGRADED|SKIPPED>` (per Step 2 + Step 7 result)
-- For bug-mode iterations, append a `## BUG_RCA` section (verbatim from Step 3a) after `## Carry-over to the next run`.
-- Phase 2 (below) is this skill's binding of **Step R2** — it runs once at terminal Done-X, not per iteration. **Skip the per-iteration R2 call** — only Step 8.5's R1 (write the file) runs inside the loop.
+- Bug-mode: append `## BUG_RCA` (verbatim from Step 3a) after `## Carry-over to the next run`.
+- Phase 2 below binds **Step R2** — runs once at terminal Done-X. Skip per-iteration R2; only Step 8.5's R1 runs inside the loop.
 
 #### 8.5a–b. Generate (parallel with 9a if achieved)
 
-If Step 2 returned `achieved` AND `DIFF_CLASS=code` AND release-gate is applicable (see Step 9), dispatch in **ONE parallel message**:
+If Step 2 returned `achieved` AND `DIFF_CLASS=code` AND release-gate applies (Step 9), dispatch in **ONE parallel message**:
 - **Retro author** (`general-purpose`, R1 prompt below) — writes `$RETRO_FILE`.
-- **Step 9a-dispatch** (see Step 9 below) — triggers release-gate workflow on the iterate branch.
+- **Step 9a-dispatch** — triggers release-gate workflow.
 
-Otherwise (still in_progress / non-code diff / Step 9 skipped), run only the retro author. The 9a dispatch path either fires later (next iteration) or is skipped entirely.
+Otherwise run only the retro author.
 
 Use the R1 prompt from the shared spec, with skill-specific context block:
 ```
@@ -575,19 +573,19 @@ Use the R1 prompt from the shared spec, with skill-specific context block:
 
 Write output verbatim to `$RETRO_FILE`.
 
-#### 8.5c. Persist retro to disk (no commit)
+#### 8.5c. Persist retro (no commit)
 
-The retro file lives under `.claude/retrospectives/`, which is `.gitignore`d as a runtime artifact. Do **not** commit or push it — the next iteration's tip stays clean for Step 9a's release-gate dispatch, and resume from any worktree just reads the local file.
+`.claude/retrospectives/` is `.gitignore`d. Do **not** commit — keeps the iteration tip clean for 9a's dispatch and lets resume from any worktree just read the local file.
 
 ```bash
-# $RETRO_FILE was already written in 8.5a/8.5b; nothing to add or commit.
-ls -l "$RETRO_FILE" >/dev/null   # sanity check the write succeeded
+ls -l "$RETRO_FILE" >/dev/null   # sanity-check 8.5a/b write
 ```
 
-If `$RETRO_FILE` is missing here, log `[step8.5] retro not written — synthesis output unrecoverable` and continue (do not block the iteration on it).
+If missing, log `[step8.5] retro not written — synthesis output unrecoverable` and continue.
 
 #### 8.5d. Link from progress comment
-Append one line to Step 8 comment (or post inline). Because the retro is not committed, link to the local path rather than a blob URL:
+
+Append to Step 8 comment (link local path, not blob URL — retro is uncommitted):
 ```
 **Retrospective:** `<RETRO_FILE>` (runtime artefact, not committed) — <count> improvement candidate(s)
 ```
@@ -605,18 +603,16 @@ if DIFF_CLASS != code:
   jump to Done-Achieved (PR ready immediately, see done-handlers.md)
 ```
 
-`.claude/**`, `docs/**`, and root `*.md` changes are already path-filtered out of CI. Re-running release-gate's signed-installer build on them produces zero new signal.
+`.claude/**`, `docs/**`, root `*.md` are already path-filtered out of CI; re-running the signed-installer build adds zero signal.
 
 #### Two-phase: 9a-dispatch (returns) and 9b–d-resume (called later)
 
-The release-gate poll is ~18 min of pure CI time. Step 9 is therefore split into a fast **dispatch** half that returns immediately with state persisted, and a **resume** half that the caller (`iterate-loop` in pipeline mode, or this same skill in single-issue mode) re-enters once GitHub signals completion.
+The release-gate poll is ~18 min of pure CI. Step 9 splits into:
 
-- **9a-dispatch:** create the workflow_dispatch run on the iterate branch, write `release_gate.state=dispatched` + `workflow_run_id` + `dispatched_at` into the state file, return `Done-Achieved-RG-Pending`.
-- **9b–d-resume:** poll the run; on PASS, mark PR ready (9d); on FAIL, forward-fix (9c, max 5) and re-dispatch.
+- **9a-dispatch:** trigger workflow_dispatch on the iterate branch, persist `release_gate.state=dispatched` + `workflow_run_id` + `dispatched_at`, return `Done-Achieved-RG-Pending`.
+- **9b–d-resume:** poll; PASS → mark PR ready (9d); FAIL → forward-fix (9c, max 5) and re-dispatch.
 
-Single-issue mode (no pipelining) still works: the skill calls 9b–d-resume itself, immediately and synchronously, just like today. Pipeline-mode loop calls 9b–d-resume from a yield point in the next round.
-
-Full flow lives in [references/release-gate.md](references/release-gate.md).
+Single-issue mode runs 9b–d-resume synchronously after 9a. Pipeline mode resumes from a later yield point. Full flow: [references/release-gate.md](references/release-gate.md).
 
 ---
 
@@ -624,7 +620,7 @@ Full flow lives in [references/release-gate.md](references/release-gate.md).
 
 Runs first on every terminal Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut. Full 2a–2e flow (gate, synthesise, decision, create issue+spec, optional auto-recursion) lives in [references/phase-2.md](references/phase-2.md).
 
-**Phase 2 is deferred for `Done-Achieved-RG-Pending`.** That outcome is terminal *for this skill invocation* only — the loop will re-enter via `--resume-rg` later, and the resumed call's `Done-Achieved` (or `Done-Blocked` from 9c forward-fix exhaustion) is where Phase 2 runs. Running Phase 2 on the dispatch invocation would race the release-gate result and could synthesise improvements against an outcome that may flip to `Done-Blocked`.
+**Phase 2 is deferred for `Done-Achieved-RG-Pending`** — that outcome is terminal for this invocation only. Running Phase 2 here would race the release-gate result and could synthesise against an outcome that flips to `Done-Blocked`. The resumed call (via `--resume-rg`) runs Phase 2 once the verdict is final.
 
 ## Termination
 
@@ -639,20 +635,20 @@ Runs first on every terminal Done-X — before banner, before exit. Highest sign
 | Step 2 `blocked` | **Done-Blocked** (skip 3–9) | yes |
 | End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** | yes |
 
-**Phase 2 runs first on every terminal path *except* `Done-Achieved-RG-Pending`.** `DEGRADED`/`SKIPPED` do NOT terminate.
+**Phase 2 runs first on every terminal path except `Done-Achieved-RG-Pending`.** `DEGRADED`/`SKIPPED` do not terminate.
 
-`Done-Achieved-RG-Pending` is terminal **for this skill invocation** (this CLI call exits cleanly) but non-terminal **for the loop** (loop will dispatch 9b–d-resume later and may then transition to `Done-Achieved` or `Done-Blocked`, at which point Phase 2 runs). See [references/done-handlers.md](references/done-handlers.md).
+`Done-Achieved-RG-Pending` is terminal **for this invocation only** — the loop later resumes via 9b–d and transitions to `Done-Achieved` / `Done-Blocked`, where Phase 2 runs. See [references/done-handlers.md](references/done-handlers.md).
 
 ### Done-Achieved · Done-Achieved-RG-Pending · Done-Blocked · Done-TimedOut
 
-Each terminal path: post the appropriate PR/issue comment, set the appropriate label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, then **exit cleanly with the outcome on stdout**. The companion `iterate-loop` (if any) parses the outcome to decide whether to chain into the next issue. Full handler scripts in [references/done-handlers.md](references/done-handlers.md).
+Each terminal path: post the PR/issue comment, set the label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, **exit cleanly with the outcome on stdout**. `iterate-loop` parses the outcome to chain. Handler scripts: [references/done-handlers.md](references/done-handlers.md).
 
 **Outcome marker (last line printed before exit, machine-parseable for `iterate-loop`):**
 ```
 ITERATE_OUTCOME: <Done-Achieved|Done-Achieved-RG-Pending|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL> [worktree=<path>] [rg_run=<ID>]
 ```
 
-`worktree=` and `rg_run=` are only set on `Done-Achieved-RG-Pending`. `worktree=` is the absolute path the loop must `cd` into to call 9b–d-resume; `rg_run=` is the GitHub Actions run ID the resume call polls.
+`worktree=` and `rg_run=` set **only** on `Done-Achieved-RG-Pending`. `worktree=` is the absolute path the loop `cd`s into for 9b–d-resume; `rg_run=` is the Actions run ID the resume call polls.
 
 ---
 

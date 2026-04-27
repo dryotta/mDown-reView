@@ -1,12 +1,12 @@
 ### Step 9 — Release-gate validation (Done-Achieved only, `DIFF_CLASS=code` only)
 
-Validates the iterate branch tip against the Windows + macOS Release Gate (real signed installers, full cross-platform tests) **without** creating a mirror branch or mirror PR. Triggers `release-gate.yml` via `workflow_dispatch` against the iterate branch directly; `release-gate.yml` accepts a `ref` input that bypasses its `startsWith(github.head_ref, 'release/')` job filter when present.
+Validates the iterate branch tip against the Windows + macOS Release Gate (real signed installers, full cross-platform tests) **without** a mirror branch or mirror PR. Triggers `release-gate.yml` via `workflow_dispatch` against the iterate branch directly; the workflow accepts a `ref` input that bypasses its `startsWith(github.head_ref, 'release/')` job filter.
 
-This split-step design lets the orchestrator (`iterate-loop` in pipeline mode) reclaim the agent during the ~18 min release-gate poll. **9a-dispatch** returns immediately after triggering the workflow; **9b–d-resume** is re-entrant and may run from a different CLI session than 9a.
+The split-step design lets `iterate-loop --pipeline` reclaim the agent during the ~18 min poll. **9a-dispatch** returns immediately; **9b–d-resume** is re-entrant and may run from a different CLI session.
 
 #### State-file invariants
 
-Every step here reads from and writes to `.claude/iterate-state-<branch-slug>.md` (Phase 0g). The `release_gate:` block is the source of truth:
+Every step here reads/writes `.claude/iterate-state-<branch-slug>.md` (Phase 0g). The `release_gate:` block is the source of truth:
 
 ```yaml
 release_gate:
@@ -18,7 +18,7 @@ release_gate:
   step_at_suspend: <9b | 9c | 9d | null>
 ```
 
-Resume (9b–d-resume) reads `state`, `workflow_run_id`, `forward_fix_attempts` cold; the iterate branch is reachable via `git fetch && git checkout <branch>` from any worktree.
+Resume reads `state`, `workflow_run_id`, `forward_fix_attempts` cold; iterate branch is reachable via `git fetch && git checkout <branch>` from any worktree.
 
 ---
 
@@ -28,7 +28,7 @@ Pre-conditions: Step 2 returned `achieved`, `DIFF_CLASS=code`, `release_gate.sta
 
 #### 9a.1 — Trigger the workflow
 
-Capture the dispatch timestamp **before** triggering, so we can disambiguate our run from any other workflow_dispatch run on the branch (e.g. a second iterate session, manual UI dispatch, or a previous failed dispatch within the same minute):
+Capture the dispatch timestamp **before** triggering, to disambiguate our run from any concurrent workflow_dispatch on the branch (second iterate session, manual UI, prior failed dispatch within the same minute):
 
 ```bash
 DISPATCHED_AT_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -36,9 +36,9 @@ HEAD_SHA=$(git rev-parse HEAD)
 gh workflow run release-gate.yml --ref "$BRANCH" -f ref="$BRANCH"
 ```
 
-(`--ref` selects the workflow file revision to run; `-f ref=…` is the input the `actions/checkout` step uses to validate the right tip — see workflow file for `${{ inputs.ref || github.ref }}`. They typically match for an iterate branch.)
+(`--ref` selects the workflow file revision; `-f ref=…` is the input `actions/checkout` validates against — see `${{ inputs.ref || github.ref }}` in the workflow. Typically match for an iterate branch.)
 
-`gh workflow run` does not print the run ID. Query it with **timestamp + headSha disambiguation** rather than blind `--limit 1`:
+`gh workflow run` does not print the run ID. Query with **timestamp + headSha disambiguation**, not blind `--limit 1`:
 
 ```bash
 sleep 5   # give GitHub time to register the dispatch
@@ -48,7 +48,7 @@ RG_RUN_ID=$(gh run list --workflow=release-gate.yml --branch "$BRANCH" --event w
 [ -z "$RG_RUN_ID" ] && { echo "[step9a] failed to capture release-gate run ID (no run with createdAt >= $DISPATCHED_AT_ISO and headSha=$HEAD_SHA)"; exit 1; }
 ```
 
-If GitHub takes >5 s to register, the query returns empty — retry once with a longer sleep before failing:
+If GitHub takes >5 s to register, retry once with longer sleep before failing:
 
 ```bash
 if [ -z "$RG_RUN_ID" ]; then
@@ -59,7 +59,7 @@ if [ -z "$RG_RUN_ID" ]; then
 fi
 ```
 
-Failure to dispatch (workflow file missing, gh auth expired, etc.) → halt **Done-Blocked** reason `release-gate dispatch failed: <stderr first line>`. Do NOT retry — the issue needs human triage.
+Failure to dispatch (workflow file missing, gh auth expired, etc.) → halt **Done-Blocked** reason `release-gate dispatch failed: <stderr first line>`. No retry — needs human triage.
 
 #### 9a.2 — Persist resume state
 
@@ -86,21 +86,21 @@ gh pr comment <PR_NUMBER> --body "<!-- iterate-release-gate-dispatched -->
 
 | Caller mode | Action |
 |---|---|
-| Single-issue (skill invoked directly, not from loop) | Continue to **9b–d-resume** synchronously below — no return. |
-| Pipeline mode (loop signalled `--pipeline-aware`) | **Return now** with outcome `Done-Achieved-RG-Pending`. The loop will call 9b–d-resume from a yield point in the next round. See [done-handlers.md](done-handlers.md) for the marker grammar. |
+| Single-issue (skill invoked directly) | Continue to **9b–d-resume** synchronously — no return. |
+| Pipeline mode (loop set `ITERATE_PIPELINE_AWARE=1`) | **Return now** with outcome `Done-Achieved-RG-Pending`. Loop calls 9b–d-resume from a yield point. See [done-handlers.md](done-handlers.md) for marker grammar. |
 
-How does the skill know? `iterate-loop` exports `ITERATE_PIPELINE_AWARE=1` in its environment when running with `--pipeline`; the inner skill checks it at 9a.4.
+How: `iterate-loop --pipeline` exports `ITERATE_PIPELINE_AWARE=1`; the inner skill checks it here at 9a.4.
 
 ---
 
 ### 9b–d — Resume (idempotent re-entry)
 
 Entry contract:
-- Working directory is the worktree where `<BRANCH>` is checked out (caller `cd`s in first).
-- State file `.claude/iterate-state-<branch-slug>.md` exists with `release_gate.state=dispatched` (or `failed` for re-entry after a forward-fix).
-- `git status` is clean on `<BRANCH>` (no uncommitted work).
+- cwd is the worktree where `<BRANCH>` is checked out (caller `cd`s in first).
+- `.claude/iterate-state-<branch-slug>.md` exists with `release_gate.state ∈ {dispatched, failed}`.
+- `git status` is clean on `<BRANCH>`.
 
-If any pre-condition fails, refuse to resume: log `[step9b-resume] preconditions not met: <which>` and return error to caller.
+If any pre-condition fails, refuse to resume: log `[step9b-resume] preconditions not met: <which>` and return error.
 
 #### 9b — Poll the release-gate run
 
@@ -119,13 +119,13 @@ Update state: `release_gate.state = passed | failed`, `step_at_suspend = 9c` if 
 
 On FAIL:
 
-1. **Re-sync the iterate branch** (other PRs may have merged while we were waiting):
+1. **Re-sync the iterate branch** (other PRs may have merged during the wait):
    ```bash
    git fetch origin main
    if ! git merge-base --is-ancestor origin/main HEAD; then
      git rebase --strategy=recursive --strategy-option=diff3 origin/main
-     # If conflicts: fall through to Step 1's conflict-resolver loop semantics (see SKILL.md Step 1).
-     # If unresolvable after the same retry budget: halt Done-Blocked reason
+     # On conflict: use Step 1's conflict-resolver loop (see SKILL.md Step 1).
+     # Unresolvable after retry budget: halt Done-Blocked reason
      # `release-gate forward-fix rebase against origin/main failed`.
    fi
    ```
@@ -142,7 +142,7 @@ On FAIL:
    git commit -m "fix(iter-release): <summary>"
    git push
    ```
-4. Re-dispatch release-gate against the new tip — same timestamp + headSha disambiguation as 9a.1:
+4. Re-dispatch against the new tip — same disambiguation as 9a.1:
    ```bash
    DISPATCHED_AT_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
    HEAD_SHA=$(git rev-parse HEAD)
@@ -153,8 +153,8 @@ On FAIL:
      --jq "[.[] | select(.createdAt >= \"$DISPATCHED_AT_ISO\" and .headSha == \"$HEAD_SHA\")] | sort_by(.createdAt) | .[0].databaseId")
    ```
    Update state: `release_gate.workflow_run_id = <new ID>`, `release_gate.state = dispatched`, `forward_fix_attempts += 1`, `step_at_suspend = 9b`.
-5. **In pipeline mode:** return `Done-Achieved-RG-Pending` (with the new `rg_run`) — the loop will call 9b–d-resume again from another yield point.
-   **In single-issue mode:** loop back to 9b synchronously.
+5. **Pipeline mode:** return `Done-Achieved-RG-Pending` (with new `rg_run`) — loop calls 9b–d-resume again from another yield point.
+   **Single-issue mode:** loop back to 9b synchronously.
 6. `forward_fix_attempts == 5` AND still FAIL → halt **Done-Blocked** reason `release-gate failure after 5 forward-fix attempts`. State: `release_gate.state = failed`, `step_at_suspend = null`. Iterate PR stays draft.
 
 #### 9d — On PASS: mark PR ready
@@ -178,17 +178,17 @@ Execute ALL in order:
    🟢 Release gate validated on commit <sha> (run [<RG_RUN_ID>](https://github.com/dryotta/mdownreview/actions/runs/<RG_RUN_ID>)). PR ready for review."
    ```
 
-Proceed to **Done-Achieved** banner. The loop (pipeline mode) tears down the worktree after parsing the final outcome marker.
+Proceed to **Done-Achieved** banner. Pipeline-mode loop tears down the worktree after parsing the final outcome marker.
 
 ---
 
-### Why no mirror branch / mirror PR any more?
+### Why no mirror branch / mirror PR?
 
-The previous design created `release/iterate-<…>` mirror branches + mirror PRs to satisfy `release-gate.yml`'s `if: startsWith(github.head_ref, 'release/')` filter, then closed them after validation. With `workflow_dispatch` accepting a `ref` input and the workflow's job filter relaxed to `startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'`, the mirror is no longer necessary:
+The previous design created `release/iterate-<…>` mirror branches + mirror PRs to satisfy `release-gate.yml`'s `if: startsWith(github.head_ref, 'release/')` filter, then closed them after validation. With `workflow_dispatch` accepting a `ref` input and the job filter relaxed to `startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'`, the mirror is no longer needed:
 
-- **No mirror branch creation** — saves ~5 s and one branch-name collision risk.
-- **No mirror PR creation/close** — saves ~10 s and one PR-noise event per iteration.
-- **No fast-forward dance in 9c** — forward-fix commits land directly on the iterate branch and the next dispatch validates the new tip.
-- **Pipeline-mode resume from any worktree** — no mirror-branch state to track, just the workflow_run_id.
+- No mirror branch — saves ~5 s + one collision risk.
+- No mirror PR open/close — saves ~10 s + one PR-noise event per iteration.
+- No fast-forward dance in 9c — forward-fix lands directly on the iterate branch.
+- Pipeline-mode resume from any worktree — only `workflow_run_id` to track.
 
 The release-mirror handler in `done-handlers.md` (`Done-Blocked` on pre-existing release-mirror branch) is therefore obsolete and removed.
