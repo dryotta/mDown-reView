@@ -6,6 +6,7 @@ import { useFileWatcher } from "@/hooks/useFileWatcher";
 import { useDialogActions } from "@/hooks/useDialogActions";
 import { useMenuListeners } from "@/hooks/useMenuListeners";
 import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
+import { useOpenFileTab } from "@/hooks/useOpenFileTab";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
@@ -129,6 +130,7 @@ export default function App() {
   useMenuListeners(menuCallbacks);
   useGlobalShortcuts(menuCallbacks);
   useLaunchArgsBootstrap();
+  useOpenFileTab();
 
   // Apply theme class to <html> and listen for OS theme changes
   useApplyTheme(theme);

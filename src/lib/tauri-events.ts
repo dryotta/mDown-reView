@@ -30,6 +30,10 @@ export interface EventPayloads {
     content_length: number | null;
     chunk_length: number;
   };
+  // Emitted by the window registry when files should be opened as tabs in
+  // this window (AddToWindow / CreateFileOnly). Payload is `Vec<PathBuf>`
+  // serialized as `string[]`.
+  "open-file-tab": string[];
   // Menu events — emitted from on_menu_event with `()` payload.
   "menu-open-file": void;
   "menu-open-folder": void;
