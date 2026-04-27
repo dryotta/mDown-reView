@@ -1,12 +1,118 @@
 pub mod commands;
 pub mod core;
+pub mod instance_scope;
+pub mod registry;
 pub mod update;
 pub mod watcher;
 
-use commands::{parse_launch_args, push_pending, PendingArgsState};
+use commands::{parse_launch_args, push_pending, LaunchArgs, PendingArgsState};
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
+
+// ---------------------------------------------------------------------------
+// Multi-window helpers
+// ---------------------------------------------------------------------------
+
+/// Raise and focus a window (un-minimize → show → set-focus).
+fn focus_window(win: &tauri::WebviewWindow) {
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
+/// Extract a human-readable name from a path (last component, or full path).
+fn folder_display_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+/// Find the focused `WebviewWindow`, falling back to the "main" window.
+fn focused_or_main<M: Manager<tauri::Wry>>(manager: &M) -> Option<tauri::WebviewWindow> {
+    manager
+        .webview_windows()
+        .into_values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| manager.get_webview_window("main"))
+}
+
+/// Route incoming `LaunchArgs` through the `WindowRegistry`, creating new
+/// windows for unknown folders and focusing existing ones.  Shared by the
+/// single-instance callback, `setup()`, and `RunEvent::Opened`.
+fn route_args_through_registry(
+    handle: &tauri::AppHandle,
+    args: &LaunchArgs,
+    ctx: &str,
+) {
+    let Some(reg) = handle.try_state::<registry::WindowRegistry>() else {
+        return;
+    };
+    for folder in &args.folders {
+        let canonical = std::fs::canonicalize(folder)
+            .unwrap_or_else(|_| std::path::PathBuf::from(folder));
+        match reg.route_folder(&canonical) {
+            registry::RouteDecision::FocusExisting(label) => {
+                if let Some(win) = handle.get_webview_window(&label) {
+                    focus_window(&win);
+                }
+            }
+            registry::RouteDecision::CreateFolder { path } => {
+                let label = reg.next_label();
+                let display = folder_display_name(&path);
+                let builder = tauri::WebviewWindowBuilder::new(
+                    handle, &label, tauri::WebviewUrl::App("index.html".into()),
+                )
+                .title(format!("mdownreview — {display}"))
+                .inner_size(1100.0, 750.0)
+                .min_inner_size(600.0, 400.0);
+                match builder.build() {
+                    Ok(_) => {
+                        reg.register(label.clone(), registry::WindowKind::Folder(path));
+                        log::info!("[window] {ctx}: created {label}");
+                    }
+                    Err(e) => log::error!("[window] {ctx}: folder window failed: {e}"),
+                }
+            }
+            _ => {}
+        }
+    }
+    for file in &args.files {
+        let canonical = std::fs::canonicalize(file)
+            .unwrap_or_else(|_| std::path::PathBuf::from(file));
+        match reg.route_file(&canonical) {
+            registry::RouteDecision::AddToWindow { label, files } => {
+                if let Some(win) = handle.get_webview_window(&label) {
+                    focus_window(&win);
+                    let _ = win.emit("open-file-tab", &files);
+                }
+            }
+            registry::RouteDecision::CreateFileOnly { files } => {
+                let label = reg.next_label();
+                let builder = tauri::WebviewWindowBuilder::new(
+                    handle, &label, tauri::WebviewUrl::App("index.html".into()),
+                )
+                .title("mdownreview — Files")
+                .inner_size(1100.0, 750.0)
+                .min_inner_size(600.0, 400.0);
+                match builder.build() {
+                    Ok(win) => {
+                        reg.register(label.clone(), registry::WindowKind::FileOnly);
+                        log::info!("[window] {ctx}: created file-only window {label}");
+                        let _ = win.emit("open-file-tab", &files);
+                    }
+                    Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),
+                }
+            }
+            registry::RouteDecision::FocusExisting(label) => {
+                if let Some(win) = handle.get_webview_window(&label) {
+                    focus_window(&win);
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,40 +147,50 @@ pub fn run() {
 
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(log_plugin)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            let cwd_path = std::path::PathBuf::from(&cwd);
-            let args = parse_launch_args(&argv[1..], &cwd_path);
-            if let Some(state) = app.try_state::<PendingArgsState>() {
-                push_pending(&state, args);
-            }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.emit("args-received", ());
-            }
-        }))
+        .plugin(tauri_plugin_clipboard_manager::init());
+
+    // Production builds enforce single-instance; debug/test-isolated builds
+    // skip it so multiple instances can coexist (AC 7 of #147).
+    if !instance_scope::is_isolated() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app, argv, cwd| {
+                let cwd_path = std::path::PathBuf::from(&cwd);
+                let args = parse_launch_args(&argv[1..], &cwd_path);
+
+                route_args_through_registry(app, &args, "single-instance");
+
+                // Queue args and notify all windows
+                if let Some(state) = app.try_state::<PendingArgsState>() {
+                    push_pending(&state, args);
+                }
+                for (_label, win) in app.webview_windows() {
+                    let _ = win.emit("args-received", ());
+                }
+            },
+        ));
+    }
+
+    let app = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(update::PendingUpdate(std::sync::Mutex::new(None)))
         .manage(watcher::WatcherState::new(sync_tx))
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
+        .manage(registry::WindowRegistry::default())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                let msg = info
-                    .payload()
-                    .downcast_ref::<&str>()
-                    .copied()
+                let msg = info.payload().downcast_ref::<&str>().copied()
                     .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
                     .unwrap_or("unknown panic");
-                let location = info
-                    .location()
+                let loc = info.location()
                     .map(|l| format!(" at {}:{}", l.file(), l.line()))
                     .unwrap_or_default();
-                log::error!("[rust] PANIC{}: {}", location, msg);
+                log::error!("[rust] PANIC{loc}: {msg}");
                 prev_hook(info);
             }));
 
@@ -82,40 +198,57 @@ pub fn run() {
             let raw_args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_default();
             let launch_args = parse_launch_args(&raw_args, &cwd);
+
+            // Register the default "main" window in the registry
+            let reg = app.state::<registry::WindowRegistry>();
+            if let Some(first_folder) = launch_args.folders.first() {
+                let canonical = std::fs::canonicalize(first_folder)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(first_folder));
+                reg.register("main".to_string(), registry::WindowKind::Folder(canonical));
+            } else {
+                reg.register("main".to_string(), registry::WindowKind::FileOnly);
+            }
+
+            // Create additional windows for extra folders (beyond the first)
+            for folder in launch_args.folders.iter().skip(1) {
+                let canonical = std::fs::canonicalize(folder)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(folder));
+                let label = reg.next_label();
+                let display = folder_display_name(&canonical);
+                let builder = tauri::WebviewWindowBuilder::new(
+                    app, &label, tauri::WebviewUrl::App("index.html".into()),
+                )
+                .title(format!("mdownreview — {display}"))
+                .inner_size(1100.0, 750.0)
+                .min_inner_size(600.0, 400.0);
+                match builder.build() {
+                    Ok(_) => {
+                        reg.register(label.clone(), registry::WindowKind::Folder(canonical.clone()));
+                        log::info!("[window] setup: created {label} for {}", canonical.display());
+                    }
+                    Err(e) => log::error!("[window] setup: window for {} failed: {e}", canonical.display()),
+                }
+            }
+
+            // Push args for the main window (first folder + all files);
+            // per-window args routing is a future iteration.
+            let main_args = LaunchArgs {
+                files: launch_args.files,
+                folders: launch_args.folders.into_iter().take(1).collect(),
+            };
             let state: PendingArgsState = PendingArgsState::default();
-            push_pending(&state, launch_args);
+            push_pending(&state, main_args);
             app.manage(state);
 
             // ── Build application menu ────────────────────────────────────────
 
             // File menu
-            let open_file =
-                MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
-            let open_folder = MenuItem::with_id(
-                app,
-                "open-folder",
-                "Open Folder…",
-                true,
-                Some("CmdOrCtrl+Shift+O"),
-            )?;
-            let close_folder =
-                MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
-            let close_tab =
-                MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
-            let close_all_tabs = MenuItem::with_id(
-                app,
-                "close-all-tabs",
-                "Close All Tabs",
-                true,
-                Some("CmdOrCtrl+Shift+W"),
-            )?;
-            let open_settings = MenuItem::with_id(
-                app,
-                "open-settings",
-                "Settings…",
-                true,
-                Some("CmdOrCtrl+,"),
-            )?;
+            let open_file = MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
+            let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+Shift+O"))?;
+            let close_folder = MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
+            let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+            let close_all_tabs = MenuItem::with_id(app, "close-all-tabs", "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"))?;
+            let open_settings = MenuItem::with_id(app, "open-settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_file)
                 .item(&open_folder)
@@ -130,21 +263,12 @@ pub fn run() {
                 .build()?;
 
             // View menu
-            let toggle_comments_pane = MenuItem::with_id(
-                app,
-                "toggle-comments-pane",
-                "Toggle Comments Pane",
-                true,
-                Some("CmdOrCtrl+Shift+C"),
-            )?;
+            let toggle_comments_pane = MenuItem::with_id(app, "toggle-comments-pane", "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"))?;
             let next_tab = MenuItem::with_id(app, "next-tab", "Next Tab", true, None::<&str>)?;
             let prev_tab = MenuItem::with_id(app, "prev-tab", "Previous Tab", true, None::<&str>)?;
-            let theme_system =
-                MenuItem::with_id(app, "theme-system", "System Theme", true, None::<&str>)?;
-            let theme_light =
-                MenuItem::with_id(app, "theme-light", "Light Theme", true, None::<&str>)?;
-            let theme_dark =
-                MenuItem::with_id(app, "theme-dark", "Dark Theme", true, None::<&str>)?;
+            let theme_system = MenuItem::with_id(app, "theme-system", "System Theme", true, None::<&str>)?;
+            let theme_light = MenuItem::with_id(app, "theme-light", "Light Theme", true, None::<&str>)?;
+            let theme_dark = MenuItem::with_id(app, "theme-dark", "Dark Theme", true, None::<&str>)?;
             let theme_menu = SubmenuBuilder::new(app, "Theme")
                 .item(&theme_system)
                 .item(&theme_light)
@@ -159,18 +283,19 @@ pub fn run() {
                 .item(&theme_menu)
                 .build()?;
 
+            // Window menu
+            let win_minimize = MenuItem::with_id(app, "win-minimize", "Minimize", true, Some("CmdOrCtrl+M"))?;
+            let win_bring_all = MenuItem::with_id(app, "win-bring-all", "Bring All to Front", true, None::<&str>)?;
+            let window_menu = SubmenuBuilder::new(app, "Window")
+                .item(&win_minimize)
+                .separator()
+                .item(&win_bring_all)
+                .build()?;
+
             // Help menu
-            let help_settings =
-                MenuItem::with_id(app, "help-settings", "Settings…", true, None::<&str>)?;
-            let about_item =
-                MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
-            let check_updates = MenuItem::with_id(
-                app,
-                "check-updates",
-                "Check for Updates…",
-                true,
-                None::<&str>,
-            )?;
+            let help_settings = MenuItem::with_id(app, "help-settings", "Settings…", true, None::<&str>)?;
+            let about_item = MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
+            let check_updates = MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
             let help_menu = SubmenuBuilder::new(app, "Help")
                 .item(&help_settings)
                 .separator()
@@ -182,6 +307,7 @@ pub fn run() {
             let menu = MenuBuilder::new(app)
                 .item(&file_menu)
                 .item(&view_menu)
+                .item(&window_menu)
                 .item(&help_menu)
                 .build()?;
 
@@ -189,7 +315,26 @@ pub fn run() {
 
             // Forward menu events to the frontend as Tauri events
             app.on_menu_event(|app, event| {
-                let Some(window) = app.get_webview_window("main") else {
+                // Window-menu actions are handled directly (no frontend event).
+                match event.id().as_ref() {
+                    "win-minimize" => {
+                        if let Some(w) = focused_or_main(app) {
+                            let _ = w.minimize();
+                        }
+                        return;
+                    }
+                    "win-bring-all" => {
+                        for w in app.webview_windows().values() {
+                            let _ = w.unminimize();
+                            let _ = w.show();
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+
+                // Route to the focused window, falling back to "main"
+                let Some(window) = focused_or_main(app) else {
                     return;
                 };
                 let event_name = match event.id().as_ref() {
@@ -217,6 +362,17 @@ pub fn run() {
             watcher::start_watcher(app.handle());
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                if let Some(reg) = window.try_state::<registry::WindowRegistry>() {
+                    reg.unregister(&label);
+                    log::info!(
+                        "[window] Destroyed: {label} — unregistered from WindowRegistry"
+                    );
+                }
+            }
         });
 
     // Shared command list — debug adds set_root_via_test for native e2e tests
@@ -299,13 +455,49 @@ pub fn run() {
                 }
             }
             if !files.is_empty() || !folders.is_empty() {
+                let args = LaunchArgs { files, folders };
+                route_args_through_registry(app_handle, &args, "macOS-open");
+
+                // Queue args and notify all windows
                 let state = app_handle.state::<PendingArgsState>();
-                push_pending(&state, commands::LaunchArgs { files, folders });
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.emit("args-received", ());
+                push_pending(&state, args);
+                for (_label, win) in app_handle.webview_windows() {
+                    let _ = win.emit("args-received", ());
                 }
             }
         }
         let _ = (app_handle, event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn folder_display_name_uses_last_component() {
+        assert_eq!(folder_display_name(Path::new("/projects/myapp")), "myapp");
+    }
+
+    #[test]
+    fn folder_display_name_root_path() {
+        let name = folder_display_name(Path::new("/"));
+        assert!(!name.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn folder_display_name_windows_path() {
+        assert_eq!(
+            folder_display_name(Path::new("C:\\Users\\Dev\\Project")),
+            "Project"
+        );
+    }
+
+    #[test]
+    fn folder_display_name_trailing_separator() {
+        let name = folder_display_name(Path::new("/projects/myapp/"));
+        assert_eq!(name, "myapp");
+    }
 }

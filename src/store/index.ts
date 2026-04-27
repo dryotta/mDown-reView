@@ -365,38 +365,18 @@ export const useStore = create<Store>()(
           NonNullable<Parameters<typeof persist>[1]["partialize"]>
         >;
       },
-      // Only persist UI state, not comments (those live in sidecar files)
+      // Only persist global prefs — per-window state (tabs, activeTabPath,
+      // expandedFolders, root) starts fresh each window / app launch.
       partialize: (state) => ({
         theme: state.theme,
         folderPaneWidth: state.folderPaneWidth,
         commentsPaneVisible: state.commentsPaneVisible,
-        root: state.root,
-        expandedFolders: state.expandedFolders,
         authorName: state.authorName,
         readingWidth: state.readingWidth,
         recentItems: state.recentItems,
-        tabs: state.tabs,
-        activeTabPath: state.activeTabPath,
         updateChannel: state.updateChannel,
         zoomByFiletype: state.zoomByFiletype,
       }),
-      onRehydrateStorage: () => () => {
-        queueMicrotask(() => {
-          const { tabs, activeTabPath } = useStore.getState();
-          if (tabs.length === 0) return;
-          // Enforce MAX_TABS immediately at rehydrate time so the cap holds
-          // even if every persisted file still exists (validatePersistedTabs
-          // also enforces it after the existence check).
-          if (tabs.length > MAX_TABS) {
-            const trimmed = filterStaleTabs(tabs, activeTabPath, new Map());
-            useStore.setState(trimmed);
-          }
-          import("@/lib/tauri-commands").then(
-            ({ checkPathExists }) => validatePersistedTabs(checkPathExists),
-            () => {}
-          );
-        });
-      },
     }
   )
 );

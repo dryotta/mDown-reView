@@ -6,9 +6,11 @@ import { useFileWatcher } from "@/hooks/useFileWatcher";
 import { useDialogActions } from "@/hooks/useDialogActions";
 import { useMenuListeners } from "@/hooks/useMenuListeners";
 import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
+import { useOpenFileTab } from "@/hooks/useOpenFileTab";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
+import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
 import { useAuthor } from "@/lib/vm/useAuthor";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
@@ -129,12 +131,16 @@ export default function App() {
   useMenuListeners(menuCallbacks);
   useGlobalShortcuts(menuCallbacks);
   useLaunchArgsBootstrap();
+  useOpenFileTab();
 
   // Apply theme class to <html> and listen for OS theme changes
   useApplyTheme(theme);
 
   // Onboarding: refresh status, maybe auto-show welcome, re-poll on focus
   useOnboardingBootstrap();
+
+  // Sync global prefs (theme, author, recents…) across open windows
+  useCrossWindowPrefsSync();
 
   // Hydrate the persisted display name from disk so new comments get the
   // OS-user fallback even before the user opens Settings (AC #71/F7).
