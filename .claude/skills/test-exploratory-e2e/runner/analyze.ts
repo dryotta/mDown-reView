@@ -117,12 +117,53 @@ const ruleApEmojiAsIcon: Rule = (s) => {
   return hits;
 };
 
+const ruleMdrSyntaxFail: Rule = (s) => {
+  const codeBlockRe = /<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi;
+  const hits: RuleHit[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = codeBlockRe.exec(s.html)) !== null) {
+    const inner = m[1];
+    if (!inner.trim()) continue;
+    const spans = inner.match(/<span[^>]*>/g);
+    if (!spans || spans.length === 0) continue;
+    const styledSpans = spans.filter((sp) => /style="[^"]*color:/i.test(sp));
+    if (styledSpans.length === 0) {
+      hits.push({
+        id: "MDR-SYNTAX-FAIL",
+        detail: `code block has ${spans.length} spans but none with inline color — tokens may render uniform black`,
+        anchor: "pre > code",
+      });
+    }
+  }
+  return hits;
+};
+
+const ruleMdrBlankViewer: Rule = (s) => {
+  const viewerRe = /<(?:div|main|section)[^>]*class="[^"]*(?:viewer-content|markdown-body|source-view)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|main|section)>/gi;
+  const hits: RuleHit[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = viewerRe.exec(s.html)) !== null) {
+    const inner = m[1].replace(/<[^>]+>/g, "").trim();
+    if (inner.length === 0) {
+      const cls = /class="([^"]*)"/.exec(m[0]);
+      hits.push({
+        id: "MDR-BLANK-VIEWER",
+        detail: "viewer pane is empty — no visible text content after file load",
+        anchor: cls ? `div.${cls[1].split(/\s+/)[0]}` : "div.viewer-content",
+      });
+    }
+  }
+  return hits;
+};
+
 const RULES: Rule[] = [
   ruleMdrIpcRawJson,
   ruleMdrConsoleError,
   ruleWcag143,
   ruleWcag412,
   ruleApEmojiAsIcon,
+  ruleMdrSyntaxFail,
+  ruleMdrBlankViewer,
 ];
 
 export function runRules(snapshot: Snapshot): RuleHit[] {
