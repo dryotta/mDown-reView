@@ -34,7 +34,7 @@ function setupCommentMock(page: Page, comments: unknown) {
           ((window as Record<string, unknown>).__SAVE_CALLS__ as unknown[]).push(args);
           return null;
         }
-        if (cmd === "get_file_comments") return toThreads(comments as Record<string, unknown> | null);
+        if (cmd === "get_file_comments") return { threads: toThreads(comments as Record<string, unknown> | null), sidecar_mtime_ms: null };
         if (cmd === "update_comment") {
           ((window as Record<string, unknown>).__RESOLVE_CALLS__ as unknown[]).push(args);
           return null;
@@ -228,7 +228,7 @@ test.describe("Comments Lifecycle", () => {
         if (cmd === "read_dir")
           return [{ name: "sample.md", path: `${dir}/sample.md`, is_dir: false }];
         if (cmd === "read_text_file") return "# x\n";
-        if (cmd === "get_file_comments") return [];
+        if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
         if (cmd === "load_review_comments") return null;
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";

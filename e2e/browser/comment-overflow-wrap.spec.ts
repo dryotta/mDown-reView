@@ -78,7 +78,7 @@ async function setupMocks(page: Page): Promise<void> {
           };
         }
         if (cmd === "save_review_comments") return null;
-        if (cmd === "get_file_comments") return [thread];
+        if (cmd === "get_file_comments") return { threads: [thread], sidecar_mtime_ms: null };
         if (cmd === "get_file_badges") return {};
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";

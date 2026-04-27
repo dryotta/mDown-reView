@@ -144,7 +144,7 @@ export function createCommentsSlice(
       if (!activeTabPath) return;
       let threads: CommentThread[];
       try {
-        threads = await getFileComments(activeTabPath);
+        threads = (await getFileComments(activeTabPath)).threads;
       } catch (e) {
         error(`[comments-slice] getFileComments failed: ${e}`);
         return;
@@ -164,7 +164,7 @@ export function createCommentsSlice(
       if (!activeTabPath) return;
       let threads: CommentThread[];
       try {
-        threads = await getFileComments(activeTabPath);
+        threads = (await getFileComments(activeTabPath)).threads;
       } catch (e) {
         error(`[comments-slice] getFileComments failed: ${e}`);
         return;
@@ -188,7 +188,7 @@ export function createCommentsSlice(
       if (activeTabPath) {
         let threads: CommentThread[] = [];
         try {
-          threads = await getFileComments(activeTabPath);
+          threads = (await getFileComments(activeTabPath)).threads;
         } catch (e) {
           error(`[comments-slice] getFileComments failed: ${e}`);
         }
@@ -221,7 +221,7 @@ export function createCommentsSlice(
       // Load that file's threads and focus the first unresolved.
       let threads: CommentThread[] = [];
       try {
-        threads = await getFileComments(target);
+        threads = (await getFileComments(target)).threads;
       } catch (e) {
         error(`[comments-slice] getFileComments failed: ${e}`);
         return;

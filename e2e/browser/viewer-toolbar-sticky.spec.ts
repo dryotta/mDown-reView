@@ -65,7 +65,7 @@ async function setupStickyMocks(page: Page, files: FileSeed[]): Promise<void> {
       if (cmd === "save_review_comments") return null;
       if (cmd === "check_path_exists") return "file";
       if (cmd === "get_log_path") return "/mock/log.log";
-      if (cmd === "get_file_comments") return [];
+      if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
       if (cmd === "get_file_badges") return [];
       if (cmd === "scan_review_files") return [];
       if (cmd === "update_watched_files") return undefined;

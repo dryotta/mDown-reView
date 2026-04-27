@@ -25,7 +25,7 @@ pub mod update;
 
 pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
 pub use export::{export_review_summary, export_review_summary_inner};
-pub use get::{get_file_comments, get_file_comments_inner};
+pub use get::{get_file_comments, get_file_comments_inner, GetFileCommentsResult};
 pub use update::{update_comment, update_comment_apply, update_comment_inner, CommentPatch};
 
 /// Payload emitted to the frontend after a mutation command modifies a sidecar.

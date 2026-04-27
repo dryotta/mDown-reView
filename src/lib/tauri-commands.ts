@@ -46,6 +46,13 @@ export interface TextFileResult {
   content: string;
   size_bytes: number;
   line_count: number;
+  /**
+   * Last-modified time as epoch milliseconds; `null`/missing when the FS does
+   * not expose it. Mirrors `FileStat.mtime_ms` so Group D consumers
+   * (useFileContent → store) can populate `FileMeta.fileMtime` without a
+   * second `stat_path` round-trip. See src-tauri/src/commands/fs.rs.
+   */
+  mtime_ms?: number | null;
 }
 
 export const readTextFile = (path: string): Promise<TextFileResult> =>
@@ -129,8 +136,19 @@ export interface CommentAnchor {
   selected_text_hash?: string;
 }
 
-export const getFileComments = (filePath: string): Promise<CommentThread[]> =>
-  invoke<CommentThread[]>("get_file_comments", { filePath });
+/**
+ * Envelope returned by `get_file_comments`. Wraps the thread list with the
+ * sidecar mtime so consumers (Group D `use-comments`) can stamp
+ * `FileMeta.commentsMtime` and let the StatusBar render staleness without a
+ * second IPC round-trip. See src-tauri/src/commands/comments.rs.
+ */
+export interface GetFileCommentsResult {
+  threads: CommentThread[];
+  sidecar_mtime_ms: number | null;
+}
+
+export const getFileComments = (filePath: string): Promise<GetFileCommentsResult> =>
+  invoke<GetFileCommentsResult>("get_file_comments", { filePath });
 
 
 export const addComment = (

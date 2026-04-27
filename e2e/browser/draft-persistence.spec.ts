@@ -30,7 +30,7 @@ async function setupDraftPersistenceMocks(page: Page) {
         return "# Test Heading\n\nContent paragraph on line 3.\n\nMore content on line 5.";
       if (cmd === "load_review_comments") return (window as Record<string, unknown>).__COMMENTS__;
       if (cmd === "save_review_comments") return null;
-      if (cmd === "get_file_comments") return toThreads();
+      if (cmd === "get_file_comments") return { threads: toThreads(), sidecar_mtime_ms: null };
       if (cmd === "add_comment") {
         const comments = ((window as Record<string, unknown>).__COMMENTS__ as { comments: unknown[] }).comments;
         comments.push({

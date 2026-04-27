@@ -5,8 +5,10 @@ import { useComments } from "../use-comments";
 import {
   getFileComments,
   type CommentThread,
+  type GetFileCommentsResult,
 } from "@/lib/tauri-commands";
 import { error as logError } from "@/logger";
+import { useStore } from "@/store/index";
 
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn((_eventName: string, _callback: unknown) =>
@@ -14,8 +16,16 @@ vi.mock("@/lib/tauri-events", () => ({
   ),
 }));
 
+const wrap = (
+  threads: CommentThread[],
+  sidecar_mtime_ms: number | null = null,
+): GetFileCommentsResult => ({
+  threads,
+  sidecar_mtime_ms,
+});
+
 vi.mock("@/lib/tauri-commands", () => ({
-  getFileComments: vi.fn().mockResolvedValue([]),
+  getFileComments: vi.fn().mockResolvedValue({ threads: [], sidecar_mtime_ms: null }),
 }));
 
 vi.mock("@/logger", () => ({
@@ -156,7 +166,7 @@ describe("useComments loading", () => {
   });
 
   it("sets loading=true during fetch, then false after", async () => {
-    let resolveGetComments!: (val: CommentThread[]) => void;
+    let resolveGetComments!: (val: GetFileCommentsResult) => void;
     vi.mocked(getFileComments).mockImplementationOnce(
       () => new Promise((resolve) => { resolveGetComments = resolve; }),
     );
@@ -169,7 +179,7 @@ describe("useComments loading", () => {
     expect(result.current.loading).toBe(true);
 
     await act(async () => {
-      resolveGetComments([]);
+      resolveGetComments(wrap([]));
     });
 
     expect(result.current.loading).toBe(false);
@@ -177,17 +187,23 @@ describe("useComments loading", () => {
 
   it("returns threads from getFileComments result", async () => {
     const mockThreads = makeMockThreads();
-    vi.mocked(getFileComments).mockResolvedValueOnce(mockThreads);
+    vi.mocked(getFileComments).mockResolvedValueOnce(wrap(mockThreads, 9999));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
 
     expect(result.current.threads).toEqual(mockThreads);
+    // Group D: commentsMtime from sidecar must land in fileMetaByPath cache
+    // so downstream observers (StatusBar) can render staleness without
+    // touching IPC.
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      9999,
+    );
   });
 
   it("flattens comments from thread root + replies", async () => {
     const mockThreads = makeMockThreads();
-    vi.mocked(getFileComments).mockResolvedValueOnce(mockThreads);
+    vi.mocked(getFileComments).mockResolvedValueOnce(wrap(mockThreads));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
@@ -199,8 +215,8 @@ describe("useComments loading", () => {
   });
 
   it("rapid filePath change cancels stale response", async () => {
-    let resolveA!: (val: CommentThread[]) => void;
-    let resolveB!: (val: CommentThread[]) => void;
+    let resolveA!: (val: GetFileCommentsResult) => void;
+    let resolveB!: (val: GetFileCommentsResult) => void;
 
     vi.mocked(getFileComments)
       .mockImplementationOnce(
@@ -239,8 +255,8 @@ describe("useComments loading", () => {
     await flushPromises();
 
     // /b.md resolves first, then the stale /a.md response arrives
-    await act(async () => { resolveB(threadsB); });
-    await act(async () => { resolveA(threadsA); });
+    await act(async () => { resolveB(wrap(threadsB)); });
+    await act(async () => { resolveA(wrap(threadsA)); });
 
     // Final state must reflect the latest filePath only
     expect(result.current.threads).toEqual(threadsB);
@@ -248,7 +264,7 @@ describe("useComments loading", () => {
   });
 
   it("reloads when filePath changes (verifies getFileComments called with new path)", async () => {
-    vi.mocked(getFileComments).mockResolvedValue([]);
+    vi.mocked(getFileComments).mockResolvedValue(wrap([]));
 
     const { rerender } = renderHook(
       ({ path }: { path: string | null }) => useComments(path),
@@ -280,7 +296,7 @@ describe("useComments loading", () => {
 
 describe("useComments reload", () => {
   it("reload() re-fetches comments for current file", async () => {
-    vi.mocked(getFileComments).mockResolvedValue([]);
+    vi.mocked(getFileComments).mockResolvedValue(wrap([]));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
@@ -326,7 +342,7 @@ describe("useComments event subscriptions", () => {
       },
     );
 
-    vi.mocked(getFileComments).mockResolvedValue([]);
+    vi.mocked(getFileComments).mockResolvedValue(wrap([]));
   });
 
   it("reloads when comments-changed event fires for matching file_path", async () => {
@@ -400,6 +416,51 @@ describe("useComments event subscriptions", () => {
 
     expect(getFileComments).toHaveBeenCalledTimes(1);
   });
+
+  it("clears comments + commentsMtime on sidecar delete", async () => {
+    vi.mocked(getFileComments).mockResolvedValueOnce(
+      wrap(makeMockThreads(), 4242),
+    );
+
+    const { result } = renderHook(() => useComments("/test.md"));
+    await flushPromises();
+
+    // Sanity: load populated threads + mtime cache
+    expect(result.current.threads).toHaveLength(1);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      4242,
+    );
+
+    // Simulate watcher firing a deletion for the YAML sidecar.
+    await act(async () => {
+      fileChangedCb!({ path: "/test.md.review.yaml", kind: "deleted" });
+    });
+
+    expect(result.current.threads).toEqual([]);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      null,
+    );
+    // Must NOT trigger an additional reload — sidecar is gone, nothing to load.
+    expect(getFileComments).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores file-changed kind=deleted for unrelated path", async () => {
+    vi.mocked(getFileComments).mockResolvedValueOnce(
+      wrap(makeMockThreads(), 7777),
+    );
+
+    const { result } = renderHook(() => useComments("/test.md"));
+    await flushPromises();
+
+    await act(async () => {
+      fileChangedCb!({ path: "/other.md.review.yaml", kind: "deleted" });
+    });
+
+    expect(result.current.threads).toHaveLength(1);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      7777,
+    );
+  });
 });
 
 // ── Stale response handling ──────────────────────────────────────────────────
@@ -437,12 +498,12 @@ describe("useComments stale response handling", () => {
       },
     ];
 
-    let resolveFirst!: (val: CommentThread[]) => void;
+    let resolveFirst!: (val: GetFileCommentsResult) => void;
     vi.mocked(getFileComments)
       .mockImplementationOnce(
         () => new Promise((resolve) => { resolveFirst = resolve; }),
       )
-      .mockResolvedValueOnce(freshThreads);
+      .mockResolvedValueOnce(wrap(freshThreads));
 
     const { result, rerender } = renderHook(
       ({ path }: { path: string | null }) => useComments(path),
@@ -458,10 +519,140 @@ describe("useComments stale response handling", () => {
 
     // Now resolve the stale first promise
     await act(async () => {
-      resolveFirst(staleThreads);
+      resolveFirst(wrap(staleThreads));
     });
 
     // Should still have fresh threads — stale result was discarded
     expect(result.current.threads).toEqual(freshThreads);
+  });
+
+  it("stale same-path reload does not overwrite newer reload", async () => {
+    // Race: the watcher fires twice for the same path; the FIRST reload
+    // resolves AFTER the second. Without a generation guard the stale
+    // first response would clobber the fresh threads. See issue #96 race fix.
+    let commentsChangedCb: ((p: { file_path: string }) => void) | null = null;
+    vi.mocked(listenEvent).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (eventName: string, callback: any) => {
+        if (eventName === "comments-changed") commentsChangedCb = callback;
+        return Promise.resolve(() => {});
+      },
+    );
+
+    const oldThreads: CommentThread[] = [
+      {
+        root: {
+          id: "old",
+          author: "X",
+          text: "old",
+          timestamp: "2026-01-01T00:00:00Z",
+          resolved: false,
+          matchedLineNumber: 1,
+          isOrphaned: false,
+          anchor: { kind: "line", line: 1 },
+        },
+        replies: [],
+      },
+    ];
+    const newThreads: CommentThread[] = [
+      {
+        root: {
+          id: "new",
+          author: "Y",
+          text: "new",
+          timestamp: "2026-01-02T00:00:00Z",
+          resolved: false,
+          matchedLineNumber: 2,
+          isOrphaned: false,
+          anchor: { kind: "line", line: 2 },
+        },
+        replies: [],
+      },
+    ];
+
+    let resolveOldReload!: (val: GetFileCommentsResult) => void;
+    vi.mocked(getFileComments)
+      // Initial mount load — resolves immediately (empty).
+      .mockResolvedValueOnce(wrap([]))
+      // First event-driven reload — slow; resolves with old threads.
+      .mockImplementationOnce(
+        () => new Promise((r) => { resolveOldReload = r; }),
+      )
+      // Second event-driven reload — fast; resolves with new threads.
+      .mockResolvedValueOnce(wrap(newThreads));
+
+    const { result } = renderHook(() => useComments("/test.md"));
+    await flushPromises();
+
+    // Fire two reloads for the same path.
+    await act(async () => { commentsChangedCb!({ file_path: "/test.md" }); });
+    await act(async () => { commentsChangedCb!({ file_path: "/test.md" }); });
+    // Second reload resolves first → fresh threads in store.
+    await flushPromises();
+    expect(result.current.threads).toEqual(newThreads);
+
+    // Now resolve the older, slower reload — it MUST be discarded.
+    await act(async () => { resolveOldReload(wrap(oldThreads)); });
+    expect(result.current.threads).toEqual(newThreads);
+  });
+
+  it("in-flight reload after sidecar delete does not restore threads", async () => {
+    // Sequence: load is in flight → user/watcher deletes sidecar → load
+    // resolves with the just-deleted threads. The delete handler must bump
+    // the load generation BEFORE clearing so the late resolution is dropped.
+    let fileChangedCb: ((p: { path: string; kind: string }) => void) | null = null;
+    let commentsChangedCb: ((p: { file_path: string }) => void) | null = null;
+    vi.mocked(listenEvent).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (eventName: string, callback: any) => {
+        if (eventName === "comments-changed") commentsChangedCb = callback;
+        if (eventName === "file-changed") fileChangedCb = callback;
+        return Promise.resolve(() => {});
+      },
+    );
+
+    const liveThreads: CommentThread[] = [
+      {
+        root: {
+          id: "live",
+          author: "Z",
+          text: "live",
+          timestamp: "2026-01-03T00:00:00Z",
+          resolved: false,
+          matchedLineNumber: 3,
+          isOrphaned: false,
+          anchor: { kind: "line", line: 3 },
+        },
+        replies: [],
+      },
+    ];
+
+    let resolveSlowReload!: (val: GetFileCommentsResult) => void;
+    vi.mocked(getFileComments)
+      // Initial mount load — already populated.
+      .mockResolvedValueOnce(wrap(liveThreads, 5555))
+      // Slow reload triggered before delete.
+      .mockImplementationOnce(
+        () => new Promise((r) => { resolveSlowReload = r; }),
+      );
+
+    const { result } = renderHook(() => useComments("/test.md"));
+    await flushPromises();
+    expect(result.current.threads).toEqual(liveThreads);
+
+    // Kick off a slow reload (e.g. via comments-changed).
+    await act(async () => { commentsChangedCb!({ file_path: "/test.md" }); });
+
+    // Watcher reports the sidecar was deleted → handler clears state synchronously.
+    await act(async () => {
+      fileChangedCb!({ path: "/test.md.review.yaml", kind: "deleted" });
+    });
+    expect(result.current.threads).toEqual([]);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(null);
+
+    // Slow reload finally resolves with non-empty threads — must be discarded.
+    await act(async () => { resolveSlowReload(wrap(liveThreads, 5555)); });
+    expect(result.current.threads).toEqual([]);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(null);
   });
 });

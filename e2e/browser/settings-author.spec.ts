@@ -31,7 +31,7 @@ test("author identity round-trips through set_author / get_author", async ({ pag
       if (cmd === "read_dir")
         return [{ name: "sample.md", path: `${dir}/sample.md`, is_dir: false }];
       if (cmd === "read_text_file") return "# Heading\n";
-      if (cmd === "get_file_comments") return [];
+      if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
       if (cmd === "get_author") return savedAuthor;
       if (cmd === "set_author") {
         const name = String((args as { name: string }).name).trim();

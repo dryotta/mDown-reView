@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listenEvent } from "@/lib/tauri-events";
 import {
   getFileComments,
@@ -25,6 +25,19 @@ export function useComments(filePath: string | null): UseCommentsResult {
   const [threads, setThreads] = useState<CommentThread[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Monotonic generation counter that invalidates in-flight `load()` calls.
+  // Bumped by `startLoad()` for every fresh load and by the delete handler /
+  // effect cleanup so a slow same-path `getFileComments()` cannot clobber
+  // newer state (e.g. user-cleared threads after sidecar deletion, or a tab
+  // that has since unmounted). See issue #96 race-condition fix.
+  const loadGenRef = useRef(0);
+
+  const startLoad = useCallback((): { gen: number; isCancelled: () => boolean } => {
+    loadGenRef.current += 1;
+    const gen = loadGenRef.current;
+    return { gen, isCancelled: () => loadGenRef.current !== gen };
+  }, []);
+
   const load = useCallback(
     async (isCancelled: () => boolean = () => false) => {
       if (!filePath) {
@@ -35,8 +48,10 @@ export function useComments(filePath: string | null): UseCommentsResult {
       try {
         const result = await getFileComments(filePath);
         if (!isCancelled()) {
-          setThreads(result);
-          useStore.getState().setLastCommentsReloadedAt(filePath, Date.now());
+          setThreads(result.threads);
+          useStore.getState().setFileMeta(filePath, {
+            commentsMtime: result.sidecar_mtime_ms,
+          });
         }
       } catch (e) {
         error(`[vm] Failed to load comments for ${filePath}: ${e}`);
@@ -48,14 +63,17 @@ export function useComments(filePath: string | null): UseCommentsResult {
     [filePath],
   );
 
-  // Initial load + reload on filePath change (with cancellation for stale responses)
+  // Initial load + reload on filePath change (with cancellation for stale responses).
+  // Cleanup bumps `loadGenRef` so any in-flight load resolved after unmount /
+  // path change is discarded — even if it was started by an event handler that
+  // captured its own `isCancelled` predicate.
   useEffect(() => {
-    let cancelled = false;
+    const { isCancelled } = startLoad();
     // Wrap in async IIFE so the synchronous setState inside `load` is decoupled
     // from this effect body (avoids react-hooks/set-state-in-effect false positive).
-    (async () => { await load(() => cancelled); })();
-    return () => { cancelled = true; };
-  }, [load]);
+    (async () => { await load(isCancelled); })();
+    return () => { loadGenRef.current += 1; };
+  }, [load, startLoad]);
 
   // Listen for comments-changed (from Rust mutation commands)
   useEffect(() => {
@@ -63,32 +81,43 @@ export function useComments(filePath: string | null): UseCommentsResult {
     const listenerPromise = listenEvent("comments-changed", (payload) => {
       if (payload.file_path === filePath) {
         info(`[vm] comments-changed for ${filePath}, reloading`);
-        load();
+        const { isCancelled } = startLoad();
+        load(isCancelled);
       }
     });
 
     return () => { listenerPromise.then((fn) => fn()).catch(() => {}); };
-  }, [filePath, load]);
+  }, [filePath, load, startLoad]);
 
   // Listen for file-changed (from watcher, for external sidecar changes)
   useEffect(() => {
     if (!filePath) return;
     const listenerPromise = listenEvent("file-changed", (payload) => {
+      const sidecarYaml = `${filePath}.review.yaml`;
+      const sidecarJson = `${filePath}.review.json`;
       if (payload.kind === "review") {
         // Check if this is the sidecar for our file
-        const sidecarPath = payload.path;
-        if (
-          sidecarPath === `${filePath}.review.yaml` ||
-          sidecarPath === `${filePath}.review.json`
-        ) {
+        if (payload.path === sidecarYaml || payload.path === sidecarJson) {
           info(`[vm] External sidecar change for ${filePath}, reloading`);
-          load();
+          const { isCancelled } = startLoad();
+          load(isCancelled);
+        }
+      } else if (payload.kind === "deleted") {
+        // Sidecar deleted → drop threads + clear cached commentsMtime so
+        // StatusBar (Group E) can reflect "no sidecar" without a reload.
+        if (payload.path === sidecarYaml || payload.path === sidecarJson) {
+          info(`[vm] Sidecar deleted for ${filePath}, clearing threads`);
+          // Bump generation BEFORE the synchronous clear so any in-flight
+          // reload that resolves later cannot restore the just-deleted threads.
+          loadGenRef.current += 1;
+          setThreads([]);
+          useStore.getState().setFileMeta(filePath, { commentsMtime: null });
         }
       }
     });
 
     return () => { listenerPromise.then((fn) => fn()).catch(() => {}); };
-  }, [filePath, load]);
+  }, [filePath, load, startLoad]);
 
   const comments: MatchedComment[] = useMemo(
     () => threads.flatMap((t) => [t.root, ...t.replies]),

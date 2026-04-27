@@ -41,7 +41,7 @@ export function useWorkspaceComments(
     Promise.all(
       paths.map((p) =>
         getFileComments(p)
-          .then((threads) => [p, threads] as const)
+          .then(({ threads }) => [p, threads] as const)
           .catch((e) => {
             error(`[useWorkspaceComments] ${p}: ${e}`);
             return [p, [] as CommentThread[]] as const;

@@ -40,7 +40,7 @@ function setupMoveAnchorMock(page: Page, comments: MockComment[]) {
         if (cmd === "read_text_file")
           return "# Heading\n\nLine 3 content.\n\nLine 5 content.\n";
         if (cmd === "load_review_comments") return { mrsf_version: "1.0", comments };
-        if (cmd === "get_file_comments") return threads;
+        if (cmd === "get_file_comments") return { threads: threads, sidecar_mtime_ms: null };
         if (cmd === "update_comment") {
           ((window as Record<string, unknown>).__UPDATE_COMMENT_CALLS__ as unknown[]).push(args);
           return undefined;

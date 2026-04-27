@@ -71,12 +71,13 @@ export function useFileContent(path: string): FileContent {
           lineCount: result.line_count,
         });
         // Populate session-only file-meta cache so StatusBar (and any other
-        // observer) can read sizeBytes/lineCount via store selectors instead
-        // of issuing a second `read_text_file` IPC. Keeping the timestamp
-        // setter and meta setter co-located ensures both caches stay in sync.
-        const store = useStore.getState();
-        store.setFileMeta(path, result.size_bytes, result.line_count);
-        store.setLastFileReloadedAt(path, Date.now());
+        // observer) can read sizeBytes/lineCount/fileMtime via store
+        // selectors instead of issuing a second `read_text_file` IPC.
+        useStore.getState().setFileMeta(path, {
+          sizeBytes: result.size_bytes,
+          lineCount: result.line_count,
+          fileMtime: result.mtime_ms ?? undefined,
+        });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -88,7 +89,16 @@ export function useFileContent(path: string): FileContent {
           setState({ status });
           statFile(path)
             .then((s) => {
-              if (!cancelled) setState({ status, sizeBytes: s.size_bytes, mtimeMs: s.mtime_ms ?? null });
+              if (cancelled) return;
+              setState({ status, sizeBytes: s.size_bytes, mtimeMs: s.mtime_ms ?? null });
+              // Mirror the text-success path: propagate sizeBytes + mtime to
+              // the FileMeta cache so StatusBar can render mtime for binary /
+              // too-large files too. lineCount is intentionally omitted —
+              // there's no decoded text to count lines on.
+              useStore.getState().setFileMeta(path, {
+                sizeBytes: s.size_bytes,
+                fileMtime: s.mtime_ms ?? undefined,
+              });
             })
             .catch(() => {
               /* keep placeholder without size on stat failure */

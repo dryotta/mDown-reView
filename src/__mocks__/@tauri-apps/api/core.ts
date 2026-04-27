@@ -6,6 +6,7 @@ import type {
   DirEntry,
   FileBadge,
   FoldRegion,
+  GetFileCommentsResult,
   KqlPipelineStep,
   LaunchArgs,
   MatchedComment,
@@ -26,6 +27,7 @@ type InvokeResult =
   | LaunchArgs
   | MrsfSidecar
   | CommentThread[]
+  | GetFileCommentsResult
   | MatchedComment[]
   | SearchMatch[]
   | FoldRegion[]
@@ -100,7 +102,8 @@ async function defaultInvoke(
   // Iter 1 / F0 defaults — return empty/no-op shapes so consumers don't
   // need to special-case them. Tests override via mockResolvedValueOnce.
   if (cmd === "get_file_badges") return {} as Record<string, FileBadge>;
-  if (cmd === "get_file_comments") return [] as CommentThread[];
+  if (cmd === "get_file_comments")
+    return { threads: [], sidecar_mtime_ms: null } satisfies GetFileCommentsResult;
   if (cmd === "tokenize_words") return [] as WordSpan[];
   if (cmd === "export_review_summary") return "";
   if (cmd === "update_comment") return undefined;

@@ -21,7 +21,7 @@ async function setupMediaMocks(page: Page) {
       if (cmd === "load_review_comments") return null;
       if (cmd === "check_path_exists") return "file";
       if (cmd === "get_log_path") return "/mock/log.log";
-      if (cmd === "get_file_comments") return [];
+      if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
       // Audio/video viewers don't issue read_text_file or read_binary_file —
       // they stream via the asset:// URL. This mock returns null for any
       // unrelated command so accidental reads surface as test failures.

@@ -107,16 +107,63 @@ describe("StatusBar – rendering", () => {
     expect(screen.queryByText(/KB|MB|\bB$/)).not.toBeInTheDocument();
   });
 
-  it("shows reload labels when timestamps are present", () => {
-    const now = Date.now();
+  it("renders File last changed when fileMtime is set", () => {
+    const ts = Date.now() - 10_000;
     useStore.setState({
       activeTabPath: "/repo/notes.md",
-      lastFileReloadedAt: { "/repo/notes.md": now - 10_000 },
-      lastCommentsReloadedAt: { "/repo/notes.md": now - 10_000 },
+      fileMetaByPath: { "/repo/notes.md": { fileMtime: ts } },
     });
     render(<StatusBar />);
-    expect(screen.getByText(/File reloaded just now/)).toBeInTheDocument();
-    expect(screen.getByText(/Comments reloaded just now/)).toBeInTheDocument();
+    const span = screen.getByText(/File last changed/i);
+    expect(span).toBeInTheDocument();
+    expect(span).toHaveAttribute("title", new Date(ts).toLocaleString());
+  });
+
+  it("renders Comments last changed when commentsMtime is set", () => {
+    const ts = Date.now() - 10_000;
+    useStore.setState({
+      activeTabPath: "/repo/notes.md",
+      fileMetaByPath: { "/repo/notes.md": { commentsMtime: ts } },
+    });
+    render(<StatusBar />);
+    const span = screen.getByText(/Comments last changed/i);
+    expect(span).toBeInTheDocument();
+    expect(span).toHaveAttribute("title", new Date(ts).toLocaleString());
+  });
+
+  it("hides File last changed when fileMtime is undefined", () => {
+    useStore.setState({
+      activeTabPath: "/repo/notes.md",
+      fileMetaByPath: { "/repo/notes.md": { sizeBytes: 10 } },
+    });
+    render(<StatusBar />);
+    expect(screen.queryByText(/File last changed/i)).not.toBeInTheDocument();
+  });
+
+  it("hides Comments last changed when commentsMtime is null", () => {
+    useStore.setState({
+      activeTabPath: "/repo/notes.md",
+      fileMetaByPath: { "/repo/notes.md": { commentsMtime: null } },
+    });
+    render(<StatusBar />);
+    expect(screen.queryByText(/Comments last changed/i)).not.toBeInTheDocument();
+  });
+
+  it("tooltip is the absolute timestamp via toLocaleString", () => {
+    const ts = new Date("2024-06-15T10:30:00Z").getTime();
+    useStore.setState({
+      activeTabPath: "/repo/notes.md",
+      fileMetaByPath: { "/repo/notes.md": { fileMtime: ts, commentsMtime: ts } },
+    });
+    render(<StatusBar />);
+    expect(screen.getByText(/File last changed/i)).toHaveAttribute(
+      "title",
+      new Date(ts).toLocaleString(),
+    );
+    expect(screen.getByText(/Comments last changed/i)).toHaveAttribute(
+      "title",
+      new Date(ts).toLocaleString(),
+    );
   });
 });
 
@@ -128,11 +175,11 @@ describe("StatusBar – timer tick refreshes labels", () => {
 
     useStore.setState({
       activeTabPath: "/repo/notes.md",
-      lastFileReloadedAt: { "/repo/notes.md": start - 30_000 }, // 30s ago
+      fileMetaByPath: { "/repo/notes.md": { fileMtime: start - 30_000 } }, // 30s ago
     });
 
     render(<StatusBar />);
-    expect(screen.getByText(/File reloaded just now/)).toBeInTheDocument();
+    expect(screen.getByText(/File last changed just now/)).toBeInTheDocument();
 
     // Advance system time + drain the 60s interval tick.
     act(() => {
@@ -141,15 +188,15 @@ describe("StatusBar – timer tick refreshes labels", () => {
 
     // Now 90s have elapsed since the timestamp → "1 minute ago".
     expect(screen.queryByText(/just now/)).not.toBeInTheDocument();
-    expect(screen.getByText(/File reloaded .*minute.*ago/)).toBeInTheDocument();
+    expect(screen.getByText(/File last changed .*minute.*ago/)).toBeInTheDocument();
   });
 });
 
 describe("StatusBar – fine-grained scalar selectors", () => {
-  it("does not re-render when an unrelated path's reload timestamp changes", () => {
+  it("does not re-render when an unrelated path's fileMtime changes; does re-render exactly once when active path's fileMtime changes", () => {
     useStore.setState({
       activeTabPath: "/repo/active.md",
-      lastFileReloadedAt: { "/repo/active.md": 1000 },
+      fileMetaByPath: { "/repo/active.md": { fileMtime: 1000 } },
     });
 
     let renderCount = 0;
@@ -161,36 +208,27 @@ describe("StatusBar – fine-grained scalar selectors", () => {
     const baseline = renderCount;
     expect(baseline).toBeGreaterThan(0);
 
-    // Update an unrelated path → active path's selector returns the same number.
+    // Mutate fileMtime on an UNRELATED path → StatusBar's selectors return the
+    // same scalars, so it must NOT re-render.
     act(() => {
       useStore.setState((s) => ({
-        lastFileReloadedAt: { ...s.lastFileReloadedAt, "/repo/other.md": 9999 },
+        fileMetaByPath: {
+          ...s.fileMetaByPath,
+          "/repo/other.md": { fileMtime: 9999 },
+        },
       }));
     });
     expect(renderCount).toBe(baseline);
 
-    // Same for comments map.
+    // Mutate fileMtime on the ACTIVE path → exactly one extra render.
     act(() => {
       useStore.setState((s) => ({
-        lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, "/repo/other.md": 9999 },
+        fileMetaByPath: {
+          ...s.fileMetaByPath,
+          "/repo/active.md": { ...s.fileMetaByPath["/repo/active.md"], fileMtime: 2000 },
+        },
       }));
     });
-    expect(renderCount).toBe(baseline);
-
-    // Same for fileMetaByPath — only the active path's entry should re-render.
-    act(() => {
-      useStore.setState((s) => ({
-        fileMetaByPath: { ...s.fileMetaByPath, "/repo/other.md": { sizeBytes: 1, lineCount: 1 } },
-      }));
-    });
-    expect(renderCount).toBe(baseline);
-
-    // Updating the active path's timestamp DOES trigger a re-render.
-    act(() => {
-      useStore.setState((s) => ({
-        lastFileReloadedAt: { ...s.lastFileReloadedAt, "/repo/active.md": 2000 },
-      }));
-    });
-    expect(renderCount).toBeGreaterThan(baseline);
+    expect(renderCount).toBe(baseline + 1);
   });
 });

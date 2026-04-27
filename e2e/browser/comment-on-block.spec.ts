@@ -57,7 +57,7 @@ async function setupBlockMocks(page: Page) {
       if (cmd === "stat_file") return { size_bytes: body.length };
       if (cmd === "load_review_comments") return (window as Record<string, unknown>).__COMMENTS__;
       if (cmd === "save_review_comments") return null;
-      if (cmd === "get_file_comments") return toThreads();
+      if (cmd === "get_file_comments") return { threads: toThreads(), sidecar_mtime_ms: null };
       if (cmd === "add_comment") {
         ((window as Record<string, unknown>).__ADD_COMMENT_CALLS__ as unknown[]).push(args);
         const sidecar = (window as Record<string, unknown>).__COMMENTS__ as { comments: Record<string, unknown>[] };

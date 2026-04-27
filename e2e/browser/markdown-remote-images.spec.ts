@@ -18,7 +18,7 @@ async function setupMocks(page: Page): Promise<void> {
         if (cmd === "load_review_comments") return null;
         if (cmd === "save_review_comments") return null;
         if (cmd === "get_log_path") return "/mock/log.log";
-        if (cmd === "get_file_comments") return [];
+        if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
         if (cmd === "fetch_remote_asset") {
           (w.__FETCH_REMOTE_CALLS__ as string[]).push((args as { url: string }).url);
           // 1×1 transparent PNG

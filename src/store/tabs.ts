@@ -5,10 +5,12 @@
  * Owns the open-tabs list, active tab pointer, and a small set of session-only
  * per-path maps that are NEVER persisted (rule 15):
  *   - viewModeByTab — last chosen viewer mode (source/visual)
- *   - lastFileReloadedAt / lastCommentsReloadedAt — wall-clock reload timestamps
- *   - fileMetaByPath — { sizeBytes, lineCount } cached from `read_text_file`
- *     so the StatusBar can show file metadata without a second IPC round-trip
- *     (the canonical TextFileResult chokepoint — see commands/fs.rs:71-109).
+ *   - fileMetaByPath — { sizeBytes, lineCount, fileMtime, commentsMtime } cached
+ *     from `read_text_file` / `get_file_comments`. The StatusBar reads mtimes
+ *     from this map (see `FileMeta` below); there is no separate
+ *     reload-timestamp map (the historic `lastFileReloadedAt` /
+ *     `lastCommentsReloadedAt` slices were removed once mtimes covered the use
+ *     case). Canonical TextFileResult chokepoint — see commands/fs.rs:71-109.
  *
  * The slice creator function is composed into the combined store in
  * `src/store/index.ts`. It uses the typed `set`/`get` signatures from
@@ -35,18 +37,28 @@ export interface Tab {
 
 /** Per-path cached file metadata, populated by `useFileContent` after a successful read. */
 export interface FileMeta {
-  sizeBytes: number;
-  lineCount: number;
+  sizeBytes?: number;
+  lineCount?: number;
+  /**
+   * Wall-clock mtime of the file (epoch ms) at the time of the last successful
+   * read. Populated by Group D (`useFileContent`) from `TextFileResult.mtime_ms`.
+   * `undefined` until first read; `null` is reserved for "FS does not expose
+   * mtime" if Group D chooses to forward that distinction.
+   */
+  fileMtime?: number;
+  /**
+   * Wall-clock mtime of the `.mrsf.yaml` sidecar (epoch ms) at the time of the
+   * last successful comments load. Populated by Group D (`use-comments`) from
+   * `GetFileCommentsResult.sidecar_mtime_ms`. `null` means "no sidecar exists";
+   * `undefined` means "never loaded".
+   */
+  commentsMtime?: number | null;
 }
 
 export interface TabsSlice {
   tabs: Tab[];
   activeTabPath: string | null;
   viewModeByTab: Record<string, "source" | "visual">;
-  /** Wall-clock timestamps of last successful file content load per path. Session-only (not persisted). */
-  lastFileReloadedAt: Record<string, number>;
-  /** Wall-clock timestamps of last successful comments load per path. Session-only (not persisted). */
-  lastCommentsReloadedAt: Record<string, number>;
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
@@ -55,9 +67,8 @@ export interface TabsSlice {
   setActiveTab: (path: string, opts?: { recordHistory?: boolean }) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
   setViewMode: (path: string, mode: "source" | "visual") => void;
-  setLastFileReloadedAt: (path: string, ts: number) => void;
-  setLastCommentsReloadedAt: (path: string, ts: number) => void;
-  setFileMeta: (path: string, sizeBytes: number, lineCount: number) => void;
+  /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
+  setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
 }
 
 export function filterStaleTabs(
@@ -103,8 +114,6 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     tabs: [],
     activeTabPath: null,
     viewModeByTab: {},
-    lastFileReloadedAt: {},
-    lastCommentsReloadedAt: {},
     fileMetaByPath: {},
 
     openFile: (path, opts) => {
@@ -133,14 +142,10 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           const { [victim.path]: _v, ...restView } = get().viewModeByTab;
           const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
           const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
-          const { [victim.path]: _fr, ...restFileReload } = get().lastFileReloadedAt;
-          const { [victim.path]: _cr, ...restCommentsReload } = get().lastCommentsReloadedAt;
           set({
             viewModeByTab: restView,
             lastSaveByPath: restSave,
             fileMetaByPath: restMeta,
-            lastFileReloadedAt: restFileReload,
-            lastCommentsReloadedAt: restCommentsReload,
           });
         }
       }
@@ -163,16 +168,12 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
       const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
       const { [path]: _unusedMeta, ...restMeta } = get().fileMetaByPath;
-      const { [path]: _unusedFileReload, ...restFileReload } = get().lastFileReloadedAt;
-      const { [path]: _unusedCommentsReload, ...restCommentsReload } = get().lastCommentsReloadedAt;
       set({
         tabs: newTabs,
         activeTabPath: newActive,
         viewModeByTab: restViewModes,
         lastSaveByPath: restSaveByPath,
         fileMetaByPath: restMeta,
-        lastFileReloadedAt: restFileReload,
-        lastCommentsReloadedAt: restCommentsReload,
       });
     },
 
@@ -183,8 +184,6 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         viewModeByTab: {},
         lastSaveByPath: {},
         fileMetaByPath: {},
-        lastFileReloadedAt: {},
-        lastCommentsReloadedAt: {},
       }),
 
     setActiveTab: (path, opts) => {
@@ -210,18 +209,12 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         viewModeByTab: { ...s.viewModeByTab, [path]: mode },
       })),
 
-    setLastFileReloadedAt: (path, ts) =>
-      set((s) => ({ lastFileReloadedAt: { ...s.lastFileReloadedAt, [path]: ts } })),
-
-    setLastCommentsReloadedAt: (path, ts) =>
-      set((s) => ({ lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, [path]: ts } })),
-
-    setFileMeta: (path, sizeBytes, lineCount) => {
-      const cur = get().fileMetaByPath[path];
-      if (cur && cur.sizeBytes === sizeBytes && cur.lineCount === lineCount) return;
+    setFileMeta: (path, patch) =>
       set((s) => ({
-        fileMetaByPath: { ...s.fileMetaByPath, [path]: { sizeBytes, lineCount } },
-      }));
-    },
+        fileMetaByPath: {
+          ...s.fileMetaByPath,
+          [path]: { ...s.fileMetaByPath[path], ...patch },
+        },
+      })),
   };
 }

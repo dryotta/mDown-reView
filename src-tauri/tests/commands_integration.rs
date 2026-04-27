@@ -42,6 +42,31 @@ fn read_text_file_rejects_binary() {
 }
 
 #[test]
+fn read_text_file_returns_mtime_ms() {
+    // Issue #96 group A: read_text_file piggybacks an mtime so callers
+    // can detect external edits without a separate stat_file IPC. The
+    // companion `sidecar_mtime_piggyback::returns_mtime_after_sidecar_write`
+    // test asserts mtime presence with `.expect(...)`; mirror that here so
+    // a regression on supported FS (Linux/macOS/Windows CI runners) fails
+    // loudly instead of being silently skipped by `if let Some(...)`.
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    writeln!(tmp, "hello").unwrap();
+    let path = tmp.path().to_str().unwrap().to_string();
+    let result = read_text_file(path).unwrap();
+    let mtime_ms = result
+        .mtime_ms
+        .expect("read_text_file must return mtime_ms on supported FS");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    assert!(
+        (now_ms - mtime_ms).abs() < 60_000,
+        "mtime_ms ({mtime_ms}) should be within 60s of now ({now_ms})"
+    );
+}
+
+#[test]
 fn read_text_file_rejects_too_large() {
     let mut tmp = tempfile::NamedTempFile::new().unwrap();
     // Write just over 10 MB
@@ -243,8 +268,9 @@ fn add_comment_accepts_file_kind_anchor() {
     .unwrap();
 
     // 3. get_file_comments_inner returns the comment with Anchor::File.
-    let threads =
-        mdown_review_lib::commands::get_file_comments_inner(&file_path).expect("get_file_comments");
+    let threads = mdown_review_lib::commands::get_file_comments_inner(&file_path)
+        .expect("get_file_comments")
+        .threads;
     assert_eq!(threads.len(), 1, "expected one file-anchored thread");
     let root = &threads[0].root.comment;
     assert!(
@@ -1315,7 +1341,9 @@ mod wave1c_typed_dispatch {
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
-        let threads = get_file_comments(&file_path).expect("get_file_comments ok");
+        let threads = get_file_comments(&file_path)
+            .expect("get_file_comments ok")
+            .threads;
         assert_eq!(threads.len(), 1, "exactly one root thread");
         let root = &threads[0].root;
         assert!(
@@ -1348,11 +1376,73 @@ mod wave1c_typed_dispatch {
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
-        let threads = get_file_comments(&file_path).expect("get_file_comments ok");
+        let threads = get_file_comments(&file_path)
+            .expect("get_file_comments ok")
+            .threads;
         assert_eq!(threads.len(), 1);
         assert!(
             threads[0].root.is_orphaned,
             "out-of-bounds CsvCell must orphan"
+        );
+    }
+}
+
+// ── Issue #96 group A · sidecar mtime piggyback ──────────────────────────
+//
+// `get_file_comments` returns the on-disk mtime of the sidecar it picked
+// (yaml-then-json fallback, matching `load_sidecar`). Surface it so tab
+// state can detect external sidecar edits without a follow-up stat IPC.
+
+mod sidecar_mtime_piggyback {
+    use mdown_review_lib::commands::comments::get_file_comments_inner;
+    use mdown_review_lib::core::sidecar::save_sidecar;
+    use mdown_review_lib::core::types::{Anchor, MrsfComment};
+
+    #[test]
+    fn returns_none_when_no_sidecar_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("untouched.md");
+        std::fs::write(&file, b"hello\n").unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+
+        let result = get_file_comments_inner(&file_path).expect("ok");
+        assert!(result.threads.is_empty(), "no sidecar → no threads");
+        assert!(
+            result.sidecar_mtime_ms.is_none(),
+            "no sidecar → sidecar_mtime_ms must be None, got {:?}",
+            result.sidecar_mtime_ms
+        );
+    }
+
+    #[test]
+    fn returns_mtime_after_sidecar_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("doc.md");
+        std::fs::write(&file, b"line one\n").unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+
+        let comment = MrsfComment {
+            id: "c1".into(),
+            author: "Test User (test)".into(),
+            timestamp: "2026-04-20T12:00:00-07:00".into(),
+            text: "hi".into(),
+            resolved: false,
+            anchor: Anchor::File,
+            ..Default::default()
+        };
+        save_sidecar(&file_path, "doc.md", &[comment]).unwrap();
+
+        let result = get_file_comments_inner(&file_path).expect("ok");
+        let mtime_ms = result
+            .sidecar_mtime_ms
+            .expect("sidecar exists → mtime_ms must be Some");
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        assert!(
+            (now_ms - mtime_ms).abs() < 60_000,
+            "sidecar mtime_ms ({mtime_ms}) should be within 60s of now ({now_ms})"
         );
     }
 }

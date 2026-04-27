@@ -90,17 +90,42 @@ pub struct TextFileResult {
     pub content: String,
     pub size_bytes: u64,
     pub line_count: usize,
+    /// Last-modified time as epoch milliseconds. `None` if the platform/FS
+    /// does not expose mtime or it is before the UNIX epoch. Mirrors the
+    /// `*_ms` epoch convention used by [`FileStat::mtime_ms`]. Surfaced
+    /// here so callers can detect external edits (mtime jumps) without a
+    /// follow-up `stat_file` IPC round-trip.
+    pub mtime_ms: Option<i64>,
 }
 
 /// Read a text file, rejecting binary files and files >10 MB.
 ///
 /// Returns the decoded UTF-8 content alongside `size_bytes` (raw byte length
-/// of the on-disk file) and `line_count` (logical lines as defined by
-/// [`str::lines`]).
+/// of the on-disk file), `line_count` (logical lines as defined by
+/// [`str::lines`]), and `mtime_ms` (last-modified epoch ms; `None` when the
+/// platform/FS does not expose it). The file handle's metadata is read
+/// before the body so content + mtime come from the same `open()` and the
+/// caller cannot observe a torn (content_v1, mtime_v2) pair.
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
+    use std::io::Read;
+
+    // Open once; pull metadata + content from the same handle so mtime
+    // matches the bytes returned (single open(), no second path lookup).
+    let mut file = std::fs::File::open(&path).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    let mtime_ms = file
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64);
+
     // Read first, then check size (eliminates TOCTOU race between metadata + read)
-    let bytes = std::fs::read(&path).map_err(|e| {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
     })?;
@@ -127,6 +152,7 @@ pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
         content,
         size_bytes,
         line_count,
+        mtime_ms,
     })
 }
 
