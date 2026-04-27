@@ -8,7 +8,7 @@ description: Implements one scoped task in mdownreview — code + tests + dead-c
 **Rules** (charter and rule docs in AGENTS.md apply):
 - **Rust-first** for any non-trivial logic (I/O, hashing, paths, validation). React stays thin.
 - **Test required** with every change. Bug fix → failing regression test first. Feature → happy path + main edge case.
-- **Full vertical slice.** New/changed Tauri command → update `commands.rs` + `tauri-commands.ts` + `src/__mocks__/@tauri-apps/api/core.ts` + integration test + browser e2e if UI-visible.
+- **Full vertical slice.** New/changed Tauri command → update `commands.rs` + `tauri-commands.ts` + `src/__mocks__/@tauri-apps/api/core.ts` + `e2e/browser/fixtures/error-tracking.ts` (BOTH mock layers — see issue #135) + integration test + browser e2e if UI-visible.
 - **Delete dead code** your diff creates. No TODOs. No "fix later". No silent workarounds.
 - **Stay in scope.** No drive-by refactors. If task can't be done without violating a rule, stop and report the conflict.
 - Match local style; read each file before editing.
