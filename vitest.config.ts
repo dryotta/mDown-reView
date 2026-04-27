@@ -11,7 +11,6 @@ export default defineConfig({
     exclude: [
       "node_modules",
       "e2e",
-      ...(process.env.EXPLORE_UX_SMOKE === "1" ? [] : ["**/*.smoke.test.ts"]),
     ],
   },
   resolve: {
