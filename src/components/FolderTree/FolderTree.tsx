@@ -233,7 +233,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   const inFilterMode = !!deferredFilter;
   const noResults = inFilterMode
     ? filterGroups.length === 0
-    : treeList.length === 0;
+    : treeList.length === 0 && !showOtherFiles;
 
   return (
     <div className="folder-tree" style={{ width: folderPaneWidth }}>
