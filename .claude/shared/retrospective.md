@@ -190,6 +190,14 @@ Then exit Step R — do **not** create a duplicate.
 
 ### R2e. Create the issue
 
+**Label rules (enforced by post-create assertion below):**
+
+| Rule | Labels |
+|------|--------|
+| **ALWAYS required** | `groomed`, `iterate-improvement`, `self-improve:<SKILL_TAG>` |
+| **Exactly one category** | one of: `process`, `tooling`, `test-strategy`, `architecture`, `docs`, `skill`, `agent`, `bug` |
+| **FORBIDDEN** | `needs-grooming` — the filer authored the spec body, so the issue is groomed by definition. `needs-grooming` is reserved for issues where `iterate-one-issue` 0d cannot proceed due to ambiguous specs from external authors. Violating this silently removes the issue from `iterate-loop`'s eligible pool (Step 1 skip filter). See #174. |
+
 ```bash
 NEW_ISSUE_URL=$(gh issue create \
   --title "$ISSUE_TITLE" \
@@ -198,7 +206,26 @@ NEW_ISSUE_URL=$(gh issue create \
               "$ISSUE_BODY" "$SKILL_TAG" "$RUN_TAG" "$OUTCOME" \
               "<links to each retro file>")")
 NEW_ISSUE_NUMBER=$(echo "$NEW_ISSUE_URL" | grep -oE '[0-9]+$')
+```
 
+**Post-create label assertion (#174 AC2):**
+
+```bash
+ACTUAL_LABELS=$(gh issue view "$NEW_ISSUE_NUMBER" --json labels --jq '[.labels[].name]')
+HAS_GROOMED=$(echo "$ACTUAL_LABELS" | jq 'index("groomed") != null')
+HAS_FORBIDDEN=$(echo "$ACTUAL_LABELS" | jq 'index("needs-grooming") != null')
+
+if [ "$HAS_GROOMED" != "true" ] || [ "$HAS_FORBIDDEN" = "true" ]; then
+  echo "[R2e] LABEL VIOLATION on #$NEW_ISSUE_NUMBER (see #174):"
+  echo "  groomed present: $HAS_GROOMED (must be true)"
+  echo "  needs-grooming present: $HAS_FORBIDDEN (must be false)"
+  # AC3 backfill — auto-correct and continue
+  gh issue edit "$NEW_ISSUE_NUMBER" --add-label "groomed" --remove-label "needs-grooming" 2>/dev/null || true
+  echo "[R2e] Auto-corrected: added groomed, removed needs-grooming."
+fi
+```
+
+```bash
 gh issue comment "$NEW_ISSUE_NUMBER" --body "$(cat <<EOF
 <!-- mdownreview-spec -->
 $SPEC_BODY
