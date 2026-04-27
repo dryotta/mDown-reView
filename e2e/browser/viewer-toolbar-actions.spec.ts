@@ -27,7 +27,7 @@ async function setupToolbarMocks(page: Page) {
       if (cmd === "load_review_comments") return null;
       if (cmd === "check_path_exists") return "file";
       if (cmd === "get_log_path") return "/mock/log.log";
-      if (cmd === "get_file_comments") return [];
+      if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
       if (cmd === "reveal_in_folder") return undefined;
       return null;
     };

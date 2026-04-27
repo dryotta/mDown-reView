@@ -20,7 +20,7 @@ test.describe("CLI File Open", () => {
         if (cmd === "load_review_comments") return null;
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";
-        if (cmd === "get_file_comments") return [];
+        if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
         return null;
       };
     });
@@ -49,7 +49,7 @@ test.describe("CLI File Open", () => {
         if (cmd === "load_review_comments") return null;
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";
-        if (cmd === "get_file_comments") return [];
+        if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
         return null;
       };
     });
@@ -73,7 +73,7 @@ test.describe("CLI File Open", () => {
         if (cmd === "load_review_comments") return null;
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";
-        if (cmd === "get_file_comments") return [];
+        if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
         return null;
       };
     });

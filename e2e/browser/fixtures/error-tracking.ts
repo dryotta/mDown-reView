@@ -117,7 +117,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             // If the test mock returned null, apply safe defaults for
             // infrastructure commands that were added after the test was written.
             if (result === null) {
-              if (cmd === "get_file_comments") return [];
+              if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
               if (cmd === "scan_review_files") return [];
               if (cmd === "update_watched_files") return undefined;
               if (cmd === "update_tree_watched_dirs") return undefined;
@@ -157,7 +157,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             return result;
           }
           // Default fallback when no test-specific mock is set
-          if (cmd === "get_file_comments") return [];
+          if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
           if (cmd === "scan_review_files") return [];
           if (cmd === "update_watched_files") return undefined;
           if (cmd === "update_tree_watched_dirs") return undefined;

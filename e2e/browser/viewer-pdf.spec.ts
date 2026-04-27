@@ -19,7 +19,7 @@ async function setupPdfMocks(page: Page) {
       if (cmd === "load_review_comments") return null;
       if (cmd === "check_path_exists") return "file";
       if (cmd === "get_log_path") return "/mock/log.log";
-      if (cmd === "get_file_comments") return [];
+      if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
       // PdfViewer streams via asset:// — no read_text_file / read_binary_file.
       // Returning null for any unexpected command surfaces accidental reads
       // as test failures (the wrappers throw on null where they expect data).

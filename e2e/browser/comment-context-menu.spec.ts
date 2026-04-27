@@ -19,7 +19,7 @@ async function setupCtxMenuMocks(page: Page) {
       if (cmd === "stat_file") return { size_bytes: src.length };
       if (cmd === "load_review_comments") return null;
       if (cmd === "save_review_comments") return null;
-      if (cmd === "get_file_comments") return [];
+      if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
       if (cmd === "add_comment") {
         ((window as Record<string, unknown>).__ADD_COMMENT_CALLS__ as unknown[]).push(args);
         return null;

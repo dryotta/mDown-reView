@@ -55,7 +55,7 @@ function setupKeyboardShortcutsMock(page: Page) {
         return [{ name: "sample.md", path: `${dir}/sample.md`, is_dir: false }];
       if (cmd === "read_text_file")
         return "line 1 word\nline 2\nline 3 selectable text\nline 4\nline 5\nline 6\nline 7";
-      if (cmd === "get_file_comments") return toThreads();
+      if (cmd === "get_file_comments") return { threads: toThreads(), sidecar_mtime_ms: null };
       if (cmd === "get_file_badges") return {};
       if (cmd === "update_comment") {
         ((window as Record<string, unknown>).__RESOLVE_CALLS__ as unknown[]).push(args);
