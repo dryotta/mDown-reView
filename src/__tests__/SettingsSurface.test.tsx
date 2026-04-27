@@ -4,21 +4,21 @@ import { useStore } from "@/store";
 import type { SettingsSurface } from "@/store";
 
 /**
- * Issue #116 — `settingsSurface` discriminated-union regression test.
+ * Issue #116 — Settings surface mount-gating regression test.
  *
- * Asserts the single-surface invariance: for every value of `settingsSurface`
- * AT MOST ONE of `<SettingsView/>` (inline) and `<SettingsDialog/>` (modal)
- * is mounted. The previous shape used two independent booleans
- * (`settingsOpen` + `authorDialogOpen`), which left the door open to
- * co-mounting both surfaces — `<dialog>.showModal()` would then `inert` the
- * inline view.
+ * Architecture (post-forward-fix): `<SettingsView/>` is the page-level
+ * surface, gated by `settingsSurface === 'inline'`. `<SettingsDialog/>`
+ * is a CHILD MODAL launched from the SettingsView footer link, gated by
+ * a separate `authorDialogOpen` boolean. The two surfaces are
+ * INTENTIONALLY independent and DO co-mount (page underneath, modal on
+ * top) — opening the dialog must not unmount SettingsView, otherwise
+ * dismissing the dialog would drop the user back to Welcome/Viewer.
  *
  * Lint-rule oracle: the synthetic-regression coverage (a fixture asserting
  * that the pre-fix `{settingsOpen && <SettingsView/>}{settingsOpen &&
  * <SettingsDialog/>}` shape produces ≥1 violation) lives in the dedicated
- * RuleTester suite at `eslint-rules/no-shared-boolean-mount.test.js`. That
- * suite IS the synthetic regression — re-introducing the shared-boolean
- * shape in App.tsx fails the lint gate before this DOM-level test runs.
+ * RuleTester suite at `eslint-rules/no-shared-boolean-mount.test.js`.
+ * Each mount site here uses its own gate identifier, satisfying rule 28.
  */
 
 // Same window stubs / mocks as App.test.tsx — kept self-contained so a
@@ -119,24 +119,42 @@ async function renderApp() {
   });
 }
 
-describe("settingsSurface single-surface invariance (issue #116)", () => {
-  // Truth table: exactly one (or zero for 'closed') surface is mounted per value.
-  const cases: { surface: SettingsSurface; view: boolean; dialog: boolean }[] = [
-    { surface: "closed", view: false, dialog: false },
-    { surface: "inline", view: true, dialog: false },
-    { surface: "modal", view: false, dialog: true },
+describe("settings surface mount gating (issue #116)", () => {
+  // SettingsView gating depends only on settingsSurface.
+  const viewCases: { surface: SettingsSurface; view: boolean }[] = [
+    { surface: "closed", view: false },
+    { surface: "inline", view: true },
   ];
 
-  for (const { surface, view, dialog } of cases) {
-    it(`settingsSurface='${surface}' mounts SettingsView=${view}, SettingsDialog=${dialog}`, async () => {
-      useStore.setState({ settingsSurface: surface });
+  for (const { surface, view } of viewCases) {
+    it(`settingsSurface='${surface}' mounts SettingsView=${view}`, async () => {
+      useStore.setState({ settingsSurface: surface, authorDialogOpen: false });
       await renderApp();
       expect(Boolean(screen.queryByTestId("settings-view"))).toBe(view);
-      expect(Boolean(screen.queryByTestId("settings-dialog"))).toBe(dialog);
-      // Hard invariance check: never both at once.
-      const both =
-        screen.queryByTestId("settings-view") && screen.queryByTestId("settings-dialog");
-      expect(both).toBeFalsy();
     });
   }
+
+  // SettingsDialog gating depends only on authorDialogOpen.
+  it("SettingsDialog mounts iff authorDialogOpen === true", async () => {
+    useStore.setState({ settingsSurface: "closed", authorDialogOpen: false });
+    await renderApp();
+    expect(screen.queryByTestId("settings-dialog")).toBeNull();
+  });
+
+  it("SettingsDialog mounts when authorDialogOpen === true", async () => {
+    useStore.setState({ settingsSurface: "closed", authorDialogOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+  });
+
+  // The architect-flagged regression: the dialog is a CHILD MODAL launched
+  // from inside SettingsView. Flipping authorDialogOpen must NOT unmount
+  // SettingsView — otherwise dismissing the dialog drops the user back to
+  // Welcome/Viewer. Both surfaces SHOULD render together (page + modal).
+  it("SettingsView REMAINS MOUNTED when authorDialogOpen flips to true (page + modal co-render)", async () => {
+    useStore.setState({ settingsSurface: "inline", authorDialogOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+  });
 });

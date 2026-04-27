@@ -16,6 +16,12 @@
  *   string/number fallback like `count && 'pending'`).
  * - At least two such siblings under the same JSXElement/JSXFragment with
  *   matching left identifier.
+ *
+ * Known blind spots (deferred — must be caught in code review):
+ * - Ternary gates: `flag ? <X/> : <Y/>` is not a `LogicalExpression`.
+ * - Member-expression gates: `state.flag && <X/>` has a `MemberExpression`
+ *   left operand, not an `Identifier`. Two siblings of this shape sharing
+ *   the same `state.flag` are NOT flagged.
  */
 
 /** @type {import('eslint').Rule.RuleModule} */

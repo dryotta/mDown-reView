@@ -221,6 +221,8 @@ describe("SettingsView", () => {
       render(<SettingsView />);
     });
     fireEvent.click(screen.getByRole("button", { name: /Author & preferences/i }));
-    expect(useStore.getState().settingsSurface).toBe("modal");
+    expect(useStore.getState().authorDialogOpen).toBe(true);
+    // Independence: opening the child modal must NOT unmount the page.
+    expect(useStore.getState().settingsSurface).toBe("inline");
   });
 });

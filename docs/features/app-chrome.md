@@ -10,7 +10,7 @@ The persistent UI surfaces that frame every workspace view: the **top toolbar** 
 
 A flex row pinned above the main area. The left side holds a button group (Open File / Open Folder / Comments toggle / Settings — 4 buttons total) that does NOT shrink — those controls stay readable at every viewport width. The right side hosts the `TabBar`, whose wrapper *does* shrink (`flex-shrink: 1; min-width: 0`) so when many tabs are open the inner scroll strip overflows naturally and the left/right chevrons appear without any DOM-level workaround.
 
-The Settings button (gear icon) flips `settingsOpen` on the store. The no-tab area then routes to `<WelcomeView>` by default and to `<SettingsView>` when `settingsOpen=true` — see [settings.md](settings.md).
+The Settings button (gear icon) flips `settingsSurface` to `'inline'` on the store. The no-tab area then routes to `<WelcomeView>` by default and to `<SettingsView>` when `settingsSurface === 'inline'` — see [settings.md](settings.md).
 
 After the post-redesign cleanup, the toolbar carries no theme dropdown or About button — those moved into the native OS menu. App-level menu events (Theme · Light/Dark/System, About, Check for Update) are forwarded as `menu-*` Tauri events handled in `useMenuListeners` (rule 24 in [`docs/architecture.md`](../architecture.md)).
 

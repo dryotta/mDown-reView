@@ -52,13 +52,16 @@ export default function App() {
   useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
-  // Settings surface (issue #116): a single discriminated-union value gates
-  // both `<SettingsView/>` (inline, replaces viewer area) and the legacy
-  // `<SettingsDialog/>` (modal). This shape makes co-mount unrepresentable
-  // — `'modal'`'s `<dialog>.showModal()` would otherwise inert the inline
-  // view if both flags could ever be true at once. See docs/architecture.md
-  // rules 16 & 28 and lint rule `local/no-shared-boolean-mount`.
+  // Settings surface (issue #116): the inline page (`<SettingsView/>`) is
+  // gated by a discriminated-union `settingsSurface` ('closed' | 'inline'),
+  // while the author/preferences dialog launched FROM INSIDE that page is a
+  // separate boolean (`authorDialogOpen`). They are intentionally
+  // independent — the dialog layers OVER the inline page, so opening it
+  // must not unmount SettingsView. Each mount site has its own gate
+  // identifier, satisfying lint rule `local/no-shared-boolean-mount`.
+  // See docs/architecture.md rules 16 & 28.
   const settingsSurface = useStore((s) => s.settingsSurface);
+  const authorDialogOpen = useStore((s) => s.authorDialogOpen);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
@@ -257,9 +260,10 @@ export default function App() {
       </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
-      {/* Legacy author/preferences dialog. Reachable from SettingsView footer
-          link until folded into SettingsView. */}
-      {settingsSurface === "modal" && <SettingsDialog onClose={() => useStore.getState().closeAuthorDialog()} />}
+      {/* Author/preferences dialog. Reachable from the SettingsView footer
+          link; layers OVER the inline page (rule 28: each mount site has
+          its own gate identifier). */}
+      {authorDialogOpen && <SettingsDialog onClose={() => useStore.getState().closeAuthorDialog()} />}
     </div>
   );
 }

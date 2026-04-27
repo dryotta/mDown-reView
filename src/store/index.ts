@@ -138,11 +138,10 @@ interface RecentSlice {
 // ── Onboarding slice ──────────────────────────────────────────────────────
 
 /**
- * Discriminated-union state for the Settings UI surfaces. See the
- * `settingsSurface` field on `OnboardingSlice` for the rationale and
- * docs/architecture.md rule 28 for the structural rule it enforces.
+ * Page-level Settings surface state. See the `settingsSurface` field on
+ * `OnboardingSlice` and docs/architecture.md rule 28.
  */
-export type SettingsSurface = "closed" | "inline" | "modal";
+export type SettingsSurface = "closed" | "inline";
 
 export type OnboardingStatus = "pending" | "done" | "unsupported" | "error";
 
@@ -161,27 +160,34 @@ interface OnboardingSlice {
   onboardingState: OnboardingState | null;
   onboardingErrors: Record<string, string>;
   /**
-   * Discriminated-union surface state for the Settings UI (issue #116).
+   * Page-level Settings surface (issue #116).
    *
-   * - `'closed'` — no Settings surface mounted.
+   * - `'closed'` — no `<SettingsView/>` mounted.
    * - `'inline'` — `<SettingsView/>` mounted in the viewer area (replaces
    *   the WelcomeView / ViewerRouter).
-   * - `'modal'` — legacy `<SettingsDialog/>` (`<dialog>.showModal()`)
-   *   mounted on top.
    *
-   * The previous shape (`settingsOpen` + `authorDialogOpen` booleans) let
-   * each surface flip independently, which both invited co-mount bugs and
-   * tripped lint rule `local/no-shared-boolean-mount` if a future caller
-   * gated both surfaces on one boolean. The discriminated union enforces
-   * single-surface invariance at the type level. See docs/architecture.md
-   * rules 16 & 28.
+   * The author preferences dialog is a separate boolean
+   * (`authorDialogOpen`) because it layers over the inline page (rule 28
+   * is still satisfied because each surface has its own gate
+   * identifier). See docs/architecture.md rules 16 & 28.
    */
   settingsSurface: SettingsSurface;
+  /**
+   * Modal author/preferences dialog visibility (issue #116).
+   *
+   * `<SettingsDialog/>` is a CHILD MODAL launched from the
+   * "Author & preferences…" footer link inside `<SettingsView/>`. It
+   * deliberately layers OVER the inline page — opening or closing it
+   * must not unmount the page underneath, so it owns its own boolean
+   * rather than being folded into `settingsSurface`.
+   */
+  authorDialogOpen: boolean;
   // Actions
   refreshOnboarding: () => Promise<void>;
   setSettingsSurface: (surface: SettingsSurface) => void;
   openSettings: () => void;
   closeSettings: () => void;
+  setAuthorDialogOpen: (open: boolean) => void;
   openAuthorDialog: () => void;
   closeAuthorDialog: () => void;
   installCliShim: () => Promise<void>;
@@ -294,6 +300,7 @@ export const useStore = create<Store>()(
       onboardingState: null,
       onboardingErrors: {},
       settingsSurface: "closed",
+      authorDialogOpen: false,
       refreshOnboarding: async () => {
         const [cli, def, folder, state] = await Promise.allSettled([
           ipcCliShimStatus(),
@@ -329,8 +336,9 @@ export const useStore = create<Store>()(
       setSettingsSurface: (surface) => set({ settingsSurface: surface }),
       openSettings: () => set({ settingsSurface: "inline" }),
       closeSettings: () => set({ settingsSurface: "closed" }),
-      openAuthorDialog: () => set({ settingsSurface: "modal" }),
-      closeAuthorDialog: () => set({ settingsSurface: "closed" }),
+      setAuthorDialogOpen: (open) => set({ authorDialogOpen: open }),
+      openAuthorDialog: () => set({ authorDialogOpen: true }),
+      closeAuthorDialog: () => set({ authorDialogOpen: false }),
       installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
       removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
       setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),
