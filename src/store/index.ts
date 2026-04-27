@@ -137,6 +137,13 @@ interface RecentSlice {
 
 // ── Onboarding slice ──────────────────────────────────────────────────────
 
+/**
+ * Discriminated-union state for the Settings UI surfaces. See the
+ * `settingsSurface` field on `OnboardingSlice` for the rationale and
+ * docs/architecture.md rule 28 for the structural rule it enforces.
+ */
+export type SettingsSurface = "closed" | "inline" | "modal";
+
 export type OnboardingStatus = "pending" | "done" | "unsupported" | "error";
 
 export interface OnboardingStatuses {
@@ -153,17 +160,26 @@ interface OnboardingSlice {
   onboardingStatuses: OnboardingStatuses;
   onboardingState: OnboardingState | null;
   onboardingErrors: Record<string, string>;
-  // Panel visibility (transient, not persisted)
-  settingsOpen: boolean;
   /**
-   * Transient flag for the legacy author/preferences dialog (B1 forward-fix).
-   * Decoupled from `settingsOpen` so opening SettingsView never simultaneously
-   * mounts the modal `<SettingsDialog>`, whose `showModal()` would `inert` the
-   * region and block all interaction with the new surface.
+   * Discriminated-union surface state for the Settings UI (issue #116).
+   *
+   * - `'closed'` — no Settings surface mounted.
+   * - `'inline'` — `<SettingsView/>` mounted in the viewer area (replaces
+   *   the WelcomeView / ViewerRouter).
+   * - `'modal'` — legacy `<SettingsDialog/>` (`<dialog>.showModal()`)
+   *   mounted on top.
+   *
+   * The previous shape (`settingsOpen` + `authorDialogOpen` booleans) let
+   * each surface flip independently, which both invited co-mount bugs and
+   * tripped lint rule `local/no-shared-boolean-mount` if a future caller
+   * gated both surfaces on one boolean. The discriminated union enforces
+   * single-surface invariance at the type level. See docs/architecture.md
+   * rules 16 & 28.
    */
-  authorDialogOpen: boolean;
+  settingsSurface: SettingsSurface;
   // Actions
   refreshOnboarding: () => Promise<void>;
+  setSettingsSurface: (surface: SettingsSurface) => void;
   openSettings: () => void;
   closeSettings: () => void;
   openAuthorDialog: () => void;
@@ -277,8 +293,7 @@ export const useStore = create<Store>()(
       onboardingStatuses: { cliShim: "pending", defaultHandler: "pending", folderContext: "pending" },
       onboardingState: null,
       onboardingErrors: {},
-      settingsOpen: false,
-      authorDialogOpen: false,
+      settingsSurface: "closed",
       refreshOnboarding: async () => {
         const [cli, def, folder, state] = await Promise.allSettled([
           ipcCliShimStatus(),
@@ -311,10 +326,11 @@ export const useStore = create<Store>()(
           onboardingErrors: errors,
         });
       },
-      openSettings: () => set({ settingsOpen: true }),
-      closeSettings: () => set({ settingsOpen: false }),
-      openAuthorDialog: () => set({ authorDialogOpen: true }),
-      closeAuthorDialog: () => set({ authorDialogOpen: false }),
+      setSettingsSurface: (surface) => set({ settingsSurface: surface }),
+      openSettings: () => set({ settingsSurface: "inline" }),
+      closeSettings: () => set({ settingsSurface: "closed" }),
+      openAuthorDialog: () => set({ settingsSurface: "modal" }),
+      closeAuthorDialog: () => set({ settingsSurface: "closed" }),
       installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
       removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
       setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),

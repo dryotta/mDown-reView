@@ -1,6 +1,6 @@
 /*
  * Settings view — full-page region rendered when no tab is active and
- * `settingsOpen` is true (see App.tsx routing + SettingsView.tsx). NOT a
+ * `settingsSurface === 'inline'` (see App.tsx routing + SettingsView.tsx). NOT a
  * modal/dialog: no backdrop, no fixed positioning. Sits inside the normal
  * content area so the user can dismiss it by Esc, the close button, or by
  * opening any file.

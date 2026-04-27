@@ -63,7 +63,7 @@ flowchart LR
 
 ### State boundaries
 15. Zustand `persist` serializes only UI state: `theme`, `folderPaneWidth`, `commentsPaneVisible`, `root`, `expandedFolders`, `authorName`, `readingWidth`, `recentItems`, `tabs`, `activeTabPath`, `updateChannel`, `zoomByFiletype`. `ghostEntries`, `lastSaveByPath`, `lastFileReloadedAt`, `lastCommentsReloadedAt`, `viewModeByTab`, `fileMetaByPath`, `updateStatus`, comments, scroll values, tab back/forward history (`tabHistory` slice — session-only), and `viewerPrefsSlice.allowedRemoteImageDocs` are never persisted — trust decisions like remote-image allowance must not silently survive an app restart. The persist config carries a monotonic `version` and `migrate` fn; v1 (issue #89) strips Windows `\\?\` verbatim prefixes from `root` / `activeTabPath` / `tabs[].path` / `recentItems[].path` / `expandedFolders` keys for snapshots written by pre-#89 clients (`store/migrations/v1-strip-verbatim.ts`). (`store/index.ts` `partialize`; tabs slice `store/tabs.ts:39-58`; viewerPrefs slice `store/viewerPrefs.ts`; tabHistory slice `store/tabHistory.ts`.)
-16. Cross-slice state changes from a single user action group into one store action. (`store/index.ts:149-161` `closeTab`.)
+16. Cross-slice state changes from a single user action group into one store action. (`store/index.ts:149-161` `closeTab`.) See rule 28 for the related no-shared-boolean-mount rule that enforces single-surface invariance for multi-surface UI intents.
 17. `lib/` never imports `components/` or `hooks/`; `lib/vm/` is the only place `lib/` reads `@/store`. (Grep-verified: `@/components` / `@/hooks` in `src/lib/` → 0; `@/store` → only `src/lib/vm/use-comment-actions.ts:2`.)
 
 ### Component & viewer boundaries
@@ -87,6 +87,9 @@ flowchart LR
 
 ### Atomic writes
 27. Any Rust code that persists user data to disk MUST go through `core/atomic.rs::write_atomic` (temp-file + rename). A crash mid-write must never leave a half-written destination. Currently used by sidecar persistence and `core/onboarding.rs::save_at`.
+
+### Layer separation / chokepoints
+28. A single store boolean MUST NOT gate the mounting of two distinct UI surfaces. If two surfaces represent two presentations of the same intent, model the intent as a discriminated-union state (e.g. `settingsSurface: 'closed' | 'inline' | 'modal'`) so only one surface is renderable at any time. Enforced by the custom ESLint rule `local/no-shared-boolean-mount` (`eslint-rules/no-shared-boolean-mount.js`), which flags two sibling `{identifier && <Component/>}` JSX expressions referencing the same identifier under the same parent JSX element/fragment. Canonical application: `settingsSurface` in `src/store/index.ts` replaces the historical `settingsOpen` + `authorDialogOpen` boolean pair (issue #116).
 
 ## MRSF v1.0 / v1.1 sidecar schema
 

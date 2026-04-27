@@ -110,27 +110,27 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
       )}
       {zoom && <ZoomControl {...zoom} />}
       {onCommentOnFile && (
-        <button
-          className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
-          onClick={onCommentOnFile}
-          title="Comment on file (Ctrl+Shift+M)"
-          aria-label="Comment on file (Ctrl+Shift+M)"
-        >
-          <span aria-hidden="true">💬</span>
-          <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
-        </button>
-      )}
-      {onCommentOnFile && (
-        <button
-          className="viewer-toolbar-btn viewer-toolbar-next-unresolved"
-          onClick={() => { void nextUnresolvedAcrossFiles(); }}
-          disabled={!canNextUnresolved}
-          title="Jump to the next unresolved thread across the workspace (N)"
-          aria-label="Next unresolved (workspace)"
-        >
-          <span aria-hidden="true">→</span>
-          <span className="viewer-toolbar-next-unresolved-label">Next unresolved</span>
-        </button>
+        <>
+          <button
+            className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
+            onClick={onCommentOnFile}
+            title="Comment on file (Ctrl+Shift+M)"
+            aria-label="Comment on file (Ctrl+Shift+M)"
+          >
+            <span aria-hidden="true">💬</span>
+            <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
+          </button>
+          <button
+            className="viewer-toolbar-btn viewer-toolbar-next-unresolved"
+            onClick={() => { void nextUnresolvedAcrossFiles(); }}
+            disabled={!canNextUnresolved}
+            title="Jump to the next unresolved thread across the workspace (N)"
+            aria-label="Next unresolved (workspace)"
+          >
+            <span aria-hidden="true">→</span>
+            <span className="viewer-toolbar-next-unresolved-label">Next unresolved</span>
+          </button>
+        </>
       )}
       {onPrint && (
         <button

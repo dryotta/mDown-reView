@@ -3,6 +3,7 @@ import tsParser from "@typescript-eslint/parser";
 import reactPlugin from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import prettier from "eslint-config-prettier";
+import noSharedBooleanMount from "./eslint-rules/no-shared-boolean-mount.js";
 
 export default [
   {
@@ -15,6 +16,9 @@ export default [
       "@typescript-eslint": tseslint,
       react: reactPlugin,
       "react-hooks": reactHooks,
+      // Local rules live under `eslint-rules/`. See docs/architecture.md
+      // rule 28 for the no-shared-boolean-mount enforcement.
+      local: { rules: { "no-shared-boolean-mount": noSharedBooleanMount } },
     },
     rules: {
       ...tseslint.configs.recommended.rules,
@@ -25,6 +29,7 @@ export default [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "local/no-shared-boolean-mount": "error",
     },
     settings: { react: { version: "detect" } },
   },

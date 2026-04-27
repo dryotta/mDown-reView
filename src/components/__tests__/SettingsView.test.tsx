@@ -11,7 +11,7 @@ const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   useStore.setState({
-    settingsOpen: true,
+    settingsSurface: "inline",
     onboardingStatuses: {
       cliShim: "pending",
       defaultHandler: "pending",
@@ -62,11 +62,11 @@ describe("SettingsView", () => {
     await act(async () => {
       render(<SettingsView />);
     });
-    expect(useStore.getState().settingsOpen).toBe(true);
+    expect(useStore.getState().settingsSurface).toBe("inline");
     await act(async () => {
       fireEvent.keyDown(window, { key: "Escape" });
     });
-    expect(useStore.getState().settingsOpen).toBe(false);
+    expect(useStore.getState().settingsSurface).toBe("closed");
   });
 
   it("Close button calls closeSettings", async () => {
@@ -74,7 +74,7 @@ describe("SettingsView", () => {
       render(<SettingsView />);
     });
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(useStore.getState().settingsOpen).toBe(false);
+    expect(useStore.getState().settingsSurface).toBe("closed");
   });
 
   it("two parallel toggles run independently — both fire and both rows show pending", async () => {
@@ -221,6 +221,6 @@ describe("SettingsView", () => {
       render(<SettingsView />);
     });
     fireEvent.click(screen.getByRole("button", { name: /Author & preferences/i }));
-    expect(useStore.getState().authorDialogOpen).toBe(true);
+    expect(useStore.getState().settingsSurface).toBe("modal");
   });
 });
