@@ -3,6 +3,7 @@ import { useMemo, type ReactNode } from "react";
 import { ZoomControl } from "./ZoomControl";
 import { useStore } from "@/store";
 import { useFileBadges } from "@/hooks/useFileBadges";
+import { IconComment, IconPrint } from "@/components/Icons";
 
 /**
  * L5 — share the same prop shape as `ZoomControl`. Callers spread it directly
@@ -117,7 +118,7 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
             title="Comment on file (Ctrl+Shift+M)"
             aria-label="Comment on file (Ctrl+Shift+M)"
           >
-            <span aria-hidden="true">💬</span>
+            <IconComment />
             <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
           </button>
           <button
@@ -140,7 +141,7 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
           aria-label="Print"
           title="Print"
         >
-          <span aria-hidden="true">🖨</span>
+          <IconPrint />
         </button>
       )}
       {trailing}

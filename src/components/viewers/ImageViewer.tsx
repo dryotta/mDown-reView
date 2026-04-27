@@ -5,6 +5,7 @@ import { useZoom } from "@/hooks/useZoom";
 import { ZoomControl } from "./ZoomControl";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
+import { IconComment } from "@/components/Icons";
 import { useStore } from "@/store";
 import { deriveAnchor, type Anchor } from "@/types/comments";
 import { CommentInput } from "@/components/comments/CommentInput";
@@ -258,7 +259,7 @@ export function ImageViewer({ path }: Props) {
           onClick={() => { setCommentMode((m) => !m); commentDrag.reset(); }}
           style={{ marginLeft: "auto", padding: "2px 8px", border: "1px solid var(--color-border, #d0d7de)", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
         >
-          💬 Comment
+          <IconComment /> Comment
         </button>
         <button
           type="button"
