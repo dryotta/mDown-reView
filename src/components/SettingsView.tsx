@@ -3,10 +3,9 @@ import { useShallow } from "zustand/shallow";
 import {
   useStore,
   type OnboardingSectionKey,
-  type OnboardingStatus,
 } from "@/store";
 import { useAuthor } from "@/lib/vm/useAuthor";
-import type { ConfigError } from "@/lib/tauri-commands";
+import type { ConfigError, DefaultHandlerStatus } from "@/lib/tauri-commands";
 // Styles for `.settings-dialog`, `.settings-row`, `.settings-switch`, etc. are
 // loaded globally from `src/main.tsx` (see `@/styles/settings-view.css`).
 
@@ -43,16 +42,29 @@ type SettingsRowDescriptor =
       key: OnboardingSectionKey;
       label: string;
       description: string;
+      /** Shown when the switch status is "done" instead of `description`. */
+      descriptionOn?: string;
       install: (store: typeof useStore) => Promise<void>;
       remove?: (store: typeof useStore) => Promise<void>;
     }
-  | { kind: "info"; key: string; label: string; description: string };
+  | { kind: "info"; key: string; label: string; description: string }
+  | {
+      kind: "action";
+      key: string;
+      label: string;
+      description: string;
+      buttonLabel: string;
+      action: () => Promise<void>;
+    };
 
 interface SettingsCategory {
   id: string;
   title: string;
   rows: readonly SettingsRowDescriptor[];
 }
+
+const AGENT_SKILLS_COMMANDS =
+  `/plugin marketplace add dryotta/mdownreview-skills\n/plugin install mdownreview@mdownreview-skills`;
 
 const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   {
@@ -68,26 +80,41 @@ const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     ],
   },
   {
-    id: "integrations",
-    title: "Integrations",
+    id: "ai-integration",
+    title: "AI Integration",
     rows: [
       {
         kind: "switch",
         key: "cliShim",
-        label: "CLI shim",
+        label: "Add `mdownreview-cli` to your PATH",
         description:
-          "Install the `mdownreview` CLI to open files from the terminal.",
+          "Lets coding agents (Claude, GitHub Copilot CLI, etc.) and the mdownreview agent skills find and launch the app. Also lets you list unresolved review comments from a terminal, e.g. `mdownreview-cli read --folder .`",
+        descriptionOn:
+          "✓ `mdownreview-cli` is on your PATH — agent skills can find it.",
         install: (s) => s.getState().installCliShim(),
         remove: (s) => s.getState().removeCliShim(),
       },
       {
-        kind: "switch",
-        key: "defaultHandler",
-        label: "Default handler",
+        kind: "info",
+        key: "agentSkills",
+        label: "Install agent skills",
         description:
-          "Make mdownreview the default app for `.md`/`.mdx` files.",
-        install: (s) => s.getState().setDefaultHandler(),
-        // No remove IPC — switch is read-only once "done".
+          "Plugins for Claude, GitHub Copilot CLI, and other coding agents. Provides `open`, `read`, and `review` skills.",
+      },
+    ],
+  },
+  {
+    id: "file-associations",
+    title: "File Associations",
+    rows: [
+      {
+        kind: "action",
+        key: "defaultHandler",
+        label: "Default app for `.md` and `.mdx` files",
+        description:
+          "Windows and macOS control which app opens markdown files. Open System Settings to change it.",
+        buttonLabel: "Open system settings",
+        action: () => useStore.getState().setDefaultHandler(),
       },
     ],
   },
@@ -95,11 +122,11 @@ const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
 
 // ── Sub-components ─────────────────────────────────────────────────────
 
-const STATUS_BADGE: Record<OnboardingStatus, string> = {
-  done: "installed",
-  pending: "missing",
-  unsupported: "unsupported",
-  error: "error",
+const DEFAULT_HANDLER_HINTS: Record<DefaultHandlerStatus, string> = {
+  done: "✓ Currently mdownreview",
+  other: "Currently another app",
+  unknown: "Status unknown",
+  unsupported: "Not available on this platform",
 };
 
 interface SwitchProps {
@@ -134,10 +161,11 @@ interface Props {
 }
 
 export function SettingsView({ onClose }: Props) {
-  const { statuses, errors } = useStore(
+  const { statuses, errors, defaultHandlerRawStatus } = useStore(
     useShallow((s) => ({
       statuses: s.onboardingStatuses,
       errors: s.onboardingErrors,
+      defaultHandlerRawStatus: s.defaultHandlerRawStatus,
     })),
   );
 
@@ -151,6 +179,7 @@ export function SettingsView({ onClose }: Props) {
   const draft = editedDraft ?? author;
   const [authorError, setAuthorError] = useState<string | null>(null);
   const [authorSaving, setAuthorSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -281,9 +310,9 @@ export function SettingsView({ onClose }: Props) {
         const fallbackText =
           status === "unsupported"
             ? "Not available on this platform."
-            : action === "noop"
-              ? "Already the default — change in System Settings."
-              : null;
+            : null;
+        const displayDescription =
+          status === "done" ? (row.descriptionOn ?? row.description) : row.description;
         return (
           <div
             key={row.key}
@@ -292,20 +321,16 @@ export function SettingsView({ onClose }: Props) {
           >
             <div className="settings-row-main">
               <span className="settings-row-label">{row.label}</span>
-              <span
-                className={`settings-row-badge settings-row-badge-${status}`}
-                data-testid={`settings-row-badge-${row.key}`}
-              >
-                {STATUS_BADGE[status]}
-              </span>
             </div>
             {hideSwitch ? (
-              <span
-                className="settings-row-fallback"
-                data-testid={`settings-row-fallback-${row.key}`}
-              >
-                {fallbackText}
-              </span>
+              fallbackText ? (
+                <span
+                  className="settings-row-fallback"
+                  data-testid={`settings-row-fallback-${row.key}`}
+                >
+                  {fallbackText}
+                </span>
+              ) : null
             ) : (
               <Switch
                 label={row.label}
@@ -319,7 +344,7 @@ export function SettingsView({ onClose }: Props) {
               className="settings-row-description"
               data-testid={`settings-row-description-${row.key}`}
             >
-              {row.description}
+              {displayDescription}
             </div>
             {error && (
               <div
@@ -334,6 +359,7 @@ export function SettingsView({ onClose }: Props) {
         );
       }
       case "info": {
+        const isAgentSkills = row.key === "agentSkills";
         return (
           <div
             key={row.key}
@@ -342,6 +368,59 @@ export function SettingsView({ onClose }: Props) {
           >
             <span className="settings-row-label">{row.label}</span>
             <div className="settings-row-description">{row.description}</div>
+            {isAgentSkills && (
+              <div className="settings-row-code" data-testid="settings-agent-skills-code">
+                <pre>{AGENT_SKILLS_COMMANDS}</pre>
+                <button
+                  type="button"
+                  className="settings-copy-btn"
+                  data-testid="settings-copy-btn"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(AGENT_SKILLS_COMMANDS).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    });
+                  }}
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      }
+      case "action": {
+        const rawStatus = defaultHandlerRawStatus;
+        const hint = rawStatus ? DEFAULT_HANDLER_HINTS[rawStatus] : null;
+        const hideButton = rawStatus === "unsupported";
+        return (
+          <div
+            key={row.key}
+            className="settings-row"
+            data-testid={`settings-row-${row.key}`}
+          >
+            <div className="settings-row-main">
+              <span className="settings-row-label">{row.label}</span>
+            </div>
+            {!hideButton && (
+              <button
+                type="button"
+                className="settings-action-btn"
+                data-testid={`settings-action-btn-${row.key}`}
+                onClick={() => void row.action()}
+              >
+                {row.buttonLabel}
+              </button>
+            )}
+            <div className="settings-row-description">{row.description}</div>
+            {hint && (
+              <div
+                className="settings-status-hint"
+                data-testid={`settings-status-hint-${row.key}`}
+              >
+                {hint}
+              </div>
+            )}
           </div>
         );
       }

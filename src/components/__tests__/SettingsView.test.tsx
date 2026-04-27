@@ -34,6 +34,7 @@ beforeEach(() => {
       cliShim: "pending",
       defaultHandler: "pending",
     },
+    defaultHandlerRawStatus: "unknown",
     onboardingErrors: {},
   });
   vi.clearAllMocks();
@@ -42,6 +43,11 @@ beforeEach(() => {
   // Default: every IPC call returns void/undefined. Individual tests override
   // for never-resolving / failing scenarios.
   mockedInvoke.mockImplementation(async () => undefined);
+
+  // Stub clipboard API for copy-button tests.
+  Object.assign(navigator, {
+    clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+  });
 });
 
 const onCloseMock = vi.fn();
@@ -57,26 +63,36 @@ describe("SettingsView", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
-  it("renders 2 integration rows (CLI shim, Default handler)", async () => {
+  it("renders CLI shim row with AI-agent framing label", async () => {
     await act(async () => {
       render(<SettingsView onClose={onCloseMock} />);
     });
     expect(screen.getByTestId("settings-row-cliShim")).toBeInTheDocument();
-    expect(screen.getByTestId("settings-row-defaultHandler")).toBeInTheDocument();
-    expect(screen.getByText("CLI shim")).toBeInTheDocument();
-    expect(screen.getByText("Default handler")).toBeInTheDocument();
+    expect(screen.getByText(/Add.*mdownreview-cli.*to your PATH/)).toBeInTheDocument();
   });
 
-  it("each switch has role=switch with aria-checked and aria-busy attributes", async () => {
+  it("renders default handler row as an action button (not a switch)", async () => {
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    expect(screen.getByTestId("settings-row-defaultHandler")).toBeInTheDocument();
+    expect(screen.getByText(/Default app for/)).toBeInTheDocument();
+    // No switch in the default handler row.
+    const row = screen.getByTestId("settings-row-defaultHandler");
+    expect(within(row).queryByRole("switch")).toBeNull();
+    // Action button present.
+    expect(within(row).getByText("Open system settings")).toBeInTheDocument();
+  });
+
+  it("CLI switch has role=switch with aria-checked and aria-busy attributes", async () => {
     await act(async () => {
       render(<SettingsView onClose={onCloseMock} />);
     });
     const switches = screen.getAllByRole("switch");
-    expect(switches).toHaveLength(2);
-    for (const sw of switches) {
-      expect(sw).toHaveAttribute("aria-checked");
-      expect(sw).toHaveAttribute("aria-busy");
-    }
+    // Only CLI shim is a switch now; defaultHandler is an action button.
+    expect(switches).toHaveLength(1);
+    expect(switches[0]).toHaveAttribute("aria-checked");
+    expect(switches[0]).toHaveAttribute("aria-busy");
   });
 
   it("cancel event on dialog calls onClose (native Esc)", async () => {
@@ -96,49 +112,6 @@ describe("SettingsView", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onCloseMock).toHaveBeenCalled();
-  });
-
-  it("two parallel toggles run independently — both fire and both rows show pending", async () => {
-    // Never-resolving promise: the row stays in-flight, letting us assert
-    // that BOTH toggles can be in-flight at the same time (the spec — no
-    // global lock between rows).
-    const pendingPromise = new Promise<void>(() => {});
-    mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "install_cli_shim" || cmd === "set_default_handler") {
-        return pendingPromise;
-      }
-      return undefined;
-    });
-
-    // defaultHandler needs to be non-"done" so the switch renders.
-    useStore.setState({
-      onboardingStatuses: { cliShim: "pending", defaultHandler: "pending" },
-    });
-
-    await act(async () => {
-      render(<SettingsView onClose={onCloseMock} />);
-    });
-
-    const cliRow = screen.getByTestId("settings-row-cliShim");
-    const handlerRow = screen.getByTestId("settings-row-defaultHandler");
-    const cliSwitch = within(cliRow).getByRole("switch");
-    const handlerSwitch = within(handlerRow).getByRole("switch");
-
-    await act(async () => {
-      fireEvent.click(cliSwitch);
-      fireEvent.click(handlerSwitch);
-    });
-
-    // Both IPC commands were invoked.
-    const calls = mockedInvoke.mock.calls.map((c) => c[0]);
-    expect(calls).toContain("install_cli_shim");
-    expect(calls).toContain("set_default_handler");
-
-    // Both switches show pending state.
-    expect(cliSwitch).toHaveAttribute("aria-busy", "true");
-    expect(cliSwitch).toBeDisabled();
-    expect(handlerSwitch).toHaveAttribute("aria-busy", "true");
-    expect(handlerSwitch).toBeDisabled();
   });
 
   it("when an action is in-flight the switch is disabled and aria-busy=true", async () => {
@@ -174,36 +147,149 @@ describe("SettingsView", () => {
     expect(errorEl).toHaveTextContent("Permission denied");
   });
 
-  // ── B5: hidden switch + fallback text ────────────────────────────────────
+  // ── AC 4: CLI row AI-agent framing ──────────────────────────────────────
 
-  it('hides the switch and shows fallback text when defaultHandler status is "done" (noop branch — B5)', async () => {
-    mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "default_handler_status") return "done";
-      if (cmd === "cli_shim_status") return "missing";
-      if (cmd === "onboarding_state")
-        return { schema_version: 1, last_seen_sections: [] };
-      return undefined;
+  it('CLI row shows AI-agent description when status is "missing" (contains "coding agents")', async () => {
+    useStore.setState({
+      onboardingStatuses: { cliShim: "pending", defaultHandler: "pending" },
     });
     await act(async () => {
       render(<SettingsView onClose={onCloseMock} />);
     });
-    const row = screen.getByTestId("settings-row-defaultHandler");
-    // No switch in this row.
-    expect(within(row).queryByRole("switch")).toBeNull();
-    // Fallback text rendered instead.
-    expect(within(row).getByTestId("settings-row-fallback-defaultHandler"))
-      .toHaveTextContent(/Already the default/i);
+    const desc = screen.getByTestId("settings-row-description-cliShim");
+    expect(desc).toHaveTextContent(/coding agents/);
+    expect(desc).toHaveTextContent(/mdownreview-cli read/);
   });
 
-  it('hides the switch and shows fallback when status is "unsupported" (B5)', async () => {
+  it('CLI row shows "on your PATH" description when status is "done"', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "cli_shim_status") return "done";
+      return undefined;
+    });
+    useStore.setState({
+      onboardingStatuses: { cliShim: "done", defaultHandler: "pending" },
+    });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const desc = screen.getByTestId("settings-row-description-cliShim");
+    expect(desc).toHaveTextContent(/on your PATH/);
+    expect(desc).toHaveTextContent(/agent skills can find it/);
+  });
+
+  it("no badge elements render for switch rows", async () => {
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const cliRow = screen.getByTestId("settings-row-cliShim");
+    expect(within(cliRow).queryByTestId("settings-row-badge-cliShim")).toBeNull();
+  });
+
+  // ── AC 5: Agent skills info card ────────────────────────────────────────
+
+  it("agent skills info card renders with plugin commands", async () => {
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    expect(screen.getByTestId("settings-row-agentSkills")).toBeInTheDocument();
+    expect(screen.getByText("Install agent skills")).toBeInTheDocument();
+    const codeBlock = screen.getByTestId("settings-agent-skills-code");
+    expect(codeBlock).toHaveTextContent(/plugin marketplace add/);
+    expect(codeBlock).toHaveTextContent(/plugin install mdownreview/);
+  });
+
+  it("copy button in agent skills card calls navigator.clipboard.writeText", async () => {
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const copyBtn = screen.getByTestId("settings-copy-btn");
+    expect(copyBtn).toHaveTextContent("Copy");
+
+    await act(async () => {
+      fireEvent.click(copyBtn);
+    });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      expect.stringContaining("/plugin marketplace add"),
+    );
+    expect(copyBtn).toHaveTextContent("Copied!");
+  });
+
+  // ── AC 6: Default handler action row ────────────────────────────────────
+
+  it('default handler row shows "Open system settings" button', async () => {
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const row = screen.getByTestId("settings-row-defaultHandler");
+    const btn = within(row).getByTestId("settings-action-btn-defaultHandler");
+    expect(btn).toHaveTextContent("Open system settings");
+  });
+
+  it('default handler row shows status hint "Currently mdownreview" when done', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "default_handler_status") return "done";
+      return undefined;
+    });
+    useStore.setState({ defaultHandlerRawStatus: "done" });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const hint = screen.getByTestId("settings-status-hint-defaultHandler");
+    expect(hint).toHaveTextContent(/Currently mdownreview/);
+  });
+
+  it('default handler row shows "Currently another app" when status is "other"', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "default_handler_status") return "other";
+      return undefined;
+    });
+    useStore.setState({ defaultHandlerRawStatus: "other" });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const hint = screen.getByTestId("settings-status-hint-defaultHandler");
+    expect(hint).toHaveTextContent("Currently another app");
+  });
+
+  it("default handler row hides button when unsupported", async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "default_handler_status") return "unsupported";
+      return undefined;
+    });
+    useStore.setState({ defaultHandlerRawStatus: "unsupported" });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const row = screen.getByTestId("settings-row-defaultHandler");
+    expect(within(row).queryByTestId("settings-action-btn-defaultHandler")).toBeNull();
+    const hint = screen.getByTestId("settings-status-hint-defaultHandler");
+    expect(hint).toHaveTextContent("Not available on this platform");
+  });
+
+  it("default handler action button invokes setDefaultHandler", async () => {
+    const setDefaultHandlerMock = vi.fn().mockResolvedValue(undefined);
+    useStore.setState({ setDefaultHandler: setDefaultHandlerMock });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const btn = screen.getByTestId("settings-action-btn-defaultHandler");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(setDefaultHandlerMock).toHaveBeenCalled();
+  });
+
+  // ── B5: hidden switch + fallback text ────────────────────────────────────
+
+  it('hides the switch and shows fallback when cliShim status is "unsupported" (B5)', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "cli_shim_status") return "unsupported";
-      if (cmd === "default_handler_status") return "missing";
+      if (cmd === "default_handler_status") return "unknown";
       if (cmd === "onboarding_state")
         return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
-    // Drive the status into the store so SettingsView picks it up.
     useStore.setState({
       onboardingStatuses: { cliShim: "unsupported", defaultHandler: "pending" },
     });
@@ -220,8 +306,8 @@ describe("SettingsView", () => {
     await act(async () => {
       render(<SettingsView onClose={onCloseMock} />);
     });
-    expect(screen.getByTestId("settings-row-description-cliShim")).toHaveTextContent(/CLI/);
-    expect(screen.getByTestId("settings-row-description-defaultHandler")).toHaveTextContent(/default app/);
+    expect(screen.getByTestId("settings-row-description-cliShim")).toHaveTextContent(/coding agents/);
+    expect(screen.getByTestId("settings-row-defaultHandler")).toHaveTextContent(/markdown files/);
   });
 
   // ── B7: mount-side IPC ───────────────────────────────────────────────────
@@ -236,14 +322,16 @@ describe("SettingsView", () => {
 
   // ── Category headings ────────────────────────────────────────────────────
 
-  it('renders "General" and "Integrations" category headings', async () => {
+  it('renders "General", "AI Integration", and "File Associations" category headings', async () => {
     await act(async () => {
       render(<SettingsView onClose={onCloseMock} />);
     });
     expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Integrations")).toBeInTheDocument();
+    expect(screen.getByText("AI Integration")).toBeInTheDocument();
+    expect(screen.getByText("File Associations")).toBeInTheDocument();
     expect(screen.getByTestId("settings-category-general")).toBeInTheDocument();
-    expect(screen.getByTestId("settings-category-integrations")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-category-ai-integration")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-category-file-associations")).toBeInTheDocument();
   });
 
   // ── Inline display name (author) ─────────────────────────────────────────

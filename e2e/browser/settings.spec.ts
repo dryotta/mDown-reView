@@ -37,7 +37,7 @@ async function installDefaultMock(page: Page) {
     window.__TAURI_IPC_MOCK__ = async (cmd: string) => {
       if (cmd === "get_launch_args") return { files: [], folders: [] };
       if (cmd === "cli_shim_status") return state.cliShim;
-      if (cmd === "default_handler_status") return "missing";
+      if (cmd === "default_handler_status") return "unknown";
       if (cmd === "onboarding_state")
         return { schema_version: 1, last_seen_sections: [] };
       if (cmd === "install_cli_shim") {
@@ -65,7 +65,7 @@ const settingsDialog = (page: Page) => page.getByRole("dialog", { name: "Setting
 const settingsLink = (page: Page) =>
   page.getByRole("button", { name: /Set up CLI.*Settings/i });
 const cliSwitch = (page: Page) =>
-  page.getByTestId("settings-row-cliShim").getByRole("switch", { name: "CLI shim" });
+  page.getByTestId("settings-row-cliShim").getByRole("switch");
 
 test.describe("Settings dialog (#160)", () => {
   test("WelcomeView shows Settings link that opens the Settings dialog", async ({ page }) => {
@@ -143,7 +143,7 @@ test.describe("Settings dialog (#160)", () => {
       window.__TAURI_IPC_MOCK__ = async (cmd: string) => {
         if (cmd === "get_launch_args") return { files: [], folders: [] };
         if (cmd === "cli_shim_status") return "missing";
-        if (cmd === "default_handler_status") return "missing";
+        if (cmd === "default_handler_status") return "unknown";
         if (cmd === "onboarding_state")
           return { schema_version: 1, last_seen_sections: [] };
         if (cmd === "install_cli_shim") {
@@ -172,5 +172,38 @@ test.describe("Settings dialog (#160)", () => {
     await expect(errorRow).toBeVisible();
     await expect(errorRow).toContainText("permission denied");
     await expect(sw).toHaveAttribute("aria-checked", "false");
+  });
+
+  test("agent skills info card is visible with plugin commands", async ({ page }) => {
+    await installDefaultMock(page);
+    await page.goto("/");
+    await page.evaluate(() => {
+      window.__DISPATCH_TAURI_EVENT__?.("menu-help-settings", null);
+    });
+    await expect(settingsDialog(page)).toBeVisible();
+
+    const skillsRow = page.getByTestId("settings-row-agentSkills");
+    await expect(skillsRow).toBeVisible();
+    await expect(skillsRow).toContainText("Install agent skills");
+    const codeBlock = page.getByTestId("settings-agent-skills-code");
+    await expect(codeBlock).toContainText("plugin marketplace add");
+  });
+
+  test("default handler row shows action button instead of switch", async ({ page }) => {
+    await installDefaultMock(page);
+    await page.goto("/");
+    await page.evaluate(() => {
+      window.__DISPATCH_TAURI_EVENT__?.("menu-help-settings", null);
+    });
+    await expect(settingsDialog(page)).toBeVisible();
+
+    const row = page.getByTestId("settings-row-defaultHandler");
+    await expect(row).toBeVisible();
+    // No switch.
+    await expect(row.getByRole("switch")).toHaveCount(0);
+    // Action button present.
+    const btn = page.getByTestId("settings-action-btn-defaultHandler");
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText("Open system settings");
   });
 });

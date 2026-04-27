@@ -92,35 +92,6 @@
   color: var(--color-text);
 }
 
-/* Status badge next to the label */
-.settings-row-badge {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-muted);
-}
-
-.settings-row-badge-done {
-  background: rgba(46, 160, 67, 0.16);
-  color: #2ea043;
-  border-color: rgba(46, 160, 67, 0.4);
-}
-
-.settings-row-badge-error {
-  background: rgba(207, 34, 46, 0.16);
-  color: var(--color-badge);
-  border-color: rgba(207, 34, 46, 0.4);
-}
-
-.settings-row-badge-unsupported {
-  opacity: 0.7;
-}
-
 /* One-line description below the row title. Spans both grid columns. */
 .settings-row-description {
   grid-column: 1 / -1;
@@ -226,4 +197,75 @@
 .settings-switch[aria-checked="true"] .settings-switch-thumb,
 .settings-switch.settings-switch-on .settings-switch-thumb {
   transform: translateX(16px);
+}
+
+/* ── Code block (agent skills) ─────────────────────────────────────────── */
+
+.settings-row-code {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.settings-row-code pre {
+  margin: 0;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.settings-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.settings-copy-btn:hover {
+  background: var(--color-surface);
+}
+
+/* ── Action button (Open system settings) ──────────────────────────────── */
+
+.settings-action-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.settings-action-btn:hover {
+  background: var(--color-bg);
+  border-color: var(--color-muted);
+}
+
+/* ── Status hint (small text below action rows) ────────────────────────── */
+
+.settings-status-hint {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-muted);
 }

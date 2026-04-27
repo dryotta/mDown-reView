@@ -9,6 +9,7 @@ import {
   removeCliShim as ipcRemoveCliShim,
   setDefaultHandler as ipcSetDefaultHandler,
   type CliShimError,
+  type DefaultHandlerStatus,
   type OnboardingState,
 } from "@/lib/tauri-commands";
 import {
@@ -147,6 +148,8 @@ export type OnboardingSectionKey = "cliShim" | "defaultHandler";
 interface OnboardingSlice {
   // Read state
   onboardingStatuses: OnboardingStatuses;
+  /** Raw value from `default_handler_status` IPC — preserves "other"/"unknown" distinction. */
+  defaultHandlerRawStatus: DefaultHandlerStatus | null;
   onboardingState: OnboardingState | null;
   onboardingErrors: Record<string, string>;
   /**
@@ -265,6 +268,7 @@ export const useStore = create<Store>()(
 
       // Onboarding
       onboardingStatuses: { cliShim: "pending", defaultHandler: "pending" },
+      defaultHandlerRawStatus: null,
       onboardingState: null,
       onboardingErrors: {},
       settingsDialogOpen: false,
@@ -294,6 +298,10 @@ export const useStore = create<Store>()(
             cliShim: mapStatus(cli, "cliShim"),
             defaultHandler: mapStatus(def, "defaultHandler"),
           },
+          defaultHandlerRawStatus:
+            def.status === "fulfilled"
+              ? (def.value as DefaultHandlerStatus)
+              : get().defaultHandlerRawStatus,
           onboardingState: state.status === "fulfilled" ? state.value : get().onboardingState,
           onboardingErrors: errors,
         });
