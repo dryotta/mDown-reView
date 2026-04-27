@@ -2,6 +2,7 @@ import { useStore } from "@/store";
 import type { RecentItem } from "@/store";
 import { useRecentItemStatus } from "@/hooks/useRecentItemStatus";
 import { basename, dirname } from "@/lib/path-utils";
+import { IconFile, IconFolder } from "@/components/Icons";
 import "@/styles/welcome-view.css";
 
 interface WelcomeViewProps {
@@ -47,12 +48,12 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
 
         <div className="welcome-actions">
           <button className="welcome-action" onClick={onOpenFile}>
-            <span className="welcome-action-icon">📄</span>
+            <span className="welcome-action-icon"><IconFile /></span>
             <span className="welcome-action-label">Open File</span>
             <kbd className="welcome-kbd">{mod}+O</kbd>
           </button>
           <button className="welcome-action" onClick={onOpenFolder}>
-            <span className="welcome-action-icon">📁</span>
+            <span className="welcome-action-icon"><IconFolder /></span>
             <span className="welcome-action-label">Open Folder</span>
             <kbd className="welcome-kbd">{mod}+Shift+O</kbd>
           </button>
@@ -81,7 +82,7 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
                       title={item.path}
                     >
                       <span className="welcome-recent-icon">
-                        {item.type === "folder" ? "📁" : "📄"}
+                        {item.type === "folder" ? <IconFolder /> : <IconFile />}
                       </span>
                       <span className="welcome-recent-path">
                         <strong>{basename(item.path)}</strong>

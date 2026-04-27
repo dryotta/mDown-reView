@@ -8,6 +8,7 @@ import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { warn, info } from "@/logger";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
+import { IconComment } from "@/components/Icons";
 import { CommentInput } from "@/components/comments/CommentInput";
 import { buildBridgeSrcDoc, isBridgeMsg } from "@/lib/html-bridge";
 import type { Anchor } from "@/types/comments";
@@ -251,7 +252,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           disabled={!filePath}
           title={filePath ? undefined : "Save the file to enable commenting"}
         >
-          💬 Comment
+          <IconComment /> Comment
         </button>
         {(allowScripts || commentMode) && (
           <span style={{ marginLeft: 8, fontStyle: "italic" }}>

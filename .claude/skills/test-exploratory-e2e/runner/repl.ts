@@ -44,6 +44,16 @@ async function setup(): Promise<Session> {
   await spawnAppWithCdp();
   const browser = await chromium.connectOverCDP("http://localhost:9222");
   const context = browser.contexts()[0] ?? await browser.newContext();
+
+  // Shim esbuild's --keep-names __name helper so transformed function bodies
+  // don't ReferenceError when serialized into page.evaluate(). (#177)
+  await context.addInitScript(() => {
+    (globalThis as unknown as Record<string, unknown>).__name = (fn: unknown, _name: string) => {
+      try { Object.defineProperty(fn, "name", { value: _name, configurable: true }); } catch { /* noop */ }
+      return fn;
+    };
+  });
+
   const page = context.pages()[0] ?? await context.newPage();
   await attachDrains(page);
 
@@ -108,13 +118,13 @@ async function observe(page: Page): Promise<Observation> {
     };
     // Mirrors observe-dom.ts ariaBool — kept inline so this evaluate body
     // is self-contained when serialized into Playwright's page context.
-    const ariaBool = (el: Element, attr: string): boolean | null => {
+    function ariaBool(el, attr) {
       if (!el.hasAttribute(attr)) return null;
-      const v = el.getAttribute(attr);
+      var v = el.getAttribute(attr);
       if (v === "true") return true;
       if (v === "false") return false;
       return null;
-    };
+    }
     const out: Interactive[] = [];
     const seenSel = new Set<string>();
     const nodes = document.querySelectorAll(

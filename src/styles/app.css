@@ -208,7 +208,7 @@ body,
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  min-width: 0;
+  min-width: 200px;
 }
 
 /* ── Empty state ───────────────────────────────────────────────────── */

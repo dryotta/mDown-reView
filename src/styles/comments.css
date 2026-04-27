@@ -18,6 +18,8 @@
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .comments-panel-title {

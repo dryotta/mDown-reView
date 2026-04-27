@@ -28,6 +28,17 @@ pub fn match_comments(comments: &[MrsfComment], file_lines: &[&str]) -> Vec<Matc
             let orig_line = comment.line;
             let selected_text = comment.selected_text.as_deref();
 
+            // File-level comments have no line and no selected_text —
+            // they are always anchored at line 1 and never orphaned (#131).
+            if orig_line.is_none() && selected_text.is_none() {
+                return MatchedComment {
+                    comment: comment.clone(),
+                    matched_line_number: 1,
+                    is_orphaned: false,
+                    anchored_text: None,
+                };
+            }
+
             // Step 1: Exact selected_text match
             if let Some(sel) = selected_text {
                 // Try at original line first
@@ -308,6 +319,18 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(result[0].is_orphaned);
         assert_eq!(result[0].matched_line_number, 3);
+    }
+
+    #[test]
+    fn file_level_comment_never_orphaned() {
+        // File-level comments (no line, no selected_text) should never show
+        // the orphan warning — they are anchored to the file itself (#131).
+        let comments = vec![make_comment("c1", None, None)];
+        let lines = vec!["some content", "more content"];
+        let result = match_comments(&comments, &lines);
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].matched_line_number, 1);
     }
 
     // --- Tests for levenshtein and fuzzy_score live in core::fuzzy ---

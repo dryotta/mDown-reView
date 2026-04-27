@@ -5,10 +5,10 @@
   border-bottom: 1px solid var(--color-border);
   /* Must shrink so the inner .tab-bar (overflow-x: auto) overflows naturally
      and the chevrons appear at realistic viewport widths. The toolbar pairs
-     this with min-width: 0 so flex layout actually compresses the wrapper. */
+     this with min-width: 100px so at least one tab stays visible. */
   flex-shrink: 1;
   height: 34px;
-  min-width: 0;
+  min-width: 100px;
 }
 
 .tab-bar {
@@ -18,11 +18,11 @@
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 
 .tab-bar::-webkit-scrollbar {
-  height: 3px;
+  display: none;
 }
 
 .tab-chevron {

@@ -8,6 +8,7 @@
      capped at one viewport, so the toolbar follows it off-screen
      once the user scrolls past the first viewport (#90). */
   min-height: 100%;
+  overflow-x: hidden;
 }
 
 .size-warning {

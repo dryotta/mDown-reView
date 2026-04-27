@@ -8,6 +8,11 @@
   z-index: 1000;
 }
 
+/* Native <dialog> backdrop when opened with showModal() */
+.dialog-box::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
 .dialog-box {
   background: var(--color-bg);
   border: 1px solid var(--color-border);

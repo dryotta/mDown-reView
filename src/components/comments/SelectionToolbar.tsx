@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { IconComment } from "@/components/Icons";
 import "@/styles/comments.css";
 
 interface Props {
@@ -39,7 +40,7 @@ export function SelectionToolbar({ position, onAddComment, onDismiss }: Props) {
         aria-label="Add comment on selection"
         onClick={onAddComment}
       >
-        💬 Comment
+        <IconComment /> Comment
       </button>
     </div>
   );

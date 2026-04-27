@@ -200,3 +200,19 @@
   padding: 20px;
   color: var(--color-badge);
 }
+
+/* ── Responsive toolbar labels ─────────────────────────────────────── */
+
+.viewer-toolbar-comment-on-file-label,
+.viewer-toolbar-next-unresolved-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .viewer-toolbar-comment-on-file-label,
+  .viewer-toolbar-next-unresolved-label {
+    display: none;
+  }
+}

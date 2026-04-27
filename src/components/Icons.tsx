@@ -38,4 +38,12 @@ export function IconSettings() {
   );
 }
 
-
+export function IconPrint() {
+  return (
+    <span className="toolbar-icon">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 1h8v3h2.5A1.5 1.5 0 0116 5.5v5a1.5 1.5 0 01-1.5 1.5H12v3H4v-3H1.5A1.5 1.5 0 010 10.5v-5A1.5 1.5 0 011.5 4H4V1zm1.5 3h5V2.5h-5V4zM4 10.5v-1h8v1H4zm0 1v2.5h8v-2.5H4zM13 7a1 1 0 11-2 0 1 1 0 012 0z" />
+      </svg>
+    </span>
+  );
+}

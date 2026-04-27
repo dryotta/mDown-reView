@@ -37,10 +37,10 @@ export function CommentContextMenu({ open, x, y, hasSelection, hasLine = true, o
   const rootRef = useRef<HTMLDivElement>(null);
 
   const items: Item[] = [
-    { action: "comment", label: "💬 Comment on selection", disabled: !hasSelection },
+    { action: "comment", label: "Comment on selection", disabled: !hasSelection },
     {
       action: "copy-link",
-      label: hasLine ? "🔗 Copy link to line" : "🔗 Copy link to file",
+      label: hasLine ? "Copy link to line" : "Copy link to file",
     },
     { action: "discussed", label: "✅ Mark line as discussed", disabled: !hasLine },
   ];

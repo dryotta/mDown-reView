@@ -19,6 +19,7 @@ import {
   getAncestors,
   buildGroupedFilterResult,
 } from "@/lib/folder-tree";
+import { IconFolder } from "@/components/Icons";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -238,7 +239,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
     <div className="folder-tree" style={{ width: folderPaneWidth }}>
       <div className="folder-tree-toolbar folder-tree-header">
         <span className="folder-tree-title" title={root ?? ""}>
-          📁 {root ? root.split(/[/\\]/).pop() : ""}
+          <IconFolder /> {root ? root.split(/[/\\]/).pop() : ""}
         </span>
         <span className="folder-tree-header-actions">
           <button

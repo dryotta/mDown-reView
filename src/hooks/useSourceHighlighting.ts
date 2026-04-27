@@ -25,6 +25,7 @@ export function useSourceHighlighting(content: string, path: string) {
       .then(async (hl) => {
         if (cancelled) return;
         const loaded = hl.getLoadedLanguages();
+        let effectiveLang = lang;
         if (!loaded.includes(lang) && lang !== "text") {
           if (lang === "kql") {
             await hl.loadLanguage({
@@ -34,10 +35,14 @@ export function useSourceHighlighting(content: string, path: string) {
           } else {
             await hl.loadLanguage(lang as BundledLanguage).catch(() => {});
           }
+          // Verify loading succeeded; fall back to "text" if not (#181)
+          if (!hl.getLoadedLanguages().includes(lang)) {
+            effectiveLang = "text";
+          }
         }
         if (cancelled) return;
         try {
-          const fullHtml = hl.codeToHtml(deferredContent || " ", { lang, theme });
+          const fullHtml = hl.codeToHtml(deferredContent || " ", { lang: effectiveLang, theme });
           // Shiki wraps each line in <span class="line">…</span> with nested
           // token <span>s inside. A regex with lazy .*? truncates at the first
           // inner </span>, so we split on the line-span boundary instead.
