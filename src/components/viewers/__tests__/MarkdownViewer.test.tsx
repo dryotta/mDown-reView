@@ -124,6 +124,16 @@ describe("10.1 – headings and code blocks", () => {
     });
   });
 
+  it("applies md-wrap-cascade class to markdown-body surface (#153)", async () => {
+    render(<MarkdownViewer content="hello" filePath={FILE_PATH} />);
+
+    await waitFor(() => {
+      const body = document.querySelector(".markdown-body");
+      expect(body).toBeInTheDocument();
+      expect(body?.classList.contains("md-wrap-cascade")).toBe(true);
+    });
+  });
+
   it("unknown language tag renders without error", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const content = "```unknownlang\nsome code\n```";

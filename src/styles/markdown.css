@@ -1,3 +1,5 @@
+@import "./md-wrap-cascade.css";
+
 .markdown-viewer {
   padding: 20px 28px;
   /* min-height (not height) so this element — which is the sticky
@@ -27,7 +29,6 @@
 .markdown-body {
   position: relative;
   padding-left: 28px;
-  overflow-wrap: break-word;
 }
 
 /* GitHub-style markdown */
@@ -69,8 +70,6 @@
   border-radius: 4px;
   font-size: 0.875em;
   font-family: "SFMono-Regular", Consolas, monospace;
-  /* #91 — wrap long unbreakable inline tokens (e.g. backticked paths) so they do not push the page sideways. `anywhere` (vs. `break-word`) also contributes to min-content sizing so flex/table cells can shrink past their longest token. Fenced `pre code` is reset below. */
-  overflow-wrap: anywhere;
 }
 
 .markdown-body pre {
@@ -89,14 +88,7 @@
   font-size: 0.875em;
 }
 
-/* #91 — keep fenced code blocks horizontally scrollable. The container
- * rule on `.markdown-body` would otherwise cascade down and force
- * fenced code to wrap, defeating the deliberate `overflow: auto` on `pre`. */
-.markdown-body pre,
-.markdown-body pre code {
-  overflow-wrap: normal;
-  white-space: pre;
-}
+/* Fenced-code wrap reset now in md-wrap-cascade.css (groups 3–4, #91 / #150). */
 
 .markdown-body blockquote {
   padding: 0 1em;
@@ -116,7 +108,6 @@
 .markdown-body td {
   padding: 6px 13px;
   border: 1px solid var(--color-border);
-  overflow-wrap: anywhere;
 }
 
 .markdown-body tr:nth-child(even) {

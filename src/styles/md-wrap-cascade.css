@@ -1,0 +1,39 @@
+/* Canonical overflow-wrap cascade for ReactMarkdown mounting surfaces.
+ * Both .markdown-body (MarkdownViewer) and .comment-text (CommentThread)
+ * apply this class. Any new ReactMarkdown surface must also apply it
+ * (or be allowlisted in scripts/check-markdown-surfaces.mjs).
+ * See docs/best-practices-project/markdown-surfaces.md.
+ *
+ * Rule groups (from #91, refined in #150):
+ *   1. Container overflow-wrap
+ *   2. Inline code wrap
+ *   3. Fenced pre scroll containment
+ *   4. Table cell wrap
+ */
+
+/* 1. Container: break long unbreakable tokens at the surface boundary */
+.md-wrap-cascade {
+  overflow-wrap: anywhere;
+}
+
+/* 2. Inline code: wrap long backticked tokens */
+.md-wrap-cascade code {
+  overflow-wrap: anywhere;
+}
+
+/* 3. Fenced code blocks: horizontally scrollable, not wrapped */
+.md-wrap-cascade pre {
+  overflow: auto;
+}
+
+.md-wrap-cascade pre,
+.md-wrap-cascade pre code {
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
+/* 4. Table cells: wrap long tokens */
+.md-wrap-cascade th,
+.md-wrap-cascade td {
+  overflow-wrap: anywhere;
+}

@@ -127,7 +127,7 @@ function CommentItem({ comment, variant, filePath, onStartReply }: {
           </div>
         </div>
       ) : (
-        <div className="comment-text"><ReactMarkdown>{comment.text}</ReactMarkdown></div>
+        <div className="comment-text md-wrap-cascade"><ReactMarkdown>{comment.text}</ReactMarkdown></div>
       )}
       <div className="comment-actions" onClick={(e) => e.stopPropagation()}>
         {!editing && (
