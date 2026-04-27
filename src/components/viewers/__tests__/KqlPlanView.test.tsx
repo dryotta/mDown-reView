@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { KqlPlanView } from "../KqlPlanView";
 
 vi.mock("@/lib/tauri-commands", () => ({
   parseKql: vi.fn(async (query: string) => {
@@ -22,6 +21,19 @@ vi.mock("@/lib/tauri-commands", () => ({
   }),
 }));
 
+vi.mock("@/store", () => {
+  const state = {
+    zoomByFiletype: {} as Record<string, number>,
+    bumpZoom: () => {},
+    setZoom: () => {},
+  };
+  const useStore = (selector: (s: typeof state) => unknown) => selector(state);
+  (useStore as unknown as { getState: () => typeof state }).getState = () => state;
+  return { useStore };
+});
+
+import { KqlPlanView } from "../KqlPlanView";
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -37,5 +49,13 @@ describe("KqlPlanView", () => {
   it("handles empty content", () => {
     render(<KqlPlanView content="" />);
     expect(screen.getByText(/no query/i)).toBeInTheDocument();
+  });
+
+  it("applies data-zoom and fontSize style on root container", () => {
+    const { container } = render(<KqlPlanView content="" />);
+    const root = container.querySelector(".kql-plan-container") as HTMLElement;
+    expect(root).not.toBeNull();
+    expect(root.getAttribute("data-zoom")).toBe("1");
+    expect(root.style.fontSize).toBe("100%");
   });
 });

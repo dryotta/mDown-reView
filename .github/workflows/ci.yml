@@ -87,6 +87,9 @@ jobs:
       - name: Lint skill docs (npm-script references)
         run: npm run lint:skills
 
+      - name: Audit zoom cascade
+        run: npm run audit:zoom-cascade
+
   # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
   e2e-browser:
     name: E2E browser (Linux)

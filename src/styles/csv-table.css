@@ -7,7 +7,7 @@
 .csv-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 0.8125em;
   font-family: "SFMono-Regular", Consolas, monospace;
 }
 
@@ -39,13 +39,13 @@
 
 .csv-table-footer {
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
   color: var(--color-muted);
 }
 
 .csv-sort-indicator {
   margin-left: 4px;
-  font-size: 10px;
+  font-size: 10px; /* zoom-cascade: chrome */
 }
 
 .csv-table td {

@@ -20,11 +20,11 @@
 }
 
 .binary-size {
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
 }
 
 .binary-mtime {
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
 }
 
 /* ── SourceView line-based layout ────────────────────────────────── */
@@ -81,7 +81,7 @@
 
 .source-line-comment-zone .comment-plus-btn {
   display: flex;
-  font-size: 14px;
+  font-size: 14px; /* zoom-cascade: chrome */
   width: 18px;
   height: 18px;
   padding: 0;
@@ -103,7 +103,7 @@
   flex: 1;
   text-align: right;
   padding-right: 8px;
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
   padding-top: 1px;
   line-height: 20px;
 }
@@ -131,7 +131,7 @@
 }
 
 .line-comment-count {
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
   color: var(--color-accent);
   background: none;
   border: none;
@@ -154,7 +154,7 @@
 }
 
 .source-line-fold-toggle {
-  font-size: 10px;
+  font-size: 10px; /* zoom-cascade: chrome */
   width: 14px;
   height: 14px;
   padding: 0;
@@ -183,7 +183,7 @@
   background: var(--color-surface);
   border-top: 1px dashed var(--color-border);
   border-bottom: 1px dashed var(--color-border);
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
   font-style: italic;
   cursor: pointer;
 }

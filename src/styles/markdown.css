@@ -16,7 +16,7 @@
   background: #fff3cd;
   border: 1px solid #ffc107;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 13px; /* zoom-cascade: chrome */
   color: #664d03;
 }
 
@@ -101,7 +101,7 @@
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 16px;
-  font-size: 13px;
+  font-size: 0.8125em;
 }
 
 .markdown-body th,
@@ -187,7 +187,7 @@
   right: 4px;
   opacity: 0;
   transition: opacity 100ms ease;
-  font-size: 12px;
+  font-size: 12px; /* zoom-cascade: chrome */
   padding: 2px 8px;
   background: var(--color-bg);
   color: var(--color-text);
