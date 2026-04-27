@@ -53,7 +53,6 @@ export function useMenuListeners({
       listenEvent("menu-theme-light", () => setTheme("light")),
       listenEvent("menu-theme-dark", () => setTheme("dark")),
       listenEvent("menu-about", () => setAboutOpen(true)),
-      listenEvent("menu-open-settings", () => useStore.getState().openSettings()),
       listenEvent("menu-check-updates", () => { checkForUpdate(); }),
       listenEvent("menu-help-settings", () => useStore.getState().openSettings()),
     ];

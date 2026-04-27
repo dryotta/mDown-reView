@@ -356,30 +356,6 @@ describe("onboarding & platform-integration wrappers", () => {
     expect(m).toHaveBeenCalledWith("set_default_handler");
   });
 
-  it("folderContextStatus returns status string", async () => {
-    const m = await getInvoke();
-    m.mockResolvedValueOnce("missing");
-    const { folderContextStatus } = await import("../tauri-commands");
-    const r = await folderContextStatus();
-    expect(m).toHaveBeenCalledWith("folder_context_status");
-    expect(r).toBe("missing");
-  });
-
-  it("registerFolderContext calls register_folder_context", async () => {
-    const m = await getInvoke();
-    m.mockResolvedValueOnce(undefined);
-    const { registerFolderContext } = await import("../tauri-commands");
-    await registerFolderContext();
-    expect(m).toHaveBeenCalledWith("register_folder_context");
-  });
-
-  it("unregisterFolderContext calls unregister_folder_context", async () => {
-    const m = await getInvoke();
-    m.mockResolvedValueOnce(undefined);
-    const { unregisterFolderContext } = await import("../tauri-commands");
-    await unregisterFolderContext();
-    expect(m).toHaveBeenCalledWith("unregister_folder_context");
-  });
 });
 
 describe("system integration wrappers (Section E)", () => {

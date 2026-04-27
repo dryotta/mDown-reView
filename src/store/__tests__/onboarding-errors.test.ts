@@ -8,8 +8,8 @@ import type { CliShimError } from "@/lib/tauri-commands";
  * `JSON.stringify` for unknown shapes (which would leak raw blobs into
  * the UI). Each `kind` × error-type pair gets one assertion.
  *
- * Today only `CliShimError` is a tagged enum. `set_default_handler` and
- * `(un)register_folder_context` reject with plain strings (`Result<(), String>`).
+ * Today only `CliShimError` is a tagged enum. `set_default_handler`
+ * rejects with plain strings (`Result<(), String>`).
  * If those grow tagged enums later, add the matching describe block here.
  */
 describe("formatOnboardingError", () => {
@@ -36,14 +36,6 @@ describe("formatOnboardingError", () => {
     it("string rejection passes through unchanged", () => {
       expect(formatOnboardingError("LSSetDefaultRoleHandler failed: -10810")).toBe(
         "LSSetDefaultRoleHandler failed: -10810",
-      );
-    });
-  });
-
-  describe("FolderContextError (plain Result<(), String>)", () => {
-    it("string rejection passes through unchanged", () => {
-      expect(formatOnboardingError("registry write denied")).toBe(
-        "registry write denied",
       );
     });
   });

@@ -1,7 +1,7 @@
-// Issue #79 — Settings region (replaces the legacy onboarding modal flow).
+// Issue #160 — Settings dialog (replaces the legacy settings region).
 //
-// Verifies the four entry points (Welcome link, toolbar gear, menu event,
-// and Esc-to-close) plus the per-row toggle success and failure paths.
+// Verifies entry points (Welcome link, menu event, and Esc-to-close)
+// plus the per-row toggle success and failure paths.
 //
 // IPC mock pattern follows the conventions used in `comment-on-file.spec.ts`
 // and `ux-overhaul.spec.ts`: install `window.__TAURI_IPC_MOCK__` via
@@ -38,7 +38,6 @@ async function installDefaultMock(page: Page) {
       if (cmd === "get_launch_args") return { files: [], folders: [] };
       if (cmd === "cli_shim_status") return state.cliShim;
       if (cmd === "default_handler_status") return "missing";
-      if (cmd === "folder_context_status") return "missing";
       if (cmd === "onboarding_state")
         return { schema_version: 1, last_seen_sections: [] };
       if (cmd === "install_cli_shim") {
@@ -55,75 +54,58 @@ async function installDefaultMock(page: Page) {
         await delay(150);
         return undefined;
       }
-      if (cmd === "register_folder_context" || cmd === "unregister_folder_context") {
-        await delay(150);
-        return undefined;
-      }
+      if (cmd === "get_author") return "Test User";
+      if (cmd === "set_author") return "Test User";
       return null;
     };
   });
 }
 
-const settingsRegion = (page: Page) => page.getByRole("region", { name: "Settings" });
+const settingsDialog = (page: Page) => page.getByRole("dialog", { name: "Settings" });
 const settingsLink = (page: Page) =>
   page.getByRole("button", { name: /Set up CLI.*Settings/i });
-const toolbarGear = (page: Page) => page.locator(".toolbar").getByRole("button", { name: "Settings" });
 const cliSwitch = (page: Page) =>
   page.getByTestId("settings-row-cliShim").getByRole("switch", { name: "CLI shim" });
 
-test.describe("Settings region (#79)", () => {
-  test("WelcomeView shows Settings link that opens the Settings region", async ({ page }) => {
+test.describe("Settings dialog (#160)", () => {
+  test("WelcomeView shows Settings link that opens the Settings dialog", async ({ page }) => {
     await installDefaultMock(page);
     await page.goto("/");
 
     await expect(settingsLink(page)).toBeVisible();
     await settingsLink(page).click();
-    await expect(settingsRegion(page)).toBeVisible();
+    await expect(settingsDialog(page)).toBeVisible();
   });
 
-  test("Top toolbar gear opens the Settings region", async ({ page }) => {
-    await installDefaultMock(page);
-    await page.goto("/");
-
-    await toolbarGear(page).click();
-    await expect(settingsRegion(page)).toBeVisible();
-  });
-
-  test("Top toolbar gear does NOT mount the legacy <dialog> modal (regression for B1)", async ({
-    page,
-  }) => {
-    await installDefaultMock(page);
-    await page.goto("/");
-
-    await toolbarGear(page).click();
-    await expect(settingsRegion(page)).toBeVisible();
-    // The legacy author/preferences SettingsDialog must NOT co-mount —
-    // otherwise its `showModal()` would `inert` the whole SettingsView.
-    await expect(page.locator("dialog[open]")).toHaveCount(0);
-  });
-
-  test("menu-help-settings event opens the Settings region", async ({ page }) => {
+  test("menu-help-settings event opens the Settings dialog", async ({ page }) => {
     await installDefaultMock(page);
     await page.goto("/");
     // Sanity: not open yet.
-    await expect(settingsRegion(page)).toHaveCount(0);
+    await expect(settingsDialog(page)).toHaveCount(0);
 
     await page.evaluate(() => {
       window.__DISPATCH_TAURI_EVENT__?.("menu-help-settings", null);
     });
 
-    await expect(settingsRegion(page)).toBeVisible();
+    await expect(settingsDialog(page)).toBeVisible();
   });
 
-  test("Esc closes the Settings region (returns to WelcomeView)", async ({ page }) => {
+  test("toolbar should NOT have a Settings button (gear removed)", async ({ page }) => {
+    await installDefaultMock(page);
+    await page.goto("/");
+    await expect(page.locator(".toolbar").getByRole("button", { name: "Settings" })).toHaveCount(0);
+  });
+
+  test("Esc closes the Settings dialog (returns to WelcomeView)", async ({ page }) => {
     await installDefaultMock(page);
     await page.goto("/");
 
-    await toolbarGear(page).click();
-    await expect(settingsRegion(page)).toBeVisible();
+    // Open via WelcomeView link.
+    await settingsLink(page).click();
+    await expect(settingsDialog(page)).toBeVisible();
 
     await page.keyboard.press("Escape");
-    await expect(settingsRegion(page)).toHaveCount(0);
+    await expect(settingsDialog(page)).toHaveCount(0);
     // Welcome surface is back.
     await expect(settingsLink(page)).toBeVisible();
   });
@@ -133,7 +115,11 @@ test.describe("Settings region (#79)", () => {
   }) => {
     await installDefaultMock(page);
     await page.goto("/");
-    await toolbarGear(page).click();
+    // Open via menu event.
+    await page.evaluate(() => {
+      window.__DISPATCH_TAURI_EVENT__?.("menu-help-settings", null);
+    });
+    await expect(settingsDialog(page)).toBeVisible();
 
     const sw = cliSwitch(page);
     await expect(sw).toHaveAttribute("aria-checked", "false");
@@ -158,7 +144,6 @@ test.describe("Settings region (#79)", () => {
         if (cmd === "get_launch_args") return { files: [], folders: [] };
         if (cmd === "cli_shim_status") return "missing";
         if (cmd === "default_handler_status") return "missing";
-        if (cmd === "folder_context_status") return "missing";
         if (cmd === "onboarding_state")
           return { schema_version: 1, last_seen_sections: [] };
         if (cmd === "install_cli_shim") {
@@ -166,11 +151,17 @@ test.describe("Settings region (#79)", () => {
           // shape that the real bridge would deliver.
           throw "permission denied: /usr/local/bin/mdr";
         }
+        if (cmd === "get_author") return "Test User";
+        if (cmd === "set_author") return "Test User";
         return null;
       };
     });
     await page.goto("/");
-    await toolbarGear(page).click();
+    // Open via menu event.
+    await page.evaluate(() => {
+      window.__DISPATCH_TAURI_EVENT__?.("menu-help-settings", null);
+    });
+    await expect(settingsDialog(page)).toBeVisible();
 
     const sw = cliSwitch(page);
     await expect(sw).toHaveAttribute("aria-checked", "false");

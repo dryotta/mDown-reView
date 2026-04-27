@@ -77,9 +77,8 @@
   ; Tell already-running shells to refresh their environment (no logoff).
   SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
-  ; Folder context menu and file-association open-command override removed —
-  ; now managed at runtime via IPC commands (commands/folder_context.rs,
-  ; commands/default_handler.rs).
+  ; File-association open-command override managed at runtime via IPC
+  ; commands (commands/default_handler.rs).
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -98,5 +97,5 @@
   ${EndIf}
   SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
-  ; Folder context menu cleanup removed — now managed at runtime.
+  ; File-association cleanup managed at runtime.
 !macroend

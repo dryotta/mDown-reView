@@ -131,8 +131,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               // Onboarding (iter 2 + iter 3) — keep welcome auto-show OFF by default.
               if (
                 cmd === "cli_shim_status" ||
-                cmd === "default_handler_status" ||
-                cmd === "folder_context_status"
+                cmd === "default_handler_status"
               )
                 return "missing";
               if (cmd === "onboarding_state")
@@ -141,9 +140,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (
                 cmd === "install_cli_shim" ||
                 cmd === "remove_cli_shim" ||
-                cmd === "set_default_handler" ||
-                cmd === "register_folder_context" ||
-                cmd === "unregister_folder_context"
+                cmd === "set_default_handler"
               )
                 return undefined;
               // Identity default for canonicalize_path so test mocks that
@@ -170,8 +167,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "read_text_file") return { content: "", size_bytes: 0, line_count: 0 };
           if (
             cmd === "cli_shim_status" ||
-            cmd === "default_handler_status" ||
-            cmd === "folder_context_status"
+            cmd === "default_handler_status"
           )
             return "missing";
           if (cmd === "onboarding_state")
@@ -180,9 +176,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (
             cmd === "install_cli_shim" ||
             cmd === "remove_cli_shim" ||
-            cmd === "set_default_handler" ||
-            cmd === "register_folder_context" ||
-            cmd === "unregister_folder_context"
+            cmd === "set_default_handler"
           )
             return undefined;
           if (cmd === "canonicalize_path") {

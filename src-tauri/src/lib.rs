@@ -243,12 +243,26 @@ pub fn run() {
             // ── Build application menu ────────────────────────────────────────
 
             // File menu
-            let open_file = MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
-            let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+Shift+O"))?;
-            let close_folder = MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
-            let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
-            let close_all_tabs = MenuItem::with_id(app, "close-all-tabs", "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"))?;
-            let open_settings = MenuItem::with_id(app, "open-settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+            let open_file =
+                MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
+            let open_folder = MenuItem::with_id(
+                app,
+                "open-folder",
+                "Open Folder…",
+                true,
+                Some("CmdOrCtrl+Shift+O"),
+            )?;
+            let close_folder =
+                MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
+            let close_tab =
+                MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+            let close_all_tabs = MenuItem::with_id(
+                app,
+                "close-all-tabs",
+                "Close All Tabs",
+                true,
+                Some("CmdOrCtrl+Shift+W"),
+            )?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_file)
                 .item(&open_folder)
@@ -256,8 +270,6 @@ pub fn run() {
                 .separator()
                 .item(&close_tab)
                 .item(&close_all_tabs)
-                .separator()
-                .item(&open_settings)
                 .separator()
                 .quit()
                 .build()?;
@@ -350,7 +362,6 @@ pub fn run() {
                     "theme-light" => "menu-theme-light",
                     "theme-dark" => "menu-theme-dark",
                     "about" => "menu-about",
-                    "open-settings" => "menu-open-settings",
                     "check-updates" => "menu-check-updates",
                     "help-settings" => "menu-help-settings",
                     _ => return,
@@ -411,9 +422,7 @@ pub fn run() {
                 commands::cli_shim::remove_cli_shim,
                 commands::default_handler::default_handler_status,
                 commands::default_handler::set_default_handler,
-                commands::folder_context::folder_context_status,
-                commands::folder_context::register_folder_context,
-                commands::folder_context::unregister_folder_context,
+
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,
                 commands::remote_asset::fetch_remote_asset,

@@ -4,13 +4,10 @@ import { useShallow } from "zustand/shallow";
 import {
   cliShimStatus as ipcCliShimStatus,
   defaultHandlerStatus as ipcDefaultHandlerStatus,
-  folderContextStatus as ipcFolderContextStatus,
   installCliShim as ipcInstallCliShim,
   onboardingState as ipcOnboardingState,
-  registerFolderContext as ipcRegisterFolderContext,
   removeCliShim as ipcRemoveCliShim,
   setDefaultHandler as ipcSetDefaultHandler,
-  unregisterFolderContext as ipcUnregisterFolderContext,
   type CliShimError,
   type OnboardingState,
 } from "@/lib/tauri-commands";
@@ -137,22 +134,15 @@ interface RecentSlice {
 
 // ── Onboarding slice ──────────────────────────────────────────────────────
 
-/**
- * Page-level Settings surface state. See the `settingsSurface` field on
- * `OnboardingSlice` and docs/architecture.md rule 28.
- */
-export type SettingsSurface = "closed" | "inline";
-
 export type OnboardingStatus = "pending" | "done" | "unsupported" | "error";
 
 export interface OnboardingStatuses {
   cliShim: OnboardingStatus;
   defaultHandler: OnboardingStatus;
-  folderContext: OnboardingStatus;
 }
 
 /** Section keys used as map keys in onboardingErrors. */
-export type OnboardingSectionKey = "cliShim" | "defaultHandler" | "folderContext";
+export type OnboardingSectionKey = "cliShim" | "defaultHandler";
 
 interface OnboardingSlice {
   // Read state
@@ -160,41 +150,19 @@ interface OnboardingSlice {
   onboardingState: OnboardingState | null;
   onboardingErrors: Record<string, string>;
   /**
-   * Page-level Settings surface (issue #116).
+   * Settings dialog visibility (issue #160).
    *
-   * - `'closed'` — no `<SettingsView/>` mounted.
-   * - `'inline'` — `<SettingsView/>` mounted in the viewer area (replaces
-   *   the WelcomeView / ViewerRouter).
-   *
-   * The author preferences dialog is a separate boolean
-   * (`authorDialogOpen`) because it layers over the inline page (rule 28
-   * is still satisfied because each surface has its own gate
-   * identifier). See docs/architecture.md rules 16 & 28.
+   * `true` → `<SettingsView/>` is mounted as a `<dialog>` over the
+   * content area. NOT persisted (transient UI state).
    */
-  settingsSurface: SettingsSurface;
-  /**
-   * Modal author/preferences dialog visibility (issue #116).
-   *
-   * `<SettingsDialog/>` is a CHILD MODAL launched from the
-   * "Author & preferences…" footer link inside `<SettingsView/>`. It
-   * deliberately layers OVER the inline page — opening or closing it
-   * must not unmount the page underneath, so it owns its own boolean
-   * rather than being folded into `settingsSurface`.
-   */
-  authorDialogOpen: boolean;
+  settingsDialogOpen: boolean;
   // Actions
   refreshOnboarding: () => Promise<void>;
-  setSettingsSurface: (surface: SettingsSurface) => void;
   openSettings: () => void;
   closeSettings: () => void;
-  setAuthorDialogOpen: (open: boolean) => void;
-  openAuthorDialog: () => void;
-  closeAuthorDialog: () => void;
   installCliShim: () => Promise<void>;
   removeCliShim: () => Promise<void>;
   setDefaultHandler: () => Promise<void>;
-  registerFolderContext: () => Promise<void>;
-  unregisterFolderContext: () => Promise<void>;
 }
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -296,16 +264,14 @@ export const useStore = create<Store>()(
         }),
 
       // Onboarding
-      onboardingStatuses: { cliShim: "pending", defaultHandler: "pending", folderContext: "pending" },
+      onboardingStatuses: { cliShim: "pending", defaultHandler: "pending" },
       onboardingState: null,
       onboardingErrors: {},
-      settingsSurface: "closed",
-      authorDialogOpen: false,
+      settingsDialogOpen: false,
       refreshOnboarding: async () => {
-        const [cli, def, folder, state] = await Promise.allSettled([
+        const [cli, def, state] = await Promise.allSettled([
           ipcCliShimStatus(),
           ipcDefaultHandlerStatus(),
-          ipcFolderContextStatus(),
           ipcOnboardingState(),
         ]);
         // Refresh records errors for status reads that fail; it does NOT clear
@@ -327,23 +293,16 @@ export const useStore = create<Store>()(
           onboardingStatuses: {
             cliShim: mapStatus(cli, "cliShim"),
             defaultHandler: mapStatus(def, "defaultHandler"),
-            folderContext: mapStatus(folder, "folderContext"),
           },
           onboardingState: state.status === "fulfilled" ? state.value : get().onboardingState,
           onboardingErrors: errors,
         });
       },
-      setSettingsSurface: (surface) => set({ settingsSurface: surface }),
-      openSettings: () => set({ settingsSurface: "inline" }),
-      closeSettings: () => set({ settingsSurface: "closed" }),
-      setAuthorDialogOpen: (open) => set({ authorDialogOpen: open }),
-      openAuthorDialog: () => set({ authorDialogOpen: true }),
-      closeAuthorDialog: () => set({ authorDialogOpen: false }),
-      installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
+      openSettings: () => set({ settingsDialogOpen: true }),
+      closeSettings: () => set({ settingsDialogOpen: false }),
+      installCliShim:() => runOnboardingAction("cliShim", ipcInstallCliShim),
       removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
       setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),
-      registerFolderContext: () => runOnboardingAction("folderContext", ipcRegisterFolderContext),
-      unregisterFolderContext: () => runOnboardingAction("folderContext", ipcUnregisterFolderContext),
     }),
     {
       name: "mdownreview-ui",
@@ -413,8 +372,8 @@ function isCliShimError(r: unknown): r is CliShimError {
  * `{"kind":"permission_denied",...}` blobs in the UI (see repo-wide
  * "tagged enum" rule in docs/architecture.md / agent memory).
  *
- * Today only `CliShimError` is a tagged enum; `set_default_handler` and
- * `(un)register_folder_context` reject with plain `Result<(), String>`,
+ * Today only `CliShimError` is a tagged enum; `set_default_handler`
+ * rejects with plain `Result<(), String>`,
  * caught by the `typeof reason === "string"` branch. When those grow
  * structured errors, add a matching `is*Error` guard + `switch` block
  * here with its own `never` exhaustiveness check.

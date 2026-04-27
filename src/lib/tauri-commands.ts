@@ -394,7 +394,6 @@ export type CliShimError =
   | { kind: "permission_denied"; path: string; target: string }
   | { kind: "io"; message: string };
 export type DefaultHandlerStatus = "done" | "other" | "unknown" | "unsupported";
-export type FolderContextStatus = "done" | "missing" | "unsupported";
 
 export const onboardingState = (): Promise<OnboardingState> =>
   invoke<OnboardingState>("onboarding_state");
@@ -413,13 +412,4 @@ export const defaultHandlerStatus = (): Promise<DefaultHandlerStatus> =>
 
 export const setDefaultHandler = (): Promise<void> =>
   invoke<void>("set_default_handler");
-
-export const folderContextStatus = (): Promise<FolderContextStatus> =>
-  invoke<FolderContextStatus>("folder_context_status");
-
-export const registerFolderContext = (): Promise<void> =>
-  invoke<void>("register_folder_context");
-
-export const unregisterFolderContext = (): Promise<void> =>
-  invoke<void>("unregister_folder_context");
 

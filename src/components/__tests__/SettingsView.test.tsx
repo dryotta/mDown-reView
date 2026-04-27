@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, within, waitFor } from "@testing-library/react";
 import { SettingsView } from "../SettingsView";
 import { useStore } from "@/store";
 import { invoke } from "@tauri-apps/api/core";
@@ -7,74 +7,95 @@ import { invoke } from "@tauri-apps/api/core";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
+const setAuthorMock = vi.fn();
+let currentAuthor = "Test User";
+
+vi.mock("@/lib/vm/useAuthor", () => ({
+  useAuthor: () => ({ author: currentAuthor, setAuthor: setAuthorMock }),
+}));
+
 const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  // jsdom does not implement HTMLDialogElement.showModal / .close.
+  // Provide minimal stubs so the <dialog> element receives the `open`
+  // attribute and the component's try/catch in useEffect doesn't silently
+  // skip the showModal call.
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  });
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.removeAttribute("open");
+  });
+
   useStore.setState({
-    settingsSurface: "inline",
+    settingsDialogOpen: true,
     onboardingStatuses: {
       cliShim: "pending",
       defaultHandler: "pending",
-      folderContext: "pending",
     },
     onboardingErrors: {},
   });
   vi.clearAllMocks();
+  currentAuthor = "Test User";
+  setAuthorMock.mockReset();
   // Default: every IPC call returns void/undefined. Individual tests override
   // for never-resolving / failing scenarios.
   mockedInvoke.mockImplementation(async () => undefined);
 });
 
+const onCloseMock = vi.fn();
+
 describe("SettingsView", () => {
-  it('renders root region with aria-label "Settings"', async () => {
+  it("renders a dialog element with Settings title", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
-    const region = screen.getByRole("region", { name: "Settings" });
-    expect(region).toBeInTheDocument();
+    const dialog = document.querySelector("dialog.settings-dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("open");
+    expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
-  it("renders 3 integration rows (CLI shim, Default handler, Folder context)", async () => {
+  it("renders 2 integration rows (CLI shim, Default handler)", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     expect(screen.getByTestId("settings-row-cliShim")).toBeInTheDocument();
     expect(screen.getByTestId("settings-row-defaultHandler")).toBeInTheDocument();
-    expect(screen.getByTestId("settings-row-folderContext")).toBeInTheDocument();
     expect(screen.getByText("CLI shim")).toBeInTheDocument();
     expect(screen.getByText("Default handler")).toBeInTheDocument();
-    expect(screen.getByText("Folder context")).toBeInTheDocument();
   });
 
   it("each switch has role=switch with aria-checked and aria-busy attributes", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     const switches = screen.getAllByRole("switch");
-    expect(switches).toHaveLength(3);
+    expect(switches).toHaveLength(2);
     for (const sw of switches) {
       expect(sw).toHaveAttribute("aria-checked");
       expect(sw).toHaveAttribute("aria-busy");
     }
   });
 
-  it("Esc keydown calls closeSettings on the store", async () => {
+  it("cancel event on dialog calls onClose (native Esc)", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
-    expect(useStore.getState().settingsSurface).toBe("inline");
+    const dialog = document.querySelector("dialog.settings-dialog")!;
     await act(async () => {
-      fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent(dialog, new Event("cancel", { bubbles: true }));
     });
-    expect(useStore.getState().settingsSurface).toBe("closed");
+    expect(onCloseMock).toHaveBeenCalled();
   });
 
-  it("Close button calls closeSettings", async () => {
+  it("Close button calls onClose", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(useStore.getState().settingsSurface).toBe("closed");
+    expect(onCloseMock).toHaveBeenCalled();
   });
 
   it("two parallel toggles run independently — both fire and both rows show pending", async () => {
@@ -83,36 +104,41 @@ describe("SettingsView", () => {
     // global lock between rows).
     const pendingPromise = new Promise<void>(() => {});
     mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "install_cli_shim" || cmd === "register_folder_context") {
+      if (cmd === "install_cli_shim" || cmd === "set_default_handler") {
         return pendingPromise;
       }
       return undefined;
     });
 
+    // defaultHandler needs to be non-"done" so the switch renders.
+    useStore.setState({
+      onboardingStatuses: { cliShim: "pending", defaultHandler: "pending" },
+    });
+
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
 
     const cliRow = screen.getByTestId("settings-row-cliShim");
-    const folderRow = screen.getByTestId("settings-row-folderContext");
+    const handlerRow = screen.getByTestId("settings-row-defaultHandler");
     const cliSwitch = within(cliRow).getByRole("switch");
-    const folderSwitch = within(folderRow).getByRole("switch");
+    const handlerSwitch = within(handlerRow).getByRole("switch");
 
     await act(async () => {
       fireEvent.click(cliSwitch);
-      fireEvent.click(folderSwitch);
+      fireEvent.click(handlerSwitch);
     });
 
     // Both IPC commands were invoked.
     const calls = mockedInvoke.mock.calls.map((c) => c[0]);
     expect(calls).toContain("install_cli_shim");
-    expect(calls).toContain("register_folder_context");
+    expect(calls).toContain("set_default_handler");
 
     // Both switches show pending state.
     expect(cliSwitch).toHaveAttribute("aria-busy", "true");
     expect(cliSwitch).toBeDisabled();
-    expect(folderSwitch).toHaveAttribute("aria-busy", "true");
-    expect(folderSwitch).toBeDisabled();
+    expect(handlerSwitch).toHaveAttribute("aria-busy", "true");
+    expect(handlerSwitch).toBeDisabled();
   });
 
   it("when an action is in-flight the switch is disabled and aria-busy=true", async () => {
@@ -122,7 +148,7 @@ describe("SettingsView", () => {
     });
 
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
 
     const cliSwitch = within(screen.getByTestId("settings-row-cliShim")).getByRole("switch");
@@ -142,17 +168,10 @@ describe("SettingsView", () => {
       onboardingErrors: { cliShim: "Permission denied" },
     });
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     const errorEl = screen.getByTestId("settings-row-error-cliShim");
     expect(errorEl).toHaveTextContent("Permission denied");
-  });
-
-  it("renders no modal-backdrop / overlay (full-page view, not a dialog)", async () => {
-    const { container } = await act(async () => render(<SettingsView />));
-    expect(container.querySelector(".modal-backdrop")).toBeNull();
-    expect(container.querySelector(".onboarding-overlay")).toBeNull();
-    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   // ── B5: hidden switch + fallback text ────────────────────────────────────
@@ -161,13 +180,12 @@ describe("SettingsView", () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "default_handler_status") return "done";
       if (cmd === "cli_shim_status") return "missing";
-      if (cmd === "folder_context_status") return "missing";
       if (cmd === "onboarding_state")
         return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     const row = screen.getByTestId("settings-row-defaultHandler");
     // No switch in this row.
@@ -179,50 +197,134 @@ describe("SettingsView", () => {
 
   it('hides the switch and shows fallback when status is "unsupported" (B5)', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "folder_context_status") return "unsupported";
-      if (cmd === "cli_shim_status") return "missing";
+      if (cmd === "cli_shim_status") return "unsupported";
       if (cmd === "default_handler_status") return "missing";
       if (cmd === "onboarding_state")
         return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
-    await act(async () => {
-      render(<SettingsView />);
+    // Drive the status into the store so SettingsView picks it up.
+    useStore.setState({
+      onboardingStatuses: { cliShim: "unsupported", defaultHandler: "pending" },
     });
-    const row = screen.getByTestId("settings-row-folderContext");
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const row = screen.getByTestId("settings-row-cliShim");
     expect(within(row).queryByRole("switch")).toBeNull();
-    expect(within(row).getByTestId("settings-row-fallback-folderContext"))
+    expect(within(row).getByTestId("settings-row-fallback-cliShim"))
       .toHaveTextContent(/Not available on this platform/i);
   });
 
   it("renders a one-line description under each row label (B5)", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     expect(screen.getByTestId("settings-row-description-cliShim")).toHaveTextContent(/CLI/);
     expect(screen.getByTestId("settings-row-description-defaultHandler")).toHaveTextContent(/default app/);
-    expect(screen.getByTestId("settings-row-description-folderContext")).toHaveTextContent(/right-click/);
   });
 
   // ── B7: mount-side IPC ───────────────────────────────────────────────────
 
   it("fires onboarding status IPC on mount (B7 regression — must keep view honest)", async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
     const calls = mockedInvoke.mock.calls.map((c) => c[0]);
     expect(calls).toContain("cli_shim_status");
   });
 
-  // ── B1 footer link to legacy author/preferences dialog ───────────────────
+  // ── Category headings ────────────────────────────────────────────────────
 
-  it("footer link calls openAuthorDialog (B1)", async () => {
+  it('renders "General" and "Integrations" category headings', async () => {
     await act(async () => {
-      render(<SettingsView />);
+      render(<SettingsView onClose={onCloseMock} />);
     });
-    fireEvent.click(screen.getByRole("button", { name: /Author & preferences/i }));
-    expect(useStore.getState().authorDialogOpen).toBe(true);
-    // Independence: opening the child modal must NOT unmount the page.
-    expect(useStore.getState().settingsSurface).toBe("inline");
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Integrations")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-category-general")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-category-integrations")).toBeInTheDocument();
+  });
+
+  // ── Inline display name (author) ─────────────────────────────────────────
+
+  it("renders Display name input with correct label", async () => {
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const input = screen.getByLabelText("Display name");
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveAttribute("type", "text");
+  });
+
+  it("prefills the author input with the current useAuthor value", async () => {
+    currentAuthor = "Existing User";
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const input = screen.getByLabelText("Display name") as HTMLInputElement;
+    expect(input.value).toBe("Existing User");
+  });
+
+  it("saves author on blur via setAuthor", async () => {
+    setAuthorMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const input = screen.getByLabelText("Display name");
+    fireEvent.change(input, { target: { value: "Reviewer-2" } });
+    await act(async () => {
+      fireEvent.blur(input);
+    });
+    expect(setAuthorMock).toHaveBeenCalledWith("Reviewer-2");
+  });
+
+  it("shows validation error for empty name", async () => {
+    setAuthorMock.mockRejectedValueOnce({ kind: "InvalidAuthor", reason: "empty" });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const input = screen.getByLabelText("Display name");
+    fireEvent.change(input, { target: { value: "   " } });
+    await act(async () => {
+      fireEvent.blur(input);
+    });
+    await waitFor(() => expect(screen.getByText("Name required")).toBeInTheDocument());
+  });
+
+  it("shows validation error for too_long", async () => {
+    setAuthorMock.mockRejectedValueOnce({ kind: "InvalidAuthor", reason: "too_long" });
+    await act(async () => {
+      render(<SettingsView onClose={onCloseMock} />);
+    });
+    const input = screen.getByLabelText("Display name");
+    fireEvent.change(input, { target: { value: "x".repeat(200) } });
+    await act(async () => {
+      fireEvent.blur(input);
+    });
+    await waitFor(() => expect(screen.getByText(/too long/i)).toBeInTheDocument());
+  });
+
+  it("hydrates draft when author resolves after dialog mount (race)", async () => {
+    // Reproduce the race: dialog opens BEFORE useAuthor's get_author IPC
+    // resolves, so `author` is "" on mount. After the store updates with
+    // the resolved value, the input must reflect it.
+    currentAuthor = "";
+    const { rerender } = await act(async () =>
+      render(<SettingsView onClose={onCloseMock} />),
+    );
+    const input = screen.getByLabelText("Display name") as HTMLInputElement;
+    expect(input.value).toBe("");
+
+    // Simulate the IPC resolving and the store hydrating.
+    currentAuthor = "alice";
+    await act(async () => {
+      rerender(<SettingsView onClose={onCloseMock} />);
+    });
+
+    await waitFor(() => {
+      const refreshed = screen.getByLabelText("Display name") as HTMLInputElement;
+      expect(refreshed.value).toBe("alice");
+    });
   });
 });

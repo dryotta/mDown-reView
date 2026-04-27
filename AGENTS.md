@@ -141,7 +141,6 @@ src-tauri/src/
     onboarding.rs           ← onboarding state IPC (state read)
     cli_shim.rs             ← CLI shim install/status/remove (+ macos/windows/unsupported submodules)
     default_handler.rs      ← .md default-handler status + open System Settings (+ os submodules)
-    folder_context.rs       ← Windows folder context menu register/unregister/status (+ os submodules)
     word_tokens.rs          ← UAX#29 word segmentation IPC (tokenize_words) — peer of compute_anchor_hash
     mod.rs                  ← flat re-exports so lib.rs/tests keep using commands::xxx paths
   watcher.rs                ← file system watcher (notify-debouncer-mini, 300 ms)
