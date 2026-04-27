@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getFileCategory, hasVisualization, getDefaultView, getShikiLanguage, getFoldLanguage, getFiletypeKey } from "@/lib/file-types";
+import { bundledLanguages } from "shiki";
+import { getFileCategory, hasVisualization, getDefaultView, getShikiLanguage, getFoldLanguage, getFiletypeKey, SHIKI_LANGUAGE_MAP, BASENAME_MAP } from "@/lib/file-types";
 
 describe("getFileCategory", () => {
   it("classifies markdown files", () => {
@@ -163,10 +164,61 @@ describe("getShikiLanguage", () => {
     expect(getShikiLanguage("readme.md")).toBe("markdown");
   });
 
+  it("maps new language extensions (#94 Group B)", () => {
+    expect(getShikiLanguage("a.lua")).toBe("lua");
+    expect(getShikiLanguage("a.dart")).toBe("dart");
+    expect(getShikiLanguage("a.scala")).toBe("scala");
+    expect(getShikiLanguage("a.zig")).toBe("zig");
+    expect(getShikiLanguage("a.groovy")).toBe("groovy");
+    expect(getShikiLanguage("a.r")).toBe("r");
+    expect(getShikiLanguage("a.ps1")).toBe("powershell");
+  });
+
+  it("maps web/app framework extensions (#94 Group B)", () => {
+    expect(getShikiLanguage("a.svelte")).toBe("svelte");
+    expect(getShikiLanguage("a.vue")).toBe("vue");
+    expect(getShikiLanguage("a.astro")).toBe("astro");
+    expect(getShikiLanguage("a.graphql")).toBe("graphql");
+    expect(getShikiLanguage("a.gql")).toBe("graphql");
+    expect(getShikiLanguage("a.prisma")).toBe("prisma");
+    expect(getShikiLanguage("a.jsonc")).toBe("jsonc");
+  });
+
+  it("maps infra/config extensions (#94 Group B)", () => {
+    expect(getShikiLanguage("a.tf")).toBe("terraform");
+    expect(getShikiLanguage("a.tfvars")).toBe("terraform");
+    expect(getShikiLanguage("a.hcl")).toBe("hcl");
+    expect(getShikiLanguage("a.proto")).toBe("protobuf");
+    expect(getShikiLanguage("a.gradle")).toBe("groovy");
+    expect(getShikiLanguage("a.cmake")).toBe("cmake");
+    expect(getShikiLanguage("a.bicep")).toBe("bicep");
+    expect(getShikiLanguage("a.ini")).toBe("ini");
+    expect(getShikiLanguage("a.conf")).toBe("ini");
+    expect(getShikiLanguage("a.env")).toBe("ini");
+    expect(getShikiLanguage("a.diff")).toBe("diff");
+    expect(getShikiLanguage("a.patch")).toBe("diff");
+    expect(getShikiLanguage("a.mm")).toBe("objective-cpp");
+  });
+
+  it("falls back to basename matching for extensionless files (#94 Group B)", () => {
+    expect(getShikiLanguage("Dockerfile")).toBe("docker");
+    expect(getShikiLanguage("dockerfile")).toBe("docker");
+    expect(getShikiLanguage("Containerfile")).toBe("docker");
+    expect(getShikiLanguage("Makefile")).toBe("make");
+    expect(getShikiLanguage("GNUmakefile")).toBe("make");
+    expect(getShikiLanguage("CMakeLists.txt")).toBe("cmake");
+  });
+
+  it("basename matching works with directory prefixes (#94 Group B)", () => {
+    expect(getShikiLanguage("/app/Dockerfile")).toBe("docker");
+    expect(getShikiLanguage("C:\\project\\Makefile")).toBe("make");
+  });
+
   it("returns 'text' for unknown / missing extensions", () => {
-    expect(getShikiLanguage("Makefile")).toBe("text");
     expect(getShikiLanguage("data.unknownext")).toBe("text");
     expect(getShikiLanguage("noext")).toBe("text");
+    expect(getShikiLanguage("foo.m")).toBe("text"); // .m deliberately deferred — ambiguous
+    expect(getShikiLanguage("foo.Dockerfile")).toBe("text"); // extension wins, .dockerfile not mapped
   });
 
   it("returns 'text' for .mdx (not in Shiki map even though it is a markdown category)", () => {
@@ -188,6 +240,29 @@ describe("getFoldLanguage", () => {
     expect(getFoldLanguage("a.yml")).toBe("yaml");
     expect(getFoldLanguage("a.ts")).toBe("typescript");
     expect(getFoldLanguage("a.unknownext")).toBe("text");
+  });
+});
+
+describe("Shiki language map runtime guard (#94)", () => {
+  it("every SHIKI_LANGUAGE_MAP value is a valid bundled Shiki language (except kql)", () => {
+    const invalidEntries: string[] = [];
+    for (const [ext, lang] of Object.entries(SHIKI_LANGUAGE_MAP)) {
+      if (lang === "kql") continue;
+      if (!(lang in bundledLanguages)) {
+        invalidEntries.push(`.${ext} → "${lang}"`);
+      }
+    }
+    expect(invalidEntries, `Invalid Shiki language ids: ${invalidEntries.join(", ")}`).toEqual([]);
+  });
+
+  it("every BASENAME_MAP value is a valid bundled Shiki language", () => {
+    const invalidEntries: string[] = [];
+    for (const [name, lang] of Object.entries(BASENAME_MAP)) {
+      if (!(lang in bundledLanguages)) {
+        invalidEntries.push(`${name} → "${lang}"`);
+      }
+    }
+    expect(invalidEntries, `Invalid Shiki language ids: ${invalidEntries.join(", ")}`).toEqual([]);
   });
 });
 

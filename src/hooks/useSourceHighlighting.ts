@@ -38,15 +38,19 @@ export function useSourceHighlighting(content: string, path: string) {
         if (cancelled) return;
         try {
           const fullHtml = hl.codeToHtml(deferredContent || " ", { lang, theme });
-          // Shiki wraps each line in <span class="line">...</span>
-          // Extract the inner HTML of each line span
-          const lineRegex = /<span class="line">(.*?)<\/span>/gs;
+          // Shiki wraps each line in <span class="line">…</span> with nested
+          // token <span>s inside. A regex with lazy .*? truncates at the first
+          // inner </span>, so we split on the line-span boundary instead.
+          const parts = fullHtml.split('<span class="line">');
           const htmlLines: string[] = [];
-          let match;
-          while ((match = lineRegex.exec(fullHtml)) !== null) {
-            htmlLines.push(match[1]);
+          for (let i = 1; i < parts.length; i++) {
+            // Strip the closing </span> that belongs to the line wrapper.
+            // Each part ends with </span> (line close) possibly followed by
+            // </code></pre> or more line spans.
+            const endIdx = parts[i].lastIndexOf('</span>');
+            htmlLines.push(endIdx >= 0 ? parts[i].substring(0, endIdx) : parts[i]);
           }
-          // Fallback: if regex didn't match (unexpected format), use plain escape
+          // Fallback: if split found no line spans (unexpected format), use plain escape
           if (htmlLines.length === 0) {
             for (const line of deferredLines) {
               htmlLines.push(escapeHtml(line));
