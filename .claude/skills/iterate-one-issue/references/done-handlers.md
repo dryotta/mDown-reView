@@ -4,25 +4,54 @@ Reached when Step 2's `exe-goal-assessor` returns `achieved` (every `REQUIREMENT
 
 Handler steps (in order):
 
-1. Refresh PR body — tick every requirement checkbox the assessor marked `met`, replace the summary line with `Ready for review — goal achieved.`. Issue mode keeps the `Closes #<ISSUE_NUMBER>` trailer:
+1. **Bug-mode behavioural verification (`IS_BUG` only).** Before marking the PR ready-for-review, verify the original bug is resolved at the **observation level** of the bug report — not the implementation level.
+
+   Spawn `general-purpose`:
+   ```
+   Behavioural verification for bug fix.
+   Issue: #<ISSUE_NUMBER> — <ISSUE_TITLE>
+   Bug report (body): <ISSUE_BODY>
+   BUG_RCA (from Step 3a): <BUG_RCA or "n/a">
+
+   Reproduce the original failure mode against the current codebase. Return this exact template:
+
+   LAYER: <unit | browser-e2e | native-e2e | manual-not-runnable-locally>
+   REPRO_COMMAND: <exact command or steps executed>
+   OBSERVATION: <what you inspected — DOM property, HTTP response, test assertion, file content>
+   EXPECTED: <what the bug report says should happen>
+   ACTUAL: <what you observed>
+   VERDICT: <CONFIRMED_FIXED | STILL_BROKEN | UNABLE_TO_VERIFY>
+   EVIDENCE: <command output, assertion result, or screenshot path>
+   ```
+
+   Routing:
+   - `CONFIRMED_FIXED` → continue to step 2.
+   - `STILL_BROKEN` → revert to `in_progress`. Inject the verification failure as a new `NEXT_REQUIREMENT`: `- [ ] Bug verification: <OBSERVATION> still shows <ACTUAL>; expected <EXPECTED>`. Loop back to Step 3 of the current iteration (do not increment iteration counter).
+   - `UNABLE_TO_VERIFY` (layer is `native-e2e` or `manual-not-runnable-locally` and no local reproduction is possible) → log `[done-achieved] behavioural verification: UNABLE_TO_VERIFY — <reason>`. Continue to step 2 but add a PR comment noting the limitation:
+     ```bash
+     gh pr comment <PR_NUMBER> --body "<!-- iterate-verify-limitation -->
+     ⚠️ Bug-mode behavioural verification could not confirm fix at the reporter's observation level (requires <LAYER>). Unit/browser tests pass. Manual verification recommended before merge."
+     ```
+
+2. Refresh PR body — tick every requirement checkbox the assessor marked `met`, replace the summary line with `Ready for review — goal achieved.`. Issue mode keeps the `Closes #<ISSUE_NUMBER>` trailer:
    ```bash
    gh pr edit <PR_NUMBER> --body "<final body>"
    ```
-2. Mark the PR ready-for-review (only place this skill flips the draft state):
+3. Mark the PR ready-for-review (only place this skill flips the draft state):
    ```bash
    gh pr ready <PR_NUMBER>
    ```
-3. Add the `iterate-pr` label so `merge-pr-loop` will pick it up. Idempotent label create on first run:
+4. Add the `iterate-pr` label so `merge-pr-loop` will pick it up. Idempotent label create on first run:
    ```bash
    gh label create iterate-pr --description "PR opened by iterate-one-issue, awaiting release-gate validation by merge-pr-loop" --color BFD4F2 2>/dev/null || true
    gh pr edit <PR_NUMBER> --add-label iterate-pr
    ```
-4. Comment on the PR:
+5. Comment on the PR:
    ```bash
    gh pr comment <PR_NUMBER> --body "<!-- iterate-done-achieved -->
    ✅ Goal achieved on commit \`$(git rev-parse --short HEAD)\`. PR ready for review; \`merge-pr-loop\` will run the release gate and merge."
    ```
-5. Run **Phase 2** (only path where 2e may auto-recurse).
+6. Run **Phase 2** (only path where 2e may auto-recurse).
 
 Source-issue closure is automatic on PR merge via the `Closes #<N>` trailer. The `iterate-in-progress` claim label is owned by `iterate-loop` (when this skill was invoked from it) and cleared by the loop after parsing `ITERATE_OUTCOME` — this skill does not touch it.
 
