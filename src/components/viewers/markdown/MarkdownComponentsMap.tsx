@@ -35,9 +35,24 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     getSharedHighlighter()
       .then(async (h) => {
-        const result = await h.codeToHtml(code, {
+        if (cancelled) return;
+        // Load the language on demand — the shared highlighter starts with
+        // langs:[] so every grammar is loaded lazily. Without this,
+        // codeToHtml throws "Language not found" and the catch below
+        // swallows it, leaving the block un-highlighted (#181).
+        const loaded = h.getLoadedLanguages();
+        if (!loaded.includes(lang)) {
+          await h.loadLanguage(lang as import("shiki").BundledLanguage).catch(() => {});
+          if (!h.getLoadedLanguages().includes(lang)) {
+            // Language not available — render plain
+            return;
+          }
+        }
+        if (cancelled) return;
+        const result = h.codeToHtml(code, {
           lang,
           themes: { light: "github-light", dark: "github-dark" },
           defaultColor: false,
@@ -45,6 +60,7 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
         setHtml(result);
       })
       .catch(() => {});
+    return () => { cancelled = true; };
   }, [code, lang]);
 
   if (html) {

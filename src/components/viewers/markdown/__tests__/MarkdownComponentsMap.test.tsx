@@ -17,6 +17,8 @@ vi.mock("@/logger");
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
     codeToHtml: vi.fn().mockReturnValue("<pre><code>highlighted</code></pre>"),
+    getLoadedLanguages: vi.fn().mockReturnValue(["ts", "typescript"]),
+    loadLanguage: vi.fn().mockResolvedValue(undefined),
   }),
 }));
 
@@ -118,6 +120,25 @@ describe("buildMarkdownComponents — block wrappings carry data-source-line", (
       // resolves; once the (mocked) highlighter returns it dangerouslySets
       // its own HTML. Either way, the inner content lives under the wrapper.
       expect(wrapper?.getAttribute("data-source-line")).toBe("1");
+    });
+  });
+
+  it("HighlightedCode loads language before calling codeToHtml (#181)", async () => {
+    // Verify the language-loading fix: getLoadedLanguages + loadLanguage
+    // must be called before codeToHtml. Without this, codeToHtml throws
+    // "Language not found" and the block renders plain black.
+    const { getSharedHighlighter } = await import("@/lib/shiki");
+    const mockHl = await vi.mocked(getSharedHighlighter)();
+    vi.mocked(mockHl.getLoadedLanguages).mockReturnValue([]);
+    vi.mocked(mockHl.loadLanguage).mockResolvedValue(undefined);
+    // After loadLanguage, getLoadedLanguages returns the language
+    vi.mocked(mockHl.getLoadedLanguages).mockReturnValueOnce([]).mockReturnValue(["ts", "typescript"]);
+
+    renderMd("```ts\nconst x = 1;\n```\n");
+
+    await waitFor(() => {
+      expect(mockHl.loadLanguage).toHaveBeenCalled();
+      expect(mockHl.codeToHtml).toHaveBeenCalled();
     });
   });
 });
