@@ -5,10 +5,93 @@ pub mod registry;
 pub mod update;
 pub mod watcher;
 
-use commands::{parse_launch_args, push_pending, PendingArgsState};
+use commands::{parse_launch_args, push_pending, LaunchArgs, PendingArgsState};
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
+
+// ---------------------------------------------------------------------------
+// Multi-window helpers
+// ---------------------------------------------------------------------------
+
+/// Raise and focus a window (un-minimize → show → set-focus).
+fn focus_window(win: &tauri::WebviewWindow) {
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
+/// Extract a human-readable name from a path (last component, or full path).
+fn folder_display_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+/// Find the focused `WebviewWindow`, falling back to the "main" window.
+fn focused_or_main<M: Manager<tauri::Wry>>(manager: &M) -> Option<tauri::WebviewWindow> {
+    manager
+        .webview_windows()
+        .into_values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| manager.get_webview_window("main"))
+}
+
+/// Route incoming `LaunchArgs` through the `WindowRegistry`, creating new
+/// windows for unknown folders and focusing existing ones.  Shared by the
+/// single-instance callback, `setup()`, and `RunEvent::Opened`.
+fn route_args_through_registry(
+    handle: &tauri::AppHandle,
+    args: &LaunchArgs,
+    ctx: &str,
+) {
+    let Some(reg) = handle.try_state::<registry::WindowRegistry>() else {
+        return;
+    };
+    for folder in &args.folders {
+        let canonical = std::fs::canonicalize(folder)
+            .unwrap_or_else(|_| std::path::PathBuf::from(folder));
+        match reg.route_folder(&canonical) {
+            registry::RouteDecision::FocusExisting(label) => {
+                if let Some(win) = handle.get_webview_window(&label) {
+                    focus_window(&win);
+                }
+            }
+            registry::RouteDecision::CreateFolder { path } => {
+                let label = reg.next_label();
+                let display = folder_display_name(&path);
+                match tauri::WebviewWindowBuilder::new(
+                    handle,
+                    &label,
+                    tauri::WebviewUrl::App("index.html".into()),
+                )
+                .title(format!("mdownreview — {display}"))
+                .inner_size(1100.0, 750.0)
+                .min_inner_size(600.0, 400.0)
+                .build()
+                {
+                    Ok(_) => {
+                        reg.register(label.clone(), registry::WindowKind::Folder(path));
+                        log::info!("[window] {ctx}: created {label}");
+                    }
+                    Err(e) => {
+                        log::error!("[window] {ctx}: failed to create window: {e}");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for file in &args.files {
+        let canonical = std::fs::canonicalize(file)
+            .unwrap_or_else(|_| std::path::PathBuf::from(file));
+        if let registry::RouteDecision::AddToWindow { label, .. } = reg.route_file(&canonical) {
+            if let Some(win) = handle.get_webview_window(&label) {
+                focus_window(&win);
+            }
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -56,11 +139,15 @@ pub fn run() {
             |app, argv, cwd| {
                 let cwd_path = std::path::PathBuf::from(&cwd);
                 let args = parse_launch_args(&argv[1..], &cwd_path);
+
+                route_args_through_registry(app, &args, "single-instance");
+
+                // Queue args and notify all windows
                 if let Some(state) = app.try_state::<PendingArgsState>() {
                     push_pending(&state, args);
                 }
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("args-received", ());
+                for (_label, win) in app.webview_windows() {
+                    let _ = win.emit("args-received", ());
                 }
             },
         ));
@@ -71,6 +158,7 @@ pub fn run() {
         .manage(update::PendingUpdate(std::sync::Mutex::new(None)))
         .manage(watcher::WatcherState::new(sync_tx))
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
+        .manage(registry::WindowRegistry::default())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
@@ -93,8 +181,62 @@ pub fn run() {
             let raw_args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_default();
             let launch_args = parse_launch_args(&raw_args, &cwd);
+
+            // Register the default "main" window in the registry
+            let reg = app.state::<registry::WindowRegistry>();
+            if let Some(first_folder) = launch_args.folders.first() {
+                let canonical = std::fs::canonicalize(first_folder)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(first_folder));
+                reg.register("main".to_string(), registry::WindowKind::Folder(canonical));
+            } else {
+                reg.register("main".to_string(), registry::WindowKind::FileOnly);
+            }
+
+            // Create additional windows for extra folders (beyond the first)
+            for folder in launch_args.folders.iter().skip(1) {
+                let canonical = std::fs::canonicalize(folder)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(folder));
+                let label = reg.next_label();
+                let display = folder_display_name(&canonical);
+                match tauri::WebviewWindowBuilder::new(
+                    app,
+                    &label,
+                    tauri::WebviewUrl::App("index.html".into()),
+                )
+                .title(format!("mdownreview — {display}"))
+                .inner_size(1100.0, 750.0)
+                .min_inner_size(600.0, 400.0)
+                .build()
+                {
+                    Ok(_) => {
+                        reg.register(
+                            label.clone(),
+                            registry::WindowKind::Folder(canonical.clone()),
+                        );
+                        log::info!(
+                            "[window] Created additional window {} for {}",
+                            label,
+                            canonical.display()
+                        );
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "[window] Failed to create window for {}: {}",
+                            canonical.display(),
+                            e
+                        );
+                    }
+                }
+            }
+
+            // Push args for the main window (first folder + all files);
+            // per-window args routing is a future iteration.
+            let main_args = LaunchArgs {
+                files: launch_args.files,
+                folders: launch_args.folders.into_iter().take(1).collect(),
+            };
             let state: PendingArgsState = PendingArgsState::default();
-            push_pending(&state, launch_args);
+            push_pending(&state, main_args);
             app.manage(state);
 
             // ── Build application menu ────────────────────────────────────────
@@ -200,7 +342,8 @@ pub fn run() {
 
             // Forward menu events to the frontend as Tauri events
             app.on_menu_event(|app, event| {
-                let Some(window) = app.get_webview_window("main") else {
+                // Route to the focused window, falling back to "main"
+                let Some(window) = focused_or_main(app) else {
                     return;
                 };
                 let event_name = match event.id().as_ref() {
@@ -228,6 +371,17 @@ pub fn run() {
             watcher::start_watcher(app.handle());
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                if let Some(reg) = window.try_state::<registry::WindowRegistry>() {
+                    reg.unregister(&label);
+                    log::info!(
+                        "[window] Destroyed: {label} — unregistered from WindowRegistry"
+                    );
+                }
+            }
         });
 
     // Shared command list — debug adds set_root_via_test for native e2e tests
@@ -310,10 +464,14 @@ pub fn run() {
                 }
             }
             if !files.is_empty() || !folders.is_empty() {
+                let args = LaunchArgs { files, folders };
+                route_args_through_registry(app_handle, &args, "macOS-open");
+
+                // Queue args and notify all windows
                 let state = app_handle.state::<PendingArgsState>();
-                push_pending(&state, commands::LaunchArgs { files, folders });
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.emit("args-received", ());
+                push_pending(&state, args);
+                for (_label, win) in app_handle.webview_windows() {
+                    let _ = win.emit("args-received", ());
                 }
             }
         }
