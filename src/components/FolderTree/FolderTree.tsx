@@ -53,6 +53,16 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   const [, startTransition] = useTransition();
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Listen for the clear-filter custom event dispatched by the Ctrl/Cmd+P
+  // toggle-off path in useGlobalShortcuts.
+  useEffect(() => {
+    const el = document.getElementById("file-filter-input");
+    if (!el) return;
+    const handleClear = () => setFilter("");
+    el.addEventListener("clear-filter", handleClear);
+    return () => el.removeEventListener("clear-filter", handleClear);
+  }, []);
+
   // ── Tree mode list (no filter — filter mode uses grouped view below) ──────
   const treeList = useFolderTree(root, childrenCache, expandedFolders, "", ghostEntries);
 
@@ -253,9 +263,11 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
       </div>
       <div className="folder-tree-toolbar">
         <input
+          id="file-filter-input"
           className="folder-tree-filter"
           type="text"
-          placeholder="Filter files…"
+          placeholder={navigator.platform?.startsWith("Mac") ? "Filter files (⌘P)" : "Filter files (Ctrl+P)"}
+          aria-label="Filter files"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           onKeyDown={(e) => {

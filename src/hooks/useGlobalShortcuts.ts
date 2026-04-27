@@ -53,6 +53,24 @@ export function useGlobalShortcuts({
 }: ShortcutCallbacks) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+P — toggle focus on the file filter input. Placed BEFORE the
+      // isEditableTarget guard so the toggle-off path works when the filter
+      // input itself is focused.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === "p") {
+        e.preventDefault();
+        const filterInput = document.getElementById("file-filter-input");
+        if (!filterInput) return; // no folder open — no-op
+        if (document.activeElement === filterInput) {
+          // Dispatch a custom event that FolderTree listens for to clear the
+          // React-controlled filter state, then blur.
+          filterInput.dispatchEvent(new CustomEvent("clear-filter"));
+          filterInput.blur();
+        } else {
+          filterInput.focus();
+        }
+        return;
+      }
+
       // B1: never intercept keystrokes destined for a text input. Applies to
       // ALL shortcut branches below — Alt+Arrow as well as the Ctrl-modified set.
       if (isEditableTarget(e)) return;

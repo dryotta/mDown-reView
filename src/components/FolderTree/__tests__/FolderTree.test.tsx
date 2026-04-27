@@ -169,7 +169,7 @@ describe("6.4 – filter hides non-matching files", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Filter files" }), {
       target: { value: "README" },
     });
 
@@ -187,7 +187,7 @@ describe("6.4 – filter hides non-matching files", () => {
     await waitFor(() => screen.getByText("child.md"));
 
     // Now filter for "child"
-    fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Filter files" }), {
       target: { value: "child" },
     });
 
@@ -204,7 +204,7 @@ describe("6.4 – filter hides non-matching files", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    const filterInput = screen.getByPlaceholderText("Filter files…");
+    const filterInput = screen.getByRole("textbox", { name: "Filter files" });
     fireEvent.change(filterInput, { target: { value: "README" } });
 
     await waitFor(() => {
@@ -380,7 +380,7 @@ describe("6.11 – grouped flat filter view", () => {
     fireEvent.click(screen.getByText("subdir").closest(".tree-entry")!);
     await waitFor(() => screen.getByText("gamma.md"));
 
-    fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Filter files" }), {
       target: { value: ".md" },
     });
 
@@ -399,7 +399,7 @@ describe("6.11 – grouped flat filter view", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Filter files" }), {
       target: { value: "no-such-file-anywhere-xyz" },
     });
 
@@ -416,7 +416,7 @@ describe("filter input Escape behavior", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "README" } });
 
     await waitFor(() => {
@@ -440,7 +440,7 @@ describe("filter input Escape behavior", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "README" } });
     input.focus();
     expect(document.activeElement).toBe(input);
@@ -454,7 +454,7 @@ describe("filter input Escape behavior", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "README" } });
     input.focus();
     expect(input.value).toBe("README");
@@ -469,7 +469,7 @@ describe("filter input Escape behavior", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
     input.focus();
     expect(input.value).toBe("");
 
@@ -486,7 +486,7 @@ describe("filter input Escape behavior", () => {
     renderTree();
     await waitFor(() => screen.getByText("README.md"));
 
-    const input = screen.getByPlaceholderText("Filter files…") as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
 
     // ── Non-empty: stopPropagation prevents window listener from seeing the event ──
     fireEvent.change(input, { target: { value: "README" } });
@@ -534,4 +534,11 @@ describe("filter input Escape behavior", () => {
   });
 });
 
-
+describe("filter input shortcut hint placeholder (#209)", () => {
+  it("placeholder includes shortcut hint (Ctrl+P on non-Mac)", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+    const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
+    expect(input.placeholder).toBe("Filter files (Ctrl+P)");
+  });
+});
