@@ -30,7 +30,7 @@ pub use comments::{
     export_review_summary, export_review_summary_inner, get_file_badges, get_file_badges_inner,
     get_file_comments, get_file_comments_inner, mutate_sidecar_or_create, update_comment,
     update_comment_apply, update_comment_inner, CommentPatch, CommentsChangedEvent, CommentsEmitter,
-    FileBadge, NewCommentAnchor, TaggedNewAnchor,
+    FileBadge, GetFileCommentsResult, NewCommentAnchor, TaggedNewAnchor,
 };
 pub use config::{set_author, set_author_at, validate_author, ConfigError};
 pub use fs::{

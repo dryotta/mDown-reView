@@ -12,6 +12,47 @@ use tauri::State;
 use super::enforce_workspace_path;
 use crate::watcher::WatcherState;
 
+/// Result of [`get_file_comments`]: matched/grouped threads plus the mtime
+/// of the sidecar file the loader actually picked. `sidecar_mtime_ms` is
+/// `None` when no sidecar exists for `file_path` (or the platform/FS does
+/// not expose mtime). Callers can use the value to detect external sidecar
+/// edits without a follow-up IPC. Field name mirrors the `*_ms` epoch
+/// convention used by [`crate::commands::FileStat::mtime_ms`].
+#[derive(serde::Serialize, Debug)]
+pub struct GetFileCommentsResult {
+    pub threads: Vec<CommentThread>,
+    pub sidecar_mtime_ms: Option<i64>,
+}
+
+/// Resolve the on-disk sidecar path the loader would pick for `file_path`,
+/// preferring `.review.yaml` over `.review.json` to match
+/// [`crate::core::sidecar::load_sidecar`]. Returns `None` when neither
+/// exists. Kept private — the loader does not expose its picked path, so
+/// this re-implements the resolution locally; if the loader ever gains a
+/// `picked_path()` accessor, prefer that.
+fn resolve_sidecar_path(file_path: &str) -> Option<std::path::PathBuf> {
+    let yaml = std::path::PathBuf::from(format!("{}.review.yaml", file_path));
+    if yaml.exists() {
+        return Some(yaml);
+    }
+    let json = std::path::PathBuf::from(format!("{}.review.json", file_path));
+    if json.exists() {
+        return Some(json);
+    }
+    None
+}
+
+fn sidecar_mtime_ms(file_path: &str) -> Option<i64> {
+    let path = resolve_sidecar_path(file_path)?;
+    std::fs::metadata(&path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as i64)
+}
+
 /// Combined hot-path: load sidecar → match to file lines → build threads.
 /// Single IPC call for the GUI's most common operation.
 ///
@@ -33,7 +74,7 @@ use crate::watcher::WatcherState;
 pub fn get_file_comments(
     state: State<'_, WatcherState>,
     file_path: String,
-) -> Result<Vec<CommentThread>, String> {
+) -> Result<GetFileCommentsResult, String> {
     enforce_workspace_path(&state, &file_path)?;
     get_file_comments_inner(&file_path)
 }
@@ -42,17 +83,30 @@ pub fn get_file_comments(
 /// integration tests can exercise the matcher / typed-anchor path without
 /// fabricating a `State<'_, WatcherState>`. The IPC layer must call the
 /// `#[tauri::command]` wrapper above, never this function directly.
-pub fn get_file_comments_inner(file_path: &str) -> Result<Vec<CommentThread>, String> {
+pub fn get_file_comments_inner(file_path: &str) -> Result<GetFileCommentsResult, String> {
     use crate::core::anchors::{resolve_anchor, LazyParsedDoc, MatchOutcome};
     use crate::core::types::{Anchor, MatchedComment};
+
+    // Capture sidecar mtime up-front so the value reflects the same on-disk
+    // state the loader is about to read. Loader failure does not invalidate
+    // the mtime — return it anyway so callers can still detect edits.
+    let sidecar_mtime_ms = sidecar_mtime_ms(file_path);
 
     let sidecar = crate::core::sidecar::load_sidecar(file_path).map_err(|e| e.to_string())?;
     let comments = match sidecar {
         Some(s) => s.comments,
-        None => return Ok(vec![]),
+        None => {
+            return Ok(GetFileCommentsResult {
+                threads: vec![],
+                sidecar_mtime_ms,
+            })
+        }
     };
     if comments.is_empty() {
-        return Ok(vec![]);
+        return Ok(GetFileCommentsResult {
+            threads: vec![],
+            sidecar_mtime_ms,
+        });
     }
 
     // Read raw bytes once with a 10 MB cap (security blocker S1: docs/security.md
@@ -117,7 +171,10 @@ pub fn get_file_comments_inner(file_path: &str) -> Result<Vec<CommentThread>, St
         });
     }
 
-    Ok(crate::core::threads::group_into_threads(&matched))
+    Ok(GetFileCommentsResult {
+        threads: crate::core::threads::group_into_threads(&matched),
+        sidecar_mtime_ms,
+    })
 }
 
 #[cfg(test)]
