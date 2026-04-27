@@ -50,8 +50,8 @@ interface Props {
 
 /**
  * View-mode toggle bar: source/visual tabs, optional wrap toggle, optional
- * zoom controls. File-action buttons (reveal in folder, open in default app)
- * live in `FileActionsBar` and are composed via the `trailing` slot by
+ * zoom controls. File-action buttons (reveal in folder) live in
+ * `FileActionsBar` and are composed via the `trailing` slot by
  * `EnhancedViewer`, or rendered above headerless media viewers by
  * `ViewerRouter`.
  */
