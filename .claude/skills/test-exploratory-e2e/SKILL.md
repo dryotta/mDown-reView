@@ -45,7 +45,10 @@ You write one JSON line to stdin, the REPL writes one JSON line to stdout. Use `
 | `{"act":"press","key":"Control+Tab"}` | `{"ok":true}` |
 | `{"act":"type","selector":"...","text":"..."}` | `{"ok":true}` |
 | `{"act":"hover","selector":"..."}` | `{"ok":true}` |
+| `{"act":"select_text","selector":"...","startOffset":0,"endOffset":50}` | `{"ok":true}` — selects text range in the target element; triggers `selectionchange` so React listeners (SelectionToolbar) pick it up. Defaults: start=0, end=entire-text. |
 | `{"act":"resize","width":480,"height":800}` | `{"ok":true}` |
+| `{"act":"scroll","selector":".viewer-content","y":500}` | `{"ok":true}` — scrolls the element (or window if no selector) to the given x/y offset. |
+| `{"act":"wait_for_selector","selector":".selection-toolbar","state":"visible","timeout":3000}` | `{"ok":true}` — waits for a selector to reach the given state (visible/hidden/attached). Default timeout 5s. |
 | `{"act":"emit","event":"menu-about"}` | `{"ok":true}` |
 | `{"act":"cli","args":["D:/work/mdownreview2/docs/architecture.md", ...]}` | `{"ok":true}` |
 | `{"act":"record","heuristic":"<id>","severity":"P1\|P2\|P3","anchor":"...","detail":"...","screenshot":"...","group":"<tag>"}` | `{"ok":true,"result":{"status":"NEW\|REPRODUCED"}}` |

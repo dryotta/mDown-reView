@@ -70,17 +70,31 @@ Set `ACCEPTANCE_CRITERIA` from the resolved spec (parsed `- [ ]` / `- [x]` lines
 
 ### 0d. Clarification questions (no user prompt — defer to grooming)
 
-This skill **never calls `ask_user`**. If after reading the issue body, comments, deep-dive docs, and the assessor's view of `REQUIREMENTS` the goal is still genuinely ambiguous (scope boundaries, observable success signal, internal contradictions), do **not** guess and do **not** stop the autonomous run silently. Instead:
+This skill **never calls `ask_user`**. Defer only when the spec has a **genuine ambiguity** that falls into one of these three closed categories:
 
-1. **Goal mode** — there is no issue to update. Proceed with the most defensible interpretation of `GOAL_TEXT`, capture the ambiguity as a `### Operator clarifications (deferred)` block in the PR description, and continue.
+| # | Deferral category | Example |
+|---|---|---|
+| 1 | **Internal contradictions** | AC-3 requires X, AC-7 forbids X |
+| 2 | **Undefined success signal** | No AC has an observable verification method; "make it better" with no metric |
+| 3 | **Unresolvable external dependency** | Spec references an external API, third-party service, or user workflow the assessor cannot inspect from the codebase |
 
-2. **Issue mode** — defer to grooming:
+**Anti-pattern: scope-size deferral.** Scope size (many ACs, many files, large architectural change) is **never** a deferral reason. The 30-iteration loop with phased planning (Step 4) exists to break large goals into incremental progress. If the spec is clear, proceed — even for multi-hundred-file changes. (Incident: issue #147 was incorrectly deferred as "scope too large" despite having 9 clear ACs and a full architecture spec.)
+
+**Bias is to skip this branch entirely.** Never defer over: implementation detail, anything answered by deep-dive docs, anything the assessor can discover from the codebase, style/naming/framework choices, or scope size.
+
+When deferral is warranted:
+
+1. **Goal mode** — proceed with the most defensible interpretation of `GOAL_TEXT`, capture the ambiguity as a `### Operator clarifications (deferred)` block in the PR description, and continue.
+
+2. **Issue mode** — defer to grooming. The comment **must cite one of the three categories above**:
    ```bash
    gh issue comment $ISSUE_NUMBER --body "$(cat <<'EOF'
    <!-- iterate-needs-grooming -->
    ## /iterate-one-issue halted — clarification needed before autonomous work can proceed
 
-   The autonomous iteration loop attempted to pick up this issue but found the goal under-specified for the assessor (scope, success signal, or internal contradictions). The following blocking questions need answers before /iterate-one-issue can implement safely:
+   **Deferral category:** <internal-contradiction | undefined-success-signal | unresolvable-external-dependency>
+
+   The following blocking questions need answers before /iterate-one-issue can implement safely:
 
    <numbered list of ≤5 questions, each one sentence, each citing the ambiguity in the spec>
 
@@ -90,8 +104,6 @@ This skill **never calls `ask_user`**. If after reading the issue body, comments
    gh issue edit $ISSUE_NUMBER --add-label "needs-grooming"
    ```
    Then STOP `[iterate-one-issue] Issue #$ISSUE_NUMBER deferred to grooming. See comment.` Exit cleanly so the calling `iterate-loop` (if any) can move on to the next eligible issue.
-
-**Bias is to skip this branch entirely.** Never defer over: implementation detail, anything answered by deep-dive docs, anything the assessor can discover from the codebase, style/naming/framework choices. Only defer for genuine spec ambiguity.
 
 After 0e, no GitHub-side spec changes; the loop runs purely against the captured `REQUIREMENTS`.
 
@@ -317,7 +329,7 @@ If RCA inconclusive: do NOT halt — log `DEGRADED — bug-mode RCA inconclusive
 
 Spawn `general-purpose`:
 ```
-Comprehensive sprint plan for this iteration. Identify ALL changes — do not artificially narrow scope.
+Sprint plan for this iteration. Identify all required work, then scope this iteration to a convergent phase.
 
 Goal: <GOAL_FOR_ASSESSOR>   Iteration: <N>/30   Mode: <MODE>
 <issue mode:>
@@ -330,6 +342,12 @@ ADVISORY_SUMMARY: <…>
 BUG_RCA (load-bearing): <verbatim>
 The first plan group MUST add the regression test from BUG_RCA §5. Fix MUST follow §6 canonical shape. No fix without a corresponding test = Zero Bug Policy violation.
 <end>
+
+Phased planning (apply when NEXT_REQUIREMENTS contains >5 items OR overall risk is high):
+- Map all remaining work, then choose ONE iteration-sized phase for this iteration.
+- Phase boundaries follow dependency order (e.g. data model before UI, core logic before integration).
+- Carry remaining phases forward explicitly as "deferred to iteration N+1" — the assessor tracks partial met/unmet progress.
+- Example: a 9-AC architectural feature might target ACs 1-3 (Rust data model + types) in iteration 1, ACs 4-6 (IPC + store) in iteration 2, ACs 7-9 (UI + E2E) in iteration 3.
 
 Use NEXT_REQUIREMENTS grouping: independent groups parallel; dependents wait.
 Per group: files · exact changes · tests · group dependencies · expected local validation · AC items satisfied (issue mode, cite spec).
