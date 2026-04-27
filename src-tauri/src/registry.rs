@@ -362,10 +362,9 @@ mod tests {
 
     #[test]
     fn case_insensitive_ancestor_windows() {
-        let parent = Path::new("C:\\Users\\Dev\\Project");
-        let child = Path::new("C:\\Users\\Dev\\Project\\src\\main.rs");
-
         if cfg!(windows) {
+            let parent = Path::new("C:\\Users\\Dev\\Project");
+            let child = Path::new("C:\\Users\\Dev\\Project\\src\\main.rs");
             assert!(is_ancestor(parent, child));
             // Also with different casing.
             let child_lower = Path::new("c:\\users\\dev\\project\\src\\main.rs");
@@ -374,6 +373,9 @@ mod tests {
                 "ancestor check should be case-insensitive on Windows"
             );
         } else {
+            // On Linux/macOS, use forward-slash paths (backslash is not a separator).
+            let parent = Path::new("/users/dev/project");
+            let child = Path::new("/users/dev/project/src/main.rs");
             assert!(is_ancestor(parent, child));
         }
     }
