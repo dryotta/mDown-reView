@@ -33,33 +33,36 @@ File the issue manually or use prompt:
 
 ```
 /test-exploratory-loop      ──files──►   GitHub issues (explore-ux, bug)
-   (terminal B)                              │
+   (terminal C)                              │
                                              ▼
-/iterate-loop               ──fixes──►   PRs + retros + iterate-improvement issues
+/iterate-loop               ──opens──►   PRs labelled `iterate-pr` (ready-for-review)
    (terminal A)                              │
-                                             └──── next /iterate-loop round picks them up
+                                             ▼
+/merge-pr-loop              ──gates──►   Release Gate → squash-merge to main
+   (terminal B)                              │
+                                             └──── next /iterate-loop round picks up
+                                                   any iterate-improvement issues
 ```
 
-Two terminals (preferably two git worktrees or separate checkouts). Both loops re-sync to `origin/main` between rounds, so you can merge PRs at your own pace.
+Each loop runs in its own terminal — its inner agent runs synchronously in the foreground, so progress is always visible. All loops re-sync to `origin/main` between rounds.
 
 **Prompts:**
 
-Terminal A (fix loop):
+Terminal A (issue → PR):
 ```
-/iterate-loop --pipeline
-```
-
-`--pipeline` overlaps the previous round's release-gate (~18 min on GitHub) with the next round's local work, saving roughly 18 min of wall-clock per round. Without it the loop sits idle polling release-gate inline. The flag is opt-in because the pipelined scheduler creates a `git worktree` per round; on Windows worktrees occasionally hit `notify`/`dubious-ownership` issues, in which case the loop logs `[iterate-loop] worktree create failed for #N — falling back to sequential for this round` and continues. Omit `--pipeline` only if you're actively debugging worktree behaviour. Spec: [`.claude/skills/iterate-loop/references/pipeline.md`](.claude/skills/iterate-loop/references/pipeline.md).
-
-PRs land in `ready-for-review` for human merge. To have the loop squash-merge each green PR automatically, add `--auto-merge`:
-
-```
-/iterate-loop --pipeline --auto-merge
+/iterate-loop
 ```
 
-(Choose merge policy up-front — there's no mid-run toggle. `--auto-merge` only fires on `Done-Achieved` rounds; `Done-Blocked`/`Done-TimedOut` PRs are always left for a human.)
+PRs land ready-for-review with the `iterate-pr` label. Run terminal B to ship them.
 
-Terminal B (explore loop, Windows-only):
+Terminal B (PR → release-gate → merge):
+```
+/merge-pr-loop
+```
+
+`merge-pr-loop` watches `iterate-pr` PRs, dispatches the Release Gate against each branch, drives forward-fixes via `iterate-one-issue --resume-pr <PR>` on failure (max 5 attempts per PR), and squash-merges on green. Choose the loops up-front — there is no shared mid-run state between them.
+
+Terminal C (explore loop, Windows-only, optional):
 ```
 /test-exploratory-loop
 ```
@@ -77,7 +80,7 @@ When you have a freeform goal that doesn't decompose into known issues, hand it 
 /iterate-one-issue make the cold-start time on Windows under 800 ms
 ```
 
-The skill assesses, plans, implements, runs gates, opens PR, retros. No issue required. The PR is left ready-for-review — `iterate-one-issue` itself never merges (only `iterate-loop --auto-merge` does).
+The skill assesses, plans, implements, runs gates, opens the PR ready-for-review with the `iterate-pr` label, retros. No issue required. The PR is left ready-for-review — `iterate-one-issue` itself never merges and never dispatches the release gate. Run `/merge-pr-loop` (or merge manually) to ship it.
 
 ---
 
@@ -89,8 +92,9 @@ Skills live in `.claude/skills/<name>/SKILL.md`. You invoke skills.
 
 | Skill | Use when |
 |---|---|
-| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop`. Add `--pipeline` to overlap each round's release-gate poll (~18 min) with the next round's work. Add `--auto-merge` to squash-merge each Done-Achieved PR. |
-| **`iterate-one-issue`** | One issue, one freeform goal, or `--once` style runs |
+| **`iterate-loop`** | Drain the issue backlog continuously; pair with `merge-pr-loop` (and optionally `test-exploratory-loop`). Sequential — inner agent runs in the foreground for full visibility. |
+| **`merge-pr-loop`** | Watch ready-for-review `iterate-pr` PRs, run the Release Gate, drive forward-fixes via `iterate-one-issue --resume-pr`, squash-merge on green. |
+| **`iterate-one-issue`** | One issue, one freeform goal, or `--resume-pr <PR>` for a release-gate forward-fix pass driven by `merge-pr-loop`. |
 | **`test-exploratory-loop`** | Continuous dogfood, files new bugs (Windows only) |
 | **`test-exploratory-e2e`** | One round of dogfood (Windows only) |
 
@@ -188,6 +192,7 @@ If the new skill is **fully autonomous**, wire up [`.claude/shared/retrospective
 - [`AGENTS.md`](AGENTS.md) — charter, git workflow, doc taxonomy router
 - [`docs/principles.md`](docs/principles.md) — five pillars + three meta-principles
 - [`.claude/shared/retrospective.md`](.claude/shared/retrospective.md) — unified retro + self-improve contract
-- [`.claude/skills/iterate-loop/SKILL.md`](.claude/skills/iterate-loop/SKILL.md) — outer orchestrator
-- [`.claude/skills/iterate-one-issue/SKILL.md`](.claude/skills/iterate-one-issue/SKILL.md) — single-issue / single-goal executor
+- [`.claude/skills/iterate-loop/SKILL.md`](.claude/skills/iterate-loop/SKILL.md) — outer issue-drain orchestrator
+- [`.claude/skills/merge-pr-loop/SKILL.md`](.claude/skills/merge-pr-loop/SKILL.md) — release-gate + merge orchestrator
+- [`.claude/skills/iterate-one-issue/SKILL.md`](.claude/skills/iterate-one-issue/SKILL.md) — single-issue / single-goal executor (and `--resume-pr` forward-fix mode)
 - [`.claude/skills/run-build-test/SKILL.md`](.claude/skills/run-build-test/SKILL.md) — local CI mirror

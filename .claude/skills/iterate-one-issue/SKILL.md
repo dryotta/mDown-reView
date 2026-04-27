@@ -17,7 +17,7 @@ Let `ARG` = trimmed string after skill name. First match wins:
 
 | Pattern | Result |
 |---|---|
-| `^--resume-rg\s+(\S+)$` | `MODE=resume-rg`, `BRANCH=$1`. Skips 0b–0h; jumps to [release-gate.md § 9b–d](references/release-gate.md#9bd--resume-idempotent-re-entry). Caller pre-conditions: cwd = worktree with `<BRANCH>` checked out · clean tree · `.claude/iterate-state-<branch-slug>.md` has `release_gate.state ∈ {dispatched, failed, passed}`. Used by `iterate-loop --pipeline` at yield points. |
+| `^--resume-pr\s+(\S+)$` | `MODE=resume-pr`, `PR_REF=$1` (number, `#N`, or PR URL). Skips 0c–0h and Phase 1; jumps to [Phase R — release-gate forward-fix](#phase-r--release-gate-forward-fix-mode-resume-pr). Caller pre-conditions: clean tree on `main` · the referenced PR carries the `iterate-pr` label · the PR's most recent `release-gate.yml` run failed (or the caller wants this skill to inspect it). Used by `merge-pr-loop` to drive forward-fixes. |
 | `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
 | `^#(\d+)$` | `MODE=issue`, group 1 |
 | `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
@@ -149,18 +149,11 @@ pr: <PR_URL>
 pr_number: <PR_NUMBER>
 iter_base_sha: <SHA — set/refreshed at every Step 1 "After successful rebase">
 iteration_cap: 30
-release_gate:
-  state: <not-started | dispatched | passed | failed | skipped>
-  ref: <BRANCH validated by release-gate.yml — same as `branch` above>
-  workflow_run_id: <run ID from `gh workflow run`, or null>
-  dispatched_at: <ISO datetime, or null>
-  forward_fix_attempts: 0
-  step_at_suspend: <9b | 9c | 9d | null>
 ---
 # Iteration Log
 ```
 
-**Resume contract.** This file is the source of truth — 9b–d-resume reads it cold and may run from a different CLI session than 9a. `iterate-loop --pipeline` and `/iterate-resume` both depend on it. Only Step 1 writes `iter_base_sha`; only Step 9a/c/d writes `release_gate.*`.
+This file is the source of truth for iteration history; only Step 1 writes `iter_base_sha`. Release-gate validation is **not** performed by this skill (see [Non-goals](#non-goals)) — `merge-pr-loop` owns that lifecycle and tracks its own state on the PR itself.
 
 ### 0h. Banner
 
@@ -386,7 +379,7 @@ git push
 ```
 Commit messages: see Commit conventions table below.
 
-#### 6b. Classify diff (consumed by 6c, Step 7, Step 9)
+#### 6b. Classify diff (consumed by 6c and Step 7)
 
 ```bash
 DIFF_FILES=$(git diff --name-only "$ITER_BASE_SHA" HEAD)
@@ -538,7 +531,7 @@ Update PR:
 
 `iteration += 1`. PASSED → `passed_count += 1`.
 
-### Step 8.5 — Retrospective + concurrent Step 9a dispatch
+### Step 8.5 — Retrospective
 
 Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](../../shared/retrospective.md). Skill-specific bindings:
 
@@ -549,13 +542,9 @@ Follow the unified retrospective contract: [`.claude/shared/retrospective.md`](.
 - Bug-mode: append `## BUG_RCA` (verbatim from Step 3a) after `## Carry-over to the next run`.
 - Phase 2 below binds **Step R2** — runs once at terminal Done-X. Skip per-iteration R2; only Step 8.5's R1 runs inside the loop.
 
-#### 8.5a–b. Generate (parallel with 9a if achieved)
+#### 8.5a–b. Generate
 
-If Step 2 returned `achieved` AND `DIFF_CLASS=code` AND release-gate applies (Step 9), dispatch in **ONE parallel message**:
-- **Retro author** (`general-purpose`, R1 prompt below) — writes `$RETRO_FILE`.
-- **Step 9a-dispatch** — triggers release-gate workflow.
-
-Otherwise run only the retro author.
+Spawn the **retro author** (`general-purpose`, R1 prompt below) — writes `$RETRO_FILE`.
 
 Use the R1 prompt from the shared spec, with skill-specific context block:
 ```
@@ -575,7 +564,7 @@ Write output verbatim to `$RETRO_FILE`.
 
 #### 8.5c. Persist retro (no commit)
 
-`.claude/retrospectives/` is `.gitignore`d. Do **not** commit — keeps the iteration tip clean for 9a's dispatch and lets resume from any worktree just read the local file.
+`.claude/retrospectives/` is `.gitignore`d. Do **not** commit — keeps the iteration tip clean and lets recovery from any worktree just read the local file.
 
 ```bash
 ls -l "$RETRO_FILE" >/dev/null   # sanity-check 8.5a/b write
@@ -592,63 +581,155 @@ Append to Step 8 comment (link local path, not blob URL — retro is uncommitted
 
 **Termination check after 8.5:** `iteration > 30` → **Done-TimedOut**. Else loop back to Step 1.
 
-### Step 9 — Release-gate validation (Done-Achieved only)
+---
 
-#### Skip rule (no release gate needed)
+## Phase R — Release-gate forward-fix mode (`--resume-pr`)
 
+Entered from Phase 0a when `MODE=resume-pr`. Skips Phase 0c–0h (no spec, no new branch, no PR creation) and Phase 1 (no goal-assessor loop). Performs **one** forward-fix pass against the latest failed `release-gate.yml` run on the referenced PR's branch, commits + pushes, and exits with `Done-ForwardFixed` for the caller (`merge-pr-loop`) to re-dispatch the gate.
+
+### R0 — Pre-flight
+
+```bash
+# 0a's pre-flight already verified clean tree on main.
+# Resolve PR_REF -> PR_NUMBER (strip leading '#', or extract from URL).
+PR_NUMBER=$(echo "$PR_REF" | sed -E 's|^https?://github\.com/[^/]+/[^/]+/pull/||; s|^#||; s|/.*$||')
+gh pr view "$PR_NUMBER" --json number,headRefName,headRefOid,labels,state,isDraft,url > /tmp/pr.json
+BRANCH=$(jq -r '.headRefName' /tmp/pr.json)
+PR_URL=$(jq -r '.url' /tmp/pr.json)
+PR_STATE=$(jq -r '.state' /tmp/pr.json)
+HAS_LABEL=$(jq -r '[.labels[].name] | index("iterate-pr") != null' /tmp/pr.json)
 ```
-if DIFF_CLASS != code:
-  release_gate.state = skipped
-  log "[step9] SKIPPED — DIFF_CLASS=<…>; release-gate not applicable to non-buildable diffs"
-  jump to Done-Achieved (PR ready immediately, see done-handlers.md)
+
+Refuse to proceed (STOP, no `ITERATE_OUTCOME`) if any of:
+- `PR_STATE != "OPEN"` → `[iterate-one-issue --resume-pr] PR #$PR_NUMBER is not open ($PR_STATE).`
+- `HAS_LABEL != "true"` → `[iterate-one-issue --resume-pr] PR #$PR_NUMBER lacks the iterate-pr label.`
+
+### R1 — Forward-fix attempt budget
+
+merge-pr-loop tracks per-PR attempts via PR-comment markers — each successful R-pass leaves a `<!-- iterate-forward-fix-attempt -->` comment. Cap at 5:
+
+```bash
+ATTEMPTS=$(gh pr view "$PR_NUMBER" --json comments --jq '[.comments[].body | select(contains("<!-- iterate-forward-fix-attempt -->"))] | length')
+if [ "$ATTEMPTS" -ge 5 ]; then
+  # Emit Done-Blocked — see done-handlers.md
+fi
 ```
 
-`.claude/**`, `docs/**`, root `*.md` are already path-filtered out of CI; re-running the signed-installer build adds zero signal.
+If at cap: post a Done-Blocked PR comment (reason `release-gate forward-fix budget exhausted (5 attempts)`), emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL`, exit. (No `blocked` label on the source issue from this mode — merge-pr-loop owns that decision.)
 
-#### Two-phase: 9a-dispatch (returns) and 9b–d-resume (called later)
+### R2 — Check out branch
 
-The release-gate poll is ~18 min of pure CI. Step 9 splits into:
+```bash
+git fetch origin "$BRANCH"
+git checkout "$BRANCH"
+git pull --ff-only
+git config rerere.enabled true
+git config rerere.autoupdate true
+```
 
-- **9a-dispatch:** trigger workflow_dispatch on the iterate branch, persist `release_gate.state=dispatched` + `workflow_run_id` + `dispatched_at`, return `Done-Achieved-RG-Pending`.
-- **9b–d-resume:** poll; PASS → mark PR ready (9d); FAIL → forward-fix (9c, max 5) and re-dispatch.
+If the branch is gone or `pull --ff-only` fails (force-push from another session): emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL` (reason `branch missing or diverged`), exit.
 
-Single-issue mode runs 9b–d-resume synchronously after 9a. Pipeline mode resumes from a later yield point. Full flow: [references/release-gate.md](references/release-gate.md).
+### R3 — Locate the failing release-gate run
+
+```bash
+RG_RUN_ID=$(gh run list --workflow=release-gate.yml --branch "$BRANCH" --limit 5 \
+  --json databaseId,status,conclusion,headSha,createdAt \
+  --jq '[.[] | select(.status == "completed" and .conclusion == "failure")] | sort_by(.createdAt) | reverse | .[0].databaseId // empty')
+```
+
+If empty: nothing to fix here. Emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL` (reason `no failed release-gate run found for branch`), exit. merge-pr-loop should re-dispatch and re-call.
+
+### R4 — Pull failed-job logs
+
+```bash
+FAIL_LOGS=$(gh run view "$RG_RUN_ID" --log-failed | tail -n 200)
+FAILED_JOBS=$(gh run view "$RG_RUN_ID" --json jobs --jq '[.jobs[] | select(.conclusion == "failure") | .name] | join(", ")')
+```
+
+### R5 — Re-sync against `origin/main` if behind
+
+```bash
+git fetch origin main
+if ! git merge-base --is-ancestor origin/main HEAD; then
+  git rebase --strategy=recursive --strategy-option=diff3 origin/main
+  # On conflict: reuse Step 1's conflict-resolver loop. If unresolvable, emit
+  # ITERATE_OUTCOME: Done-Blocked reason=`forward-fix rebase against origin/main failed`.
+fi
+```
+
+### R6 — Forward-fix
+
+Spawn `exe-task-implementer`:
+```
+Fix Release Gate failures. No revert — forward fix.
+PR: <PR_URL>   Branch: <BRANCH>   Failed run: <RG_RUN_ID>
+Failed jobs: <FAILED_JOBS>
+Logs (truncated, last 200 lines):
+<FAIL_LOGS>
+Edit on the iterate branch (current tree). Commit nothing — caller commits.
+Return Implementation Summary.
+```
+
+If the implementer reports no-op (nothing to fix in the failing logs): emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL` (reason `forward-fix produced no diff`), exit.
+
+### R7 — Commit + push
+
+```bash
+git add -A
+git commit -m "fix(iter-release): <one-line implementer summary>
+
+<body>
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+git push
+NEW_HEAD=$(git rev-parse HEAD)
+```
+
+### R8 — Mark attempt + exit
+
+```bash
+gh pr comment "$PR_NUMBER" --body "<!-- iterate-forward-fix-attempt -->
+🔧 Release-gate forward-fix attempt $((ATTEMPTS + 1))/5 on commit \`$(git rev-parse --short HEAD)\` (failed run [<RG_RUN_ID>](https://github.com/dryotta/mdownreview/actions/runs/<RG_RUN_ID>)). merge-pr-loop will re-dispatch the gate."
+```
+
+Emit:
+```
+ITERATE_OUTCOME: Done-ForwardFixed issue=n/a branch=$BRANCH pr=$PR_URL commit=$NEW_HEAD
+```
+
+Then exit. Phase 2 is **not** run for this mode — forward-fix passes are too narrow to drive useful self-improvement signal, and the eventual merge-pr-loop merge or Done-Blocked will surface a retro. See [references/done-handlers.md](references/done-handlers.md#done-forwardfixed).
 
 ---
 
-## Phase 2 — Improvement-spec synthesis (every terminal path **except** `Done-Achieved-RG-Pending`)
+## Phase 2 — Improvement-spec synthesis (every terminal path)
 
 Runs first on every terminal Done-X — before banner, before exit. Highest signal value comes from Done-Blocked / Done-TimedOut. Full 2a–2e flow (gate, synthesise, decision, create issue+spec, optional auto-recursion) lives in [references/phase-2.md](references/phase-2.md).
 
-**Phase 2 is deferred for `Done-Achieved-RG-Pending`** — that outcome is terminal for this invocation only. Running Phase 2 here would race the release-gate result and could synthesise against an outcome that flips to `Done-Blocked`. The resumed call (via `--resume-rg`) runs Phase 2 once the verdict is final.
+**Phase 2 is skipped for `Done-ForwardFixed`** (the `--resume-pr` outcome) — those passes are too narrow to drive useful improvement signal, and the eventual merge-pr-loop merge or Done-Blocked emits a retro of its own.
 
 ## Termination
 
 | Trigger | Path | Phase 2? |
 |---|---|---|
-| Step 1 abort (rebase) | **Done-Blocked** (skip 2–9) | yes |
-| Step 2 `achieved` AND `DIFF_CLASS != code` | **Done-Achieved** (Step 9 skipped) | yes |
-| Step 2 `achieved` AND `DIFF_CLASS == code`, single-issue mode | **Done-Achieved** (run 9b–d-resume synchronously after 9a-dispatch) | yes |
-| Step 2 `achieved` AND `DIFF_CLASS == code`, pipeline mode (loop signalled it) | **Done-Achieved-RG-Pending** (return after 9a-dispatch; loop calls 9b–d-resume later) | **no — deferred** |
-| Re-entered via `--resume-rg`, 9b–d completed PASS | **Done-Achieved** | yes |
-| Re-entered via `--resume-rg`, 9c exhausted forward-fix budget | **Done-Blocked** | yes |
-| Step 2 `blocked` | **Done-Blocked** (skip 3–9) | yes |
+| Step 1 abort (rebase) | **Done-Blocked** (skip 2–8.5) | yes |
+| Step 2 `achieved` | **Done-Achieved** (skip 3–8.5) | yes |
+| Step 2 `blocked` | **Done-Blocked** (skip 3–8.5) | yes |
 | End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** | yes |
+| Phase R (resume-pr) success | **Done-ForwardFixed** | no |
+| Phase R (resume-pr) failure / cap exhausted | **Done-Blocked** | no |
 
-**Phase 2 runs first on every terminal path except `Done-Achieved-RG-Pending`.** `DEGRADED`/`SKIPPED` do not terminate.
+`DEGRADED`/`SKIPPED` do not terminate.
 
-`Done-Achieved-RG-Pending` is terminal **for this invocation only** — the loop later resumes via 9b–d and transitions to `Done-Achieved` / `Done-Blocked`, where Phase 2 runs. See [references/done-handlers.md](references/done-handlers.md).
+### Done-Achieved · Done-Blocked · Done-TimedOut · Done-ForwardFixed
 
-### Done-Achieved · Done-Achieved-RG-Pending · Done-Blocked · Done-TimedOut
+Each terminal path: post the PR/issue comment, set the label (`blocked` for Done-Blocked / Done-TimedOut from Phase 1; `iterate-pr` + `gh pr ready` for Done-Achieved), print the banner, **exit cleanly with the outcome on stdout**. `iterate-loop` (and `merge-pr-loop`) parse the outcome to chain. Handler scripts: [references/done-handlers.md](references/done-handlers.md).
 
-Each terminal path: post the PR/issue comment, set the label (`blocked` for Done-Blocked / Done-TimedOut), print the banner, **exit cleanly with the outcome on stdout**. `iterate-loop` parses the outcome to chain. Handler scripts: [references/done-handlers.md](references/done-handlers.md).
-
-**Outcome marker (last line printed before exit, machine-parseable for `iterate-loop`):**
+**Outcome marker (last line printed before exit, machine-parseable for callers):**
 ```
-ITERATE_OUTCOME: <Done-Achieved|Done-Achieved-RG-Pending|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL> [worktree=<path>] [rg_run=<ID>]
+ITERATE_OUTCOME: <Done-Achieved|Done-Blocked|Done-TimedOut|Done-ForwardFixed> issue=<N|n/a> branch=<BRANCH> pr=<URL> [commit=<sha>]
 ```
 
-`worktree=` and `rg_run=` set **only** on `Done-Achieved-RG-Pending`. `worktree=` is the absolute path the loop `cd`s into for 9b–d-resume; `rg_run=` is the Actions run ID the resume call polls.
+`commit=` is set **only** on `Done-ForwardFixed` — the new HEAD merge-pr-loop should re-dispatch the release gate against.
 
 ---
 
@@ -663,3 +744,10 @@ See [references/commit-conventions.md](references/commit-conventions.md) for the
 ## Failure recovery
 
 See [references/failure-recovery.md](references/failure-recovery.md) for the mid-loop interruption checklist (state file, rebase repair, rerere, retro inspection, recursion-marker hygiene, restart policy).
+
+## Non-goals
+
+- **No release-gate dispatch / polling / forward-fix in Phase 1.** When iteration converges to `Done-Achieved`, this skill marks the PR ready-for-review with the `iterate-pr` label and exits. The companion `merge-pr-loop` skill owns release-gate validation and merging.
+- **No PR merging.** `Done-Achieved` always leaves the PR ready-for-review. Merging is `merge-pr-loop`'s job (or a human's).
+- **No backlog selection.** This skill works on one explicit issue or goal. `iterate-loop` owns backlog drain.
+- **No mid-run mode switching.** Choose `--resume-pr` up-front for forward-fix mode; the regular issue/goal mode never enters Phase R.
