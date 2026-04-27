@@ -152,14 +152,26 @@ impl WindowRegistry {
         })
     }
 
-    /// Find the label of a `Folder` window whose path is an ancestor of
-    /// `file_path`. On Windows the comparison is case-insensitive.
+    /// Find the label of the `Folder` window whose path is the deepest
+    /// ancestor of `file_path`. On Windows the comparison is case-insensitive.
+    ///
+    /// When multiple open folders are ancestors (e.g. `/projects` and
+    /// `/projects/myapp`), the most-specific (longest path) wins so files
+    /// route to the tightest enclosing folder window.
     pub fn find_ancestor_folder(&self, file_path: &Path) -> Option<String> {
         let entries = self.entries.lock().expect("registry lock poisoned");
-        entries.iter().find_map(|e| match &e.kind {
-            WindowKind::Folder(p) if is_ancestor(p, file_path) => Some(e.label.clone()),
-            _ => None,
-        })
+        let mut best: Option<(usize, &str)> = None;
+        for entry in entries.iter() {
+            if let WindowKind::Folder(p) = &entry.kind {
+                if is_ancestor(p, file_path) {
+                    let depth = p.components().count();
+                    if best.map_or(true, |(d, _)| depth > d) {
+                        best = Some((depth, &entry.label));
+                    }
+                }
+            }
+        }
+        best.map(|(_, label)| label.to_string())
     }
 
     /// Decide how to handle an incoming folder-open request.
@@ -198,15 +210,6 @@ impl WindowRegistry {
                 files: vec![file.to_path_buf()],
             }
         }
-    }
-
-    /// Snapshot of all entries for building a Window menu.
-    pub fn all_entries(&self) -> Vec<(String, WindowKind)> {
-        let entries = self.entries.lock().expect("registry lock poisoned");
-        entries
-            .iter()
-            .map(|e| (e.label.clone(), e.kind.clone()))
-            .collect()
     }
 
     /// Generate the next unique window label (`win-1`, `win-2`, …).
@@ -381,5 +384,48 @@ mod tests {
         assert_eq!(reg.next_label(), "win-1");
         assert_eq!(reg.next_label(), "win-2");
         assert_eq!(reg.next_label(), "win-3");
+    }
+
+    #[test]
+    fn nested_folders_routes_to_deepest() {
+        let reg = WindowRegistry::new();
+        reg.register("outer".into(), WindowKind::Folder(PathBuf::from("/projects")));
+        reg.register(
+            "inner".into(),
+            WindowKind::Folder(PathBuf::from("/projects/myapp")),
+        );
+
+        // File under /projects/myapp should route to "inner", not "outer".
+        assert_eq!(
+            reg.find_ancestor_folder(Path::new("/projects/myapp/src/lib.rs")),
+            Some("inner".into())
+        );
+        // File under /projects but NOT under /projects/myapp routes to "outer".
+        assert_eq!(
+            reg.find_ancestor_folder(Path::new("/projects/other/readme.md")),
+            Some("outer".into())
+        );
+    }
+
+    #[test]
+    fn is_ancestor_same_path_returns_false() {
+        // A path is not its own ancestor (parent must be strictly shorter).
+        assert!(!is_ancestor(Path::new("/a/b"), Path::new("/a/b")));
+    }
+
+    #[test]
+    fn duplicate_label_register_keeps_both() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::Folder(PathBuf::from("/a")));
+        reg.register("w1".into(), WindowKind::Folder(PathBuf::from("/b")));
+
+        // Both folders are findable (first match for /a, second for /b).
+        assert_eq!(reg.find_by_folder(Path::new("/a")), Some("w1".into()));
+        assert_eq!(reg.find_by_folder(Path::new("/b")), Some("w1".into()));
+
+        // Unregister removes all entries with that label.
+        reg.unregister("w1");
+        assert_eq!(reg.find_by_folder(Path::new("/a")), None);
+        assert_eq!(reg.find_by_folder(Path::new("/b")), None);
     }
 }

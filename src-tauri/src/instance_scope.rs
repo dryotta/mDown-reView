@@ -26,13 +26,7 @@ pub fn instance_id() -> String {
 /// Returns `true` when this process is NOT using the production scope
 /// (i.e. debug build or env-tagged), meaning single-instance should be skipped.
 pub fn is_isolated() -> bool {
-    if std::env::var("MDR_INSTANCE_ID")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
-    {
-        return true;
-    }
-    cfg!(debug_assertions)
+    instance_id() != "com.mdownreview.desktop"
 }
 
 #[cfg(test)]
