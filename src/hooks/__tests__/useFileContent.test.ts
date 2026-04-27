@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useFileContent } from "@/hooks/useFileContent";
 import * as commands from "@/lib/tauri-commands";
+import { useStore } from "@/store/index";
 
 vi.mock("@/lib/tauri-commands");
 vi.mock("@/logger", () => ({
@@ -28,6 +29,7 @@ describe("useFileContent", () => {
       content: "# Hello",
       size_bytes: 7,
       line_count: 1,
+      mtime_ms: 1234567890,
     });
 
     const { result } = renderHook(() => useFileContent("/path/file.md"));
@@ -42,6 +44,11 @@ describe("useFileContent", () => {
     expect(result.current.content).toBe("# Hello");
     expect(result.current.sizeBytes).toBe(7);
     expect(result.current.lineCount).toBe(1);
+    // Group D: file-meta cache must include fileMtime forwarded from Rust.
+    const meta = useStore.getState().fileMetaByPath["/path/file.md"];
+    expect(meta?.fileMtime).toBe(1234567890);
+    expect(meta?.sizeBytes).toBe(7);
+    expect(meta?.lineCount).toBe(1);
   });
 
   it("returns binary status when readTextFile rejects with binary_file", async () => {

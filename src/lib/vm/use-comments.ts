@@ -33,10 +33,12 @@ export function useComments(filePath: string | null): UseCommentsResult {
       }
       setLoading(true);
       try {
-        const { threads } = await getFileComments(filePath);
+        const result = await getFileComments(filePath);
         if (!isCancelled()) {
-          setThreads(threads);
-          useStore.getState().setLastCommentsReloadedAt(filePath, Date.now());
+          setThreads(result.threads);
+          useStore.getState().setFileMeta(filePath, {
+            commentsMtime: result.sidecar_mtime_ms,
+          });
         }
       } catch (e) {
         error(`[vm] Failed to load comments for ${filePath}: ${e}`);
@@ -74,15 +76,21 @@ export function useComments(filePath: string | null): UseCommentsResult {
   useEffect(() => {
     if (!filePath) return;
     const listenerPromise = listenEvent("file-changed", (payload) => {
+      const sidecarYaml = `${filePath}.review.yaml`;
+      const sidecarJson = `${filePath}.review.json`;
       if (payload.kind === "review") {
         // Check if this is the sidecar for our file
-        const sidecarPath = payload.path;
-        if (
-          sidecarPath === `${filePath}.review.yaml` ||
-          sidecarPath === `${filePath}.review.json`
-        ) {
+        if (payload.path === sidecarYaml || payload.path === sidecarJson) {
           info(`[vm] External sidecar change for ${filePath}, reloading`);
           load();
+        }
+      } else if (payload.kind === "deleted") {
+        // Sidecar deleted → drop threads + clear cached commentsMtime so
+        // StatusBar (Group E) can reflect "no sidecar" without a reload.
+        if (payload.path === sidecarYaml || payload.path === sidecarJson) {
+          info(`[vm] Sidecar deleted for ${filePath}, clearing threads`);
+          setThreads([]);
+          useStore.getState().setFileMeta(filePath, { commentsMtime: null });
         }
       }
     });

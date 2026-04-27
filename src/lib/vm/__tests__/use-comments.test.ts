@@ -8,6 +8,7 @@ import {
   type GetFileCommentsResult,
 } from "@/lib/tauri-commands";
 import { error as logError } from "@/logger";
+import { useStore } from "@/store/index";
 
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn((_eventName: string, _callback: unknown) =>
@@ -15,9 +16,12 @@ vi.mock("@/lib/tauri-events", () => ({
   ),
 }));
 
-const wrap = (threads: CommentThread[]): GetFileCommentsResult => ({
+const wrap = (
+  threads: CommentThread[],
+  sidecar_mtime_ms: number | null = null,
+): GetFileCommentsResult => ({
   threads,
-  sidecar_mtime_ms: null,
+  sidecar_mtime_ms,
 });
 
 vi.mock("@/lib/tauri-commands", () => ({
@@ -183,12 +187,18 @@ describe("useComments loading", () => {
 
   it("returns threads from getFileComments result", async () => {
     const mockThreads = makeMockThreads();
-    vi.mocked(getFileComments).mockResolvedValueOnce(wrap(mockThreads));
+    vi.mocked(getFileComments).mockResolvedValueOnce(wrap(mockThreads, 9999));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
 
     expect(result.current.threads).toEqual(mockThreads);
+    // Group D: commentsMtime from sidecar must land in fileMetaByPath cache
+    // so downstream observers (StatusBar) can render staleness without
+    // touching IPC.
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      9999,
+    );
   });
 
   it("flattens comments from thread root + replies", async () => {
@@ -405,6 +415,51 @@ describe("useComments event subscriptions", () => {
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears comments + commentsMtime on sidecar delete", async () => {
+    vi.mocked(getFileComments).mockResolvedValueOnce(
+      wrap(makeMockThreads(), 4242),
+    );
+
+    const { result } = renderHook(() => useComments("/test.md"));
+    await flushPromises();
+
+    // Sanity: load populated threads + mtime cache
+    expect(result.current.threads).toHaveLength(1);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      4242,
+    );
+
+    // Simulate watcher firing a deletion for the YAML sidecar.
+    await act(async () => {
+      fileChangedCb!({ path: "/test.md.review.yaml", kind: "deleted" });
+    });
+
+    expect(result.current.threads).toEqual([]);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      null,
+    );
+    // Must NOT trigger an additional reload — sidecar is gone, nothing to load.
+    expect(getFileComments).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores file-changed kind=deleted for unrelated path", async () => {
+    vi.mocked(getFileComments).mockResolvedValueOnce(
+      wrap(makeMockThreads(), 7777),
+    );
+
+    const { result } = renderHook(() => useComments("/test.md"));
+    await flushPromises();
+
+    await act(async () => {
+      fileChangedCb!({ path: "/other.md.review.yaml", kind: "deleted" });
+    });
+
+    expect(result.current.threads).toHaveLength(1);
+    expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(
+      7777,
+    );
   });
 });
 

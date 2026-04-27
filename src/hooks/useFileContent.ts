@@ -71,12 +71,13 @@ export function useFileContent(path: string): FileContent {
           lineCount: result.line_count,
         });
         // Populate session-only file-meta cache so StatusBar (and any other
-        // observer) can read sizeBytes/lineCount via store selectors instead
-        // of issuing a second `read_text_file` IPC. Keeping the timestamp
-        // setter and meta setter co-located ensures both caches stay in sync.
-        const store = useStore.getState();
-        store.setFileMeta(path, result.size_bytes, result.line_count);
-        store.setLastFileReloadedAt(path, Date.now());
+        // observer) can read sizeBytes/lineCount/fileMtime via store
+        // selectors instead of issuing a second `read_text_file` IPC.
+        useStore.getState().setFileMeta(path, {
+          sizeBytes: result.size_bytes,
+          lineCount: result.line_count,
+          fileMtime: result.mtime_ms ?? undefined,
+        });
       })
       .catch((err: unknown) => {
         if (cancelled) return;

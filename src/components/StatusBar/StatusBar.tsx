@@ -50,11 +50,13 @@ export function StatusBar() {
   const lineCount = useStore((s) =>
     activeTabPath ? s.fileMetaByPath[activeTabPath]?.lineCount : undefined,
   );
-  const fileTs = useStore((s) =>
-    activeTabPath ? s.lastFileReloadedAt[activeTabPath] : undefined,
+  // Read mtime scalars (file mtime + comments sidecar mtime) one-per-selector so
+  // a change to one does not invalidate the other's reactive consumer.
+  const fileMtime = useStore((s) =>
+    activeTabPath ? s.fileMetaByPath[activeTabPath]?.fileMtime : undefined,
   );
-  const commentsTs = useStore((s) =>
-    activeTabPath ? s.lastCommentsReloadedAt[activeTabPath] : undefined,
+  const commentsMtime = useStore((s) =>
+    activeTabPath ? s.fileMetaByPath[activeTabPath]?.commentsMtime : undefined,
   );
 
   // Tick once per minute so "N min ago" labels stay fresh. The state value
@@ -82,11 +84,15 @@ export function StatusBar() {
       {lineCount !== undefined && (
         <span className="status-bar-item">{lineCount.toLocaleString()} lines</span>
       )}
-      {fileTs !== undefined && (
-        <span className="status-bar-item">File reloaded {formatRelative(fileTs, now)}</span>
+      {fileMtime != null && (
+        <span className="status-bar-item" title={new Date(fileMtime).toLocaleString()}>
+          File last changed {formatRelative(fileMtime, now)}
+        </span>
       )}
-      {commentsTs !== undefined && (
-        <span className="status-bar-item">Comments reloaded {formatRelative(commentsTs, now)}</span>
+      {commentsMtime != null && (
+        <span className="status-bar-item" title={new Date(commentsMtime).toLocaleString()}>
+          Comments last changed {formatRelative(commentsMtime, now)}
+        </span>
       )}
     </div>
   );
