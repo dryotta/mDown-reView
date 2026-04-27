@@ -32,10 +32,25 @@ export type Interactive = {
   role: string;           // ARIA role (computed or implicit)
   name: string;           // accessible name (aria-label / text / alt)
   text: string;           // visible text trimmed to 80 chars
-  classes: string[];      // first 2 class names (stable anchor candidates)
+  classes: string[];      // up to 6 class names from element.classList
   bbox: { x: number; y: number; w: number; h: number };
   visible: boolean;
   enabled: boolean;
+  // Toggle/active state — issue #149. ARIA booleans are optional and only
+  // present when the source attribute is set to a recognised value;
+  // `active` is always present (boolean from element.classList).
+  pressed?: boolean;
+  checked?: boolean;
+  expanded?: boolean;
+  selected?: boolean;
+  active: boolean;
+};
+
+export type Focused = {
+  selector: string;
+  tag: string;
+  name: string;
+  classes: string[];
 };
 
 export type Landmark = {
@@ -51,6 +66,9 @@ export type Observation = {
   viewport: { width: number; height: number };
   interactives: Interactive[];
   landmarks: Landmark[];
+  // Currently focused element (document.activeElement), or null when nothing
+  // meaningful is focused. Required for diagnosing focus-leak bugs (issue #149).
+  focused: Focused | null;
   consoleErrors: { ts: string; text: string }[];
   ipcErrors:     { ts: string; cmd: string; error: string }[];
 };
