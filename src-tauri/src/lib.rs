@@ -1,5 +1,7 @@
 pub mod commands;
 pub mod core;
+pub mod instance_scope;
+pub mod registry;
 pub mod update;
 pub mod watcher;
 
@@ -41,21 +43,30 @@ pub fn run() {
 
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(log_plugin)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            let cwd_path = std::path::PathBuf::from(&cwd);
-            let args = parse_launch_args(&argv[1..], &cwd_path);
-            if let Some(state) = app.try_state::<PendingArgsState>() {
-                push_pending(&state, args);
-            }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.emit("args-received", ());
-            }
-        }))
+        .plugin(tauri_plugin_clipboard_manager::init());
+
+    // Production builds enforce single-instance; debug/test-isolated builds
+    // skip it so multiple instances can coexist (AC 7 of #147).
+    if !instance_scope::is_isolated() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app, argv, cwd| {
+                let cwd_path = std::path::PathBuf::from(&cwd);
+                let args = parse_launch_args(&argv[1..], &cwd_path);
+                if let Some(state) = app.try_state::<PendingArgsState>() {
+                    push_pending(&state, args);
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("args-received", ());
+                }
+            },
+        ));
+    }
+
+    let app = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(update::PendingUpdate(std::sync::Mutex::new(None)))
         .manage(watcher::WatcherState::new(sync_tx))
