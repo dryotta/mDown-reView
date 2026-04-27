@@ -60,23 +60,18 @@ fn route_args_through_registry(
             registry::RouteDecision::CreateFolder { path } => {
                 let label = reg.next_label();
                 let display = folder_display_name(&path);
-                match tauri::WebviewWindowBuilder::new(
-                    handle,
-                    &label,
-                    tauri::WebviewUrl::App("index.html".into()),
+                let builder = tauri::WebviewWindowBuilder::new(
+                    handle, &label, tauri::WebviewUrl::App("index.html".into()),
                 )
                 .title(format!("mdownreview — {display}"))
                 .inner_size(1100.0, 750.0)
-                .min_inner_size(600.0, 400.0)
-                .build()
-                {
+                .min_inner_size(600.0, 400.0);
+                match builder.build() {
                     Ok(_) => {
                         reg.register(label.clone(), registry::WindowKind::Folder(path));
                         log::info!("[window] {ctx}: created {label}");
                     }
-                    Err(e) => {
-                        log::error!("[window] {ctx}: failed to create window: {e}");
-                    }
+                    Err(e) => log::error!("[window] {ctx}: folder window failed: {e}"),
                 }
             }
             _ => {}
@@ -85,10 +80,36 @@ fn route_args_through_registry(
     for file in &args.files {
         let canonical = std::fs::canonicalize(file)
             .unwrap_or_else(|_| std::path::PathBuf::from(file));
-        if let registry::RouteDecision::AddToWindow { label, .. } = reg.route_file(&canonical) {
-            if let Some(win) = handle.get_webview_window(&label) {
-                focus_window(&win);
+        match reg.route_file(&canonical) {
+            registry::RouteDecision::AddToWindow { label, files } => {
+                if let Some(win) = handle.get_webview_window(&label) {
+                    focus_window(&win);
+                    let _ = win.emit("open-file-tab", &files);
+                }
             }
+            registry::RouteDecision::CreateFileOnly { files } => {
+                let label = reg.next_label();
+                let builder = tauri::WebviewWindowBuilder::new(
+                    handle, &label, tauri::WebviewUrl::App("index.html".into()),
+                )
+                .title("mdownreview — Files")
+                .inner_size(1100.0, 750.0)
+                .min_inner_size(600.0, 400.0);
+                match builder.build() {
+                    Ok(win) => {
+                        reg.register(label.clone(), registry::WindowKind::FileOnly);
+                        log::info!("[window] {ctx}: created file-only window {label}");
+                        let _ = win.emit("open-file-tab", &files);
+                    }
+                    Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),
+                }
+            }
+            registry::RouteDecision::FocusExisting(label) => {
+                if let Some(win) = handle.get_webview_window(&label) {
+                    focus_window(&win);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -163,17 +184,13 @@ pub fn run() {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                let msg = info
-                    .payload()
-                    .downcast_ref::<&str>()
-                    .copied()
+                let msg = info.payload().downcast_ref::<&str>().copied()
                     .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
                     .unwrap_or("unknown panic");
-                let location = info
-                    .location()
+                let loc = info.location()
                     .map(|l| format!(" at {}:{}", l.file(), l.line()))
                     .unwrap_or_default();
-                log::error!("[rust] PANIC{}: {}", location, msg);
+                log::error!("[rust] PANIC{loc}: {msg}");
                 prev_hook(info);
             }));
 
@@ -198,34 +215,18 @@ pub fn run() {
                     .unwrap_or_else(|_| std::path::PathBuf::from(folder));
                 let label = reg.next_label();
                 let display = folder_display_name(&canonical);
-                match tauri::WebviewWindowBuilder::new(
-                    app,
-                    &label,
-                    tauri::WebviewUrl::App("index.html".into()),
+                let builder = tauri::WebviewWindowBuilder::new(
+                    app, &label, tauri::WebviewUrl::App("index.html".into()),
                 )
                 .title(format!("mdownreview — {display}"))
                 .inner_size(1100.0, 750.0)
-                .min_inner_size(600.0, 400.0)
-                .build()
-                {
+                .min_inner_size(600.0, 400.0);
+                match builder.build() {
                     Ok(_) => {
-                        reg.register(
-                            label.clone(),
-                            registry::WindowKind::Folder(canonical.clone()),
-                        );
-                        log::info!(
-                            "[window] Created additional window {} for {}",
-                            label,
-                            canonical.display()
-                        );
+                        reg.register(label.clone(), registry::WindowKind::Folder(canonical.clone()));
+                        log::info!("[window] setup: created {label} for {}", canonical.display());
                     }
-                    Err(e) => {
-                        log::error!(
-                            "[window] Failed to create window for {}: {}",
-                            canonical.display(),
-                            e
-                        );
-                    }
+                    Err(e) => log::error!("[window] setup: window for {} failed: {e}", canonical.display()),
                 }
             }
 
@@ -242,33 +243,12 @@ pub fn run() {
             // ── Build application menu ────────────────────────────────────────
 
             // File menu
-            let open_file =
-                MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
-            let open_folder = MenuItem::with_id(
-                app,
-                "open-folder",
-                "Open Folder…",
-                true,
-                Some("CmdOrCtrl+Shift+O"),
-            )?;
-            let close_folder =
-                MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
-            let close_tab =
-                MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
-            let close_all_tabs = MenuItem::with_id(
-                app,
-                "close-all-tabs",
-                "Close All Tabs",
-                true,
-                Some("CmdOrCtrl+Shift+W"),
-            )?;
-            let open_settings = MenuItem::with_id(
-                app,
-                "open-settings",
-                "Settings…",
-                true,
-                Some("CmdOrCtrl+,"),
-            )?;
+            let open_file = MenuItem::with_id(app, "open-file", "Open File…", true, Some("CmdOrCtrl+O"))?;
+            let open_folder = MenuItem::with_id(app, "open-folder", "Open Folder…", true, Some("CmdOrCtrl+Shift+O"))?;
+            let close_folder = MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
+            let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+            let close_all_tabs = MenuItem::with_id(app, "close-all-tabs", "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"))?;
+            let open_settings = MenuItem::with_id(app, "open-settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_file)
                 .item(&open_folder)
@@ -283,21 +263,12 @@ pub fn run() {
                 .build()?;
 
             // View menu
-            let toggle_comments_pane = MenuItem::with_id(
-                app,
-                "toggle-comments-pane",
-                "Toggle Comments Pane",
-                true,
-                Some("CmdOrCtrl+Shift+C"),
-            )?;
+            let toggle_comments_pane = MenuItem::with_id(app, "toggle-comments-pane", "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"))?;
             let next_tab = MenuItem::with_id(app, "next-tab", "Next Tab", true, None::<&str>)?;
             let prev_tab = MenuItem::with_id(app, "prev-tab", "Previous Tab", true, None::<&str>)?;
-            let theme_system =
-                MenuItem::with_id(app, "theme-system", "System Theme", true, None::<&str>)?;
-            let theme_light =
-                MenuItem::with_id(app, "theme-light", "Light Theme", true, None::<&str>)?;
-            let theme_dark =
-                MenuItem::with_id(app, "theme-dark", "Dark Theme", true, None::<&str>)?;
+            let theme_system = MenuItem::with_id(app, "theme-system", "System Theme", true, None::<&str>)?;
+            let theme_light = MenuItem::with_id(app, "theme-light", "Light Theme", true, None::<&str>)?;
+            let theme_dark = MenuItem::with_id(app, "theme-dark", "Dark Theme", true, None::<&str>)?;
             let theme_menu = SubmenuBuilder::new(app, "Theme")
                 .item(&theme_system)
                 .item(&theme_light)
@@ -313,17 +284,9 @@ pub fn run() {
                 .build()?;
 
             // Help menu
-            let help_settings =
-                MenuItem::with_id(app, "help-settings", "Settings…", true, None::<&str>)?;
-            let about_item =
-                MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
-            let check_updates = MenuItem::with_id(
-                app,
-                "check-updates",
-                "Check for Updates…",
-                true,
-                None::<&str>,
-            )?;
+            let help_settings = MenuItem::with_id(app, "help-settings", "Settings…", true, None::<&str>)?;
+            let about_item = MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
+            let check_updates = MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
             let help_menu = SubmenuBuilder::new(app, "Help")
                 .item(&help_settings)
                 .separator()
