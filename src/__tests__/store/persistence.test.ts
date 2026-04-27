@@ -15,37 +15,23 @@ beforeEach(() => {
 // See the partialize config in store/index.ts for the authoritative field list.
 // We verify the contract by manually calling it on a state snapshot.
 
+// Returns the global-prefs-only shape that partialize now produces.
+// Per-window state (tabs, activeTabPath, expandedFolders, root) is excluded.
 function getPersistedSnapshot() {
   const state = useStore.getState();
   return {
     theme: state.theme,
     folderPaneWidth: state.folderPaneWidth,
     commentsPaneVisible: state.commentsPaneVisible,
-    root: state.root,
-    expandedFolders: state.expandedFolders,
     authorName: state.authorName,
     readingWidth: state.readingWidth,
     recentItems: state.recentItems,
-    tabs: state.tabs,
-    activeTabPath: state.activeTabPath,
     updateChannel: state.updateChannel,
+    zoomByFiletype: state.zoomByFiletype,
   };
 }
 
 describe("persistence partialize contract", () => {
-  it("includes tabs in the persisted snapshot", () => {
-    useStore.getState().openFile("/some/file.md");
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).toHaveProperty("tabs");
-    expect(snapshot.tabs.length).toBeGreaterThan(0);
-  });
-
-  it("includes activeTabPath in the persisted snapshot", () => {
-    useStore.getState().openFile("/some/file.md");
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).toHaveProperty("activeTabPath", "/some/file.md");
-  });
-
   it("includes theme in the persisted snapshot", () => {
     useStore.getState().setTheme("dark");
     const snapshot = getPersistedSnapshot();
@@ -64,19 +50,6 @@ describe("persistence partialize contract", () => {
     expect(snapshot).toHaveProperty("commentsPaneVisible", false);
   });
 
-  it("includes root in the persisted snapshot", async () => {
-    await useStore.getState().setRoot("/workspace/project");
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).toHaveProperty("root", "/workspace/project");
-  });
-
-  it("includes expandedFolders in the persisted snapshot", () => {
-    useStore.getState().setFolderExpanded("/workspace/folderA", true);
-    const snapshot = getPersistedSnapshot();
-    expect(snapshot).toHaveProperty("expandedFolders");
-    expect(snapshot.expandedFolders).toMatchObject({ "/workspace/folderA": true });
-  });
-
   it("includes recentItems in the persisted snapshot", () => {
     useStore.getState().addRecentItem("/test/file.md", "file");
     const snapshot = getPersistedSnapshot();
@@ -88,8 +61,16 @@ describe("persistence partialize contract", () => {
     const snapshot = getPersistedSnapshot();
     const keys = Object.keys(snapshot).sort();
     expect(keys).toEqual(
-      ["activeTabPath", "authorName", "commentsPaneVisible", "expandedFolders", "folderPaneWidth", "readingWidth", "recentItems", "root", "tabs", "theme", "updateChannel"].sort()
+      ["authorName", "commentsPaneVisible", "folderPaneWidth", "readingWidth", "recentItems", "theme", "updateChannel", "zoomByFiletype"].sort()
     );
+  });
+
+  it("does NOT persist per-window state", () => {
+    const snapshot = getPersistedSnapshot();
+    expect(snapshot).not.toHaveProperty("tabs");
+    expect(snapshot).not.toHaveProperty("activeTabPath");
+    expect(snapshot).not.toHaveProperty("expandedFolders");
+    expect(snapshot).not.toHaveProperty("root");
   });
 
   it("includes readingWidth in the persisted snapshot", () => {

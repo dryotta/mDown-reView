@@ -10,7 +10,7 @@ beforeEach(() => {
 // ── partialize ─────────────────────────────────────────────────────────────
 
 describe("tab persistence — partialize", () => {
-  it("includes tabs and activeTabPath in persisted state", () => {
+  it("does NOT include tabs or activeTabPath in persisted state", () => {
     const tabs: Tab[] = [
       { path: "/a.md", scrollTop: 0 },
       { path: "/b.md", scrollTop: 42 },
@@ -18,8 +18,8 @@ describe("tab persistence — partialize", () => {
     useStore.setState({ tabs, activeTabPath: "/b.md" });
 
     const stored = JSON.parse(localStorage.getItem("mdownreview-ui") || "{}");
-    expect(stored.state.tabs).toEqual(tabs);
-    expect(stored.state.activeTabPath).toBe("/b.md");
+    expect(stored.state).not.toHaveProperty("tabs");
+    expect(stored.state).not.toHaveProperty("activeTabPath");
   });
 });
 

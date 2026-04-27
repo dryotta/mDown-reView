@@ -283,6 +283,15 @@ pub fn run() {
                 .item(&theme_menu)
                 .build()?;
 
+            // Window menu
+            let win_minimize = MenuItem::with_id(app, "win-minimize", "Minimize", true, Some("CmdOrCtrl+M"))?;
+            let win_bring_all = MenuItem::with_id(app, "win-bring-all", "Bring All to Front", true, None::<&str>)?;
+            let window_menu = SubmenuBuilder::new(app, "Window")
+                .item(&win_minimize)
+                .separator()
+                .item(&win_bring_all)
+                .build()?;
+
             // Help menu
             let help_settings = MenuItem::with_id(app, "help-settings", "Settings…", true, None::<&str>)?;
             let about_item = MenuItem::with_id(app, "about", "About mdownreview", true, None::<&str>)?;
@@ -298,6 +307,7 @@ pub fn run() {
             let menu = MenuBuilder::new(app)
                 .item(&file_menu)
                 .item(&view_menu)
+                .item(&window_menu)
                 .item(&help_menu)
                 .build()?;
 
@@ -305,6 +315,24 @@ pub fn run() {
 
             // Forward menu events to the frontend as Tauri events
             app.on_menu_event(|app, event| {
+                // Window-menu actions are handled directly (no frontend event).
+                match event.id().as_ref() {
+                    "win-minimize" => {
+                        if let Some(w) = focused_or_main(app) {
+                            let _ = w.minimize();
+                        }
+                        return;
+                    }
+                    "win-bring-all" => {
+                        for w in app.webview_windows().values() {
+                            let _ = w.unminimize();
+                            let _ = w.show();
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+
                 // Route to the focused window, falling back to "main"
                 let Some(window) = focused_or_main(app) else {
                     return;
