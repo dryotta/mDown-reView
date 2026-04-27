@@ -144,7 +144,9 @@ describe("useSourceHighlighting", () => {
       loadLanguage: vi.fn(),
       codeToHtml: () => multiTokenHtml,
     };
-    vi.mocked(getSharedHighlighter).mockResolvedValue(mockHl as any);
+    vi.mocked(getSharedHighlighter).mockResolvedValue(
+      mockHl as unknown as Awaited<ReturnType<typeof getSharedHighlighter>>
+    );
 
     const { result } = renderHook(() =>
       useSourceHighlighting("const x = 1;\nlet y = 2;", "test.ts")
