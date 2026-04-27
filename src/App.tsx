@@ -23,6 +23,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
+import { basename } from "@/lib/path-utils";
 import { IconFile, IconFolder, IconComment, IconSettings } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
@@ -50,6 +51,13 @@ export default function App() {
   const isMoveAnchorMode = useStore((s) => s.moveAnchorTarget !== null);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
+
+  // Update document.title to reflect the active file (#127 MDR-DEFAULT-DOC-TITLE)
+  useEffect(() => {
+    document.title = activeTabPath
+      ? `${basename(activeTabPath)} — mdownreview`
+      : "mdownreview";
+  }, [activeTabPath]);
 
   const [aboutOpen, setAboutOpen] = useState(false);
   // Settings surface (issue #116): the inline page (`<SettingsView/>`) is
