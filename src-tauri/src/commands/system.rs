@@ -1,9 +1,10 @@
-//! System integration commands: reveal in OS file manager, open in default app.
+//! System integration commands: reveal in OS file manager.
 //!
-//! Both commands enforce a workspace allowlist via
+//! Enforces a workspace allowlist via
 //! [`crate::watcher::WatcherState::is_path_allowed`] so a malicious renderer
-//! cannot ask the OS to open arbitrary paths (e.g. `~/.ssh/id_rsa`). The path
-//! must either be currently open in a tab or inside an open workspace folder.
+//! cannot ask the OS to act on arbitrary paths (e.g. `~/.ssh/id_rsa`). The
+//! path must either be currently open in a tab or inside an open workspace
+//! folder.
 //!
 //! Spawning is done with `std::process::Command::new(...).spawn()` so the OS
 //! handles its own ACLs / quarantine / file-association lookup. We never read
@@ -61,30 +62,6 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<Command, SystemError> 
     }
 }
 
-/// Build the OS-specific open-in-default-app command without spawning.
-///
-/// **Windows is intentionally absent** — see [`open_in_default_app`]. We used
-/// to spawn `cmd /c start "" <path>` here, but `cmd.exe` re-parses
-/// metacharacters (`&`, `^`, `%VAR%`) inside quoted args, breaking the
-/// workspace allowlist guarantee. Windows now goes through
-/// `tauri-plugin-opener::open_path` (ShellExecuteW under the hood), which
-/// opens the path verbatim with no shell expansion.
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn build_open_command(path: &Path) -> Result<Command, SystemError> {
-    if cfg!(target_os = "macos") {
-        let mut cmd = Command::new("open");
-        cmd.arg(path);
-        Ok(cmd)
-    } else if cfg!(target_os = "linux") {
-        let mut cmd = Command::new("xdg-open");
-        cmd.arg(path);
-        Ok(cmd)
-    } else {
-        // Other Unix-like targets we don't ship for: surface as Unsupported.
-        Err(SystemError::Unsupported)
-    }
-}
-
 /// Open the OS file manager and select the file at `path`.
 ///
 /// Workspace-allowlisted via `WatcherState::is_path_allowed`. On Linux there
@@ -102,41 +79,6 @@ pub fn reveal_in_folder(
     let mut cmd = build_reveal_command(p)?;
     cmd.spawn().map_err(SystemError::io)?;
     Ok(())
-}
-
-/// Open the file at `path` with the OS-registered default application.
-///
-/// Workspace-allowlisted. On macOS / Linux uses native `open` / `xdg-open`.
-/// On Windows we route through `tauri-plugin-opener::open_path` (which calls
-/// `ShellExecuteW` directly) instead of spawning `cmd /c start` — the latter
-/// re-parses `&`, `^`, and `%VAR%` inside quoted args, which would let a
-/// malicious path bypass the allowlist guarantee even after the
-/// `is_path_allowed` check.
-#[tauri::command]
-pub fn open_in_default_app(
-    path: String,
-    state: tauri::State<'_, crate::watcher::WatcherState>,
-) -> Result<(), SystemError> {
-    let p = Path::new(&path);
-    if !state.is_path_allowed(p) {
-        tracing::warn!("[system] open_in_default_app rejected: path outside workspace");
-        return Err(SystemError::PathOutsideWorkspace);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // `tauri_plugin_opener::open_path` calls ShellExecuteW with the path
-        // as a verbatim argument — no shell expansion, no re-parsing.
-        tauri_plugin_opener::open_path(p, None::<&str>).map_err(|e| SystemError::IoError {
-            message: e.to_string(),
-        })?;
-        Ok(())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut cmd = build_open_command(p)?;
-        cmd.spawn().map_err(SystemError::io)?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -168,19 +110,6 @@ mod tests {
                 args[0]
             );
         } else if cfg!(target_os = "macos") {
-            assert_eq!(prog, "open");
-        } else if cfg!(target_os = "linux") {
-            assert_eq!(prog, "xdg-open");
-        }
-    }
-
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn build_open_command_uses_platform_binary() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let cmd = build_open_command(tmp.path()).expect("supported platform");
-        let prog = cmd_program(&cmd);
-        if cfg!(target_os = "macos") {
             assert_eq!(prog, "open");
         } else if cfg!(target_os = "linux") {
             assert_eq!(prog, "xdg-open");
