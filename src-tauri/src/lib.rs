@@ -228,7 +228,6 @@ pub fn run() {
                 commands::fs::read_binary_file,
                 commands::fs::stat_file,
                 commands::system::reveal_in_folder,
-                commands::system::open_in_default_app,
                 commands::html::resolve_html_assets,
                 commands::launch::get_launch_args,
                 commands::launch::get_log_path,

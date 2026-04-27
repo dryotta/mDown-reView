@@ -398,14 +398,6 @@ describe("system integration wrappers (Section E)", () => {
     expect(m).toHaveBeenCalledWith("reveal_in_folder", { path: "/ws/sample.bin" });
   });
 
-  it("openInDefaultApp forwards path to open_in_default_app", async () => {
-    const m = await getInvoke();
-    m.mockResolvedValueOnce(undefined);
-    const { openInDefaultApp } = await import("../tauri-commands");
-    await openInDefaultApp("/ws/sample.bin");
-    expect(m).toHaveBeenCalledWith("open_in_default_app", { path: "/ws/sample.bin" });
-  });
-
   it("statFile forwards path to stat_file and returns the FileStat", async () => {
     const m = await getInvoke();
     m.mockResolvedValueOnce({ size_bytes: 4242, mtime_ms: 1700000000000 });

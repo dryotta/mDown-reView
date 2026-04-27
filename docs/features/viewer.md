@@ -39,10 +39,10 @@ flowchart TD
     Router -- "image" --> IV["ImageViewer<br/>(via convertFileSrc)"]
     Router -- "other text<br/>(.ts, .rs, .py, …)" --> SV["SourceView<br/>(line anchors + folding + search)"]
     Router -- "binary" --> BP["BinaryPlaceholder<br/>(icon + size + hex toggle)"]
-    Router -- "> 10 MB" --> TLP["TooLargePlaceholder<br/>(open-in-default CTA)"]
+    Router -- "> 10 MB" --> TLP["TooLargePlaceholder<br/>(reveal-in-folder CTA)"]
 ```
 
-Binary files are routed by `read_text_file` returning the sentinel error `binary_file` (or `file_too_large`), at which point `useFileContent` issues a follow-up `stat_file` IPC to learn the byte size and surfaces it through the placeholder. `BinaryPlaceholder` shows a category-specific icon (archive / audio / video / pdf / font / executable / image / other), the inferred MIME hint, the formatted size, the file's last-modified time (backed by `FileStat.mtime_ms`, formatted in the local timezone), and four actions: open in default app, reveal in folder, copy path, and — for files under 1 MiB — toggle a hex preview. `HexView` reads the file via `read_binary_file`, decodes the base64 to a `Uint8Array`, and renders a 16-bytes-per-row offset/hex/ASCII dump; rendering is virtualised with a fixed 18-px row height once the buffer is ≥ 32 KiB so even the 1 MiB upper bound stays smooth. `TooLargePlaceholder` is the single-CTA variant for files above the 10 MB hard cap, since reading them into memory is intentionally not supported. The `reveal_in_folder` and `open_in_default_app` Rust commands enforce the workspace allowlist (rule 28 in [`docs/security.md`](../security.md)) before spawning any OS handler.
+Binary files are routed by `read_text_file` returning the sentinel error `binary_file` (or `file_too_large`), at which point `useFileContent` issues a follow-up `stat_file` IPC to learn the byte size and surfaces it through the placeholder. `BinaryPlaceholder` shows a category-specific icon (archive / audio / video / pdf / font / executable / image / other), the inferred MIME hint, the formatted size, the file's last-modified time (backed by `FileStat.mtime_ms`, formatted in the local timezone), and three actions: reveal in folder, copy path, and — for files under 1 MiB — toggle a hex preview. `HexView` reads the file via `read_binary_file`, decodes the base64 to a `Uint8Array`, and renders a 16-bytes-per-row offset/hex/ASCII dump; rendering is virtualised with a fixed 18-px row height once the buffer is ≥ 32 KiB so even the 1 MiB upper bound stays smooth. `TooLargePlaceholder` is the single-CTA variant for files above the 10 MB hard cap, since reading them into memory is intentionally not supported; the CTA is **Reveal in folder** so the user can open the file from their file manager. The `reveal_in_folder` Rust command enforces the workspace allowlist (rule 28 in [`docs/security.md`](../security.md)) before spawning any OS handler.
 
 ## Key source
 
@@ -54,7 +54,7 @@ Binary files are routed by `read_text_file` returning the sentinel error `binary
 - **Hooks:** `src/hooks/{useFileContent,useSourceHighlighting,useFolding,useScrollToLine,useSearch,useZoom,useGlobalShortcuts,useFindInPage}.ts`
 - **HTML preview helpers:** `src/lib/{html-bridge,url-policy,html-image-rewrite}.ts` — postMessage bridge (nonce-validated), four-case anchor routing, and the bounded remote-`<img>` rewrite path.
 - **Find-in-Page:** `src/components/FindInPageBar.tsx` (sticky overlay) + `src/hooks/useFindInPage.ts` (Ctrl+F state + CSS Custom Highlight API painter).
-- **Rust backend:** `src-tauri/src/commands/fs.rs` (`read_text_file`, `read_binary_file`, `stat_file`, `check_path_exists`), `src-tauri/src/commands/remote_asset.rs` (bounded HTTPS image proxy), `src-tauri/src/commands/system.rs` (`reveal_in_folder`, `open_in_default_app` — workspace-allowlisted)
+- **Rust backend:** `src-tauri/src/commands/fs.rs` (`read_text_file`, `read_binary_file`, `stat_file`, `check_path_exists`), `src-tauri/src/commands/remote_asset.rs` (bounded HTTPS image proxy), `src-tauri/src/commands/system.rs` (`reveal_in_folder` — workspace-allowlisted)
 
 ## Related rules
 
@@ -62,5 +62,5 @@ Binary files are routed by `read_text_file` returning the sentinel error `binary
 - Render-cost and Shiki singleton — [`docs/design-patterns.md`](../design-patterns.md) + [`docs/performance.md`](../performance.md).
 - Markdown XSS posture (`rehype-raw` + `rehype-sanitize` pairing, Mermaid sandboxing) — rule 12 in [`docs/security.md`](../security.md).
 - Bounded remote-asset fetcher — rule 27 in [`docs/security.md`](../security.md).
-- Workspace allowlist for OS-handler IPC (`reveal_in_folder`, `open_in_default_app`) — rule 28 in [`docs/security.md`](../security.md).
+- Workspace allowlist for OS-handler IPC (`reveal_in_folder`) — rule 28 in [`docs/security.md`](../security.md).
 - UI-visible viewer changes require browser e2e in `e2e/browser/` — rule 7 in [`docs/test-strategy.md`](../test-strategy.md).

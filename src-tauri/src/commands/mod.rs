@@ -48,7 +48,7 @@ pub use remote_asset::fetch_remote_asset;
 pub use search::{
     parse_kql, search_in_document, strip_json_comments, KqlPipelineStep, SearchMatch,
 };
-pub use system::{open_in_default_app, reveal_in_folder, SystemError};
+pub use system::{reveal_in_folder, SystemError};
 pub use word_tokens::tokenize_words;
 
 /// True for `<file>.review.yaml` / `<file>.review.json` sidecar names.
