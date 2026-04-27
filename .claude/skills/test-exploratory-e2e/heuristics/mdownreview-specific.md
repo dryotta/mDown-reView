@@ -13,6 +13,8 @@ target known soft spots in the codebase.
 | `MDR-THEME-FLASH` | FOUC on theme toggle (background transitions through wrong value) | Screenshot diff at 0/50/200 ms after toggle |
 | `MDR-SCROLL-JUMP` | Source view scroll position resets after add/edit comment | Capture scrollTop before/after IPC |
 | `MDR-CONSOLE-ERROR` | Any unhandled `console.error` during run | Console drain |
+| `MDR-SYNTAX-FAIL` | Source view tokens render uniform black (no syntax highlighting) | DOM scan for `<code>` / `<pre>` children: if all `<span>` children lack inline `style="color:..."`, flag. |
+| `MDR-BLANK-VIEWER` | Viewer pane is empty (no content rendered) after file load | DOM scan for empty `main` or `.viewer-content` with zero text nodes after a wait. |
 | `MDR-MENU-EVENT-MISMATCH` | Menu event fired but no handler | Listen for unhandled event payloads |
 
 ## MDR-IPC-RAW-JSON-ERROR
@@ -71,3 +73,20 @@ Menu events are flat kebab-case names that must be mirrored in
 `src/lib/tauri-events.ts` AND `src-tauri/src/lib.rs::on_menu_event`. Detector:
 capture every menu event payload during exploration; flag any payload name not
 present in the known event map.
+
+## MDR-SYNTAX-FAIL
+
+Source view code blocks render all tokens in the same colour (typically black
+or the base foreground). This indicates Shiki failed to load the language
+grammar or `codeToHtml` returned unstyled output. Prior regressions: #94,
+#181. Detector: after opening a `.ts` or `.rs` file, scan the rendered
+`<pre><code>` block for `<span>` children; flag if zero spans have an inline
+`style` attribute containing `color:`.
+
+## MDR-BLANK-VIEWER
+
+After opening a file, the viewer pane contains no visible text content. The
+file tree shows the file is selected and a tab exists, but the center pane is
+empty or shows only a loading indicator that never resolves. Detector: after
+`cli` action + 2s wait, check `document.querySelector('.viewer-content, main')`
+for `textContent.trim().length === 0`.

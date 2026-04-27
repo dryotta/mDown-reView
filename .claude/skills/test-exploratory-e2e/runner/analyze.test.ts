@@ -39,4 +39,24 @@ describe("rule engine — deterministic families", () => {
     const hits = runRules(load("ap-emoji-as-icon"));
     expect(hits.map((h) => h.id)).toContain("AP-EMOJI-AS-ICON");
   });
+
+  it("MDR-SYNTAX-FAIL fires when code block spans lack inline color styles", () => {
+    const hits = runRules(load("mdr-syntax-fail"));
+    expect(hits.some((h) => h.id === "MDR-SYNTAX-FAIL")).toBe(true);
+  });
+
+  it("MDR-SYNTAX-FAIL does not fire when spans have inline color styles", () => {
+    const hits = runRules(load("mdr-syntax-pass"));
+    expect(hits.some((h) => h.id === "MDR-SYNTAX-FAIL")).toBe(false);
+  });
+
+  it("MDR-BLANK-VIEWER fires when viewer pane has no text content", () => {
+    const hits = runRules(load("mdr-blank-viewer"));
+    expect(hits.some((h) => h.id === "MDR-BLANK-VIEWER")).toBe(true);
+  });
+
+  it("MDR-BLANK-VIEWER does not fire on normal content", () => {
+    const hits = runRules(load("mdr-syntax-pass"));
+    expect(hits.some((h) => h.id === "MDR-BLANK-VIEWER")).toBe(false);
+  });
 });

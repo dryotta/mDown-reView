@@ -225,3 +225,72 @@ steps:
   - { kind: press, key: "Control+W" }
   - { kind: wait, ms: 150 }
 ```
+
+## comment-on-file
+
+```yaml
+id: comment-on-file
+name: Open a file and attempt to add a file-level comment via toolbar
+priority: 1
+preconditions:
+  - "open-folder-and-files"
+steps:
+  - { kind: wait, ms: 500 }
+  - { kind: click, selector: "button[aria-label='Add comment on file'], button[aria-label='Comment on file'], .comment-file-btn" }
+  - { kind: wait, ms: 300 }
+  - { kind: press, key: "Escape" }
+  - { kind: wait, ms: 100 }
+```
+
+## open-source-files
+
+```yaml
+id: open-source-files
+name: Open TypeScript and Rust source files to exercise SourceView
+priority: 2
+steps:
+  - kind: cli
+    args:
+      - "D:/work/mdownreview2/src/App.tsx"
+      - "D:/work/mdownreview2/src/logger.ts"
+      - "D:/work/mdownreview2/src/store/index.ts"
+      - "D:/work/mdownreview2/src-tauri/src/lib.rs"
+      - "D:/work/mdownreview2/src-tauri/src/watcher.rs"
+  - { kind: wait, ms: 2000 }
+success_signal:
+  selector: ".tab-bar [role='tab'], .tab-bar button"
+```
+
+## search-in-viewer
+
+```yaml
+id: search-in-viewer
+name: Open in-viewer search and try basic queries
+priority: 2
+preconditions:
+  - "open-folder-and-files"
+steps:
+  - { kind: press, key: "Control+f" }
+  - { kind: wait, ms: 200 }
+  - { kind: press, key: "Escape" }
+  - { kind: wait, ms: 100 }
+```
+
+## source-file-resize
+
+```yaml
+id: source-file-resize
+name: Resize the window while a source file is active
+priority: 2
+preconditions:
+  - "open-source-files"
+steps:
+  - { kind: resize, width: 1280, height: 800 }
+  - { kind: wait, ms: 200 }
+  - { kind: resize, width: 800, height: 600 }
+  - { kind: wait, ms: 200 }
+  - { kind: resize, width: 480, height: 600 }
+  - { kind: wait, ms: 200 }
+  - { kind: resize, width: 1280, height: 800 }
+  - { kind: wait, ms: 100 }
+```

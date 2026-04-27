@@ -58,9 +58,10 @@ For `i = 1 .. iterations`:
    Fetches origin, fast-forwards `main`. Refuses if the working tree is dirty outside the allow-list (only `.claude/retrospectives/**.md` is allowed; those are stashed across the ff and restored).
 6. **Rebuild** (unless `--no-build`):
    ```powershell
-   npm run tauri -- build --debug   # or `npm run tauri:build` for release
+   npm run build && npm run tauri -- build --debug
    ```
-   Skip if the user is running Vite-served debug — the binary already follows source.
+   **Always rebuild on every iteration.** Tauri `build --debug` bundles `dist/` at build time (`frontendDist=../dist` in `tauri.conf.json`), so frontend-only PRs are invisible to a previously-built `.exe` (#191). With Rust caching, rebuild is ~30s — well within the per-iteration budget. Running `npm run build` first ensures `dist/` is fresh before the Tauri bundler picks it up.
+   Skip only if the user explicitly passes `--no-build`.
 7. Brief progress report: `[loop i/N] new=X reproduced=Y filed=Z; advance=<old>..<new>`.
 
 After the last iteration, write a session digest to `.claude/test-exploratory-loop/runs/<ISO-ts>/loop.md` summarising per-iteration counts, all baseline→advance SHA pairs, and links to filed/reproduced issues.
