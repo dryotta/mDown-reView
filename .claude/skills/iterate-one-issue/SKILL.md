@@ -381,6 +381,8 @@ Commit messages: see Commit conventions table below.
 
 #### 6b. Classify diff (consumed by 6c and Step 7)
 
+**New-IPC-surface gate (issue #125)** — before running the classifier, if `git diff --name-only "$ITER_BASE_SHA" HEAD` includes any of `src-tauri/src/commands/**` (new `#[tauri::command]` lines), `src-tauri/src/commands.rs`, or `src/lib/tauri-commands.ts` (new exported wrapper), reject the iteration if the iter commit messages on `$ITER_BASE_SHA..HEAD` do not contain a `pre-flight:` line citing the rg result. Treat as a forward-fix BLOCK — feed back into 6d. The pre-flight contract is documented in `.claude/agents/exe-task-implementer.md` "Pre-flight: Caller-Side Verification".
+
 ```bash
 DIFF_FILES=$(git diff --name-only "$ITER_BASE_SHA" HEAD)
 if [ -z "$DIFF_FILES" ]; then
@@ -393,6 +395,18 @@ else
   DIFF_CLASS=docs-only
 fi
 echo "[diff-class] $DIFF_CLASS — $(echo "$DIFF_FILES" | wc -l) files"
+
+# Caller-side pre-flight gate — only applies when DIFF_CLASS=code AND new IPC surface added
+if [ "$DIFF_CLASS" = "code" ]; then
+  ADDS_IPC=$(git diff "$ITER_BASE_SHA" HEAD -- 'src-tauri/src/commands/**' 'src-tauri/src/commands.rs' 'src/lib/tauri-commands.ts' \
+    | grep -E '^\+.*(#\[tauri::command\]|export (async )?function)' | wc -l)
+  if [ "$ADDS_IPC" -gt 0 ]; then
+    if ! git log "$ITER_BASE_SHA..HEAD" --format=%B | grep -q '^pre-flight:'; then
+      echo "[caller-preflight] BLOCK: new IPC surface added but no commit message contains 'pre-flight:' citation. See .claude/agents/exe-task-implementer.md."
+      # Surface this to 6d as a forward-fix BLOCK; do not silently proceed.
+    fi
+  fi
+fi
 ```
 
 `DIFF_CLASS` rules:
