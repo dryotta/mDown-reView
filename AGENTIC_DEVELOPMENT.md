@@ -46,13 +46,15 @@ Two terminals (preferably two git worktrees or separate checkouts). Both loops r
 
 Terminal A (fix loop):
 ```
-/iterate-loop
+/iterate-loop --pipeline
 ```
 
-PRs land in `ready-for-review` for human merge. To have the loop squash-merge each green PR automatically, pass `--auto-merge`:
+`--pipeline` overlaps the previous round's release-gate (~18 min on GitHub) with the next round's local work, saving roughly 18 min of wall-clock per round. Without it the loop sits idle polling release-gate inline. The flag is opt-in because the pipelined scheduler creates a `git worktree` per round; on Windows worktrees occasionally hit `notify`/`dubious-ownership` issues, in which case the loop logs `[iterate-loop] worktree create failed for #N — falling back to sequential for this round` and continues. Omit `--pipeline` only if you're actively debugging worktree behaviour. Spec: [`.claude/skills/iterate-loop/references/pipeline.md`](.claude/skills/iterate-loop/references/pipeline.md).
+
+PRs land in `ready-for-review` for human merge. To have the loop squash-merge each green PR automatically, add `--auto-merge`:
 
 ```
-/iterate-loop --auto-merge
+/iterate-loop --pipeline --auto-merge
 ```
 
 (Choose merge policy up-front — there's no mid-run toggle. `--auto-merge` only fires on `Done-Achieved` rounds; `Done-Blocked`/`Done-TimedOut` PRs are always left for a human.)
@@ -87,7 +89,7 @@ Skills live in `.claude/skills/<name>/SKILL.md`. You invoke skills.
 
 | Skill | Use when |
 |---|---|
-| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop`. Add `--auto-merge` to squash-merge each Done-Achieved PR. |
+| **`iterate-loop`** | Drain the backlog continuously; pair with `test-exploratory-loop`. Add `--pipeline` to overlap each round's release-gate poll (~18 min) with the next round's work. Add `--auto-merge` to squash-merge each Done-Achieved PR. |
 | **`iterate-one-issue`** | One issue, one freeform goal, or `--once` style runs |
 | **`test-exploratory-loop`** | Continuous dogfood, files new bugs (Windows only) |
 | **`test-exploratory-e2e`** | One round of dogfood (Windows only) |
