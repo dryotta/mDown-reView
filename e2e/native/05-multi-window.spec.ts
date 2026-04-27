@@ -36,9 +36,12 @@ test.describe("Multi-window routing and lifecycle", () => {
     // verifying the app doesn't crash (graceful no-op for non-existent files).
     const noError = await nativePage.evaluate(async () => {
       try {
-        // @ts-ignore — Tauri internals
-        const { emit } = await import("@tauri-apps/api/event");
-        await emit("open-file-tab", ["/nonexistent/test-file.md"]);
+        // Use __TAURI_INTERNALS__ directly — dynamic import of bare
+        // module specifiers doesn't resolve in the production bundle.
+        await window.__TAURI_INTERNALS__.invoke("plugin:event|emit", {
+          event: "open-file-tab",
+          payload: ["/nonexistent/test-file.md"],
+        });
         return true;
       } catch {
         return false;
