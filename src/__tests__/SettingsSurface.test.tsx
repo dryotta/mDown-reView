@@ -157,4 +157,41 @@ describe("settings surface mount gating (issue #116)", () => {
     expect(screen.getByTestId("settings-view")).toBeInTheDocument();
     expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
   });
+
+  // Architect-suggested supplementary regression: open then close the modal
+  // must leave SettingsView mounted (the original UX the forward-fix preserved).
+  it("closing authorDialog returns to inline SettingsView, not to Welcome (rule 28 child-modal exception)", async () => {
+    useStore.setState({ settingsSurface: "inline", authorDialogOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+    await act(async () => {
+      useStore.getState().closeAuthorDialog();
+    });
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-dialog")).not.toBeInTheDocument();
+    expect(useStore.getState().settingsSurface).toBe("inline");
+  });
+
+  // AC6 synthetic-regression mirror: the spec asks for a test that fails when
+  // a shared boolean is re-introduced. The runtime can no longer express the
+  // pre-fix shape (settingsOpen was deleted), so we co-locate a lint-rule
+  // verification here so a future test-file split keeps the AC6 oracle
+  // adjacent to the App regression. Authoritative copy lives in
+  // eslint-rules/no-shared-boolean-mount.test.js.
+  it("AC6 synthetic regression: pre-fix shared-boolean shape trips lint rule 28", async () => {
+    const { Linter } = await import("eslint");
+    const rule = (await import("../../eslint-rules/no-shared-boolean-mount.js" as string)).default;
+    const linter = new Linter();
+    const code =
+      "const X = () => <div>{settingsOpen && <SettingsView/>}{settingsOpen && <SettingsDialog/>}</div>;";
+    const messages = linter.verify(code, {
+      plugins: { local: { rules: { "no-shared-boolean-mount": rule } } },
+      rules: { "local/no-shared-boolean-mount": "error" },
+      languageOptions: {
+        parserOptions: { ecmaVersion: 2022, sourceType: "module", ecmaFeatures: { jsx: true } },
+      },
+    });
+    expect(messages.filter((m) => m.ruleId === "local/no-shared-boolean-mount")).toHaveLength(2);
+  });
 });
