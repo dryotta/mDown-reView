@@ -1,4 +1,4 @@
-import { extname } from "@/lib/path-utils";
+import { extname, basename } from "@/lib/path-utils";
 
 export type FileCategory =
   | "markdown"
@@ -121,7 +121,8 @@ export function getDefaultView(category: FileCategory): "source" | "visual" {
 // the Rust fold-region detector (`src-tauri/src/core/fold_regions.rs`), which
 // recognises both `python`/`py` and `yaml`/`yml` for its indent-language hint,
 // so this single table serves both syntax highlighting and folding.
-const SHIKI_LANGUAGE_MAP: Record<string, string> = {
+export const SHIKI_LANGUAGE_MAP: Record<string, string> = {
+  // Existing entries
   ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
   py: "python", rs: "rust", go: "go", java: "java",
   c: "c", cpp: "cpp", h: "c", css: "css", html: "html",
@@ -129,11 +130,37 @@ const SHIKI_LANGUAGE_MAP: Record<string, string> = {
   sh: "bash", bash: "bash", md: "markdown", sql: "sql",
   rb: "ruby", php: "php", swift: "swift", kt: "kotlin", cs: "csharp",
   xml: "xml", kql: "kql", csl: "kql",
+  // New — languages
+  lua: "lua", dart: "dart", scala: "scala", zig: "zig",
+  groovy: "groovy", r: "r", ps1: "powershell",
+  // New — web/app frameworks
+  svelte: "svelte", vue: "vue", astro: "astro",
+  graphql: "graphql", gql: "graphql", prisma: "prisma", jsonc: "jsonc",
+  // New — infra/config
+  tf: "terraform", tfvars: "terraform", hcl: "hcl",
+  proto: "protobuf", gradle: "groovy", cmake: "cmake", bicep: "bicep",
+  ini: "ini", conf: "ini", env: "ini",
+  diff: "diff", patch: "diff",
+  // New — Objective-C++; .m deliberately omitted — ambiguous (Objective-C vs MATLAB vs Mathematica)
+  mm: "objective-cpp",
+};
+
+/** Basename → Shiki language for files without a meaningful extension. */
+export const BASENAME_MAP: Record<string, string> = {
+  Dockerfile: "docker",
+  dockerfile: "docker",
+  Containerfile: "docker",
+  Makefile: "make",
+  GNUmakefile: "make",
+  "CMakeLists.txt": "cmake",
 };
 
 export function getShikiLanguage(path: string): string {
   const ext = extname(path).slice(1);
-  return SHIKI_LANGUAGE_MAP[ext] ?? "text";
+  if (ext && SHIKI_LANGUAGE_MAP[ext]) return SHIKI_LANGUAGE_MAP[ext];
+  // No extension match — try basename (Dockerfile, Makefile, etc.)
+  const base = basename(path);
+  return BASENAME_MAP[base] ?? "text";
 }
 
 // Fold-region language hint. Currently identical to the Shiki id space — the

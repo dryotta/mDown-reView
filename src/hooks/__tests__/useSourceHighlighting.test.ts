@@ -129,6 +129,50 @@ describe("useSourceHighlighting", () => {
     expect(result.current.highlightedLines[0]).toContain("FRESH_B_PY");
     expect(result.current.highlightedLines[0]).not.toContain("STALE_A_TS");
   });
+  it("preserves all tokens in multi-token lines (regression: broken regex truncation)", async () => {
+    const { getSharedHighlighter } = await import("@/lib/shiki");
+
+    // Realistic Shiki output with nested token spans per line
+    const multiTokenHtml =
+      '<pre class="shiki github-light" style="background-color:#fff"><code>' +
+      '<span class="line"><span style="color:#CF222E">const</span><span style="color:#953800"> x</span><span style="color:#CF222E"> =</span><span style="color:#0550AE"> 1</span><span style="color:#24292F">;</span></span>\n' +
+      '<span class="line"><span style="color:#CF222E">let</span><span style="color:#953800"> y</span><span style="color:#CF222E"> =</span><span style="color:#0550AE"> 2</span><span style="color:#24292F">;</span></span>' +
+      '</code></pre>';
+
+    const mockHl = {
+      getLoadedLanguages: () => ["typescript"],
+      loadLanguage: vi.fn(),
+      codeToHtml: () => multiTokenHtml,
+    };
+    vi.mocked(getSharedHighlighter).mockResolvedValue(
+      mockHl as unknown as Awaited<ReturnType<typeof getSharedHighlighter>>
+    );
+
+    const { result } = renderHook(() =>
+      useSourceHighlighting("const x = 1;\nlet y = 2;", "test.ts")
+    );
+    await waitFor(() => {
+      expect(result.current.highlightedLines.length).toBeGreaterThan(0);
+    });
+
+    // Line 1 must contain ALL token spans, not just the first one
+    const line1 = result.current.highlightedLines[0];
+    expect(line1).toContain("const");
+    expect(line1).toContain(" x");
+    expect(line1).toContain(" =");
+    expect(line1).toContain(" 1");
+    expect(line1).toContain(";");
+    // With the old broken regex, only the first token span would be captured.
+    // Verify at least 4 <span tokens survive (there are 5 in the mock).
+    expect((line1.match(/<span /g) ?? []).length).toBeGreaterThanOrEqual(4);
+
+    // Line 2 must also contain all tokens
+    const line2 = result.current.highlightedLines[1];
+    expect(line2).toContain("let");
+    expect(line2).toContain(" y");
+    expect(line2).toContain(" =");
+    expect(line2).toContain(" 2");
+  });
 });
 
 describe("escapeHtml", () => {
