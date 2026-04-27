@@ -401,6 +401,8 @@ echo "[diff-class] $DIFF_CLASS — $(echo "$DIFF_FILES" | wc -l) files"
 - **`docs-only`** — every changed file is under `.claude/**` (non-prompt) or `docs/**` or a root `*.md`.
 - **`none`** — empty diff (Step 5 was a no-op; you should not be here).
 
+> **Contract test**: the DIFF_CLASS scoping for 6b/6c-A/Step 7 is locked in by `src/__tests__/iterate-skill-contract.test.ts` (issue #122). If you change a row in the validator or expert-panel tables, update that test too.
+
 #### 6c. Local validate ∥ CI poll ∥ Expert diff review (parallel)
 
 ONE message, three agents launched together. The expert panel runs against the pushed diff — does not wait for local/CI.
