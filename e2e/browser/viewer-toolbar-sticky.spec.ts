@@ -131,6 +131,10 @@ async function assertStickyAtCheckpoints(page: Page, label: string): Promise<voi
 
 test.describe("Viewer toolbar sticky positioning (#90)", () => {
   test("markdown visual mode — toolbar stays pinned to scroll region top", async ({ page }) => {
+    // Heavy fixture (TALL_MD ≥ 4500 sections) parsed by react-markdown + Shiki
+    // can blow past the default 30s timeout on slow Windows CI runners.
+    // test.slow() triples the timeout to 90s.
+    test.slow();
     await setupStickyMocks(page, [{ name: "tall.md", content: TALL_MD }]);
     await page.goto("/");
     await page.locator(".folder-tree").getByText("tall.md").click();
@@ -140,6 +144,9 @@ test.describe("Viewer toolbar sticky positioning (#90)", () => {
   });
 
   test("source mode — toolbar stays pinned to scroll region top", async ({ page }) => {
+    // Heavy fixture (TALL_TS ~5000 lines) highlighted by Shiki can exceed the
+    // default 30s timeout on slow Windows CI runners. test.slow() triples it.
+    test.slow();
     await setupStickyMocks(page, [{ name: "tall.ts", content: TALL_TS }]);
     await page.goto("/");
     await page.locator(".folder-tree").getByText("tall.ts").click();
@@ -149,6 +156,10 @@ test.describe("Viewer toolbar sticky positioning (#90)", () => {
   });
 
   test("markdown with mermaid (stacking-context-heavy) — toolbar stays pinned", async ({ page }) => {
+    // Heavy fixture (TALL_MERMAID_MD ~1600 sections) plus mermaid lazy-mount
+    // can exceed the default 30s timeout on slow Windows CI runners.
+    // test.slow() triples it.
+    test.slow();
     await setupStickyMocks(page, [{ name: "tall-mermaid.md", content: TALL_MERMAID_MD }]);
     await page.goto("/");
     await page.locator(".folder-tree").getByText("tall-mermaid.md").click();
