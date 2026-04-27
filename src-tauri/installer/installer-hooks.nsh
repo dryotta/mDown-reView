@@ -1,6 +1,6 @@
 ; mdownreview NSIS hooks for issue #55
-; - POSTINSTALL: add install dir to per-user PATH and register folder context menu
-; - PREUNINSTALL: cleanly remove PATH entry and registry keys
+; - POSTINSTALL: add install dir to per-user PATH
+; - PREUNINSTALL: cleanly remove PATH entry
 ; All operations target HKCU only (per-user; no UAC).
 ;
 ; Pure stock NSIS — no plugins required.
@@ -77,28 +77,9 @@
   ; Tell already-running shells to refresh their environment (no logoff).
   SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
-  ; --- Register folder context menu: "Open with mdownreview" ---
-  WriteRegStr HKCU "Software\Classes\Directory\shell\Open with mdownreview" "" "Open with mdownreview"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\Open with mdownreview" "Icon" "$INSTDIR\mdownreview.exe"
-  WriteRegStr HKCU "Software\Classes\Directory\shell\Open with mdownreview\command" "" '"$INSTDIR\mdownreview.exe" "%V"'
-
-  WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview" "" "Open with mdownreview"
-  WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview" "Icon" "$INSTDIR\mdownreview.exe"
-  WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview\command" "" '"$INSTDIR\mdownreview.exe" "%V"'
-
-  ; --- Override Tauri-generated file association open command (issue #36) ---
-  ; Tauri's default NSIS template registers the open verb as:
-  ;     "$INSTDIR\mdownreview.exe" "%1"
-  ; which makes Explorer launch ONE process per selected file when the user
-  ; multi-selects .md/.mdx files and presses Enter. We need %* (all args, raw)
-  ; instead so Explorer forwards every selected path in a SINGLE invocation,
-  ; which mdownreview-cli then funnels into one window via its single-instance
-  ; forwarding logic.
-  ;
-  ; The ProgID (FILECLASS) is the `name` field from tauri.conf.json's
-  ; fileAssociations entry — currently "Markdown File", shared by .md and .mdx.
-  ; If that name changes, this block must be updated to match.
-  WriteRegStr SHELL_CONTEXT "Software\Classes\Markdown File\shell\open\command" "" '"$INSTDIR\mdownreview.exe" %*'
+  ; Folder context menu and file-association open-command override removed —
+  ; now managed at runtime via IPC commands (commands/folder_context.rs,
+  ; commands/default_handler.rs).
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -117,7 +98,5 @@
   ${EndIf}
   SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
-  ; --- Remove folder context menu keys ---
-  DeleteRegKey HKCU "Software\Classes\Directory\shell\Open with mdownreview"
-  DeleteRegKey HKCU "Software\Classes\Directory\Background\shell\Open with mdownreview"
+  ; Folder context menu cleanup removed — now managed at runtime.
 !macroend
