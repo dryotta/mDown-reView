@@ -140,6 +140,24 @@ jobs:
             test-results/
           retention-days: 7
 
+  # ── Aggregate test gate (satisfies branch-protection rule) ──────────────
+  # Branch protection requires a check called "Test (Linux)".
+  # This no-op job depends on every Linux test job so the gate stays green.
+  test-gate:
+    name: Test (Linux)
+    if: always()
+    needs: [rust-test, vitest, e2e-browser]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          if [[ "${{ needs.rust-test.result }}" != "success" || \
+                "${{ needs.vitest.result }}" != "success" || \
+                "${{ needs.e2e-browser.result }}" != "success" ]]; then
+            echo "::error::One or more test jobs failed"
+            exit 1
+          fi
+
   # ── Installer builds (Windows x64 + macOS) ──────────────────────────────
   # Runs in parallel with tests. Windows ARM64 build is in release-gate only
   # (cross-compilation takes ~8m; not needed for every PR).
