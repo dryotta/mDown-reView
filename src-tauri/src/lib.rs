@@ -478,3 +478,35 @@ pub fn run() {
         let _ = (app_handle, event);
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn folder_display_name_uses_last_component() {
+        assert_eq!(folder_display_name(Path::new("/projects/myapp")), "myapp");
+    }
+
+    #[test]
+    fn folder_display_name_root_path() {
+        let name = folder_display_name(Path::new("/"));
+        assert!(!name.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn folder_display_name_windows_path() {
+        assert_eq!(
+            folder_display_name(Path::new("C:\\Users\\Dev\\Project")),
+            "Project"
+        );
+    }
+
+    #[test]
+    fn folder_display_name_trailing_separator() {
+        let name = folder_display_name(Path::new("/projects/myapp/"));
+        assert_eq!(name, "myapp");
+    }
+}
