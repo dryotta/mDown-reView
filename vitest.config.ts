@@ -7,7 +7,7 @@ export default defineConfig({
     setupFiles: ["./src/test-setup.ts"],
     onUnhandledError: "fail",
     globals: true,
-    include: ["src/**/*.test.{ts,tsx}", ".claude/**/*.test.{ts,tsx}", "eslint-rules/**/*.test.js"],
+    include: ["src/**/*.test.{ts,tsx}", ".claude/**/*.test.{ts,tsx}", "eslint-rules/**/*.test.js", "scripts/**/*.test.mjs"],
     exclude: [
       "node_modules",
       "e2e",

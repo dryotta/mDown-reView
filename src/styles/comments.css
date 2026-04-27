@@ -1,3 +1,5 @@
+@import "./md-wrap-cascade.css";
+
 .comments-panel {
   width: 280px;
   min-width: 200px;
@@ -129,33 +131,9 @@
   line-height: 1.4;
   margin-bottom: 8px;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
-.comment-text code {
-  /* #91 / #150 — wrap long unbreakable inline tokens (e.g. backticked paths) so they do not push the page sideways. `anywhere` (vs. `break-word`) also contributes to min-content sizing so flex/table cells can shrink past their longest token. Fenced `pre code` is reset below. Mirrors `.markdown-body code` in markdown.css. */
-  overflow-wrap: anywhere;
-}
-
-/* #91 / #150 — keep fenced code blocks horizontally scrollable. The container
- * rule on `.comment-text` would otherwise cascade down and force fenced code
- * to wrap, defeating the deliberate `overflow: auto` on `pre`. Mirrors the
- * cascade in markdown.css. */
-.comment-text pre {
-  overflow: auto;
-}
-
-.comment-text pre,
-.comment-text pre code {
-  overflow-wrap: normal;
-  white-space: pre;
-}
-
-.comment-text th,
-.comment-text td {
-  /* #91 / #150 — wrap long unbreakable tokens in table cells. Mirrors `.markdown-body th/td` in markdown.css. */
-  overflow-wrap: anywhere;
-}
+/* Wrap rules (groups 1–4) now in md-wrap-cascade.css (#91 / #150). */
 
 .comment-actions {
   display: flex;

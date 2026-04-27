@@ -345,7 +345,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
         <TableOfContents headings={headings} />
         <MdCommentContext.Provider value={contextValue}>
           <div
-            className="markdown-body"
+            className="markdown-body md-wrap-cascade"
             ref={bodyRef}
             onClick={handleGutterClick}
             onMouseUp={handleMouseUp}

@@ -348,6 +348,14 @@ describe("CommentThread - Markdown rendering", () => {
     expect(commentText).toBeInTheDocument();
     expect(commentText?.tagName).toBe("DIV");
   });
+
+  it("applies md-wrap-cascade class to comment-text surface (#153)", () => {
+    render(<CommentThread rootComment={makeComment({ text: "wrap test" })} filePath="/test/file.md" />);
+
+    const commentText = document.querySelector(".comment-text");
+    expect(commentText).toBeInTheDocument();
+    expect(commentText?.classList.contains("md-wrap-cascade")).toBe(true);
+  });
 });
 
 // ─── Move button gating (iter-4 P1) ────────────────────────────────────────────

@@ -4,6 +4,13 @@
 //   1. Clean tree, origin advanced  → fast-forwards, exit 0.
 //   2. Untracked retrospective file → stashed across ff, restored after, exit 0.
 //   3. Other dirty file             → exit 1, no fetch performed.
+//
+// Per-test timeout is 120s: each case shells out to `npx tsx sync.ts` plus
+// several git invocations, and on the Windows CI runner the first invocation
+// pays an `npx tsx` cold-start (resolve + tsx warmup + ts transpile) that
+// can push wall-clock past 60s even though the work being measured is small.
+// The tests assert functional correctness, not timing, so the larger budget
+// just absorbs cold-start variance.
 
 import { describe, it, expect, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -85,7 +92,7 @@ describe("test-exploratory-loop sync.ts", () => {
     const result = runSync(clone);
     expect(result.code, result.stderr).toBe(0);
     expect(git(clone, "rev-parse", "HEAD")).toBe(newSha);
-  }, 60_000);
+  }, 120_000);
 
   it("stashes and restores allow-listed retrospectives across ff", () => {
     const { origin, clone, root } = makeRepoPair();
@@ -104,7 +111,7 @@ describe("test-exploratory-loop sync.ts", () => {
     // Line endings may flip on Windows due to core.autocrlf; compare normalized.
     expect(readFileSync(retroPath, "utf8").replace(/\r\n/g, "\n")).toBe(retroBody);
     expect(git(clone, "stash", "list")).toBe("");
-  }, 60_000);
+  }, 120_000);
 
   it("refuses to sync when a non-allow-listed path is dirty", () => {
     const { origin, clone, root } = makeRepoPair();
@@ -118,5 +125,5 @@ describe("test-exploratory-loop sync.ts", () => {
     expect(result.code).not.toBe(0);
     expect(result.stderr).toMatch(/dirty|outside the allow-list/i);
     expect(git(clone, "rev-parse", "HEAD")).toBe(headBefore);
-  }, 60_000);
+  }, 120_000);
 });
