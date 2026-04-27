@@ -32,7 +32,7 @@ You write one JSON line to stdin, the REPL writes one JSON line to stdout. Use `
 | You write | REPL responds |
 |---|---|
 | `{"act":"screenshot"}` | `{"ok":true,"result":{"png":"<path>"}}` — view it with the `view` tool |
-| `{"act":"observe"}` | `{"ok":true,"result":{ url, screenId, viewport, interactives[], landmarks[], consoleErrors[], ipcErrors[] }}` |
+| `{"act":"observe"}` | `{"ok":true,"result":{ url, screenId, viewport, interactives[], landmarks[], focused, consoleErrors[], ipcErrors[] }}` — each `interactives[i]` carries `selector`, `tag`, `role`, `name`, `text`, `classes[]`, `bbox`, `visible`, `enabled`, `active` (boolean from `.active` class), and optional ARIA booleans `pressed` / `checked` / `expanded` / `selected` (only present when the source `aria-*` attribute is set to `true`/`false`). `focused` is `{selector, tag, name, classes}` for `document.activeElement`, or `null` when nothing meaningful is focused — use it to verify a click landed on the right control and to diagnose focus-leak bugs. |
 | `{"act":"click","selector":"..."}` | `{"ok":true}` |
 | `{"act":"press","key":"Control+Tab"}` | `{"ok":true}` |
 | `{"act":"type","selector":"...","text":"..."}` | `{"ok":true}` |

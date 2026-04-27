@@ -106,6 +106,15 @@ async function observe(page: Page): Promise<Observation> {
       select: "combobox", nav: "navigation", header: "banner", main: "main",
       footer: "contentinfo", aside: "complementary", dialog: "dialog",
     };
+    // Mirrors observe-dom.ts ariaBool — kept inline so this evaluate body
+    // is self-contained when serialized into Playwright's page context.
+    const ariaBool = (el: Element, attr: string): boolean | null => {
+      if (!el.hasAttribute(attr)) return null;
+      const v = el.getAttribute(attr);
+      if (v === "true") return true;
+      if (v === "false") return false;
+      return null;
+    };
     const out: Interactive[] = [];
     const seenSel = new Set<string>();
     const nodes = document.querySelectorAll(
@@ -124,17 +133,27 @@ async function observe(page: Page): Promise<Observation> {
         ?? "";
       const text = ((el as HTMLElement).innerText ?? el.textContent ?? "").trim().slice(0, 80);
       const classes: string[] = [];
-      for (let k = 0; k < Math.min(2, el.classList.length); k++) classes.push(el.classList[k]);
+      for (let k = 0; k < Math.min(6, el.classList.length); k++) classes.push(el.classList[k]);
       let selector: string;
       try { selector = sel(el); } catch { selector = tag; }
       if (seenSel.has(selector)) return;
       seenSel.add(selector);
-      out.push({
+      const entry: Interactive = {
         selector, tag, role, name, text, classes,
         bbox: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
         visible: true,
         enabled: !(el as HTMLInputElement).disabled,
-      });
+        active: el.classList ? el.classList.contains("active") : false,
+      };
+      const pressed = ariaBool(el, "aria-pressed");
+      if (pressed !== null) entry.pressed = pressed;
+      const checked = ariaBool(el, "aria-checked");
+      if (checked !== null) entry.checked = checked;
+      const expanded = ariaBool(el, "aria-expanded");
+      if (expanded !== null) entry.expanded = expanded;
+      const selected = ariaBool(el, "aria-selected");
+      if (selected !== null) entry.selected = selected;
+      out.push(entry);
     });
     return out;
   }, makeSelectorFn());
@@ -186,12 +205,37 @@ async function observe(page: Page): Promise<Observation> {
     return (h >>> 0).toString(16).padStart(8, "0");
   });
 
+  const focused = await page.evaluate(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body || a === document.documentElement) return null;
+    const tag = a.tagName.toLowerCase();
+    let selector: string;
+    if (a.id) {
+      selector = `#${a.id}`;
+    } else {
+      const tid = a.getAttribute("data-testid");
+      if (tid) {
+        selector = `${tag}[data-testid='${tid}']`;
+      } else {
+        const cls = a.classList && a.classList.length > 0 ? `.${a.classList[0]}` : "";
+        selector = `${tag}${cls}`;
+      }
+    }
+    const name = a.getAttribute("aria-label")
+      ?? a.getAttribute("title")
+      ?? ((a as HTMLElement).innerText ?? a.textContent ?? "").trim().slice(0, 80);
+    const classes: string[] = [];
+    for (let k = 0; k < Math.min(6, a.classList.length); k++) classes.push(a.classList[k]);
+    return { selector, tag, name, classes };
+  });
+
   return {
     url, title,
     screenId: `${url}:${screenId}`,
     viewport,
     interactives,
     landmarks,
+    focused,
     consoleErrors: drained.c
       .filter((c) => c.level === "error" || c.level === "warn")
       .map((c) => ({ ts: new Date().toISOString(), text: c.text })),
