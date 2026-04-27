@@ -23,10 +23,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Pre-flight: refuse default-branch / non-iterate workflow_dispatch ────
+  # Server-side guard against `iterate-one-issue` Step 9a dispatching the
+  # release gate against `main` (or empty/non-iterate refs). When that
+  # happens, the gate validates the wrong tree and the PR's "release-gate
+  # dispatched" comment is misleading. This job fails the whole run within
+  # ~5 s so the agent's poller sees a hard failure it cannot misinterpret.
+  #
+  # On `pull_request`, the guard step is a no-op — the job exists only so
+  # downstream jobs have a single `needs:` target on both event types.
+  validate-dispatch:
+    name: Validate dispatch input
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse default-branch / empty / non-iterate dispatch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REF: ${{ inputs.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -z "$REF" ] || [ "$REF" = "main" ] || [ "$REF" = "master" ] || [ "$REF" = "$DEFAULT_BRANCH" ]; then
+            echo "::error::release-gate refuses to validate '$REF' — workflow_dispatch must target an iterate branch (feature/*, fix/*, chore/*, auto-improve/*, release/*), not the default branch."
+            exit 1
+          fi
+          case "$REF" in
+            feature/*|fix/*|chore/*|auto-improve/*|release/*) ;;
+            *)
+              echo "::error::release-gate input.ref='$REF' does not match the iterate-branch prefix allowlist (feature|fix|chore|auto-improve|release). Refusing to dispatch."
+              exit 1
+              ;;
+          esac
+          echo "OK: dispatching release gate against '$REF'"
+
   # ── Cross-platform tests (Linux, Windows, macOS) ─────────────────────────
-  # All jobs run in parallel — no needs dependencies.
+  # All jobs run in parallel — no needs dependencies between them, but they
+  # all gate on validate-dispatch so a bad workflow_dispatch fails fast.
   test:
     name: Test (${{ matrix.name }})
+    needs: validate-dispatch
     if: startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
@@ -123,6 +157,7 @@ jobs:
   # x64 and macOS builds are already validated in CI.
   build-arm64:
     name: Build (windows-arm64)
+    needs: validate-dispatch
     if: startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 
@@ -171,6 +206,7 @@ jobs:
   # a desktop session, so this works without extra setup.
   native-e2e:
     name: Native E2E (Windows)
+    needs: validate-dispatch
     if: startsWith(github.head_ref, 'release/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 

@@ -28,6 +28,20 @@ Pre-conditions: Step 2 returned `achieved`, `DIFF_CLASS=code`, `release_gate.sta
 
 #### 9a.1 — Trigger the workflow
 
+**Refuse to dispatch against the default branch.** `$BRANCH` MUST be the iterate branch (`feature/*`, `fix/*`, `chore/*`, `auto-improve/*`, or a `release/*` mirror). Dispatching with `--ref main` (or empty / non-iterate) causes the gate to validate the wrong tree — its result is meaningless to the PR. Guard locally **before** dispatching:
+
+```bash
+case "$BRANCH" in
+  ''|main|master)
+    echo "[step9a] refusing — \$BRANCH must be an iterate branch, got '$BRANCH'"; exit 1;;
+  feature/*|fix/*|chore/*|auto-improve/*|release/*) ;;
+  *)
+    echo "[step9a] refusing — \$BRANCH '$BRANCH' does not match iterate-branch allowlist (feature|fix|chore|auto-improve|release)"; exit 1;;
+esac
+```
+
+The workflow itself enforces the same rule server-side (`validate-dispatch` job in `.github/workflows/release-gate.yml`) — if you bypass the local check, GitHub fails the run within ~5 s. The local guard exists so we don't burn a runner slot on a guaranteed failure.
+
 Capture the dispatch timestamp **before** triggering, to disambiguate our run from any concurrent workflow_dispatch on the branch (second iterate session, manual UI, prior failed dispatch within the same minute):
 
 ```bash
@@ -36,7 +50,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 gh workflow run release-gate.yml --ref "$BRANCH" -f ref="$BRANCH"
 ```
 
-(`--ref` selects the workflow file revision; `-f ref=…` is the input `actions/checkout` validates against — see `${{ inputs.ref || github.ref }}` in the workflow. Typically match for an iterate branch.)
+**Both** `--ref` and `-f ref=` MUST be `$BRANCH`. `--ref` selects which copy of the workflow file GitHub reads; `-f ref=` is the input `actions/checkout` consumes (see `${{ inputs.ref || github.ref }}` in the workflow). Mismatching them — e.g. `--ref main -f ref=$BRANCH` — runs the main-tip workflow definition against your branch's tree, which silently breaks if the workflow file changed on the iterate branch. Always pass the same value.
 
 `gh workflow run` does not print the run ID. Query with **timestamp + headSha disambiguation**, not blind `--limit 1`:
 
@@ -142,8 +156,13 @@ On FAIL:
    git commit -m "fix(iter-release): <summary>"
    git push
    ```
-4. Re-dispatch against the new tip — same disambiguation as 9a.1:
+4. Re-dispatch against the new tip — same disambiguation **and `$BRANCH` guard** as 9a.1:
    ```bash
+   case "$BRANCH" in
+     ''|main|master) echo "[step9c] refusing — \$BRANCH must be an iterate branch, got '$BRANCH'"; exit 1;;
+     feature/*|fix/*|chore/*|auto-improve/*|release/*) ;;
+     *) echo "[step9c] refusing — \$BRANCH '$BRANCH' does not match iterate-branch allowlist"; exit 1;;
+   esac
    DISPATCHED_AT_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
    HEAD_SHA=$(git rev-parse HEAD)
    gh workflow run release-gate.yml --ref "$BRANCH" -f ref="$BRANCH"
