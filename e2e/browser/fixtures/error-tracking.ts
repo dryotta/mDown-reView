@@ -189,6 +189,25 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             const a = (args ?? {}) as Record<string, unknown>;
             return typeof a.path === "string" ? a.path : "";
           }
+          // ── Two-layer mock parity (issue #135) ─────────────────────────
+          // Mirroring the Vitest mock defaults so unit-tests and browser
+          // e2e tests observe the same baseline shape. Locked in by
+          // src/__tests__/ipc-mock-parity.test.ts.
+          if (cmd === "fetch_remote_asset") {
+            // Default: empty 1×1 png-like blob in prefix-encoded shape.
+            const ct = new TextEncoder().encode("image/png");
+            const buf = new ArrayBuffer(4 + ct.byteLength);
+            const view = new DataView(buf);
+            view.setUint32(0, ct.byteLength, false);
+            new Uint8Array(buf, 4).set(ct);
+            return buf;
+          }
+          if (cmd === "get_file_badges") return {};
+          if (cmd === "tokenize_words") return [];
+          if (cmd === "export_review_summary") return "";
+          if (cmd === "update_comment") return undefined;
+          if (cmd === "set_author") return "";
+          if (cmd === "get_author") return "Test User";
           return null;
         },
       };

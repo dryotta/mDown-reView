@@ -106,6 +106,48 @@ async function defaultInvoke(
   if (cmd === "update_comment") return undefined;
   if (cmd === "set_author") return "";
   if (cmd === "get_author") return "Test User";
+  // ── Two-layer mock parity (issue #135) ────────────────────────────────
+  // The Playwright browser fixture (e2e/browser/fixtures/error-tracking.ts)
+  // has explicit arms for these commands. Mirroring them here so a Vitest
+  // and a Playwright spec running the same scenario observe the same
+  // baseline shape — preventing the silent skew that broke ~50 e2e specs
+  // when canonicalize_path was added (iter 3 of #89) and again when
+  // get_file_comments changed shape (iter of #96). The contract is locked
+  // in by src/__tests__/ipc-mock-parity.test.ts.
+  if (cmd === "scan_review_files") return [] as [string, string][] as never;
+  if (cmd === "update_watched_files") return undefined;
+  if (cmd === "update_tree_watched_dirs") return undefined;
+  if (cmd === "check_update") return null;
+  if (cmd === "install_update") return null;
+  if (cmd === "search_in_document") return [] as SearchMatch[];
+  if (cmd === "compute_fold_regions") return [] as FoldRegion[];
+  if (cmd === "parse_kql") return [] as KqlPipelineStep[];
+  if (cmd === "strip_json_comments") return (_args?.text as string | undefined) ?? "";
+  if (cmd === "read_text_file") {
+    return { content: "", size_bytes: 0, line_count: 0 } as TextFileResult;
+  }
+  if (
+    cmd === "cli_shim_status" ||
+    cmd === "default_handler_status" ||
+    cmd === "folder_context_status"
+  ) {
+    return "missing";
+  }
+  if (cmd === "onboarding_state") {
+    // Cast through unknown — OnboardingState lives in tauri-commands but
+    // isn't part of InvokeResult union; the runtime shape matches the
+    // Playwright fixture's default.
+    return { schema_version: 1, last_seen_sections: [] } as unknown as InvokeResult;
+  }
+  if (
+    cmd === "install_cli_shim" ||
+    cmd === "remove_cli_shim" ||
+    cmd === "set_default_handler" ||
+    cmd === "register_folder_context" ||
+    cmd === "unregister_folder_context"
+  ) {
+    return undefined;
+  }
   if (cmd === "canonicalize_path") {
     // Default: identity. Tests that exercise canonicalisation override
     // via mockResolvedValueOnce / mockImplementation.
