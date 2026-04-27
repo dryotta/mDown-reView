@@ -41,22 +41,26 @@ export function checkFile(filePath) {
     if (!lines[i].includes("<ReactMarkdown")) continue;
 
     // Search backwards for the nearest className on an enclosing element
-    let found = false;
+    let hasAllowlisted = false;
+    let hasCascade = false;
     for (let j = i; j >= Math.max(0, i - 15); j--) {
       const classMatch = lines[j].match(/className="([^"]+)"/);
       if (classMatch) {
         const classes = classMatch[1].split(/\s+/);
-        if (classes.some((c) => ALLOWLIST.has(c))) {
-          found = true;
-        }
+        hasAllowlisted = classes.some((c) => ALLOWLIST.has(c));
+        hasCascade = classes.includes("md-wrap-cascade");
         break; // Found the nearest className, stop searching
       }
     }
 
-    if (!found) {
+    if (!hasAllowlisted || !hasCascade) {
+      const reason = !hasAllowlisted
+        ? `not wrapped by an allowlisted class (${[...ALLOWLIST].join(", ")})`
+        : "missing md-wrap-cascade class on wrapper";
       errors.push({
         file: relative(".", filePath).replace(/\\/g, "/"),
         line: i + 1,
+        reason,
       });
     }
   }
@@ -83,14 +87,14 @@ if (allErrors.length > 0) {
   );
   for (const err of allErrors) {
     console.error(
-      `  ${err.file}:${err.line} — <ReactMarkdown> not wrapped by an allowlisted class (${[...ALLOWLIST].join(", ")})`,
+      `  ${err.file}:${err.line} — <ReactMarkdown> ${err.reason}`,
     );
   }
   console.error(
-    `\nFix: wrap the <ReactMarkdown> element in a <div className="..."> where the class is one of: ${[...ALLOWLIST].join(", ")}`,
+    `\nFix: wrap <ReactMarkdown> in a <div className="<allowlisted> md-wrap-cascade"> where allowlisted is one of: ${[...ALLOWLIST].join(", ")}`,
   );
   console.error(
-    "Or add a new allowlisted class to scripts/check-markdown-surfaces.mjs and ensure it carries the md-wrap-cascade rules.",
+    "To add a new surface: add its wrapper class to ALLOWLIST in scripts/check-markdown-surfaces.mjs and apply md-wrap-cascade.",
   );
   process.exit(1);
 } else {

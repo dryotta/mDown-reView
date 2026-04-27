@@ -16,10 +16,10 @@ describe("check-markdown-surfaces", () => {
     rmSync(TEMP_DIR, { recursive: true, force: true });
   });
 
-  it("passes when ReactMarkdown is wrapped in allowlisted class", () => {
+  it("passes when ReactMarkdown is wrapped in allowlisted class with md-wrap-cascade", () => {
     writeFileSync(
       join(TEMP_DIR, "Good.tsx"),
-      '<div className="markdown-body">\n  <ReactMarkdown>{content}</ReactMarkdown>\n</div>',
+      '<div className="markdown-body md-wrap-cascade">\n  <ReactMarkdown>{content}</ReactMarkdown>\n</div>',
     );
     const result = execSync(
       `node scripts/check-markdown-surfaces.mjs --root "${TEMP_DIR}"`,
@@ -28,10 +28,10 @@ describe("check-markdown-surfaces", () => {
     expect(result).toContain("✅");
   });
 
-  it("passes when ReactMarkdown is wrapped in comment-text class", () => {
+  it("passes when ReactMarkdown is wrapped in comment-text class with md-wrap-cascade", () => {
     writeFileSync(
       join(TEMP_DIR, "CommentGood.tsx"),
-      '<div className="comment-text"><ReactMarkdown>{text}</ReactMarkdown></div>',
+      '<div className="comment-text md-wrap-cascade"><ReactMarkdown>{text}</ReactMarkdown></div>',
     );
     const result = execSync(
       `node scripts/check-markdown-surfaces.mjs --root "${TEMP_DIR}"`,
@@ -79,6 +79,25 @@ describe("check-markdown-surfaces", () => {
     } catch (err) {
       expect(err.status).not.toBe(0);
       expect(err.stderr.toString()).toContain("not wrapped by an allowlisted");
+    }
+  });
+
+  it("fails when wrapper has allowlisted class but missing md-wrap-cascade", () => {
+    const noCascadeDir = join(TEMP_DIR, "no-cascade");
+    mkdirSync(noCascadeDir, { recursive: true });
+    writeFileSync(
+      join(noCascadeDir, "NoCascade.tsx"),
+      '<div className="markdown-body">\n  <ReactMarkdown>{content}</ReactMarkdown>\n</div>',
+    );
+    try {
+      execSync(
+        `node scripts/check-markdown-surfaces.mjs --root "${noCascadeDir}"`,
+        { stdio: "pipe", encoding: "utf8" },
+      );
+      expect.unreachable("Expected script to exit with non-zero code");
+    } catch (err) {
+      expect(err.status).not.toBe(0);
+      expect(err.stderr.toString()).toContain("missing md-wrap-cascade");
     }
   });
 });
