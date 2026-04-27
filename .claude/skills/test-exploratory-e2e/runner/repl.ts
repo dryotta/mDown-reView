@@ -47,12 +47,17 @@ async function setup(): Promise<Session> {
 
   // Shim esbuild's --keep-names __name helper so transformed function bodies
   // don't ReferenceError when serialized into page.evaluate(). (#177)
-  await context.addInitScript(() => {
-    (globalThis as unknown as Record<string, unknown>).__name = (fn: unknown, _name: string) => {
-      try { Object.defineProperty(fn, "name", { value: _name, configurable: true }); } catch { /* noop */ }
-      return fn;
-    };
-  });
+  // ⚠️ The shim body MUST use plain JS — no TS type annotations — because
+  // tsx/esbuild's keepNames would wrap the inner function with __name(),
+  // which doesn't exist yet (this script is what defines it).
+  await context.addInitScript(`
+    if (typeof globalThis.__name === 'undefined') {
+      globalThis.__name = function(fn, name) {
+        try { Object.defineProperty(fn, 'name', { value: name, configurable: true }); } catch(e) {}
+        return fn;
+      };
+    }
+  `);
 
   const page = context.pages()[0] ?? await context.newPage();
   await attachDrains(page);
@@ -100,6 +105,17 @@ async function observe(page: Page): Promise<Observation> {
     ? cdpVp
     : await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
 
+  // Ensure __name shim exists in the page context (addInitScript only fires
+  // on navigation; CDP-attached pages may not have navigated since attach).
+  await page.evaluate(`
+    if (typeof globalThis.__name === 'undefined') {
+      globalThis.__name = function(fn, name) {
+        try { Object.defineProperty(fn, 'name', { value: name, configurable: true }); } catch(e) {}
+        return fn;
+      };
+    }
+  `);
+
   const drained = await page.evaluate(() => {
     const c = window.__exploreUxConsole ?? [];
     const i = window.__exploreUxIpcErrors ?? [];
@@ -108,7 +124,7 @@ async function observe(page: Page): Promise<Observation> {
     return { c, i };
   });
 
-  const interactives = await page.evaluate((selectorFnSrc: string) => {
+  const interactives = await page.evaluate((selectorFnSrc) => {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const sel = new Function("return " + selectorFnSrc)() as (el: Element) => string;
     const tagToRole: Record<string, string> = {
