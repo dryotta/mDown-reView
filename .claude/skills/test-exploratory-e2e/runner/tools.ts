@@ -12,6 +12,9 @@ export type Command =
   | { act: "press";  key: string }
   | { act: "type";   selector: string; text: string }
   | { act: "hover";  selector: string }
+  | { act: "select_text"; selector: string; startOffset?: number; endOffset?: number }
+  | { act: "scroll"; selector?: string; x?: number; y?: number }
+  | { act: "wait_for_selector"; selector: string; state?: "visible" | "hidden" | "attached"; timeout?: number }
   | { act: "resize"; width: number; height: number }
   | { act: "emit";   event: string }
   | { act: "cli";    args: string[] }
