@@ -4,9 +4,9 @@ import type { Page } from "@playwright/test";
 const FIXTURES_DIR = "/e2e/fixtures";
 
 /**
- * G4 — verifies the ViewerToolbar reveal/open buttons dispatch the correct
- * IPC commands. The test mock records every invoke call so we can assert
- * the exact `(cmd, args)` pair was sent for each button click.
+ * G4 — verifies the ViewerToolbar reveal button dispatches the correct
+ * IPC command. The test mock records every invoke call so we can assert
+ * the exact `(cmd, args)` pair was sent for the button click.
  */
 async function setupToolbarMocks(page: Page) {
   await page.addInitScript((dir: string) => {
@@ -29,7 +29,6 @@ async function setupToolbarMocks(page: Page) {
       if (cmd === "get_log_path") return "/mock/log.log";
       if (cmd === "get_file_comments") return [];
       if (cmd === "reveal_in_folder") return undefined;
-      if (cmd === "open_in_default_app") return undefined;
       return null;
     };
   }, FIXTURES_DIR);
@@ -41,8 +40,8 @@ async function getCalls(page: Page): Promise<Array<[string, unknown]>> {
   );
 }
 
-test.describe("Viewer toolbar reveal/open actions (#65 G4)", () => {
-  test("reveal + open buttons dispatch IPC for markdown viewer (EnhancedViewer toolbar)", async ({
+test.describe("Viewer toolbar reveal action (#65 G4)", () => {
+  test("reveal button dispatches IPC for markdown viewer (EnhancedViewer toolbar)", async ({
     page,
   }) => {
     await setupToolbarMocks(page);
@@ -51,22 +50,20 @@ test.describe("Viewer toolbar reveal/open actions (#65 G4)", () => {
     await expect(page.locator(".markdown-viewer")).toBeVisible();
 
     await page.getByRole("button", { name: /reveal in folder/i }).first().click();
-    await page.getByRole("button", { name: /open in default app/i }).first().click();
 
     const calls = await getCalls(page);
     const reveal = calls.find(
       ([c, a]) =>
         c === "reveal_in_folder" && (a as { path?: string }).path === `${FIXTURES_DIR}/doc.md`,
     );
-    const open = calls.find(
-      ([c, a]) =>
-        c === "open_in_default_app" && (a as { path?: string }).path === `${FIXTURES_DIR}/doc.md`,
-    );
     expect(reveal, "reveal_in_folder IPC was not invoked with the active path").toBeTruthy();
-    expect(open, "open_in_default_app IPC was not invoked with the active path").toBeTruthy();
+    expect(
+      calls.find(([c]) => c === "open_in_default_app"),
+      "open_in_default_app IPC must not be invoked — feature removed (#93)",
+    ).toBeUndefined();
   });
 
-  test("reveal + open buttons appear and dispatch IPC for image viewer (wrapped toolbar)", async ({
+  test("reveal button appears and dispatches IPC for image viewer (wrapped toolbar)", async ({
     page,
   }) => {
     await setupToolbarMocks(page);
@@ -75,18 +72,16 @@ test.describe("Viewer toolbar reveal/open actions (#65 G4)", () => {
     await expect(page.locator(".image-viewer")).toBeVisible();
 
     await page.getByRole("button", { name: /reveal in folder/i }).first().click();
-    await page.getByRole("button", { name: /open in default app/i }).first().click();
 
     const calls = await getCalls(page);
     const reveal = calls.find(
       ([c, a]) =>
         c === "reveal_in_folder" && (a as { path?: string }).path === `${FIXTURES_DIR}/pic.png`,
     );
-    const open = calls.find(
-      ([c, a]) =>
-        c === "open_in_default_app" && (a as { path?: string }).path === `${FIXTURES_DIR}/pic.png`,
-    );
     expect(reveal, "reveal_in_folder IPC was not invoked for image viewer").toBeTruthy();
-    expect(open, "open_in_default_app IPC was not invoked for image viewer").toBeTruthy();
+    expect(
+      calls.find(([c]) => c === "open_in_default_app"),
+      "open_in_default_app IPC must not be invoked — feature removed (#93)",
+    ).toBeUndefined();
   });
 });

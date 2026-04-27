@@ -22,19 +22,19 @@ describe("TooLargePlaceholder — Section E", () => {
     expect(screen.getByText(/exceeds the 10 MB read cap/i)).toBeInTheDocument();
   });
 
-  it("renders only the open-in-default-app CTA (no hex toggle)", () => {
+  it("renders only the reveal-in-folder CTA (no hex toggle, no open-in-default)", () => {
     render(<TooLargePlaceholder path="/ws/huge.csv" size={42 * 1024 * 1024} />);
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveAccessibleName(/open in default app/i);
+    expect(buttons[0]).toHaveAccessibleName(/reveal in folder/i);
     expect(screen.queryByRole("button", { name: /show as hex/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /reveal/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open in default app/i })).not.toBeInTheDocument();
   });
 
-  it("clicking the CTA invokes open_in_default_app", () => {
+  it("clicking the CTA invokes reveal_in_folder", () => {
     render(<TooLargePlaceholder path="/ws/huge.csv" size={42 * 1024 * 1024} />);
-    fireEvent.click(screen.getByRole("button", { name: /open in default app/i }));
-    expect(invokeMock).toHaveBeenCalledWith("open_in_default_app", { path: "/ws/huge.csv" });
+    fireEvent.click(screen.getByRole("button", { name: /reveal in folder/i }));
+    expect(invokeMock).toHaveBeenCalledWith("reveal_in_folder", { path: "/ws/huge.csv" });
   });
 
   it("renders without a size when none is provided", () => {

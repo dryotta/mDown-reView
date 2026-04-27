@@ -32,13 +32,13 @@ beforeEach(() => {
 });
 
 describe("BinaryPlaceholder — Section E", () => {
-  it("renders all five action buttons", () => {
+  it("renders the four action buttons", () => {
     render(<BinaryPlaceholder path="/ws/sample.bin" size={512} />);
-    expect(screen.getByRole("button", { name: /open in default app/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /reveal in folder/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy path/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /show as hex/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /comment on this file/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open in default app/i })).not.toBeInTheDocument();
   });
 
   it("renders the file name, MIME hint and human-readable size", () => {
@@ -68,12 +68,6 @@ describe("BinaryPlaceholder — Section E", () => {
     expect(screen.getByRole("button", { name: /show as hex/i })).toBeEnabled();
   });
 
-  it("clicking 'Open in default app' invokes open_in_default_app", () => {
-    render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
-    fireEvent.click(screen.getByRole("button", { name: /open in default app/i }));
-    expect(invokeMock).toHaveBeenCalledWith("open_in_default_app", { path: "/ws/sample.bin" });
-  });
-
   it("clicking 'Reveal in folder' invokes reveal_in_folder", () => {
     render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
     fireEvent.click(screen.getByRole("button", { name: /reveal in folder/i }));
@@ -93,7 +87,7 @@ describe("BinaryPlaceholder — Section E", () => {
     render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
     fireEvent.click(screen.getByRole("button", { name: /show as hex/i }));
     expect(screen.getByTestId("hex-view-mock")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /open in default app/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reveal in folder/i })).not.toBeInTheDocument();
   });
 
   it("clicking 'Comment on this file' opens the file-level CommentInput", () => {

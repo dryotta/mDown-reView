@@ -63,10 +63,10 @@ export interface FileStat {
 export const statFile = (path: string): Promise<FileStat> =>
   invoke<FileStat>("stat_file", { path });
 
-// ── System integration: reveal in folder / open in default app ────────────
-// Both commands are workspace-allowlisted in Rust (`commands/system.rs`):
-// the path must be in an open tab or inside an open workspace folder.
-// On rejection the IPC throws a `SystemError` discriminated by `kind`.
+// ── System integration: reveal in folder ──────────────────────────────────
+// Workspace-allowlisted in Rust (`commands/system.rs`): the path must be in
+// an open tab or inside an open workspace folder. On rejection the IPC
+// throws a `SystemError` discriminated by `kind`.
 
 export type SystemError =
   | { kind: "PathOutsideWorkspace" }
@@ -75,9 +75,6 @@ export type SystemError =
 
 export const revealInFolder = (path: string): Promise<void> =>
   invoke<void>("reveal_in_folder", { path });
-
-export const openInDefaultApp = (path: string): Promise<void> =>
-  invoke<void>("open_in_default_app", { path });
 
 export const resolveHtmlAssets = (html: string, htmlDir: string): Promise<string> =>
   invoke<string>("resolve_html_assets", { html, htmlDir });

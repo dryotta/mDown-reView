@@ -1,6 +1,6 @@
 import { basename } from "@/lib/path-utils";
 import { formatBytes } from "@/lib/file-types";
-import { openInDefaultApp } from "@/lib/tauri-commands";
+import { revealInFolder } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
 
 interface Props {
@@ -10,9 +10,9 @@ interface Props {
 
 export function TooLargePlaceholder({ path, size }: Props) {
   const name = basename(path);
-  const handleOpen = () => {
-    void openInDefaultApp(path).catch((e) =>
-      warn(`openInDefaultApp failed: ${String(e)}`),
+  const handleReveal = () => {
+    void revealInFolder(path).catch((e) =>
+      warn(`revealInFolder failed: ${String(e)}`),
     );
   };
   return (
@@ -22,12 +22,12 @@ export function TooLargePlaceholder({ path, size }: Props) {
         <p className="binary-size">{formatBytes(size)}</p>
       )}
       <p className="too-large-message">
-        File exceeds the 10 MB read cap. Open it in the OS default app to view
-        the full contents.
+        File exceeds the 10 MB read cap. Reveal it in your file manager to open
+        it from there.
       </p>
       <div className="binary-actions">
-        <button type="button" onClick={handleOpen}>
-          Open in default app
+        <button type="button" onClick={handleReveal}>
+          Reveal in folder
         </button>
       </div>
     </div>
