@@ -538,7 +538,8 @@ describe("getFileComments — Anchor discriminated union", () => {
 
   it("returns comments with anchor.kind === 'line' for line-anchored fixture", async () => {
     const m = await getInvoke();
-    m.mockResolvedValueOnce([
+    m.mockResolvedValueOnce({
+      threads: [
       {
         root: {
           id: "c-line",
@@ -555,10 +556,12 @@ describe("getFileComments — Anchor discriminated union", () => {
         },
         replies: [],
       },
-    ]);
+      ],
+      sidecar_mtime_ms: null,
+    });
     const { getFileComments } = await import("../tauri-commands");
     const { deriveAnchor } = await import("@/types/comments");
-    const threads = await getFileComments("/ws/a.md");
+    const { threads } = await getFileComments("/ws/a.md");
     expect(threads).toHaveLength(1);
     const root = threads[0].root;
     expect((root as { anchor?: unknown }).anchor).toBeUndefined();
@@ -571,7 +574,8 @@ describe("getFileComments — Anchor discriminated union", () => {
 
   it("returns comments with anchor.kind === 'image_rect' for image-anchored fixture", async () => {
     const m = await getInvoke();
-    m.mockResolvedValueOnce([
+    m.mockResolvedValueOnce({
+      threads: [
       {
         root: {
           id: "c-img",
@@ -591,10 +595,12 @@ describe("getFileComments — Anchor discriminated union", () => {
         },
         replies: [],
       },
-    ]);
+      ],
+      sidecar_mtime_ms: null,
+    });
     const { getFileComments } = await import("../tauri-commands");
     const { deriveAnchor } = await import("@/types/comments");
-    const threads = await getFileComments("/ws/img.png");
+    const { threads } = await getFileComments("/ws/img.png");
     expect(threads).toHaveLength(1);
     const root = threads[0].root;
     const a = deriveAnchor(root);
@@ -608,9 +614,9 @@ describe("getFileComments — Anchor discriminated union", () => {
   it("does not log to console.error during the dispatch happy path", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const m = await getInvoke();
-    m.mockResolvedValueOnce([]);
+    m.mockResolvedValueOnce({ threads: [], sidecar_mtime_ms: null });
     const { getFileComments } = await import("../tauri-commands");
-    const threads = await getFileComments("/ws/empty.md");
+    const { threads } = await getFileComments("/ws/empty.md");
     expect(threads).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();

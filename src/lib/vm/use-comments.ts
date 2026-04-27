@@ -33,9 +33,9 @@ export function useComments(filePath: string | null): UseCommentsResult {
       }
       setLoading(true);
       try {
-        const result = await getFileComments(filePath);
+        const { threads } = await getFileComments(filePath);
         if (!isCancelled()) {
-          setThreads(result);
+          setThreads(threads);
           useStore.getState().setLastCommentsReloadedAt(filePath, Date.now());
         }
       } catch (e) {

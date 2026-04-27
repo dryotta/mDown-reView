@@ -35,8 +35,22 @@ export interface Tab {
 
 /** Per-path cached file metadata, populated by `useFileContent` after a successful read. */
 export interface FileMeta {
-  sizeBytes: number;
-  lineCount: number;
+  sizeBytes?: number;
+  lineCount?: number;
+  /**
+   * Wall-clock mtime of the file (epoch ms) at the time of the last successful
+   * read. Populated by Group D (`useFileContent`) from `TextFileResult.mtime_ms`.
+   * `undefined` until first read; `null` is reserved for "FS does not expose
+   * mtime" if Group D chooses to forward that distinction.
+   */
+  fileMtime?: number;
+  /**
+   * Wall-clock mtime of the `.mrsf.yaml` sidecar (epoch ms) at the time of the
+   * last successful comments load. Populated by Group D (`use-comments`) from
+   * `GetFileCommentsResult.sidecar_mtime_ms`. `null` means "no sidecar exists";
+   * `undefined` means "never loaded".
+   */
+  commentsMtime?: number | null;
 }
 
 export interface TabsSlice {
@@ -57,7 +71,17 @@ export interface TabsSlice {
   setViewMode: (path: string, mode: "source" | "visual") => void;
   setLastFileReloadedAt: (path: string, ts: number) => void;
   setLastCommentsReloadedAt: (path: string, ts: number) => void;
-  setFileMeta: (path: string, sizeBytes: number, lineCount: number) => void;
+  /**
+   * Merge a partial `FileMeta` patch into the cached entry for `path`.
+   * Overload preserves the legacy positional `(path, sizeBytes, lineCount)`
+   * call shape so Group D can migrate consumers (`useFileContent`) without
+   * a flag-day. The patch shape is the canonical form for new code (Group D
+   * also writes `fileMtime` and `commentsMtime`).
+   */
+  setFileMeta: {
+    (path: string, patch: Partial<FileMeta>): void;
+    (path: string, sizeBytes: number, lineCount: number): void;
+  };
 }
 
 export function filterStaleTabs(
@@ -216,12 +240,21 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     setLastCommentsReloadedAt: (path, ts) =>
       set((s) => ({ lastCommentsReloadedAt: { ...s.lastCommentsReloadedAt, [path]: ts } })),
 
-    setFileMeta: (path, sizeBytes, lineCount) => {
-      const cur = get().fileMetaByPath[path];
-      if (cur && cur.sizeBytes === sizeBytes && cur.lineCount === lineCount) return;
+    setFileMeta: ((
+      path: string,
+      second: number | Partial<FileMeta>,
+      third?: number,
+    ) => {
+      const patch: Partial<FileMeta> =
+        typeof second === "number"
+          ? { sizeBytes: second, lineCount: third }
+          : second;
       set((s) => ({
-        fileMetaByPath: { ...s.fileMetaByPath, [path]: { sizeBytes, lineCount } },
+        fileMetaByPath: {
+          ...s.fileMetaByPath,
+          [path]: { ...s.fileMetaByPath[path], ...patch },
+        },
       }));
-    },
+    }) as TabsSlice["setFileMeta"],
   };
 }

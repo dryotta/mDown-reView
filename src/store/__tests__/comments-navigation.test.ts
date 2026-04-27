@@ -49,7 +49,7 @@ beforeEach(() => {
 
 function mockThreads(threads: CommentThread[]) {
   invokeMock.mockImplementation(async (cmd: string) => {
-    if (cmd === "get_file_comments") return threads;
+    if (cmd === "get_file_comments") return { threads, sidecar_mtime_ms: null };
     if (cmd === "get_file_badges") return {};
     return undefined;
   });

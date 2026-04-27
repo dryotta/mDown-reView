@@ -5,6 +5,7 @@ import { useComments } from "../use-comments";
 import {
   getFileComments,
   type CommentThread,
+  type GetFileCommentsResult,
 } from "@/lib/tauri-commands";
 import { error as logError } from "@/logger";
 
@@ -14,8 +15,13 @@ vi.mock("@/lib/tauri-events", () => ({
   ),
 }));
 
+const wrap = (threads: CommentThread[]): GetFileCommentsResult => ({
+  threads,
+  sidecar_mtime_ms: null,
+});
+
 vi.mock("@/lib/tauri-commands", () => ({
-  getFileComments: vi.fn().mockResolvedValue([]),
+  getFileComments: vi.fn().mockResolvedValue({ threads: [], sidecar_mtime_ms: null }),
 }));
 
 vi.mock("@/logger", () => ({
@@ -156,7 +162,7 @@ describe("useComments loading", () => {
   });
 
   it("sets loading=true during fetch, then false after", async () => {
-    let resolveGetComments!: (val: CommentThread[]) => void;
+    let resolveGetComments!: (val: GetFileCommentsResult) => void;
     vi.mocked(getFileComments).mockImplementationOnce(
       () => new Promise((resolve) => { resolveGetComments = resolve; }),
     );
@@ -169,7 +175,7 @@ describe("useComments loading", () => {
     expect(result.current.loading).toBe(true);
 
     await act(async () => {
-      resolveGetComments([]);
+      resolveGetComments(wrap([]));
     });
 
     expect(result.current.loading).toBe(false);
@@ -177,7 +183,7 @@ describe("useComments loading", () => {
 
   it("returns threads from getFileComments result", async () => {
     const mockThreads = makeMockThreads();
-    vi.mocked(getFileComments).mockResolvedValueOnce(mockThreads);
+    vi.mocked(getFileComments).mockResolvedValueOnce(wrap(mockThreads));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
@@ -187,7 +193,7 @@ describe("useComments loading", () => {
 
   it("flattens comments from thread root + replies", async () => {
     const mockThreads = makeMockThreads();
-    vi.mocked(getFileComments).mockResolvedValueOnce(mockThreads);
+    vi.mocked(getFileComments).mockResolvedValueOnce(wrap(mockThreads));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
@@ -199,8 +205,8 @@ describe("useComments loading", () => {
   });
 
   it("rapid filePath change cancels stale response", async () => {
-    let resolveA!: (val: CommentThread[]) => void;
-    let resolveB!: (val: CommentThread[]) => void;
+    let resolveA!: (val: GetFileCommentsResult) => void;
+    let resolveB!: (val: GetFileCommentsResult) => void;
 
     vi.mocked(getFileComments)
       .mockImplementationOnce(
@@ -239,8 +245,8 @@ describe("useComments loading", () => {
     await flushPromises();
 
     // /b.md resolves first, then the stale /a.md response arrives
-    await act(async () => { resolveB(threadsB); });
-    await act(async () => { resolveA(threadsA); });
+    await act(async () => { resolveB(wrap(threadsB)); });
+    await act(async () => { resolveA(wrap(threadsA)); });
 
     // Final state must reflect the latest filePath only
     expect(result.current.threads).toEqual(threadsB);
@@ -248,7 +254,7 @@ describe("useComments loading", () => {
   });
 
   it("reloads when filePath changes (verifies getFileComments called with new path)", async () => {
-    vi.mocked(getFileComments).mockResolvedValue([]);
+    vi.mocked(getFileComments).mockResolvedValue(wrap([]));
 
     const { rerender } = renderHook(
       ({ path }: { path: string | null }) => useComments(path),
@@ -280,7 +286,7 @@ describe("useComments loading", () => {
 
 describe("useComments reload", () => {
   it("reload() re-fetches comments for current file", async () => {
-    vi.mocked(getFileComments).mockResolvedValue([]);
+    vi.mocked(getFileComments).mockResolvedValue(wrap([]));
 
     const { result } = renderHook(() => useComments("/test.md"));
     await flushPromises();
@@ -326,7 +332,7 @@ describe("useComments event subscriptions", () => {
       },
     );
 
-    vi.mocked(getFileComments).mockResolvedValue([]);
+    vi.mocked(getFileComments).mockResolvedValue(wrap([]));
   });
 
   it("reloads when comments-changed event fires for matching file_path", async () => {
@@ -437,12 +443,12 @@ describe("useComments stale response handling", () => {
       },
     ];
 
-    let resolveFirst!: (val: CommentThread[]) => void;
+    let resolveFirst!: (val: GetFileCommentsResult) => void;
     vi.mocked(getFileComments)
       .mockImplementationOnce(
         () => new Promise((resolve) => { resolveFirst = resolve; }),
       )
-      .mockResolvedValueOnce(freshThreads);
+      .mockResolvedValueOnce(wrap(freshThreads));
 
     const { result, rerender } = renderHook(
       ({ path }: { path: string | null }) => useComments(path),
@@ -458,7 +464,7 @@ describe("useComments stale response handling", () => {
 
     // Now resolve the stale first promise
     await act(async () => {
-      resolveFirst(staleThreads);
+      resolveFirst(wrap(staleThreads));
     });
 
     // Should still have fresh threads — stale result was discarded

@@ -52,7 +52,10 @@ const fakeThread = (id: string): CommentThread => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mockListen.mockImplementation(() => Promise.resolve(() => {}));
-  mockGet.mockImplementation(async (p: string) => [fakeThread(`t-${p}`)]);
+  mockGet.mockImplementation(async (p: string) => ({
+    threads: [fakeThread(`t-${p}`)],
+    sidecar_mtime_ms: null,
+  }));
   setStoreState({ tabs: [], ghostEntries: [] });
 });
 

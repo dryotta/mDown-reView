@@ -194,3 +194,35 @@ describe("view mode per tab", () => {
     expect(useStore.getState().viewModeByTab["/test.json"]).toBeUndefined();
   });
 });
+
+describe("tabs slice – setFileMeta", () => {
+  it("stores sizeBytes and lineCount via the legacy positional signature", () => {
+    useStore.getState().setFileMeta("/a.md", 1234, 56);
+    const meta = useStore.getState().fileMetaByPath["/a.md"];
+    expect(meta).toEqual({ sizeBytes: 1234, lineCount: 56 });
+  });
+
+  it("stores fields via the patch signature", () => {
+    useStore.getState().setFileMeta("/a.md", { fileMtime: 1700000000000, commentsMtime: null });
+    const meta = useStore.getState().fileMetaByPath["/a.md"];
+    expect(meta).toEqual({ fileMtime: 1700000000000, commentsMtime: null });
+  });
+
+  it("setFileMeta merges partial updates without clobbering", () => {
+    useStore.getState().setFileMeta("/a.md", { sizeBytes: 10 });
+    useStore.getState().setFileMeta("/a.md", { fileMtime: 123 });
+    const meta = useStore.getState().fileMetaByPath["/a.md"];
+    expect(meta).toEqual({ sizeBytes: 10, fileMtime: 123 });
+  });
+
+  it("mixes legacy positional and patch calls for the same path", () => {
+    useStore.getState().setFileMeta("/a.md", 999, 42);
+    useStore.getState().setFileMeta("/a.md", { commentsMtime: 1700000000001 });
+    const meta = useStore.getState().fileMetaByPath["/a.md"];
+    expect(meta).toEqual({
+      sizeBytes: 999,
+      lineCount: 42,
+      commentsMtime: 1700000000001,
+    });
+  });
+});

@@ -173,7 +173,7 @@ describe("ViewerToolbar", () => {
       });
       vi.mocked(invoke).mockImplementation(async (cmd, args) => {
         if (cmd === "get_file_comments") {
-          return [];
+          return { threads: [], sidecar_mtime_ms: null };
         }
         if (cmd === "get_file_badges") {
           // The action's own follow-up badge query (slice still uses IPC).
