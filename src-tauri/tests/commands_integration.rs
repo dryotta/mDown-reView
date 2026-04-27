@@ -44,23 +44,26 @@ fn read_text_file_rejects_binary() {
 #[test]
 fn read_text_file_returns_mtime_ms() {
     // Issue #96 group A: read_text_file piggybacks an mtime so callers
-    // can detect external edits without a separate stat_file IPC. Asserts
-    // presence + sane bounds (within ±60 s of "now") on platforms that
-    // expose mtime; intentionally tolerant of None on exotic FS.
+    // can detect external edits without a separate stat_file IPC. The
+    // companion `sidecar_mtime_piggyback::returns_mtime_after_sidecar_write`
+    // test asserts mtime presence with `.expect(...)`; mirror that here so
+    // a regression on supported FS (Linux/macOS/Windows CI runners) fails
+    // loudly instead of being silently skipped by `if let Some(...)`.
     let mut tmp = tempfile::NamedTempFile::new().unwrap();
     writeln!(tmp, "hello").unwrap();
     let path = tmp.path().to_str().unwrap().to_string();
     let result = read_text_file(path).unwrap();
-    if let Some(mtime_ms) = result.mtime_ms {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
-        assert!(
-            (now_ms - mtime_ms).abs() < 60_000,
-            "mtime_ms ({mtime_ms}) should be within 60s of now ({now_ms})"
-        );
-    }
+    let mtime_ms = result
+        .mtime_ms
+        .expect("read_text_file must return mtime_ms on supported FS");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    assert!(
+        (now_ms - mtime_ms).abs() < 60_000,
+        "mtime_ms ({mtime_ms}) should be within 60s of now ({now_ms})"
+    );
 }
 
 #[test]

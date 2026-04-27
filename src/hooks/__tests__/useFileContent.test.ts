@@ -251,4 +251,48 @@ describe("useFileContent", () => {
     await act(async () => { resolveSecond!(tfr("updated")); });
     expect(result.current.content).toBe("updated");
   });
+
+  it("writes fileMtime + sizeBytes to FileMeta on too-large path", async () => {
+    // Fix 4 (issue #96): the binary / too-large path must mirror the
+    // text-success path and propagate sizeBytes + mtime to the FileMeta
+    // cache so StatusBar can render mtime for placeholder previews too.
+    vi.mocked(commands.readTextFile).mockRejectedValue("file_too_large: /path/huge.bin");
+    vi.mocked(commands.statFile).mockResolvedValue({
+      size_bytes: 99_999_999,
+      mtime_ms: 1_700_000_000_000,
+    });
+
+    const { result } = renderHook(() => useFileContent("/path/huge.bin"));
+    await act(async () => {});
+    // Let the follow-up statFile().then chain settle.
+    await act(async () => {});
+
+    expect(result.current.status).toBe("too_large");
+    expect(result.current.sizeBytes).toBe(99_999_999);
+    expect(result.current.mtimeMs).toBe(1_700_000_000_000);
+
+    const meta = useStore.getState().fileMetaByPath["/path/huge.bin"];
+    expect(meta?.fileMtime).toBe(1_700_000_000_000);
+    expect(meta?.sizeBytes).toBe(99_999_999);
+    // lineCount is intentionally NOT set on the too-large/binary path —
+    // there is no decoded text to count lines on.
+    expect(meta?.lineCount).toBeUndefined();
+  });
+
+  it("writes fileMtime + sizeBytes to FileMeta on binary path", async () => {
+    vi.mocked(commands.readTextFile).mockRejectedValue("binary_file: /path/img.bin");
+    vi.mocked(commands.statFile).mockResolvedValue({
+      size_bytes: 4096,
+      mtime_ms: 1_700_000_000_500,
+    });
+
+    const { result } = renderHook(() => useFileContent("/path/img.bin"));
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(result.current.status).toBe("binary");
+    const meta = useStore.getState().fileMetaByPath["/path/img.bin"];
+    expect(meta?.fileMtime).toBe(1_700_000_000_500);
+    expect(meta?.sizeBytes).toBe(4096);
+  });
 });

@@ -97,6 +97,18 @@ describe("tabs slice – closeTab", () => {
     useStore.getState().closeTab("/a.md");
     expect(useStore.getState().activeTabPath).toBe("/b.md");
   });
+
+  it("closeTab evicts fileMetaByPath entry for the closed path", () => {
+    useStore.getState().openFile("/a.md");
+    useStore.getState().openFile("/b.md");
+    useStore.getState().setFileMeta("/a.md", { fileMtime: 111 });
+    useStore.getState().setFileMeta("/b.md", { fileMtime: 222 });
+    useStore.getState().closeTab("/a.md");
+    const meta = useStore.getState().fileMetaByPath;
+    expect(meta["/a.md"]).toBeUndefined();
+    // Sibling entry must survive an unrelated closeTab.
+    expect(meta["/b.md"]).toEqual({ fileMtime: 222 });
+  });
 });
 
 describe("tabs slice – setScrollTop", () => {
@@ -151,6 +163,15 @@ describe("tabs slice – closeAllTabs", () => {
     useStore.getState().closeAllTabs();
     expect(useStore.getState().tabs).toHaveLength(0);
     expect(useStore.getState().activeTabPath).toBeNull();
+  });
+
+  it("closeAllTabs clears fileMetaByPath", () => {
+    useStore.getState().openFile("/a.md");
+    useStore.getState().openFile("/b.md");
+    useStore.getState().setFileMeta("/a.md", { fileMtime: 111 });
+    useStore.getState().setFileMeta("/b.md", { fileMtime: 222 });
+    useStore.getState().closeAllTabs();
+    expect(useStore.getState().fileMetaByPath).toEqual({});
   });
 });
 

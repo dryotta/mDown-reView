@@ -98,6 +98,21 @@ describe("tabs slice — LRU eviction (MAX_TABS)", () => {
     expect(s.lastSaveByPath["/p1.md"]).toBeUndefined();
   });
 
+  it("MAX_TABS overflow evicts fileMetaByPath entry for the evicted tab", () => {
+    const store = useStore.getState();
+    // Open p1 first and seed its FileMeta — it will be the LRU eviction candidate.
+    store.openFile("/p1.md");
+    useStore.getState().setFileMeta("/p1.md", { fileMtime: 9999 });
+    for (let i = 2; i <= MAX_TABS; i++) {
+      useStore.getState().openFile(`/p${i}.md`);
+    }
+    // One more open triggers eviction of the LRU non-active tab (p1).
+    useStore.getState().openFile(`/p${MAX_TABS + 1}.md`);
+    const s = useStore.getState();
+    expect(s.tabs.find((t) => t.path === "/p1.md")).toBeUndefined();
+    expect(s.fileMetaByPath["/p1.md"]).toBeUndefined();
+  });
+
 });
 
 describe("filterStaleTabs — MAX_TABS rehydration cap", () => {

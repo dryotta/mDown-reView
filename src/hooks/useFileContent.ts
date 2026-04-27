@@ -89,7 +89,16 @@ export function useFileContent(path: string): FileContent {
           setState({ status });
           statFile(path)
             .then((s) => {
-              if (!cancelled) setState({ status, sizeBytes: s.size_bytes, mtimeMs: s.mtime_ms ?? null });
+              if (cancelled) return;
+              setState({ status, sizeBytes: s.size_bytes, mtimeMs: s.mtime_ms ?? null });
+              // Mirror the text-success path: propagate sizeBytes + mtime to
+              // the FileMeta cache so StatusBar can render mtime for binary /
+              // too-large files too. lineCount is intentionally omitted —
+              // there's no decoded text to count lines on.
+              useStore.getState().setFileMeta(path, {
+                sizeBytes: s.size_bytes,
+                fileMtime: s.mtime_ms ?? undefined,
+              });
             })
             .catch(() => {
               /* keep placeholder without size on stat failure */
