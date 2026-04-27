@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { getFileCategory, hasVisualization, getDefaultView, getShikiLanguage, getFoldLanguage, getFiletypeKey } from "@/lib/file-types";
+import { bundledLanguages } from "shiki";
+import {
+  getFileCategory,
+  hasVisualization,
+  getDefaultView,
+  getShikiLanguage,
+  getFoldLanguage,
+  getFiletypeKey,
+  SHIKI_LANGUAGE_MAP_FOR_TEST,
+  BASENAME_MAP_FOR_TEST,
+} from "@/lib/file-types";
 
 describe("getFileCategory", () => {
   it("classifies markdown files", () => {
@@ -164,9 +174,10 @@ describe("getShikiLanguage", () => {
   });
 
   it("returns 'text' for unknown / missing extensions", () => {
-    expect(getShikiLanguage("Makefile")).toBe("text");
     expect(getShikiLanguage("data.unknownext")).toBe("text");
     expect(getShikiLanguage("noext")).toBe("text");
+    // `.m` is intentionally deferred (ambiguous: Objective-C / MATLAB / Mathematica)
+    expect(getShikiLanguage("foo.m")).toBe("text");
   });
 
   it("returns 'text' for .mdx (not in Shiki map even though it is a markdown category)", () => {
@@ -179,6 +190,61 @@ describe("getShikiLanguage", () => {
   it("is case-insensitive (extname lowercases)", () => {
     expect(getShikiLanguage("App.TS")).toBe("typescript");
     expect(getShikiLanguage("Q.KQL")).toBe("kql");
+  });
+
+  // Issue #94 — table-driven coverage for the expanded extension set. Spec
+  // acceptance criterion: every listed ext yields a non-`text` Shiki id and
+  // produces highlighted output.
+  it.each([
+    ["main.lua", "lua"], ["main.dart", "dart"],
+    ["main.scala", "scala"], ["main.zig", "zig"],
+    ["pkg.svelte", "svelte"], ["app.vue", "vue"], ["x.astro", "astro"],
+    ["main.tf", "terraform"], ["vars.tfvars", "terraform"],
+    ["main.hcl", "hcl"], ["schema.proto", "proto"],
+    ["build.gradle", "groovy"],   // .gradle = Groovy DSL
+    ["app.bicep", "bicep"], ["build.cmake", "cmake"],
+    ["query.graphql", "graphql"], ["q.gql", "graphql"],
+    ["schema.prisma", "prisma"], ["data.jsonc", "jsonc"],
+    ["patch.diff", "diff"], ["patch.patch", "diff"],
+    ["config.ini", "ini"], ["nginx.conf", "ini"], [".env.local.env", "ini"],
+    ["script.ps1", "powershell"],
+    ["analysis.r", "r"], ["build.groovy", "groovy"],
+    ["x.mm", "objective-cpp"],
+  ])("extension: %s -> %s", (path, expected) => {
+    expect(getShikiLanguage(path)).toBe(expected);
+  });
+
+  // Filename-only patterns (no recognisable extension) — issue #94.
+  it.each([
+    ["Dockerfile", "docker"],
+    ["a/b/Dockerfile", "docker"],
+    ["dockerfile", "docker"],
+    ["Containerfile", "docker"],
+    ["Makefile", "make"],
+    ["GNUmakefile", "make"],
+    ["CMakeLists.txt", "cmake"],
+    // Extension wins when present — no map entry for `.dockerfile`, so text.
+    ["foo.Dockerfile", "text"],
+    ["unknownfile", "text"],
+  ])("basename: %s -> %s", (path, expected) => {
+    expect(getShikiLanguage(path)).toBe(expected);
+  });
+
+  // Runtime guard — every value of either map MUST be a Shiki bundled
+  // language id (or the special `kql` id which we register from a custom
+  // TextMate grammar). This catches typos and Shiki-version drift; without
+  // it, bad ids silently degrade to `text` because `loadLanguage(...).catch`
+  // swallows errors in `useSourceHighlighting`.
+  it("only maps to Shiki bundled language ids (or custom kql)", () => {
+    const bundled = new Set(Object.keys(bundledLanguages));
+    for (const value of Object.values(SHIKI_LANGUAGE_MAP_FOR_TEST)) {
+      if (value === "kql") continue;
+      expect(bundled, `SHIKI_LANGUAGE_MAP value "${value}"`).toContain(value);
+    }
+    for (const value of Object.values(BASENAME_MAP_FOR_TEST)) {
+      if (value === "kql") continue;
+      expect(bundled, `BASENAME_MAP value "${value}"`).toContain(value);
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { extname } from "@/lib/path-utils";
+import { basename, extname } from "@/lib/path-utils";
 
 export type FileCategory =
   | "markdown"
@@ -121,19 +121,82 @@ export function getDefaultView(category: FileCategory): "source" | "visual" {
 // the Rust fold-region detector (`src-tauri/src/core/fold_regions.rs`), which
 // recognises both `python`/`py` and `yaml`/`yml` for its indent-language hint,
 // so this single table serves both syntax highlighting and folding.
+//
+// Every value here MUST be either a key of Shiki's `bundledLanguages` (so
+// `loadLanguage(id)` succeeds at runtime) or the special `kql` id which is
+// registered separately from `kql.tmLanguage.json`. The runtime guard test
+// in `src/lib/__tests__/file-types.test.ts` enforces this — a typo or
+// Shiki-version drift fails fast there instead of silently degrading to
+// `text` (Shiki swallows `loadLanguage` errors).
+//
+// `.m` is intentionally NOT mapped: ambiguous between Objective-C, MATLAB,
+// and Mathematica. Falls back to `text` until product picks a default.
+// Niche languages (clj, hs, elm, ml, fs, nim, cr, jl, tex, vim, pl) are
+// deferred to keep the table tight; re-add only on user request.
+//
+// Aliases that Shiki does not bundle directly:
+// - `.gradle` → `groovy`     (Gradle DSL is Groovy)
+// - `.conf`/`.env` → `ini`   (close-enough syntax for highlighting)
 const SHIKI_LANGUAGE_MAP: Record<string, string> = {
+  // TS / JS family
   ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+  // Mainstream languages
   py: "python", rs: "rust", go: "go", java: "java",
-  c: "c", cpp: "cpp", h: "c", css: "css", html: "html",
-  json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
-  sh: "bash", bash: "bash", md: "markdown", sql: "sql",
-  rb: "ruby", php: "php", swift: "swift", kt: "kotlin", cs: "csharp",
-  xml: "xml", kql: "kql", csl: "kql",
+  c: "c", cpp: "cpp", h: "c", cs: "csharp", swift: "swift", kt: "kotlin",
+  rb: "ruby", php: "php", lua: "lua", dart: "dart", scala: "scala", zig: "zig",
+  r: "r", groovy: "groovy",
+  // Web / app frameworks
+  css: "css", html: "html", svelte: "svelte", vue: "vue", astro: "astro",
+  graphql: "graphql", gql: "graphql", prisma: "prisma",
+  // Data / config
+  json: "json", jsonc: "jsonc", yaml: "yaml", yml: "yaml", toml: "toml",
+  xml: "xml", ini: "ini", conf: "ini", env: "ini",
+  // Shells / scripts
+  sh: "bash", bash: "bash", ps1: "powershell",
+  // Docs / misc
+  md: "markdown", sql: "sql",
+  // Infra / config
+  tf: "terraform", tfvars: "terraform", hcl: "hcl",
+  proto: "proto", gradle: "groovy", cmake: "cmake", bicep: "bicep",
+  diff: "diff", patch: "diff",
+  // Apple
+  mm: "objective-cpp",
+  // KQL — registered separately via custom TextMate grammar
+  kql: "kql", csl: "kql",
 };
 
+// Filename-only patterns matched when there is no recognisable extension.
+// Lookups are case-insensitive (`Dockerfile`/`dockerfile`). Extensions WIN
+// when present — `foo.Dockerfile` falls through to extension lookup (which
+// has no `.dockerfile` entry) and ends up as `text`.
+const BASENAME_MAP: Record<string, string> = {
+  dockerfile: "docker",
+  containerfile: "docker",
+  makefile: "make",
+  gnumakefile: "make",
+  "cmakelists.txt": "cmake",
+};
+
+// Exported for the runtime guard test (file-types.test.ts) which verifies
+// every value is a key of Shiki's `bundledLanguages` (or `kql`).
+export const SHIKI_LANGUAGE_MAP_FOR_TEST: Readonly<Record<string, string>> = SHIKI_LANGUAGE_MAP;
+export const BASENAME_MAP_FOR_TEST: Readonly<Record<string, string>> = BASENAME_MAP;
+
 export function getShikiLanguage(path: string): string {
+  // Filename-only patterns take precedence — `CMakeLists.txt` is in the
+  // basename map even though `.txt` has no extension entry, and bare
+  // `Dockerfile`/`Makefile` have no extension at all. Lookups are
+  // case-insensitive. Files like `foo.Dockerfile` (basename
+  // `foo.dockerfile`, lowercase) are NOT in the map and fall through to
+  // the extension lookup — which has no `.dockerfile` entry, yielding
+  // `text`. This preserves the spec rule that genuine extensions win when
+  // present.
+  const base = basename(path).toLowerCase();
+  const fromBase = BASENAME_MAP[base];
+  if (fromBase) return fromBase;
+
   const ext = extname(path).slice(1);
-  return SHIKI_LANGUAGE_MAP[ext] ?? "text";
+  return ext ? (SHIKI_LANGUAGE_MAP[ext] ?? "text") : "text";
 }
 
 // Fold-region language hint. Currently identical to the Shiki id space — the

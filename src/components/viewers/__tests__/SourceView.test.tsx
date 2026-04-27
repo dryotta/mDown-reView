@@ -4,12 +4,21 @@ import { SourceView } from "../SourceView";
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
-    codeToHtml: vi.fn().mockImplementation((code: string) => {
+    codeToTokens: vi.fn().mockImplementation((code: string) => {
       const lines = code.split("\n");
-      const lineSpans = lines.map(() => '<span class="line">highlighted</span>').join("\n");
-      return `<pre class="shiki"><code>${lineSpans}</code></pre>`;
+      // No color/fontStyle → tokenToSpan emits the raw content (no <span>),
+      // so existing assertions on `.source-line-content` innerHTML still
+      // see the literal token text.
+      return {
+        tokens: lines.map(() => [{ content: "highlighted", color: "", fontStyle: 0 }]),
+        fg: "#000",
+        bg: "#fff",
+        themeName: "github-light",
+        rootStyle: undefined,
+        grammarState: undefined,
+      };
     }),
-    getLoadedLanguages: vi.fn().mockReturnValue([]),
+    getLoadedLanguages: vi.fn().mockReturnValue(["typescript", "python", "text"]),
     loadLanguage: vi.fn().mockResolvedValue(undefined),
   }),
 }));
