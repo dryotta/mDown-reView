@@ -52,13 +52,15 @@ export default function App() {
   useUpdateProgress();
 
   const [aboutOpen, setAboutOpen] = useState(false);
-  // settingsOpen lives in the store (B5/B6/B10): menu listeners and the
-  // Welcome/toolbar entry points all dispatch through `openSettings`, and the
-  // no-tab branch swaps in <SettingsView/> when this flips true.
-  const settingsOpen = useStore((s) => s.settingsOpen);
-  // Forward-fix B1: the legacy author/preferences dialog has its own flag so
-  // it can never co-mount with SettingsView (which `<dialog>.showModal()`
-  // would otherwise inert).
+  // Settings surface (issue #116): the inline page (`<SettingsView/>`) is
+  // gated by a discriminated-union `settingsSurface` ('closed' | 'inline'),
+  // while the author/preferences dialog launched FROM INSIDE that page is a
+  // separate boolean (`authorDialogOpen`). They are intentionally
+  // independent — the dialog layers OVER the inline page, so opening it
+  // must not unmount SettingsView. Each mount site has its own gate
+  // identifier, satisfying lint rule `local/no-shared-boolean-mount`.
+  // See docs/architecture.md rules 16 & 28.
+  const settingsSurface = useStore((s) => s.settingsSurface);
   const authorDialogOpen = useStore((s) => s.authorDialogOpen);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -236,7 +238,7 @@ export default function App() {
 
         <div className="viewer-area">
           <ErrorBoundary>
-            {settingsOpen ? (
+            {settingsSurface === "inline" ? (
               <SettingsView />
             ) : activeTabPath ? (
               <ViewerRouter path={activeTabPath} />
@@ -258,8 +260,9 @@ export default function App() {
       </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
-      {/* Legacy author/preferences dialog. Reachable from SettingsView footer
-          link until folded into SettingsView. */}
+      {/* Author/preferences dialog. Reachable from the SettingsView footer
+          link; layers OVER the inline page (rule 28: each mount site has
+          its own gate identifier). */}
       {authorDialogOpen && <SettingsDialog onClose={() => useStore.getState().closeAuthorDialog()} />}
     </div>
   );

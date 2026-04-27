@@ -137,6 +137,12 @@ interface RecentSlice {
 
 // ── Onboarding slice ──────────────────────────────────────────────────────
 
+/**
+ * Page-level Settings surface state. See the `settingsSurface` field on
+ * `OnboardingSlice` and docs/architecture.md rule 28.
+ */
+export type SettingsSurface = "closed" | "inline";
+
 export type OnboardingStatus = "pending" | "done" | "unsupported" | "error";
 
 export interface OnboardingStatuses {
@@ -153,19 +159,35 @@ interface OnboardingSlice {
   onboardingStatuses: OnboardingStatuses;
   onboardingState: OnboardingState | null;
   onboardingErrors: Record<string, string>;
-  // Panel visibility (transient, not persisted)
-  settingsOpen: boolean;
   /**
-   * Transient flag for the legacy author/preferences dialog (B1 forward-fix).
-   * Decoupled from `settingsOpen` so opening SettingsView never simultaneously
-   * mounts the modal `<SettingsDialog>`, whose `showModal()` would `inert` the
-   * region and block all interaction with the new surface.
+   * Page-level Settings surface (issue #116).
+   *
+   * - `'closed'` — no `<SettingsView/>` mounted.
+   * - `'inline'` — `<SettingsView/>` mounted in the viewer area (replaces
+   *   the WelcomeView / ViewerRouter).
+   *
+   * The author preferences dialog is a separate boolean
+   * (`authorDialogOpen`) because it layers over the inline page (rule 28
+   * is still satisfied because each surface has its own gate
+   * identifier). See docs/architecture.md rules 16 & 28.
+   */
+  settingsSurface: SettingsSurface;
+  /**
+   * Modal author/preferences dialog visibility (issue #116).
+   *
+   * `<SettingsDialog/>` is a CHILD MODAL launched from the
+   * "Author & preferences…" footer link inside `<SettingsView/>`. It
+   * deliberately layers OVER the inline page — opening or closing it
+   * must not unmount the page underneath, so it owns its own boolean
+   * rather than being folded into `settingsSurface`.
    */
   authorDialogOpen: boolean;
   // Actions
   refreshOnboarding: () => Promise<void>;
+  setSettingsSurface: (surface: SettingsSurface) => void;
   openSettings: () => void;
   closeSettings: () => void;
+  setAuthorDialogOpen: (open: boolean) => void;
   openAuthorDialog: () => void;
   closeAuthorDialog: () => void;
   installCliShim: () => Promise<void>;
@@ -277,7 +299,7 @@ export const useStore = create<Store>()(
       onboardingStatuses: { cliShim: "pending", defaultHandler: "pending", folderContext: "pending" },
       onboardingState: null,
       onboardingErrors: {},
-      settingsOpen: false,
+      settingsSurface: "closed",
       authorDialogOpen: false,
       refreshOnboarding: async () => {
         const [cli, def, folder, state] = await Promise.allSettled([
@@ -311,8 +333,10 @@ export const useStore = create<Store>()(
           onboardingErrors: errors,
         });
       },
-      openSettings: () => set({ settingsOpen: true }),
-      closeSettings: () => set({ settingsOpen: false }),
+      setSettingsSurface: (surface) => set({ settingsSurface: surface }),
+      openSettings: () => set({ settingsSurface: "inline" }),
+      closeSettings: () => set({ settingsSurface: "closed" }),
+      setAuthorDialogOpen: (open) => set({ authorDialogOpen: open }),
       openAuthorDialog: () => set({ authorDialogOpen: true }),
       closeAuthorDialog: () => set({ authorDialogOpen: false }),
       installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),

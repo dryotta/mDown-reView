@@ -90,6 +90,13 @@ vi.mock("@/components/WelcomeView", () => ({
 vi.mock("@/components/SettingsView", () => ({
   SettingsView: () => <div data-testid="settings-view" />,
 }));
+vi.mock("@/components/SettingsDialog", () => ({
+  SettingsDialog: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="settings-dialog">
+      <button onClick={onClose}>close-settings-dialog</button>
+    </div>
+  ),
+}));
 vi.mock("@/components/Icons", () => ({
   IconFile: () => <span data-testid="icon-file" />,
   IconFolder: () => <span data-testid="icon-folder" />,
@@ -156,23 +163,23 @@ describe("App – toolbar rendering", () => {
     expect(screen.getByTestId("welcome-view")).toBeInTheDocument();
   });
 
-  it("renders SettingsView (not WelcomeView) when no active tab and settingsOpen=true", async () => {
-    useStore.setState({ settingsOpen: true });
+  it("renders SettingsView (not WelcomeView) when no active tab and settingsSurface='inline'", async () => {
+    useStore.setState({ settingsSurface: "inline" });
     await renderApp();
     expect(screen.getByTestId("settings-view")).toBeInTheDocument();
     expect(screen.queryByTestId("welcome-view")).not.toBeInTheDocument();
   });
 
-  it("renders WelcomeView (no SettingsView) when no active tab and settingsOpen=false", async () => {
-    useStore.setState({ settingsOpen: false });
+  it("renders WelcomeView (no SettingsView) when no active tab and settingsSurface='closed'", async () => {
+    useStore.setState({ settingsSurface: "closed" });
     await renderApp();
     expect(screen.getByTestId("welcome-view")).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
   });
 
-  it("renders SettingsView even when an active tab is open (settingsOpen wins over the viewer — B2)", async () => {
+  it("renders SettingsView even when an active tab is open (settingsSurface='inline' wins over the viewer — B2)", async () => {
     useStore.setState({
-      settingsOpen: true,
+      settingsSurface: "inline",
       tabs: [{ path: "/foo.md", scrollTop: 0 }],
       activeTabPath: "/foo.md",
     });
@@ -483,3 +490,4 @@ describe("App – menu event listeners", () => {
     expect(screen.getByTestId("about-dialog")).toBeInTheDocument();
   });
 });
+

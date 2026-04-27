@@ -8,7 +8,7 @@ Every row reflects **live OS state** rather than a stored "I clicked this once" 
 
 ## How it works
 
-- **Routing.** `App.tsx` renders `<SettingsView />` whenever `settingsOpen === true` — even if a tab is open. The viewer is hidden behind it. Closing Settings (Esc, ×, or the toolbar gear toggling off) returns the user to the previously-active tab.
+- **Routing.** `App.tsx` renders `<SettingsView />` whenever `settingsSurface === 'inline'` — even if a tab is open. The viewer is hidden behind it. Closing Settings (Esc, ×, or the toolbar gear toggling off) returns the user to the previously-active tab.
 - **Region semantics.** `<SettingsView>` is a `<div role="region" aria-label="Settings">`, NOT a `<dialog>`. There is no backdrop, no focus trap, and no `inert`-ing of the surrounding chrome — clicking the toolbar gear or pressing Esc dismisses it.
 - **One IPC command** drives the persisted state (`onboarding_state` — schema-versioned `OnboardingState` blob at `app_config_dir/onboarding.json`). Live status reads (`cli_shim_status`, `default_handler_status`, `folder_context_status`) and the action mutators (`install_cli_shim`, `remove_cli_shim`, `set_default_handler`, `register_folder_context`, `unregister_folder_context`) are documented in [installation.md](installation.md).
 - **Per-row local pending state.** The store models *outcome* (status + formatted error). Transient action progress is tracked in `useState` inside `SettingsView` so two rows can be in-flight independently.
@@ -21,7 +21,7 @@ Every row reflects **live OS state** rather than a stored "I clicked this once" 
 | **Toolbar gear** | `src/App.tsx` (`.toolbar` block) | Calls `openSettings()` on the store. |
 | **Native menu — Help → Settings…** | `src-tauri/src/lib.rs` (`help-settings` MenuItem) → `useMenuListeners` (`menu-help-settings`) | Same store action. |
 | **WelcomeView link** | `src/components/WelcomeView.tsx` ("Set up CLI, file associations, and agent integration → Settings") | Visible whenever no tab is open. |
-| **No-tab default? No.** | `src/App.tsx` routing | The no-tab area shows `<WelcomeView>` by default and `<SettingsView>` only when `settingsOpen=true`. Settings is opt-in, not the landing page. |
+| **No-tab default? No.** | `src/App.tsx` routing | The no-tab area shows `<WelcomeView>` by default and `<SettingsView>` only when `settingsSurface === 'inline'`. Settings is opt-in, not the landing page. |
 
 ## Rows
 
@@ -41,13 +41,13 @@ Each row carries: the title, a one-line description, a status badge (`installed`
 
 ## Author / preferences dialog (legacy)
 
-The legacy `<SettingsDialog>` (display-name editor backed by `set_author`/`get_author`) is reachable from a footer link inside `SettingsView` ("Author & preferences…"). It is gated by an independent `authorDialogOpen` flag so it can never co-mount with `SettingsView` — `<dialog>.showModal()` would otherwise mark every element outside the dialog as inert and block all interaction with the new region.
+The legacy `<SettingsDialog>` (display-name editor backed by `set_author`/`get_author`) is reachable from a footer link inside `SettingsView` ("Author & preferences…"). It is gated by an independent `authorDialogOpen` boolean so it can layer OVER the inline page without unmounting it — opening the dialog must NOT drop the user back to Welcome/Viewer when they dismiss it.
 
 ## Key source
 
 - `src/components/SettingsView.tsx` — the region component
 - `src/styles/settings-view.css` — `.settings-view` / `.settings-row` / `.settings-switch` / `.settings-footer-link`
-- `src/store/index.ts` — `OnboardingSlice` (statuses, errors, `settingsOpen`, `authorDialogOpen`, action wrappers)
+- `src/store/index.ts` — `OnboardingSlice` (statuses, errors, `settingsSurface`, `authorDialogOpen`, action wrappers)
 - `src/lib/tauri-commands.ts` — typed IPC wrappers for `onboarding_state`, the three `*_status` reads, and the five action mutators
 - `src-tauri/src/commands/onboarding.rs` — single IPC command (`onboarding_state`)
 - `src-tauri/src/core/onboarding.rs` — schema-versioned persisted state

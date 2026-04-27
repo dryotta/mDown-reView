@@ -1,0 +1,197 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, act } from "@testing-library/react";
+import { useStore } from "@/store";
+import type { SettingsSurface } from "@/store";
+
+/**
+ * Issue #116 — Settings surface mount-gating regression test.
+ *
+ * Architecture (post-forward-fix): `<SettingsView/>` is the page-level
+ * surface, gated by `settingsSurface === 'inline'`. `<SettingsDialog/>`
+ * is a CHILD MODAL launched from the SettingsView footer link, gated by
+ * a separate `authorDialogOpen` boolean. The two surfaces are
+ * INTENTIONALLY independent and DO co-mount (page underneath, modal on
+ * top) — opening the dialog must not unmount SettingsView, otherwise
+ * dismissing the dialog would drop the user back to Welcome/Viewer.
+ *
+ * Lint-rule oracle: the synthetic-regression coverage (a fixture asserting
+ * that the pre-fix `{settingsOpen && <SettingsView/>}{settingsOpen &&
+ * <SettingsDialog/>}` shape produces ≥1 violation) lives in the dedicated
+ * RuleTester suite at `eslint-rules/no-shared-boolean-mount.test.js`.
+ * Each mount site here uses its own gate identifier, satisfying rule 28.
+ */
+
+// Same window stubs / mocks as App.test.tsx — kept self-contained so a
+// future split of the App test file doesn't accidentally orphan this one.
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
+
+vi.mock("@tauri-apps/api/core");
+vi.mock("@/logger");
+
+vi.mock("@/lib/tauri-events", () => ({
+  listenEvent: vi.fn(() => Promise.resolve(() => {})),
+}));
+
+vi.mock("@/lib/tauri-commands", () => ({
+  getLaunchArgs: vi.fn().mockResolvedValue({ files: [], folders: [] }),
+  showOpenDialog: vi.fn().mockResolvedValue(null),
+  cliShimStatus: vi.fn().mockResolvedValue("missing"),
+  defaultHandlerStatus: vi.fn().mockResolvedValue("unknown"),
+  folderContextStatus: vi.fn().mockResolvedValue("missing"),
+  onboardingState: vi.fn().mockResolvedValue({ schema_version: 1, last_seen_sections: [] }),
+  installCliShim: vi.fn().mockResolvedValue(undefined),
+  removeCliShim: vi.fn().mockResolvedValue(undefined),
+  setDefaultHandler: vi.fn().mockResolvedValue(undefined),
+  registerFolderContext: vi.fn().mockResolvedValue(undefined),
+  unregisterFolderContext: vi.fn().mockResolvedValue(undefined),
+  getAppVersion: vi.fn().mockResolvedValue("0.0.0-test"),
+  getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
+  getAuthor: vi.fn().mockResolvedValue("Test User"),
+  setAuthor: vi.fn().mockResolvedValue("Test User"),
+}));
+
+vi.mock("@/hooks/useFileWatcher", () => ({ useFileWatcher: () => {} }));
+
+vi.mock("@/components/FolderTree/FolderTree", () => ({
+  FolderTree: () => <div data-testid="folder-tree" />,
+}));
+vi.mock("@/components/TabBar/TabBar", () => ({
+  TabBar: () => <div data-testid="tab-bar" />,
+}));
+vi.mock("@/components/StatusBar/StatusBar", () => ({
+  StatusBar: () => <div data-testid="status-bar" />,
+}));
+vi.mock("@/components/viewers/ViewerRouter", () => ({
+  ViewerRouter: ({ path }: { path: string }) => <div data-testid="viewer-router">{path}</div>,
+}));
+vi.mock("@/components/comments/CommentsPanel", () => ({
+  CommentsPanel: () => <div data-testid="comments-panel" />,
+}));
+vi.mock("@/components/AboutDialog", () => ({ AboutDialog: () => null }));
+vi.mock("@/components/ErrorBoundary", () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/components/UpdateBanner", () => ({ UpdateBanner: () => null }));
+vi.mock("@/components/WelcomeView", () => ({
+  WelcomeView: () => <div data-testid="welcome-view" />,
+}));
+vi.mock("@/components/SettingsView", () => ({
+  SettingsView: () => <div data-testid="settings-view" />,
+}));
+vi.mock("@/components/SettingsDialog", () => ({
+  SettingsDialog: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="settings-dialog">
+      <button onClick={onClose}>close</button>
+    </div>
+  ),
+}));
+vi.mock("@/components/Icons", () => ({
+  IconFile: () => <span />,
+  IconFolder: () => <span />,
+  IconComment: () => <span />,
+  IconSettings: () => <span />,
+}));
+
+import App from "@/App";
+
+const initialState = useStore.getState();
+
+beforeEach(() => {
+  useStore.setState(initialState, true);
+  vi.clearAllMocks();
+});
+
+async function renderApp() {
+  await act(async () => {
+    render(<App />);
+  });
+}
+
+describe("settings surface mount gating (issue #116)", () => {
+  // SettingsView gating depends only on settingsSurface.
+  const viewCases: { surface: SettingsSurface; view: boolean }[] = [
+    { surface: "closed", view: false },
+    { surface: "inline", view: true },
+  ];
+
+  for (const { surface, view } of viewCases) {
+    it(`settingsSurface='${surface}' mounts SettingsView=${view}`, async () => {
+      useStore.setState({ settingsSurface: surface, authorDialogOpen: false });
+      await renderApp();
+      expect(Boolean(screen.queryByTestId("settings-view"))).toBe(view);
+    });
+  }
+
+  // SettingsDialog gating depends only on authorDialogOpen.
+  it("SettingsDialog mounts iff authorDialogOpen === true", async () => {
+    useStore.setState({ settingsSurface: "closed", authorDialogOpen: false });
+    await renderApp();
+    expect(screen.queryByTestId("settings-dialog")).toBeNull();
+  });
+
+  it("SettingsDialog mounts when authorDialogOpen === true", async () => {
+    useStore.setState({ settingsSurface: "closed", authorDialogOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+  });
+
+  // The architect-flagged regression: the dialog is a CHILD MODAL launched
+  // from inside SettingsView. Flipping authorDialogOpen must NOT unmount
+  // SettingsView — otherwise dismissing the dialog drops the user back to
+  // Welcome/Viewer. Both surfaces SHOULD render together (page + modal).
+  it("SettingsView REMAINS MOUNTED when authorDialogOpen flips to true (page + modal co-render)", async () => {
+    useStore.setState({ settingsSurface: "inline", authorDialogOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+  });
+
+  // Architect-suggested supplementary regression: open then close the modal
+  // must leave SettingsView mounted (the original UX the forward-fix preserved).
+  it("closing authorDialog returns to inline SettingsView, not to Welcome (rule 28 child-modal exception)", async () => {
+    useStore.setState({ settingsSurface: "inline", authorDialogOpen: true });
+    await renderApp();
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+    await act(async () => {
+      useStore.getState().closeAuthorDialog();
+    });
+    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-dialog")).not.toBeInTheDocument();
+    expect(useStore.getState().settingsSurface).toBe("inline");
+  });
+
+  // AC6 synthetic-regression mirror: the spec asks for a test that fails when
+  // a shared boolean is re-introduced. The runtime can no longer express the
+  // pre-fix shape (settingsOpen was deleted), so we co-locate a lint-rule
+  // verification here so a future test-file split keeps the AC6 oracle
+  // adjacent to the App regression. Authoritative copy lives in
+  // eslint-rules/no-shared-boolean-mount.test.js.
+  it("AC6 synthetic regression: pre-fix shared-boolean shape trips lint rule 28", async () => {
+    const { Linter } = await import("eslint");
+    const rule = (await import("../../eslint-rules/no-shared-boolean-mount.js" as string)).default;
+    const linter = new Linter();
+    const code =
+      "const X = () => <div>{settingsOpen && <SettingsView/>}{settingsOpen && <SettingsDialog/>}</div>;";
+    const messages = linter.verify(code, {
+      plugins: { local: { rules: { "no-shared-boolean-mount": rule } } },
+      rules: { "local/no-shared-boolean-mount": "error" },
+      languageOptions: {
+        parserOptions: { ecmaVersion: 2022, sourceType: "module", ecmaFeatures: { jsx: true } },
+      },
+    });
+    expect(messages.filter((m) => m.ruleId === "local/no-shared-boolean-mount")).toHaveLength(2);
+  });
+});
