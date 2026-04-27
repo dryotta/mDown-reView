@@ -82,4 +82,46 @@ describe("Shiki integration (real, not mocked)", () => {
     // Line 2: "function" should be colored
     expect(htmlLines[1]).toContain("function");
   });
+
+  it("tsx language loads and produces colored tokens (#206)", async () => {
+    const hl = await createHighlighter({
+      themes: ["github-light", "github-dark"],
+      langs: [],
+    });
+
+    await hl.loadLanguage("tsx");
+    expect(hl.getLoadedLanguages()).toContain("tsx");
+
+    const html = hl.codeToHtml(
+      'import React from "react";\nconst App = () => <div>Hello</div>;',
+      { lang: "tsx", theme: "github-light" },
+    );
+
+    // Must contain at least one span with a non-default color style
+    expect(html).toMatch(/style="color:#[0-9a-fA-F]{3,6}"/);
+
+    // Keywords should be colored distinctly from plain text
+    // "import" is a keyword
+    expect(html).toContain('style="color:#D73A49"');
+
+    // JSX tag names should be colored
+    expect(html).toContain("div");
+  });
+
+  it("jsx language loads and produces colored tokens (#206)", async () => {
+    const hl = await createHighlighter({
+      themes: ["github-light"],
+      langs: [],
+    });
+
+    await hl.loadLanguage("jsx");
+    expect(hl.getLoadedLanguages()).toContain("jsx");
+
+    const html = hl.codeToHtml(
+      'const el = <span className="test">hi</span>;',
+      { lang: "jsx", theme: "github-light" },
+    );
+
+    expect(html).toMatch(/style="color:#[0-9a-fA-F]{3,6}"/);
+  });
 });

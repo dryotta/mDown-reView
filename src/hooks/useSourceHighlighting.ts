@@ -1,12 +1,44 @@
 import { useState, useEffect, useMemo, useDeferredValue } from "react";
-import { type BundledLanguage } from "shiki";
+import { type BundledLanguage, type Highlighter } from "shiki";
 import { getSharedHighlighter } from "@/lib/shiki";
 import { getShikiLanguage } from "@/lib/file-types";
 import { useTheme } from "@/hooks/useTheme";
+import { warn } from "@/logger";
 import kqlGrammar from "@/lib/kql.tmLanguage.json";
 
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const MAX_LOAD_RETRIES = 2;
+const RETRY_DELAY_MS = 150;
+
+/**
+ * Load a Shiki language grammar with retry. Dynamic imports for grammar
+ * files can fail transiently in the Tauri webview (#206), so we retry
+ * once after a short delay before falling back to "text".
+ */
+export async function loadLanguageWithRetry(
+  hl: Highlighter,
+  lang: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < MAX_LOAD_RETRIES; attempt++) {
+    try {
+      if (lang === "kql") {
+        await hl.loadLanguage({ name: "kql", ...kqlGrammar });
+      } else {
+        await hl.loadLanguage(lang as BundledLanguage);
+      }
+    } catch {
+      // loadLanguage can throw on invalid/unavailable grammars
+    }
+    if (hl.getLoadedLanguages().includes(lang)) return true;
+    if (attempt < MAX_LOAD_RETRIES - 1) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    }
+  }
+  warn(`[shiki] language "${lang}" failed to load after ${MAX_LOAD_RETRIES} attempts — falling back to plain text`);
+  return false;
 }
 
 export function useSourceHighlighting(content: string, path: string) {
@@ -27,18 +59,8 @@ export function useSourceHighlighting(content: string, path: string) {
         const loaded = hl.getLoadedLanguages();
         let effectiveLang = lang;
         if (!loaded.includes(lang) && lang !== "text") {
-          if (lang === "kql") {
-            await hl.loadLanguage({
-              name: "kql",
-              ...kqlGrammar,
-            }).catch(() => {});
-          } else {
-            await hl.loadLanguage(lang as BundledLanguage).catch(() => {});
-          }
-          // Verify loading succeeded; fall back to "text" if not (#181)
-          if (!hl.getLoadedLanguages().includes(lang)) {
-            effectiveLang = "text";
-          }
+          const ok = await loadLanguageWithRetry(hl, lang);
+          if (!ok) effectiveLang = "text";
         }
         if (cancelled) return;
         try {

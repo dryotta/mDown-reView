@@ -117,6 +117,65 @@ test.describe("Source view syntax highlighting (#181)", () => {
       `Expected multiple distinct token colors but found: ${[...colors].join(", ")}`,
     ).toBeGreaterThanOrEqual(2);
   });
+
+  test("TSX tokens render with non-default colors (#206)", async ({ page }) => {
+    const tsxContent = [
+      'import React from "react";',
+      "",
+      "interface Props { name: string; }",
+      "",
+      "export const App: React.FC<Props> = ({ name }) => {",
+      "  return <div className=\"app\">Hello {name}</div>;",
+      "};",
+    ].join("\n");
+
+    await page.addInitScript(
+      ({ dir, content }: { dir: string; content: string }) => {
+        window.__TAURI_IPC_MOCK__ = async (cmd: string) => {
+          if (cmd === "get_launch_args")
+            return { files: [], folders: [dir] };
+          if (cmd === "read_dir")
+            return [{ name: "App.tsx", path: `${dir}/App.tsx`, is_dir: false }];
+          if (cmd === "read_text_file") return content;
+          if (cmd === "load_review_comments") return null;
+          if (cmd === "save_review_comments") return null;
+          if (cmd === "get_log_path") return "/mock/log.log";
+          if (cmd === "get_file_comments")
+            return { threads: [], sidecar_mtime_ms: null };
+          return null;
+        };
+      },
+      { dir: FIXTURES_DIR, content: tsxContent },
+    );
+
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("App.tsx").click();
+
+    const sourceLines = page.locator(".source-line-content");
+    await expect(sourceLines.first()).toBeVisible();
+    await page.waitForTimeout(2000);
+
+    const coloredSpans = page.locator(
+      '.source-line-content span[style*="color:#"]',
+    );
+
+    const count = await coloredSpans.count();
+    expect(count).toBeGreaterThan(0);
+
+    const colors = new Set<string>();
+    for (let i = 0; i < Math.min(count, 20); i++) {
+      const style = await coloredSpans.nth(i).getAttribute("style");
+      if (style) {
+        const match = style.match(/color:\s*(#[0-9a-fA-F]{3,8})/);
+        if (match) colors.add(match[1].toLowerCase());
+      }
+    }
+
+    expect(
+      colors.size,
+      `Expected multiple distinct TSX token colors but found: ${[...colors].join(", ")}`,
+    ).toBeGreaterThanOrEqual(2);
+  });
 });
 
 test.describe("Markdown fenced code block highlighting (#181)", () => {

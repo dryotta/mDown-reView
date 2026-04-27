@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { useSourceHighlighting, escapeHtml } from "../useSourceHighlighting";
+import { useSourceHighlighting, escapeHtml, loadLanguageWithRetry } from "../useSourceHighlighting";
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
@@ -190,5 +190,50 @@ describe("escapeHtml", () => {
 
   it("handles multiple special chars", () => {
     expect(escapeHtml("a < b & c > d")).toBe("a &lt; b &amp; c &gt; d");
+  });
+});
+
+describe("loadLanguageWithRetry", () => {
+  it("returns true on first-attempt success", async () => {
+    const loadedLangs: string[] = [];
+    const hl = {
+      loadLanguage: vi.fn().mockImplementation(async (lang: string) => {
+        loadedLangs.push(typeof lang === "string" ? lang : (lang as { name: string }).name);
+      }),
+      getLoadedLanguages: vi.fn().mockImplementation(() => loadedLangs),
+    } as unknown as import("shiki").Highlighter;
+
+    const result = await loadLanguageWithRetry(hl, "typescript");
+    expect(result).toBe(true);
+    expect(hl.loadLanguage).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries and succeeds on second attempt (#206)", async () => {
+    let attempt = 0;
+    const hl = {
+      loadLanguage: vi.fn().mockImplementation(async () => {
+        attempt++;
+        if (attempt === 1) throw new Error("transient failure");
+        // Second attempt succeeds — language appears in loaded list
+      }),
+      getLoadedLanguages: vi.fn().mockImplementation(() =>
+        attempt >= 2 ? ["tsx"] : [],
+      ),
+    } as unknown as import("shiki").Highlighter;
+
+    const result = await loadLanguageWithRetry(hl, "tsx");
+    expect(result).toBe(true);
+    expect(hl.loadLanguage).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns false after all retries fail", async () => {
+    const hl = {
+      loadLanguage: vi.fn().mockRejectedValue(new Error("unavailable")),
+      getLoadedLanguages: vi.fn().mockReturnValue([]),
+    } as unknown as import("shiki").Highlighter;
+
+    const result = await loadLanguageWithRetry(hl, "tsx");
+    expect(result).toBe(false);
+    expect(hl.loadLanguage).toHaveBeenCalledTimes(2);
   });
 });
