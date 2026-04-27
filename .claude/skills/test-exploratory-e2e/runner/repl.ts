@@ -108,13 +108,14 @@ async function observe(page: Page): Promise<Observation> {
     };
     // Mirrors observe-dom.ts ariaBool — kept inline so this evaluate body
     // is self-contained when serialized into Playwright's page context.
-    const ariaBool = (el: Element, attr: string): boolean | null => {
+    // Uses plain function (no arrow + types) to avoid esbuild __name shim (#177).
+    function ariaBool(el, attr) {
       if (!el.hasAttribute(attr)) return null;
-      const v = el.getAttribute(attr);
+      var v = el.getAttribute(attr);
       if (v === "true") return true;
       if (v === "false") return false;
       return null;
-    };
+    }
     const out: Interactive[] = [];
     const seenSel = new Set<string>();
     const nodes = document.querySelectorAll(
