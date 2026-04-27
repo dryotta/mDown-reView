@@ -972,9 +972,12 @@ mod f0_iter1 {
 
         let out = export_review_summary_inner(target.to_str().unwrap());
         assert!(out.contains("# Review summary"));
-        assert!(out.contains("t1"), "expected target's comment in output: {out}");
+        assert!(out.contains("**t1**"), "expected target's comment in output: {out}");
+        // Match the bullet form `- **o1** by ...` rather than the raw substring
+        // `o1`, because the random tempdir suffix can incidentally contain those
+        // characters (e.g. `/tmp/.tmpD6U6o1`) and produce a false positive.
         assert!(
-            !out.contains("o1"),
+            !out.contains("**o1**") && !out.contains("## other.md"),
             "single-file export must not include sibling file's comments: {out}"
         );
     }
