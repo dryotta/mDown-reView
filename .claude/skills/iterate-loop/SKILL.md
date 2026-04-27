@@ -1,36 +1,24 @@
 ---
 name: iterate-loop
-description: Use when the user wants to drain the GitHub issue backlog autonomously — phrases like "drain the backlog", "work through the issues", "auto-fix open issues", or just empty `/iterate-loop`. Continuous orchestrator that picks the next eligible issue, dispatches `iterate-one-issue` against it, and loops. Default is continuous (drain + monitor); `--once` drains once and exits. PRs are left ready-for-review by default; pass `--auto-merge` to squash-merge each Done-Achieved PR automatically. Never prompts. Pair with `test-exploratory-loop` running in another terminal for the full self-improvement dogfood.
+description: Use when the user wants the agent to drain the GitHub issue backlog autonomously — phrases like "drain the backlog", "work through the issues", "auto-fix open issues", or an empty `/iterate-loop`. Continuous (default) or single-pass (`--once`). Picks the next eligible open issue, dispatches `iterate-one-issue` synchronously in the foreground, releases the claim, repeats. Leaves each PR ready-for-review with the `iterate-pr` label for `merge-pr-loop` to ship. Never prompts. Never merges. Pair with `/merge-pr-loop` in another terminal.
 ---
 
-**RIGID. Fully autonomous — never calls `ask_user`.** This skill is the **outer orchestrator** for the issue-fix loop. It picks the next eligible issue from the GitHub backlog, claims it (`iterate-in-progress` label), invokes `iterate-one-issue` against it, releases the claim, and repeats. When the backlog drains, it either exits (`--once`) or polls indefinitely waiting for new issues (default).
+**RIGID. Fully autonomous — never calls `ask_user`.** Outer orchestrator for the issue-fix loop. Picks the next eligible issue, claims it (`iterate-in-progress` label), invokes `iterate-one-issue` synchronously in the foreground, releases the claim, repeats. When the backlog drains, exits (`--once`) or polls (default).
 
-For single-issue or freeform-goal work, the user invokes `iterate-one-issue` directly — this skill is **only** for the backlog-drain pattern.
+Release-gate validation and merging are owned by `merge-pr-loop`. `iterate-one-issue` exits at `Done-Achieved` with the PR ready-for-review and labelled `iterate-pr`; run `/merge-pr-loop` in a separate terminal to gate + ship.
+
+For single-issue or freeform-goal work, invoke `iterate-one-issue` directly — this skill is only for backlog drain.
 
 ---
 
 ## Args
 
-Args are parsed positionally; flags may be combined freely.
-
 | Arg | Mode | Behavior when backlog empty |
 |---|---|---|
 | empty | `continuous` | Poll backlog every 5 min, max 24 h. Then halt. |
 | `--once` | `drain-once` | Halt immediately. |
-| `--resume` | `resume` | Reconstruct the active set from on-disk state and continue. See [Phase 3 — Resume after interruption](#phase-3--resume-after-interruption). |
 
-| Flag | Effect |
-|---|---|
-| (none) | **Default.** PRs from each round are left in the `ready-for-review` state set by `iterate-one-issue` — a human merges. |
-| `--auto-merge` | After every `Done-Achieved` round, poll the PR's required checks until they finish, then squash-merge directly via `gh pr merge --squash --delete-branch`. Does **not** use GitHub's `--auto` queueing feature (which requires the repo-level "Allow auto-merge" setting). Done-Blocked / Done-TimedOut PRs are never touched. |
-| `--pipeline` | **Opt-in pipelined scheduler.** While the active round runs, the previous round's release-gate workflow runs concurrently on GitHub. Active set capped at 2 (1 active + 1 RG-pending). Each active round runs in its own `git worktree`. Scheduler probes RG completion at two yield points (between rounds, on inner-skill exit) and re-enters `iterate-one-issue --resume-rg <branch>` to finish 9b–d. Spec: [references/pipeline.md](references/pipeline.md). When omitted, behaviour is byte-for-byte identical to non-pipelined mode. |
-
-Anything else → STOP `[iterate-loop] Unknown arg "<ARG>". Use empty (continuous), --once, or --resume, optionally with --auto-merge and/or --pipeline.`
-
-Set from arg parsing; defaults all `false`:
-- `AUTO_MERGE=true|false`
-- `PIPELINE=true|false`
-- `RESUME=true|false` (compatible with `PIPELINE`; `RESUME=true` implies `PIPELINE=true`)
+Anything else → STOP `[iterate-loop] Unknown arg "<ARG>". Use empty (continuous) or --once.`
 
 ---
 
@@ -56,6 +44,12 @@ if [ -f "$DEPTH_FILE" ]; then
 fi
 ```
 
+**Idempotent label bootstrap** (first run on a fresh repo):
+```bash
+gh label create iterate-in-progress --description "Issue claimed by iterate-loop" --color FBCA04 2>/dev/null || true
+gh label create iterate-pr           --description "PR opened by iterate-one-issue, awaiting release-gate validation by merge-pr-loop" --color BFD4F2 2>/dev/null || true
+```
+
 ### 0b. Counters + run tag
 
 ```bash
@@ -63,25 +57,19 @@ RUN_TAG="loop-$(date -u +%Y%m%dT%H%M%SZ)"
 LOOP_DIGEST_DIR=".claude/iterate-loop/runs/$RUN_TAG"
 mkdir -p "$LOOP_DIGEST_DIR"
 LOOP_LOG="$LOOP_DIGEST_DIR/loop.md"
-SCHEDULER_FILE="$LOOP_DIGEST_DIR/scheduler.json"   # pipelined mode only
 ROUNDS_PROCESSED=0
 ROUNDS_DONE_ACHIEVED=0
 ROUNDS_DONE_BLOCKED=0
 ROUNDS_DONE_TIMED_OUT=0
 ROUNDS_DEFERRED=0   # iterate-one-issue exited via 0d (needs-grooming)
-ROUNDS_OVERLAPPED=0 # pipelined: rounds whose active+rg-pending overlapped on the wall clock
-ROUNDS_FELLBACK=0   # pipelined: rounds that fell back to sequential (worktree create failed)
 ```
 
 Print banner:
 ```
-[iterate-loop] Mode: <continuous|drain-once|resume> | Auto-merge: <on|off> | Pipeline: <on|off> | Run tag: <RUN_TAG>
+[iterate-loop] Mode: <continuous|drain-once> | Run tag: <RUN_TAG>
 Watching backlog (skip: needs-grooming, blocked, iterate-in-progress)
+PRs land ready-for-review with label `iterate-pr` — run /merge-pr-loop in another terminal to gate + merge.
 ```
-
-`ROUNDS_AUTO_MERGED=0` (only incremented when `AUTO_MERGE=true` and merge enqueues successfully).
-
-When `PIPELINE=true`, initialise scheduler state per [references/pipeline.md § Scheduler state](references/pipeline.md#scheduler-state) and write `$SCHEDULER_FILE`. When `RESUME=true`, **skip Phase 0b counter init** and jump to [Phase 3](#phase-3--resume-after-interruption) — Phase 3 reconstructs counters and scheduler from disk.
 
 ---
 
@@ -138,95 +126,24 @@ gh issue edit $PICK --remove-label "iterate-in-progress"
 
 ### Step 4 — Dispatch `iterate-one-issue`
 
-**Sequential mode (`PIPELINE=false`).** Invoke `iterate-one-issue $PICK` from the main worktree. Capture full final stdout into `INNER_OUTPUT`.
+Invoke `iterate-one-issue $PICK` synchronously in the **foreground** (so its full progress log is visible to the operator). Capture the final stdout into `INNER_OUTPUT`.
 
-**Pipelined mode (`PIPELINE=true`).** Before invoking:
-
-1. Create a fresh worktree per [references/pipeline.md § Worktree lifecycle](references/pipeline.md#worktree-lifecycle):
-   ```bash
-   WT_ROOT="${ITERATE_WORKTREE_ROOT:-$(dirname "$(git rev-parse --show-toplevel)")}"
-   WT_PATH="$WT_ROOT/mdrev-pick-$PICK"
-   git worktree add "$WT_PATH" main
-   ```
-   On failure (disk full, path collision): log `[iterate-loop] worktree create failed for #$PICK — falling back to sequential for this round`, set `ROUNDS_FELLBACK += 1`, dispatch this round in the main worktree without `ITERATE_PIPELINE_AWARE`. Subsequent rounds still pipeline. (See [halt conditions](#halt-conditions).)
-
-2. Record active entry in scheduler state:
-   ```json
-   "active": { "issue": <PICK>, "branch": "<computed-by-inner>", "worktree": "<WT_PATH>", "started_at": "<ISO>" }
-   ```
-   `branch` is unknown until inner 0e; backfill from `ITERATE_OUTCOME` after Step 5.
-
-3. Invoke `iterate-one-issue $PICK` with `cwd=$WT_PATH` and `ITERATE_PIPELINE_AWARE=1` exported. The inner skill's 9a.4 sees the env var and returns `Done-Achieved-RG-Pending` instead of running 9b–d synchronously.
-
-The inner skill's last stdout line is the **outcome marker** (regex parse; missing optional fields are absent, not "n/a"):
+The inner skill's last stdout line is the **outcome marker** (regex parse):
 ```
-ITERATE_OUTCOME: <Done-Achieved|Done-Achieved-RG-Pending|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL> [worktree=<path>] [rg_run=<ID>]
+ITERATE_OUTCOME: <Done-Achieved|Done-Blocked|Done-TimedOut> issue=<N|n/a> branch=<BRANCH> pr=<URL>
 ```
 
-`worktree=` and `rg_run=` are present **only** on `Done-Achieved-RG-Pending`. Or (rare) the inner skill defers via 0d (`needs-grooming`) and exits without printing `ITERATE_OUTCOME`; banner ends `[iterate-one-issue] Issue #<N> deferred to grooming.`
+Or (rare) the inner skill defers via 0d (`needs-grooming`) and exits without printing `ITERATE_OUTCOME`; banner ends `[iterate-one-issue] Issue #<N> deferred to grooming.`
 
-Wait for return. Capture full final stdout into `INNER_OUTPUT`.
+(`Done-ForwardFixed` is emitted only by `--resume-pr` mode driven by `merge-pr-loop`; this skill never sees it.)
 
-### Step 5 — Release the claim & route the outcome
+### Step 5 — Release the claim
 
-The `iterate-in-progress` claim label gates Step 1's auto-pick — keeping it on while a release gate is pending prevents re-claiming the same issue. The label is released **only on FINAL outcomes**: `Done-Achieved`, `Done-Blocked`, `Done-TimedOut`, `Deferred-Grooming`. For `Done-Achieved-RG-Pending` it stays on; released later by [references/pipeline.md § RG-completion handling](references/pipeline.md#rg-completion-handling) when the resumed outcome is final.
+The `iterate-in-progress` claim label gates Step 1's auto-pick — release it on every terminal outcome so the issue is either marked `blocked` (the inner skill set that label itself) or returns to the eligible pool:
 
 ```bash
-# Only on FINAL outcomes — see table below.
 gh issue edit $PICK --remove-label "iterate-in-progress" 2>/dev/null || true
 ```
-
-**Outcome routing** (parse `ITERATE_OUTCOME` from `INNER_OUTPUT`):
-
-| Outcome | Sequential mode | Pipelined mode |
-|---|---|---|
-| `Done-Achieved` | Release claim. Tally + Step 5b auto-merge + Step 6 log + Step 7. | Release claim. Tear down `active.worktree` (`git worktree remove --force`). Tally + 5b + 6 + 7. |
-| `Done-Achieved-RG-Pending` | **N/A** — inner skill never emits this without `ITERATE_PIPELINE_AWARE=1`. If seen, treat as contract violation and STOP. | **Cap-protect first.** If `rg_pending != null` (prior RG still pending), drain it: `cd $RG_PENDING_WORKTREE`, `/iterate-one-issue --resume-rg <branch>`, drive [§ RG-completion handling](references/pipeline.md#rg-completion-handling) to a final `Done-Achieved`/`Done-Blocked` (loop until cleared — re-dispatch from 9c counts as still-pending), `cd` back. **Do NOT release the claim** for the current issue. **Move** the active entry into `rg_pending` (capture `worktree=`, `rg_run=`). Skip 5b. Tally as a "dispatched" intermediate, then proceed to Step 6 + Step 7. |
-| `Done-Blocked` / `Done-TimedOut` | Release claim. Tally + 6 + 7. | Release claim. Tear down `active.worktree`. Tally + 6 + 7. |
-| `Deferred-Grooming` (no marker emitted) | Release claim. Tally + 6 + 7. | Release claim. Tear down `active.worktree`. Tally + 6 + 7. |
-
-After Step 5 completes for a `Done-Achieved-RG-Pending` round, the loop has an empty active slot, an `rg_pending` entry holding the just-dispatched run, AND the claim label still set. Step 1 of the next round excludes that issue automatically (label gate filters it) — the loop picks a *different* eligible issue. See [references/pipeline.md § Yield points](references/pipeline.md#yield-points).
-
-### Step 5b — Auto-merge (only when `AUTO_MERGE=true`)
-
-**Skip unless all of these hold:**
-- `AUTO_MERGE=true`
-- `ITERATE_OUTCOME=Done-Achieved`
-- A PR URL was captured from `INNER_OUTPUT`
-
-Then:
-
-1. **Poll required checks** (max 60 polls × 60 s = 60 min budget per PR):
-
-   ```bash
-   for i in $(seq 1 60); do
-     gh pr checks "$PR_URL" --required
-     STATUS=$?
-     # gh pr checks exit codes:
-     #   0  = all required checks succeeded
-     #   8  = some required checks still pending / queued
-     #   1+ = at least one required check failed (or no required checks configured)
-     case $STATUS in
-       0) break ;;
-       8) sleep 60 ;;
-       *) break ;;
-     esac
-   done
-   ```
-
-   Edge case: if `--required` reports "no required checks", fall back to `gh pr checks "$PR_URL"` (all checks, not just required) once and treat its exit 0 as green.
-
-2. **If checks ended green** (exit 0), squash-merge directly:
-
-   ```bash
-   gh pr merge "$PR_URL" --squash --delete-branch
-   ```
-
-   On success: `ROUNDS_AUTO_MERGED += 1`. The next round's `git pull --ff-only` at Step 3 picks up the merged commit.
-
-3. **If checks failed, polled out (60 min), or `gh pr merge` exits non-zero**, log `[iterate-loop] auto-merge skipped for #$PICK ($PR_URL): <reason>` and continue. Do **not** halt the loop and do **not** retry — the PR remains ready-for-review for human handling. `ROUNDS_AUTO_MERGE_FAILED += 1`.
-
-This skill never uses `gh pr merge --auto` — that requires the repository-level "Allow auto-merge" setting, which is not assumed to be enabled. Polling + direct merge keeps `--auto-merge` working on any repository the agent can push to and merge on.
 
 ### Step 6 — Tally + per-round log
 
@@ -235,29 +152,12 @@ Parse `INNER_OUTPUT`. Append one row to `$LOOP_LOG`:
 ```markdown
 ## Round <ROUNDS_PROCESSED+1> — Issue #<PICK>
 - Started: <ISO>   Finished: <ISO>   Duration: <h:mm>
-- Mode: <sequential | pipelined | pipelined-fellback>
-- Worktree: <absolute path | main>
-- Outcome: <Done-Achieved | Done-Achieved-RG-Pending | Done-Blocked | Done-TimedOut | Deferred-Grooming>
+- Outcome: <Done-Achieved | Done-Blocked | Done-TimedOut | Deferred-Grooming>
 - Branch: <BRANCH>   PR: <URL or n/a>
-- Auto-merge: <merged | skipped: <reason> | n/a (Done-Blocked|TimedOut|Deferred|RG-Pending) | off>
-- Phase 2 (inner): <improvement issue URL | NO_IMPROVEMENT_FOUND | skipped | deferred (RG-pending)>
+- Phase 2 (inner): <improvement issue URL | NO_IMPROVEMENT_FOUND | skipped>
 ```
 
-Increment the matching `ROUNDS_*` counter. `ROUNDS_PROCESSED += 1`. For pipelined rounds where an `rg_pending` entry was active concurrently with this round's active work, also `ROUNDS_OVERLAPPED += 1`.
-
-For `Done-Achieved-RG-Pending`, the eventual `Done-Achieved`/`Done-Blocked` from 9b–d-resume produces a **separate** entry under the same `Round <N>` heading via [references/pipeline.md § Resume bookkeeping](references/pipeline.md#resume-bookkeeping) — do not double-count.
-
-### Step 6.5 — Yield-point probe (pipelined mode only)
-
-If `PIPELINE=true` AND `rg_pending != null`, run a non-blocking probe **before** looping to Step 1:
-
-```bash
-gh run view "$RG_RUN_ID" --json status,conclusion --jq '{status,conclusion}'
-```
-
-If `status=completed`, drive resume per [references/pipeline.md § RG-completion handling](references/pipeline.md#rg-completion-handling): `cd $RG_PENDING_WORKTREE`, invoke `/iterate-one-issue --resume-rg <branch>`, parse the new `ITERATE_OUTCOME`, tally, optional 5b auto-merge, write a follow-up Step 6 row, tear down (or, on re-dispatch, keep) the worktree. Then `cd` back and continue.
-
-Sequential mode: skip Step 6.5.
+Increment the matching `ROUNDS_*` counter. `ROUNDS_PROCESSED += 1`.
 
 ### Step 7 — Loop guard + continue
 
@@ -288,13 +188,7 @@ Improvement candidates here typically target **the orchestrator itself** — exa
 - Inner skill returned `Done-Blocked` for a category we could have detected upstream.
 - A whole class of issues kept being deferred to `needs-grooming` — propose a `groom-issues` improvement.
 
-**Pipelined-mode signals** (only when `PIPELINE=true` — fold into R1/R2):
-- `ROUNDS_OVERLAPPED / ROUNDS_PROCESSED` — overlap ratio. <20% means pipelining bought little; investigate whether pick filter starves the second slot or RG finishes too fast to overlap.
-- Average **RG-wait absorbed** — wall-clock the loop spent on Round N+1's active work while Round N's RG ran. Compute from per-round `Started`/`Finished` + `rg_pending.dispatched_at`. Goal: approach the ~18 min RG baseline.
-- **Worktree teardown failures** — count of `git worktree remove --force` errors. Persistent failures → propose Phase 0a sweep or Step 5 retry budget.
-- `ROUNDS_FELLBACK` count — recurring fallback (e.g. `ITERATE_WORKTREE_ROOT` on full disk) is itself an improvement candidate.
-
-Run R1 then R2 per the shared spec. Created issues carry `iterate-improvement` + `self-improve:iterate-loop` and feed the next `/iterate-loop` run automatically (no human required).
+Run R1 then R2 per the shared spec. Created issues carry `iterate-improvement` + `self-improve:iterate-loop` and feed the next `/iterate-loop` run automatically.
 
 End with the shared banner so logs are greppable:
 ```
@@ -303,54 +197,16 @@ End with the shared banner so logs are greppable:
 
 Then print the loop summary:
 ```
-[iterate-loop] Run complete — RUN_TAG=<…>   Auto-merge: <on|off>   Pipeline: <on|off>
+[iterate-loop] Run complete — RUN_TAG=<…>
 Rounds processed: <N>
-  ✅ Done-Achieved: <a>   (auto-merged: <m>, merge-failed: <f>)
+  ✅ Done-Achieved: <a>
   ❌ Done-Blocked:  <b>
   ⏱  Done-TimedOut: <c>
   📝 Deferred-Grooming: <d>
-  <pipeline only:> 🔀 Overlapped rounds: <ROUNDS_OVERLAPPED>   ↩  Sequential fallbacks: <ROUNDS_FELLBACK>
 Halt reason: <…>
 Loop digest: $LOOP_DIGEST_DIR/loop.md
 Retrospective: $RETRO_FILE
 ```
-
----
-
-## Phase 3 — Resume after interruption
-
-Triggered by `/iterate-loop --resume`. Use when a previous run was killed mid-flight (CLI crash, host reboot, manual Ctrl-C) and on-disk state is non-empty. Pure recovery — no new work until reconciliation completes.
-
-### 3a. Discover prior runs
-
-```bash
-git worktree list --porcelain                                            # all worktrees (active and rg_pending)
-ls -1t .claude/iterate-loop/runs/ 2>/dev/null                            # newest scheduler.json wins
-# Walk every worktree for per-branch state files — pipeline mode places
-# them inside the worktree, so a single `ls` on main misses them.
-for WT in $(git worktree list --porcelain | awk '/^worktree / {print $2}'); do
-  ls -1 "$WT"/.claude/iterate-state-*.md 2>/dev/null
-done
-```
-
-Newest scheduler.json under `.claude/iterate-loop/runs/<RUN_TAG>/scheduler.json` is the canonical resume target. Reuse its `RUN_TAG`; do NOT mint a new one (so retro + digest stay together).
-
-### 3b. Reconcile
-
-Per [references/pipeline.md § Resume reconciliation](references/pipeline.md#resume-reconciliation), for every entry in `scheduler.json` and every per-branch `.claude/iterate-state-<branch-slug>.md`:
-
-| Discovered state | Action |
-|---|---|
-| `active.worktree` exists, branch checked out, `release_gate.state == not-started` | Previous run died mid-iteration. Treat as **Done-Blocked** (`reason: interrupted mid-iteration; resume not supported`), tear down, log, drop. |
-| `rg_pending` entry has `release_gate.state` ∈ {`dispatched`, `failed`} | Probe `gh run view <RG_RUN_ID>`. Still in flight → leave; main loop picks it up at next yield point. Completed → drive 9b–d-resume immediately (same as Step 6.5). |
-| `release_gate.state == passed` but PR still draft | Run 9d tail (PR ready + comment) via `/iterate-one-issue --resume-rg <branch>` — its 9b short-circuits on the already-passed state. |
-| Worktree on disk but no state file / branch deleted | Orphan — `git worktree remove --force <path>` and log. |
-
-### 3c. Re-enter Phase 1
-
-Counters restored from `scheduler.json`'s `counters` block (or recomputed from `$LOOP_LOG`). Mode reread from `scheduler.json`. The 50-round cap counts pre-resume rounds. Then jump to Step 1.
-
-If `scheduler.json` is missing or unparseable: STOP `[iterate-loop] no resumable scheduler state found under .claude/iterate-loop/runs/. Start a fresh run instead.`
 
 ---
 
@@ -366,19 +222,20 @@ If `scheduler.json` is missing or unparseable: STOP `[iterate-loop] no resumable
 **Per-round soft skips (loop continues):**
 - Claim label add fails at Step 2 (race — log + skip).
 - Inner skill exits via 0d deferral (counted as `Deferred-Grooming`, loop picks the next).
-- **Pipelined only:** `git worktree add` fails at Step 4 → fall back to sequential **for this round only** (`ROUNDS_FELLBACK += 1`); subsequent rounds still attempt pipelined dispatch.
 
 **No retry of failed claims.** A claim collision means another `iterate-one-issue` (parallel session or manual) already owns the issue. Skipping is correct.
 
 ---
 
-## Two-terminal dogfood mode (recommended)
+## Multi-terminal dogfood mode (recommended)
 
-**Terminal A (this skill):** `/iterate-loop` — drains backlog, applies fixes, opens PRs.
+Each loop's inner agent runs synchronously in the foreground of its own terminal — output is always visible.
 
-**Terminal B:** `/test-exploratory-loop` — dogfoods the live binary, files new bugs as `explore-ux` issues.
+- **Terminal A — `/iterate-loop`**: drains the issue backlog, opens ready-for-review PRs labelled `iterate-pr`.
+- **Terminal B — `/merge-pr-loop`**: watches PRs labelled `iterate-pr`, runs the Release Gate, drives forward-fixes via `iterate-one-issue --resume-pr <PR>`, and squash-merges on green.
+- **Terminal C — `/test-exploratory-loop`** (optional, Windows-only): dogfoods the live binary, files new bugs.
 
-Both loops re-sync to `origin/main` between rounds. Bugs filed by Terminal B get picked up by Terminal A automatically. Retrospectives from both feed `iterate-improvement` issues that Terminal A then consumes — closing the loop.
+Each loop re-syncs to `origin/main` between rounds. Bugs filed by Terminal C get picked up by Terminal A, fixed PRs flow to Terminal B, merges land back on `main`. Self-improvement retrospectives from each loop feed `iterate-improvement` issues that Terminal A then consumes — closing the loop.
 
 ---
 
@@ -394,4 +251,5 @@ Both loops re-sync to `origin/main` between rounds. Bugs filed by Terminal B get
 - This skill never opens PRs of its own — only the inner `iterate-one-issue` does.
 - This skill never closes GitHub issues — closure happens via PR-merge `Closes #<N>` trailers.
 - This skill never modifies app source — only the inner skill does.
-- This skill never merges PRs unless `--auto-merge` was passed at invocation. There is no mid-run upgrade path; choose merge policy up-front.
+- This skill never merges PRs and never dispatches the release gate. Both are owned by `merge-pr-loop`.
+- This skill no longer supports `--auto-merge`, `--pipeline`, or `--resume` — the responsibility split with `merge-pr-loop` made them redundant.
