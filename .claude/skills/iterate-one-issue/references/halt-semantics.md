@@ -22,7 +22,7 @@
 - No arg passed (use `iterate-loop` for backlog drain)
 - Dirty tree at setup
 - Pre-existing target branch (issue/goal mode only — `--resume-pr` deliberately reuses an existing branch)
-- Genuine spec ambiguity in issue mode (posts comment + `needs-grooming` label, exits cleanly so `iterate-loop` can move on)
+- Genuine spec ambiguity in issue mode — restricted to three closed categories: internal contradictions, undefined success signal, unresolvable external dependency (posts comment citing category + `needs-grooming` label, exits cleanly so `iterate-loop` can move on)
 - `--resume-pr` referenced PR is not OPEN, or lacks the `iterate-pr` label
 
 **No chaining inside this skill.** Done-Achieved / Done-Blocked / Done-TimedOut / Done-ForwardFixed all print `ITERATE_OUTCOME: …` then exit. The caller (`iterate-loop` for the backlog drain, `merge-pr-loop` for forward-fix passes) decides what runs next.
@@ -30,5 +30,6 @@
 **No longer halts:**
 - Issue has no `<!-- mdownreview-spec -->` comment (0c derives)
 - Genuine spec ambiguity in goal mode (captured in PR description, run continues)
+- Large scope / many ACs / many files (30-iteration loop + phased planning handles this; see 0d anti-pattern)
 
 ---
