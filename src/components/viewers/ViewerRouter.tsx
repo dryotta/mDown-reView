@@ -256,7 +256,7 @@ export function ViewerRouter({ path }: Props) {
           onCommentOnFile={handleCommentOnFile}
           trailing={<FileActionsBar path={path} />}
         />
-        <div className="viewer-error">
+        <div className="viewer-placeholder">
           Error loading file: {error}
         </div>
       </div>
