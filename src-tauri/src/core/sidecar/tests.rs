@@ -294,3 +294,44 @@ fn load_sidecar_accepts_v1_minor_versions() {
     assert!(result.is_some());
     assert_eq!(result.unwrap().mrsf_version, "1.5");
 }
+
+/// Verify that `patch_comment` takes the surgery fast-path when the
+/// YAML file contains YAML comments, preserving them on disk.
+#[test]
+fn patch_comment_preserves_yaml_comments_via_surgery() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("test.md");
+    let sidecar_path = tmp.path().join("test.md.review.yaml");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    // Hand-write a sidecar with a YAML comment that serde would drop.
+    let yaml_with_comment = "\
+mrsf_version: '1.0'
+document: test.md
+# reviewer metadata below
+comments:
+  - id: c1
+    author: tester
+    timestamp: '2025-01-01T00:00:00Z'
+    text: hello
+    resolved: false
+    line: 1
+";
+    std::fs::write(&sidecar_path, yaml_with_comment).unwrap();
+
+    patch_comment(
+        file_path.to_str().unwrap(),
+        "c1",
+        &[CommentMutation::SetResolved(true)],
+    )
+    .unwrap();
+
+    let on_disk = std::fs::read_to_string(&sidecar_path).unwrap();
+    // The YAML comment must survive (surgery path); serde would drop it.
+    assert!(
+        on_disk.contains("# reviewer metadata below"),
+        "YAML comment was dropped — surgery path not taken. Content:\n{on_disk}"
+    );
+    // Value actually changed
+    assert!(on_disk.contains("resolved: true"));
+}

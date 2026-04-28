@@ -9,6 +9,7 @@
 //! are a YAML-only construct).
 
 mod io_guards;
+mod yaml_surgery;
 
 use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
@@ -180,8 +181,10 @@ pub fn save_sidecar(
 }
 
 /// Surgically modify a comment in a sidecar file.
-/// Loads as serde_json::Value, finds comment by ID, applies mutations,
-/// writes back preserving all unknown fields and structure.
+///
+/// Attempts format-preserving YAML surgery first (preserves comments,
+/// key ordering, scalar styles). Falls back to the lossy
+/// parse→mutate→serialize path if surgery cannot handle the input.
 pub fn patch_comment(
     file_path: &str,
     comment_id: &str,
@@ -190,7 +193,21 @@ pub fn patch_comment(
     let yaml_path = format!("{}.review.yaml", file_path);
     let json_path = format!("{}.review.json", file_path);
 
-    // Determine which file exists and load as Value
+    // ── Fast path: format-preserving surgery on YAML ──────────────
+    if let Ok(original) = read_capped(&yaml_path) {
+        if reject_yaml_anchors(&original).is_ok() {
+            if let Some(patched) = yaml_surgery::try_patch(&original, comment_id, mutations) {
+                // Validate: the result must still parse as valid YAML.
+                let _: serde_json::Value = serde_saphyr::from_str(&patched)
+                    .map_err(|e| SidecarError::YamlParse(e.to_string()))?;
+                crate::core::atomic::write_atomic(Path::new(&yaml_path), patched.as_bytes())?;
+                return Ok(());
+            }
+        }
+        // Surgery returned None — fall through to lossy path.
+    }
+
+    // ── Fallback: parse → mutate → serialize (lossy) ──────────────
     let (content, _source_path) = match read_capped(&yaml_path) {
         Ok(c) => {
             reject_yaml_anchors(&c)?;
