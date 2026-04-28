@@ -1,4 +1,5 @@
 import type { Severity } from "@/lib/tauri-commands";
+import { BADGE_CAP, formatBadgeCount } from "@/lib/format-badge-count";
 
 interface CommentBadgeProps {
   /** Unresolved-thread count. The component renders nothing when count <= 0. */
@@ -16,13 +17,15 @@ interface CommentBadgeProps {
 export function CommentBadge({ count, severity, className }: CommentBadgeProps) {
   if (count <= 0) return null;
   const sev = severity ?? "none";
+  const capped = count > BADGE_CAP;
+  const display = formatBadgeCount(count);
   return (
     <span
-      className={className}
+      className={`${className}${capped ? " badge-capped" : ""}`}
       data-severity={sev}
       aria-label={`${count} unresolved comment${count === 1 ? "" : "s"}${sev !== "none" ? ` (${sev} severity)` : ""}`}
     >
-      {count}
+      {display}
     </span>
   );
 }

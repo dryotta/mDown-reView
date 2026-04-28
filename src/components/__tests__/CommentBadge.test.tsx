@@ -35,4 +35,25 @@ describe("CommentBadge", () => {
     render(<CommentBadge count={9} severity="high" className="tab-badge" />);
     expect(screen.getByLabelText(/unresolved/)).toHaveClass("tab-badge");
   });
+
+  it("displays 99 without capping", () => {
+    render(<CommentBadge count={99} className="tree-comment-badge" />);
+    const el = screen.getByLabelText("99 unresolved comments");
+    expect(el).toHaveTextContent("99");
+    expect(el).not.toHaveClass("badge-capped");
+  });
+
+  it("caps display at 99+ for counts over 99", () => {
+    render(<CommentBadge count={100} className="tree-comment-badge" />);
+    const el = screen.getByLabelText("100 unresolved comments");
+    expect(el).toHaveTextContent("99+");
+    expect(el).toHaveClass("badge-capped");
+  });
+
+  it("uses exact count in aria-label even when display is capped", () => {
+    render(<CommentBadge count={250} severity="high" className="tab-badge" />);
+    const el = screen.getByLabelText("250 unresolved comments (high severity)");
+    expect(el).toHaveTextContent("99+");
+    expect(el).toHaveClass("tab-badge", "badge-capped");
+  });
 });
