@@ -55,9 +55,14 @@
 }
 
 .viewer-toolbar-wrap {
-  margin-left: auto;
   border: 1px solid var(--color-border);
   border-radius: 4px;
+}
+
+/* Comment-on-file sits in the middle: auto-margins on both sides centre
+   it between the left group (toggle/wrap) and the right group (zoom/reveal). */
+.viewer-toolbar-comment-on-file {
+  margin-left: auto;
 }
 
 .viewer-toolbar-zoom {
@@ -70,9 +75,9 @@
   border-radius: 4px;
 }
 
-/* When wrap toggle is also present, the wrap button claims margin-left: auto;
-   the zoom group then sits flush after it. */
-.viewer-toolbar-wrap ~ .viewer-toolbar-zoom {
+/* When comment-on-file is present before zoom, zoom sits flush after it
+   instead of claiming its own margin-left: auto. */
+.viewer-toolbar-comment-on-file ~ .viewer-toolbar-zoom {
   margin-left: 4px;
 }
 
@@ -90,10 +95,8 @@
 }
 
 /* G4 / L1 — reveal/open file actions, pinned to the right edge of the
-   toolbar. When no other right-aligned group (wrap, zoom) precedes it,
-   claims the margin-left:auto itself; otherwise sits flush after them.
-   Used both inside the `.viewer-toolbar` row and as the standalone
-   `FileActionsBar` above headerless media viewers (audio, video, pdf). */
+   toolbar. When no other right-aligned group precedes it, claims the
+   margin-left:auto itself; otherwise sits flush after them. */
 .file-actions-bar {
   display: flex;
   align-items: center;
@@ -101,6 +104,13 @@
   margin-left: auto;
   padding: 4px 8px;
   flex-shrink: 0;
+}
+
+/* When zoom or comment-on-file precede the file-actions-bar, they already
+   claimed the auto-margin; the bar sits flush. */
+.viewer-toolbar-zoom ~ .file-actions-bar,
+.viewer-toolbar-comment-on-file ~ .file-actions-bar {
+  margin-left: 0;
 }
 
 .file-actions-bar__mime {

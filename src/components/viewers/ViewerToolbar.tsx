@@ -79,7 +79,6 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
           Wrap
         </button>
       )}
-      {zoom && <ZoomControl {...zoom} />}
       {onCommentOnFile && (
         <button
           className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
@@ -91,6 +90,7 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
           <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
         </button>
       )}
+      {zoom && <ZoomControl {...zoom} />}
       {trailing}
     </div>
   );
