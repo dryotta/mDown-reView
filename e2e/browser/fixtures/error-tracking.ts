@@ -150,6 +150,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
                 const a = (args ?? {}) as Record<string, unknown>;
                 return typeof a.path === "string" ? a.path : "";
               }
+              if (cmd === "get_file_viewer_pref") return null;
+              if (cmd === "set_file_viewer_pref") return undefined;
             }
             return result;
           }
@@ -183,6 +185,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             const a = (args ?? {}) as Record<string, unknown>;
             return typeof a.path === "string" ? a.path : "";
           }
+          if (cmd === "get_file_viewer_pref") return null;
+          if (cmd === "set_file_viewer_pref") return undefined;
           // ── Two-layer mock parity (issue #135) ─────────────────────────
           // Mirroring the Vitest mock defaults so unit-tests and browser
           // e2e tests observe the same baseline shape. Locked in by

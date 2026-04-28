@@ -5,6 +5,7 @@ import type {
   CommentThread,
   DirEntry,
   FileBadge,
+  FileViewerPref,
   FoldRegion,
   GetFileCommentsResult,
   KqlPipelineStep,
@@ -35,6 +36,7 @@ type InvokeResult =
   | WordSpan[]
   | Record<string, FileBadge>
   | TextFileResult
+  | FileViewerPref
   | ArrayBuffer
   | "file"
   | "dir"
@@ -153,6 +155,8 @@ async function defaultInvoke(
     const p = (_args?.path as string | undefined) ?? "";
     return p;
   }
+  if (cmd === "get_file_viewer_pref") return null;
+  if (cmd === "set_file_viewer_pref") return undefined;
   return undefined;
 }
 

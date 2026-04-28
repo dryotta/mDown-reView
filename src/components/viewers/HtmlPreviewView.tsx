@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { resolveHtmlAssets, openExternalUrl } from "@/lib/tauri-commands";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { resolveHtmlAssets, openExternalUrl, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
@@ -31,6 +31,32 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const workspaceRoot = useStore((s) => s.root) ?? "";
   const { zoom } = useZoom(".html");
   const baseDir = filePath ? dirname(filePath) : undefined;
+
+  // Load persisted `allowImages` pref on mount (keyed by file path).
+  // Only `allowImages` for HTML preview persists — `allowScripts` is session-only.
+  useEffect(() => {
+    if (!filePath) return;
+    let cancelled = false;
+    getFileViewerPref(filePath)
+      .then((pref) => {
+        if (!cancelled && pref?.allow_images) {
+          setAllowImages(true);
+        }
+      })
+      .catch(() => {}); // safe default (false) on any error
+    return () => { cancelled = true; };
+  }, [filePath]);
+
+  // Persist callback — fire-and-forget alongside state update.
+  const handleToggleImages = useCallback(() => {
+    setAllowImages((prev) => {
+      const next = !prev;
+      if (filePath) {
+        setFileViewerPref(filePath, next).catch(() => {});
+      }
+      return next;
+    });
+  }, [filePath]);
 
   // Per-mount nonce — regenerated on every mount, never logged or persisted.
   // crypto.randomUUID is available in Tauri's webview and modern jsdom.
@@ -167,7 +193,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           type="button"
           aria-pressed={allowImages}
           aria-label={allowImages ? "Disallow external images" : "Allow external images"}
-          onClick={() => setAllowImages((v) => !v)}
+          onClick={handleToggleImages}
         >
           {allowImages ? "Disallow external images" : "Allow external images"}
         </button>

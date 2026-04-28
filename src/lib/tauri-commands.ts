@@ -406,3 +406,19 @@ export const defaultHandlerStatus = (): Promise<DefaultHandlerStatus> =>
 export const setDefaultHandler = (): Promise<void> =>
   invoke<void>("set_default_handler");
 
+// ── Per-file viewer prefs (Rust persistence) ─────────────────────────────
+
+/** Stored per-file viewer preference. Only `allowImages` (HTML preview) is
+ *  persisted — `allowScripts` and `allowRemoteImages` are session-only. */
+export interface FileViewerPref {
+  allow_images: boolean;
+}
+
+/** Read persisted viewer pref for a file. Returns `null` when no pref stored. */
+export const getFileViewerPref = (path: string): Promise<FileViewerPref | null> =>
+  invoke<FileViewerPref | null>("get_file_viewer_pref", { path });
+
+/** Persist the `allowImages` pref for a file (HTML preview). */
+export const setFileViewerPref = (path: string, allowImages: boolean): Promise<void> =>
+  invoke<void>("set_file_viewer_pref", { path, allowImages });
+
