@@ -37,11 +37,11 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
       await nativePage.evaluate(() => {
         // @ts-ignore — Tauri internals
         return window.__TAURI_INTERNALS__.invoke("add_comment", {
-          file_path: document.querySelector("[data-file-path]")?.getAttribute("data-file-path"),
+          filePath: document.querySelector("[data-file-path]")?.getAttribute("data-file-path"),
           author: "e2e-test",
           text: "Comment under sidecar_root",
           anchor: null,
-          comment_type: null,
+          commentType: null,
           severity: null,
           document: null,
         });
