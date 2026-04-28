@@ -10,7 +10,7 @@ use crate::core::types::{CommentThread, MrsfComment};
 use tauri::State;
 
 use super::enforce_workspace_path;
-use crate::watcher::WatcherState;
+use crate::watcher::{SidecarConfigState, WatcherState};
 
 /// Result of [`get_file_comments`]: matched/grouped threads plus the mtime
 /// of the sidecar file the loader actually picked. `sidecar_mtime_ms` is
@@ -24,26 +24,23 @@ pub struct GetFileCommentsResult {
     pub sidecar_mtime_ms: Option<i64>,
 }
 
-/// Resolve the on-disk sidecar path the loader would pick for `file_path`,
-/// preferring `.review.yaml` over `.review.json` to match
-/// [`crate::core::sidecar::load_sidecar`]. Returns `None` when neither
-/// exists. Kept private — the loader does not expose its picked path, so
-/// this re-implements the resolution locally; if the loader ever gains a
-/// `picked_path()` accessor, prefer that.
-fn resolve_sidecar_path(file_path: &str) -> Option<std::path::PathBuf> {
-    let yaml = std::path::PathBuf::from(format!("{}.review.yaml", file_path));
+/// Resolve the on-disk sidecar path from pre-resolved YAML/JSON paths.
+/// Prefers YAML over JSON to match [`crate::core::sidecar::load_sidecar_at`].
+/// Returns `None` when neither exists.
+fn resolve_sidecar_path_from(yaml: &str, json: &str) -> Option<std::path::PathBuf> {
+    let yaml = std::path::PathBuf::from(yaml);
     if yaml.exists() {
         return Some(yaml);
     }
-    let json = std::path::PathBuf::from(format!("{}.review.json", file_path));
+    let json = std::path::PathBuf::from(json);
     if json.exists() {
         return Some(json);
     }
     None
 }
 
-fn sidecar_mtime_ms(file_path: &str) -> Option<i64> {
-    let path = resolve_sidecar_path(file_path)?;
+fn sidecar_mtime_ms_from(yaml: &str, json: &str) -> Option<i64> {
+    let path = resolve_sidecar_path_from(yaml, json)?;
     std::fs::metadata(&path)
         .ok()?
         .modified()
@@ -73,26 +70,30 @@ fn sidecar_mtime_ms(file_path: &str) -> Option<i64> {
 #[tauri::command]
 pub fn get_file_comments(
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
 ) -> Result<GetFileCommentsResult, String> {
     enforce_workspace_path(&state, &file_path)?;
-    get_file_comments_inner(&file_path)
+    get_file_comments_inner(&file_path, &config_state)
 }
 
 /// Pure helper for [`get_file_comments`]. Skips the workspace guard so
 /// integration tests can exercise the matcher / typed-anchor path without
 /// fabricating a `State<'_, WatcherState>`. The IPC layer must call the
 /// `#[tauri::command]` wrapper above, never this function directly.
-pub fn get_file_comments_inner(file_path: &str) -> Result<GetFileCommentsResult, String> {
+pub fn get_file_comments_inner(file_path: &str, config_state: &SidecarConfigState) -> Result<GetFileCommentsResult, String> {
     use crate::core::anchors::{resolve_anchor, LazyParsedDoc, MatchOutcome};
     use crate::core::types::{Anchor, MatchedComment};
+
+    // Resolve sidecar paths ONCE — used for both mtime and load.
+    let (yaml, json, _) = super::resolve_sidecar_pair(file_path, config_state);
 
     // Capture sidecar mtime up-front so the value reflects the same on-disk
     // state the loader is about to read. Loader failure does not invalidate
     // the mtime — return it anyway so callers can still detect edits.
-    let sidecar_mtime_ms = sidecar_mtime_ms(file_path);
+    let sidecar_mtime_ms = sidecar_mtime_ms_from(&yaml, &json);
 
-    let sidecar = crate::core::sidecar::load_sidecar(file_path).map_err(|e| e.to_string())?;
+    let sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json).map_err(|e| e.to_string())?;
     let comments = match sidecar {
         Some(s) => s.comments,
         None => {
@@ -183,6 +184,7 @@ mod tests {
     use crate::core::anchors::LINES_INIT_COUNT;
     use crate::core::sidecar::save_sidecar;
     use crate::core::types::{Anchor, MrsfComment};
+    use crate::watcher::SidecarConfigState;
 
     fn typed_comment(id: &str, anchor: Anchor) -> MrsfComment {
         MrsfComment {
@@ -224,8 +226,9 @@ mod tests {
         );
         save_sidecar(&file_path, "doc.html", &[html_c, img_c]).unwrap();
 
+        let config = SidecarConfigState::new();
         LINES_INIT_COUNT.with(|c| c.set(0));
-        let _threads = get_file_comments_inner(&file_path).expect("ok");
+        let _threads = get_file_comments_inner(&file_path, &config).expect("ok");
         assert_eq!(
             LINES_INIT_COUNT.with(|c| c.get()),
             0,
@@ -258,8 +261,9 @@ mod tests {
         );
         save_sidecar(&file_path, "doc.md", &[line_c]).unwrap();
 
+        let config = SidecarConfigState::new();
         LINES_INIT_COUNT.with(|c| c.set(0));
-        let _ = get_file_comments_inner(&file_path).expect("ok");
+        let _ = get_file_comments_inner(&file_path, &config).expect("ok");
         assert_eq!(
             LINES_INIT_COUNT.with(|c| c.get()),
             1,

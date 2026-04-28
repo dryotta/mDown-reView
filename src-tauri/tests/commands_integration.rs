@@ -1,10 +1,10 @@
 use mdown_review_lib::commands::{
-    read_binary_file, read_dir, read_text_file, search_in_document,
+    read_binary_file, read_dir_inner, read_text_file, search_in_document,
     stat_file_inner, CommentsChangedEvent, LaunchArgs, MrsfComment, MrsfSidecar,
 };
 use mdown_review_lib::core::sidecar::{load_sidecar, save_sidecar};
 use mdown_review_lib::registry::WindowRegistry;
-use mdown_review_lib::watcher::FileChangeEvent;
+use mdown_review_lib::watcher::{FileChangeEvent, SidecarConfigState};
 use std::io::Write;
 
 // ── read_text_file ─────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ fn add_comment_accepts_file_kind_anchor() {
     std::fs::write(&file_path_buf, "alpha\nbeta\n").unwrap();
     let file_path = file_path_buf.to_str().unwrap().to_string();
 
-    mutate_sidecar_or_create(&file_path, Some("doc.md".into()), |sidecar| {
+    mutate_sidecar_or_create(&file_path, Some("doc.md".into()), &SidecarConfigState::new(), |sidecar| {
         let mut c = MrsfComment {
             id: "file-anchored-1".into(),
             author: "Tester".into(),
@@ -268,7 +268,7 @@ fn add_comment_accepts_file_kind_anchor() {
     .unwrap();
 
     // 3. get_file_comments_inner returns the comment with Anchor::File.
-    let threads = mdown_review_lib::commands::get_file_comments_inner(&file_path)
+    let threads = mdown_review_lib::commands::get_file_comments_inner(&file_path, &SidecarConfigState::new())
         .expect("get_file_comments")
         .threads;
     assert_eq!(threads.len(), 1, "expected one file-anchored thread");
@@ -393,7 +393,8 @@ fn read_dir_hides_review_sidecars() {
     .unwrap();
     std::fs::write(dir.path().join("config.json"), "{}").unwrap();
 
-    let result = read_dir(dir.path().to_str().unwrap().to_string(), None).unwrap();
+    let state = SidecarConfigState::new();
+    let result = read_dir_inner(dir.path().to_str().unwrap().to_string(), None, &state).unwrap();
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
 
     assert!(names.contains(&"readme.md"));
@@ -406,6 +407,48 @@ fn read_dir_hides_review_sidecars() {
     assert!(
         !names.contains(&"main.rs.review.json"),
         "JSON review sidecars should be hidden"
+    );
+}
+
+/// AC10: `read_dir` hides the `sidecar_root` directory when listing a
+/// workspace root with an active redirect config.
+#[test]
+fn read_dir_hides_sidecar_root_dir() {
+    use mdown_review_lib::core::paths::canonicalize_no_verbatim;
+
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path();
+    let canonical_ws = canonicalize_no_verbatim(ws).unwrap();
+
+    // Create workspace content + the sidecar_root directory
+    std::fs::write(ws.join("readme.md"), "hello").unwrap();
+    std::fs::create_dir(ws.join(".reviews")).unwrap();
+    std::fs::create_dir(ws.join("src")).unwrap();
+
+    // Without config: .reviews dir should be visible
+    let state = SidecarConfigState::new();
+    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(names.contains(&".reviews"), ".reviews must be visible without config");
+
+    // With config: .reviews dir should be hidden
+    state.set_config(canonical_ws.clone(), Some(std::path::PathBuf::from(".reviews")));
+    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        !names.contains(&".reviews"),
+        ".reviews dir must be hidden when it is the sidecar_root"
+    );
+    assert!(names.contains(&"readme.md"), "regular files must still be visible");
+    assert!(names.contains(&"src"), "regular dirs must still be visible");
+
+    // Listing a subdirectory (not workspace root) should NOT hide .reviews
+    std::fs::create_dir(ws.join("src").join(".reviews")).unwrap();
+    let result = read_dir_inner(ws.join("src").to_str().unwrap().to_string(), None, &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        names.contains(&".reviews"),
+        ".reviews in subdirs must NOT be hidden (only workspace root is filtered)"
     );
 }
 
@@ -563,7 +606,7 @@ fn mutate_sidecar_or_create_creates_first_comment_sidecar() {
     // Precondition: no sidecar yet.
     assert!(!sidecar_path.exists());
 
-    mutate_sidecar_or_create(&file_path, None, |sidecar| {
+    mutate_sidecar_or_create(&file_path, None, &SidecarConfigState::new(), |sidecar| {
         sidecar.comments.push(make_mrsf_comment("first-comment"));
         Ok(())
     })
@@ -594,7 +637,7 @@ fn mutate_sidecar_or_create_appends_to_existing() {
     // Pre-create a sidecar with one comment.
     save_sidecar(&file_path, "doc.md", &[make_mrsf_comment("c1")]).unwrap();
 
-    mutate_sidecar_or_create(&file_path, None, |sidecar| {
+    mutate_sidecar_or_create(&file_path, None, &SidecarConfigState::new(), |sidecar| {
         sidecar.comments.push(make_mrsf_comment("c2"));
         Ok(())
     })
@@ -620,7 +663,7 @@ fn mutate_sidecar_or_create_error_does_not_write_partial() {
     assert!(!sidecar_path.exists());
 
     let result =
-        mutate_sidecar_or_create(&file_path, None, |_sidecar| Err("simulated".to_string()));
+        mutate_sidecar_or_create(&file_path, None, &SidecarConfigState::new(), |_sidecar| Err("simulated".to_string()));
 
     // The mutation closure failed → the helper must propagate the error
     // and must NOT have written a partial/empty sidecar to disk.
@@ -642,7 +685,7 @@ fn mutate_sidecar_or_create_uses_filename_default_when_document_default_is_none(
     let file_path = file.to_str().unwrap().to_string();
 
     // Pass document_default = None so the helper falls back to the file's basename.
-    mutate_sidecar_or_create(&file_path, None, |sidecar| {
+    mutate_sidecar_or_create(&file_path, None, &SidecarConfigState::new(), |sidecar| {
         sidecar.comments.push(make_mrsf_comment("c0"));
         Ok(())
     })
@@ -731,7 +774,7 @@ fn stat_file_rejects_path_outside_workspace() {
 //
 
 mod f0_iter1 {
-    use super::{make_mrsf_comment, watcher_state_allowing};
+    use super::{make_mrsf_comment, watcher_state_allowing, SidecarConfigState};
     use mdown_review_lib::commands::{
         check_workspace_for, get_file_badges_inner, set_author_at,
         update_comment_apply, validate_author, CommentPatch, ConfigError,
@@ -757,6 +800,7 @@ mod f0_iter1 {
                 kind: "thumbs_up".into(),
                 ts: "2025-01-01T00:00:00Z".into(),
             },
+            &SidecarConfigState::new(),
         )
         .unwrap();
         // Idempotent: same (user, kind) twice is a no-op.
@@ -768,6 +812,7 @@ mod f0_iter1 {
                 kind: "thumbs_up".into(),
                 ts: "2025-01-02T00:00:00Z".into(),
             },
+            &SidecarConfigState::new(),
         )
         .unwrap();
 
@@ -792,6 +837,7 @@ mod f0_iter1 {
             &file_path,
             "c1",
             CommentPatch::SetResolved { resolved: true },
+            &SidecarConfigState::new(),
         )
         .unwrap();
         let loaded = load_sidecar(&file_path).unwrap().unwrap();
@@ -810,6 +856,7 @@ mod f0_iter1 {
             &file_path,
             "nonexistent",
             CommentPatch::SetResolved { resolved: true },
+            &SidecarConfigState::new(),
         )
         .unwrap_err();
         assert!(err.contains("not found"), "got: {err}");
@@ -837,6 +884,7 @@ mod f0_iter1 {
             CommentPatch::MoveAnchor {
                 new_anchor: new_anchor.clone(),
             },
+            &SidecarConfigState::new(),
         )
         .unwrap();
         assert!(mutated, "MoveAnchor with a different anchor must mutate");
@@ -868,6 +916,7 @@ mod f0_iter1 {
             CommentPatch::MoveAnchor {
                 new_anchor: same_anchor,
             },
+            &SidecarConfigState::new(),
         )
         .unwrap();
         assert!(!mutated, "MoveAnchor with equal anchor must be a no-op");
@@ -940,7 +989,8 @@ mod f0_iter1 {
         save_sidecar(&file_path, "doc.md", &[high, low, resolved]).unwrap();
 
         let state = watcher_state_allowing(&canonical);
-        let badges = get_file_badges_inner(&state, std::slice::from_ref(&file_path));
+        let config = SidecarConfigState::new();
+        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
         let badge = badges.get(&file_path).expect("badge for file");
         assert_eq!(badge.count, 2);
         assert_eq!(badge.max_severity, Severity::High);
@@ -961,7 +1011,8 @@ mod f0_iter1 {
         .unwrap();
 
         let state = watcher_state_allowing(workspace.path());
-        let badges = get_file_badges_inner(&state, &[outside_file.to_str().unwrap().to_string()]);
+        let config = SidecarConfigState::new();
+        let badges = get_file_badges_inner(&state, &config, &[outside_file.to_str().unwrap().to_string()]);
         assert!(
             badges.is_empty(),
             "outside-workspace badges must be silently skipped: {:?}",
@@ -1084,6 +1135,7 @@ mod f0_iter1 {
             &file_path,
             "c1",
             CommentPatch::SetResolved { resolved: true },
+            &SidecarConfigState::new(),
         )
         .expect("update_comment must succeed against orphan path");
 
@@ -1107,7 +1159,8 @@ mod f0_iter1 {
         std::fs::remove_file(&file).unwrap(); // orphan now
 
         let state = watcher_state_allowing(workspace.path());
-        let badges = get_file_badges_inner(&state, std::slice::from_ref(&file_path));
+        let config = SidecarConfigState::new();
+        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
         let badge = badges
             .get(&file_path)
             .expect("orphan-only files must still produce a badge");
@@ -1162,6 +1215,7 @@ mod f0_iter1 {
             &file_path,
             "c1",
             CommentPatch::SetResolved { resolved: false },
+            &SidecarConfigState::new(),
         )
         .unwrap();
         assert!(!mutated, "no-op SetResolved must report unchanged");
@@ -1229,6 +1283,7 @@ mod wave1c_typed_dispatch {
     use mdown_review_lib::commands::comments::get_file_comments_inner as get_file_comments;
     use mdown_review_lib::core::sidecar::save_sidecar;
     use mdown_review_lib::core::types::{Anchor, MrsfComment};
+    use mdown_review_lib::watcher::SidecarConfigState;
 
     fn typed_comment(id: &str, anchor: Anchor) -> MrsfComment {
         MrsfComment {
@@ -1258,7 +1313,8 @@ mod wave1c_typed_dispatch {
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
-        let threads = get_file_comments(&file_path)
+        let config = SidecarConfigState::new();
+        let threads = get_file_comments(&file_path, &config)
             .expect("get_file_comments ok")
             .threads;
         assert_eq!(threads.len(), 1, "exactly one root thread");
@@ -1291,7 +1347,8 @@ mod wave1c_typed_dispatch {
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
-        let threads = get_file_comments(&file_path)
+        let config = SidecarConfigState::new();
+        let threads = get_file_comments(&file_path, &config)
             .expect("get_file_comments ok")
             .threads;
         assert_eq!(threads.len(), 1);
@@ -1313,6 +1370,7 @@ mod sidecar_mtime_piggyback {
     use mdown_review_lib::commands::comments::get_file_comments_inner;
     use mdown_review_lib::core::sidecar::save_sidecar;
     use mdown_review_lib::core::types::{Anchor, MrsfComment};
+    use mdown_review_lib::watcher::SidecarConfigState;
 
     #[test]
     fn returns_none_when_no_sidecar_exists() {
@@ -1321,7 +1379,8 @@ mod sidecar_mtime_piggyback {
         std::fs::write(&file, b"hello\n").unwrap();
         let file_path = file.to_str().unwrap().to_string();
 
-        let result = get_file_comments_inner(&file_path).expect("ok");
+        let config = SidecarConfigState::new();
+        let result = get_file_comments_inner(&file_path, &config).expect("ok");
         assert!(result.threads.is_empty(), "no sidecar → no threads");
         assert!(
             result.sidecar_mtime_ms.is_none(),
@@ -1348,7 +1407,8 @@ mod sidecar_mtime_piggyback {
         };
         save_sidecar(&file_path, "doc.md", &[comment]).unwrap();
 
-        let result = get_file_comments_inner(&file_path).expect("ok");
+        let config = SidecarConfigState::new();
+        let result = get_file_comments_inner(&file_path, &config).expect("ok");
         let mtime_ms = result
             .sidecar_mtime_ms
             .expect("sidecar exists → mtime_ms must be Some");

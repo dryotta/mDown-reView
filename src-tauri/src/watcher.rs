@@ -9,6 +9,10 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Maximum number of tree-watched dirs across ALL windows (merged union).
 pub const MAX_TREE_WATCHED_DIRS: usize = 1024;
 
+// Re-export from canonical home in core/sidecar/config.rs so existing
+// `use crate::watcher::SidecarConfigState` paths keep compiling.
+pub use crate::core::sidecar::config::SidecarConfigState;
+
 pub struct WatcherState {
     /// Per-window watched file paths (keyed by window label).
     watched_paths: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
@@ -216,6 +220,9 @@ pub fn start_watcher(app: &AppHandle) {
         let mut watched_dirs: HashSet<PathBuf> = HashSet::new();
 
         loop {
+            // Track whether a dir-sync is needed (set by sync_rx drain or .mrsf.yaml reload).
+            let mut needs_sync = false;
+
             // Process debounced file-change events (200ms timeout for responsiveness).
             match rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(Ok(events)) => {
@@ -223,10 +230,33 @@ pub fn start_watcher(app: &AppHandle) {
                     let current_tree = lock_watched_union(&tree_watched);
                     // De-dup folder-changed emissions per debounced batch.
                     let mut folder_dirs: HashSet<PathBuf> = HashSet::new();
+                    let mut mrsf_changed = false;
                     for event in events {
                         if event.kind != DebouncedEventKind::Any {
                             continue;
                         }
+
+                        // AC7: detect .mrsf.yaml changes and reload config internally
+                        if event.path.file_name().and_then(|n| n.to_str()) == Some(".mrsf.yaml") {
+                            if let Some(parent) = event.path.parent() {
+                                if let Ok(canonical_root) = canonicalize_no_verbatim(parent) {
+                                    let config_state = app_handle.state::<SidecarConfigState>();
+                                    let config = crate::core::paths::load_mrsf_config(&canonical_root)
+                                        .unwrap_or_else(|e| {
+                                            tracing::warn!("[sidecar-config] reload failed: {e}");
+                                            None
+                                        });
+                                    tracing::info!(
+                                        "[sidecar-config] reloaded .mrsf.yaml for {}: sidecar_root={:?}",
+                                        canonical_root.display(),
+                                        config
+                                    );
+                                    config_state.set_config(canonical_root, config);
+                                    mrsf_changed = true;
+                                }
+                            }
+                        }
+
                         let (file_event, folder_dir) =
                             classify_event(&event.path, &current_watched, &current_tree);
                         if let Some(ev) = file_event {
@@ -236,6 +266,10 @@ pub fn start_watcher(app: &AppHandle) {
                         if let Some(d) = folder_dir {
                             folder_dirs.insert(d);
                         }
+                    }
+                    // If sidecar_root changed, trigger a sync so new dirs are watched
+                    if mrsf_changed {
+                        needs_sync = true;
                     }
                     for dir in folder_dirs {
                         let path_str = dir.to_string_lossy().into_owned();
@@ -258,13 +292,13 @@ pub fn start_watcher(app: &AppHandle) {
 
             // Drain sync signals AFTER recv_timeout so signals posted during the
             // 200ms block are caught immediately on this iteration, not the next.
-            let mut needs_sync = false;
             while sync_rx.try_recv().is_ok() {
                 needs_sync = true;
             }
 
             if needs_sync {
-                sync_dirs(&watched, &tree_watched, &mut watched_dirs, &mut debouncer);
+                let sidecar_dirs = app_handle.state::<SidecarConfigState>().extra_watched_dirs();
+                sync_dirs(&watched, &tree_watched, &sidecar_dirs, &mut watched_dirs, &mut debouncer);
             }
         }
     });
@@ -286,6 +320,7 @@ fn lock_watched_union(watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>) -
 fn sync_dirs(
     watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     tree_watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
+    sidecar_dirs: &HashSet<PathBuf>,
     watched_dirs: &mut HashSet<PathBuf>,
     debouncer: &mut notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
 ) {
@@ -298,6 +333,8 @@ fn sync_dirs(
     // Tree-watched dirs themselves must be observed (non-recursive) so we get
     // events for direct children added/removed/renamed.
     needed.extend(current_tree.iter().cloned());
+    // AC8: also watch workspace roots (for .mrsf.yaml) and sidecar_root dirs.
+    needed.extend(sidecar_dirs.iter().cloned());
 
     for dir in &needed {
         if !watched_dirs.contains(dir) && dir.exists() {

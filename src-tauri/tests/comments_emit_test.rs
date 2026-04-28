@@ -35,7 +35,7 @@ use mdown_review_lib::commands::{
 };
 use mdown_review_lib::core::sidecar::load_sidecar;
 use mdown_review_lib::core::types::{Anchor, MrsfSidecar};
-use mdown_review_lib::watcher::WatcherState;
+use mdown_review_lib::watcher::{SidecarConfigState, WatcherState};
 use std::path::Path;
 use std::sync::Mutex;
 use tempfile::TempDir;
@@ -103,7 +103,8 @@ fn seed_with_comment(dir: &Path, name: &str, comment_id: &str) -> String {
     let file_path = canonical.join(name);
     std::fs::write(&file_path, b"seed").unwrap();
     let file_path_str = file_path.to_string_lossy().into_owned();
-    mutate_sidecar_or_create(&file_path_str, Some(name.into()), |sc: &mut MrsfSidecar| {
+    let config = SidecarConfigState::new();
+    mutate_sidecar_or_create(&file_path_str, Some(name.into()), &config, |sc: &mut MrsfSidecar| {
         sc.comments.push(make_comment(comment_id));
         Ok(())
     })
@@ -130,6 +131,7 @@ fn add_comment_emits_once_with_correct_file_path() {
     add_comment_inner(
         &emitter,
         &state,
+        &SidecarConfigState::new(),
         file_path.clone(),
         "Tester".into(),
         "hello".into(),
@@ -165,6 +167,7 @@ fn add_reply_emits_once() {
     add_reply_inner(
         &emitter,
         &state,
+        &SidecarConfigState::new(),
         file_path.clone(),
         "c1".into(),
         "Tester".into(),
@@ -188,6 +191,7 @@ fn edit_comment_emits_once() {
     edit_comment_inner(
         &emitter,
         &state,
+        &SidecarConfigState::new(),
         file_path.clone(),
         "c1".into(),
         "edited".into(),
@@ -207,7 +211,7 @@ fn delete_comment_emits_once() {
     let emitter = MockEmitter::default();
     let file_path = seed_with_comment(dir.path(), "doc.md", "c1");
 
-    delete_comment_inner(&emitter, &state, file_path.clone(), "c1".into()).unwrap();
+    delete_comment_inner(&emitter, &state, &SidecarConfigState::new(), file_path.clone(), "c1".into()).unwrap();
 
     assert_eq!(emitter.count(), 1);
     assert_eq!(emitter.paths()[0], file_path);
@@ -225,6 +229,7 @@ fn update_comment_set_resolved_emits_when_changed() {
     update_comment_inner(
         &emitter,
         &state,
+        &SidecarConfigState::new(),
         file_path.clone(),
         "c1".into(),
         CommentPatch::SetResolved { resolved: true },
@@ -248,6 +253,7 @@ fn update_comment_set_resolved_no_op_does_not_emit() {
     update_comment_inner(
         &emitter,
         &state,
+        &SidecarConfigState::new(),
         file_path,
         "c1".into(),
         CommentPatch::SetResolved { resolved: false },
@@ -280,6 +286,7 @@ fn update_comment_move_anchor_no_op_does_not_emit() {
     update_comment_inner(
         &emitter,
         &state,
+        &SidecarConfigState::new(),
         file_path,
         "c1".into(),
         CommentPatch::MoveAnchor { new_anchor: same },

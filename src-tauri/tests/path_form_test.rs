@@ -10,8 +10,8 @@
 
 #![cfg(windows)]
 
-use mdown_review_lib::commands::{parse_launch_args, read_dir, scan_review_files};
-use mdown_review_lib::watcher::WatcherState;
+use mdown_review_lib::commands::{parse_launch_args, read_dir_inner, scan_review_files};
+use mdown_review_lib::watcher::{SidecarConfigState, WatcherState};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
@@ -67,7 +67,7 @@ fn parse_launch_args_emits_no_verbatim_prefix() {
 fn read_dir_emits_no_verbatim_prefix() {
     let ws = build_workspace();
     // Pass the bare form (what the frontend would send from a dialog).
-    let result = read_dir(ws.path().to_string_lossy().into_owned(), None).expect("read_dir");
+    let result = read_dir_inner(ws.path().to_string_lossy().into_owned(), None, &SidecarConfigState::new()).expect("read_dir");
     assert!(!result.entries.is_empty(), "expected at least one entry");
     for e in &result.entries {
         assert_no_verbatim("read_dir.path", &e.path);
@@ -180,7 +180,7 @@ fn is_path_or_parent_allowed_accepts_8dot3_short_name_input() {
 fn scan_review_files_shares_form_with_read_dir() {
     let ws = build_workspace();
     let entries =
-        read_dir(ws.path().to_string_lossy().into_owned(), None).expect("read_dir").entries;
+        read_dir_inner(ws.path().to_string_lossy().into_owned(), None, &SidecarConfigState::new()).expect("read_dir").entries;
     let pairs =
         scan_review_files(ws.path().to_string_lossy().into_owned()).expect("scan_review_files");
 

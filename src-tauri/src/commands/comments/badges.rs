@@ -2,7 +2,7 @@
 
 use crate::core::severity::{max_severity, Severity};
 use crate::core::types::{Anchor, MatchedComment};
-use crate::watcher::WatcherState;
+use crate::watcher::{SidecarConfigState, WatcherState};
 use std::collections::HashMap;
 use std::path::Path;
 use tauri::State;
@@ -37,10 +37,11 @@ pub struct FileBadge {
 #[tauri::command]
 pub fn get_file_badges(
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_paths: Vec<String>,
 ) -> Result<HashMap<String, FileBadge>, String> {
     enforce_badge_input_cap(&file_paths)?;
-    Ok(get_file_badges_inner(&state, &file_paths))
+    Ok(get_file_badges_inner(&state, &config_state, &file_paths))
 }
 
 /// Validates the input length cap for `get_file_badges`. Public so
@@ -57,6 +58,7 @@ pub fn enforce_badge_input_cap(file_paths: &[String]) -> Result<(), String> {
 /// Pure helper for [`get_file_badges`].
 pub fn get_file_badges_inner(
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_paths: &[String],
 ) -> HashMap<String, FileBadge> {
     let mut out: HashMap<String, FileBadge> = HashMap::new();
@@ -66,7 +68,8 @@ pub fn get_file_badges_inner(
         if !state.is_path_or_parent_allowed(Path::new(fp)) {
             continue;
         }
-        let sidecar = match crate::core::sidecar::load_sidecar(fp) {
+        let (yaml, json, _) = super::resolve_sidecar_pair(fp, config_state);
+        let sidecar = match crate::core::sidecar::load_sidecar_at(&yaml, &json) {
             Ok(Some(s)) => s,
             Ok(None) => continue,
             Err(e) => {
@@ -231,7 +234,8 @@ mod tests {
         save_sidecar(&file_path, "data.csv", &[unresolved, resolved]).unwrap();
 
         let state = watcher_state_allowing(&canonical);
-        let badges = get_file_badges_inner(&state, std::slice::from_ref(&file_path));
+        let config = SidecarConfigState::new();
+        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
         let badge = badges.get(&file_path).expect("badge for typed-only file");
         assert_eq!(badge.count, 1);
         assert_eq!(badge.max_severity, Severity::Medium);
@@ -259,7 +263,8 @@ mod tests {
         save_sidecar(&file_path, "doc.md", &[typed, line]).unwrap();
 
         let state = watcher_state_allowing(&canonical);
-        let badges = get_file_badges_inner(&state, std::slice::from_ref(&file_path));
+        let config = SidecarConfigState::new();
+        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
         let badge = badges.get(&file_path).expect("badge for mixed file");
         assert_eq!(badge.count, 2);
         assert_eq!(badge.max_severity, Severity::High);

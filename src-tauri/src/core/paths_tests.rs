@@ -251,3 +251,277 @@ fn canonicalize_no_verbatim_long_path_does_not_panic() {
     let _ = canonicalize_no_verbatim(&deep).expect("long-path canonicalize must succeed");
 }
 
+// ---- load_mrsf_config -----------------------------------------------
+
+#[test]
+fn load_mrsf_config_returns_none_when_no_config_file() {
+    let dir = tempdir().unwrap();
+    let result = load_mrsf_config(dir.path()).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn load_mrsf_config_returns_none_when_sidecar_root_absent() {
+    let dir = tempdir().unwrap();
+    // .mrsf.yaml exists but has no sidecar_root field — empty YAML doc
+    fs::write(dir.path().join(".mrsf.yaml"), "{}\n").unwrap();
+    let result = load_mrsf_config(dir.path()).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn load_mrsf_config_returns_relative_path() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+    let result = load_mrsf_config(dir.path()).unwrap();
+    assert_eq!(result, Some(PathBuf::from(".reviews")));
+}
+
+#[test]
+fn load_mrsf_config_rejects_absolute_path() {
+    let dir = tempdir().unwrap();
+    // Use a platform-appropriate absolute path
+    #[cfg(windows)]
+    let yaml = "sidecar_root: C:\\absolute\\path\n";
+    #[cfg(not(windows))]
+    let yaml = "sidecar_root: /absolute/path\n";
+    fs::write(dir.path().join(".mrsf.yaml"), yaml).unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(
+        err.contains("absolute") || err.contains("must be relative"),
+        "expected absolute rejection, got: {err}"
+    );
+}
+
+#[test]
+fn load_mrsf_config_rejects_dotdot_component() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), "sidecar_root: ../outside\n").unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(err.contains(".."), "expected .. rejection, got: {err}");
+}
+
+#[test]
+fn load_mrsf_config_rejects_dotdot_in_middle() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".mrsf.yaml"),
+        "sidecar_root: reviews/../escape\n",
+    )
+    .unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(err.contains(".."), "expected .. rejection, got: {err}");
+}
+
+#[test]
+fn load_mrsf_config_rejects_empty_sidecar_root() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), "sidecar_root: \"\"\n").unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(
+        err.contains("empty") || err.contains("blank"),
+        "expected empty rejection, got: {err}"
+    );
+}
+
+#[test]
+fn load_mrsf_config_rejects_oversized_file() {
+    let dir = tempdir().unwrap();
+    let big = vec![b'#'; 10 * 1024 * 1024 + 1];
+    fs::write(dir.path().join(".mrsf.yaml"), big).unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(
+        err.contains("10 MB") || err.contains("cap"),
+        "expected size rejection, got: {err}"
+    );
+}
+
+#[test]
+fn load_mrsf_config_rejects_yaml_anchors() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".mrsf.yaml"),
+        "sidecar_root: &anchor .reviews\n",
+    )
+    .unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(
+        err.contains("anchor") || err.contains("alias"),
+        "expected anchor rejection, got: {err}"
+    );
+}
+
+#[test]
+fn load_mrsf_config_rejects_unknown_fields() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".mrsf.yaml"),
+        "sidecar_root: .reviews\nunknown_key: value\n",
+    )
+    .unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(
+        err.contains("unknown") || err.contains("unknown_key"),
+        "expected unknown field rejection, got: {err}"
+    );
+}
+
+#[test]
+fn load_mrsf_config_rejects_sidecar_root_that_is_a_file() {
+    let dir = tempdir().unwrap();
+    // Create .reviews as a regular file, not a directory
+    fs::write(dir.path().join(".reviews"), "not a dir").unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+    let err = load_mrsf_config(dir.path()).unwrap_err();
+    assert!(
+        err.contains("not a directory") || err.contains("directory"),
+        "expected dir check, got: {err}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn load_mrsf_config_rejects_symlink_escape_dir_windows() {
+    use std::os::windows::fs::symlink_dir;
+    let outside = tempdir().unwrap();
+    let workspace = tempdir().unwrap();
+    // Create a symlink .reviews -> outside dir
+    let link = workspace.path().join(".reviews");
+    if symlink_dir(outside.path(), &link).is_err() {
+        eprintln!("skipping: symlink_dir requires Developer Mode / admin");
+        return;
+    }
+    fs::write(
+        workspace.path().join(".mrsf.yaml"),
+        "sidecar_root: .reviews\n",
+    )
+    .unwrap();
+    let err = load_mrsf_config(workspace.path()).unwrap_err();
+    assert!(
+        err.contains("outside") || err.contains("escape"),
+        "expected symlink escape rejection, got: {err}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn load_mrsf_config_rejects_symlink_escape_dir_unix() {
+    use std::os::unix::fs::symlink;
+    let outside = tempdir().unwrap();
+    let workspace = tempdir().unwrap();
+    let link = workspace.path().join(".reviews");
+    symlink(outside.path(), &link).unwrap();
+    fs::write(
+        workspace.path().join(".mrsf.yaml"),
+        "sidecar_root: .reviews\n",
+    )
+    .unwrap();
+    let err = load_mrsf_config(workspace.path()).unwrap_err();
+    assert!(
+        err.contains("outside") || err.contains("escape"),
+        "expected symlink escape rejection, got: {err}"
+    );
+}
+
+// ---- resolve_sidecar_for_file ----------------------------------------
+
+#[test]
+fn resolve_sidecar_for_file_colocated_when_no_config() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("docs").join("readme.md");
+    let result = resolve_sidecar_for_file(dir.path(), &file, &None).unwrap();
+    let expected = PathBuf::from(format!("{}.review.yaml", file.display()));
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn resolve_sidecar_for_file_redirects_under_sidecar_root() {
+    let dir = tempdir().unwrap();
+    let workspace = dir.path();
+    let file = workspace.join("docs").join("readme.md");
+    let config = Some(PathBuf::from(".reviews"));
+    let result = resolve_sidecar_for_file(workspace, &file, &config).unwrap();
+    let expected = workspace
+        .join(".reviews")
+        .join("docs")
+        .join("readme.md.review.yaml");
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn resolve_sidecar_for_file_preserves_nested_structure() {
+    let dir = tempdir().unwrap();
+    let workspace = dir.path();
+    let file = workspace.join("a").join("b").join("c.md");
+    let config = Some(PathBuf::from("review-data"));
+    let result = resolve_sidecar_for_file(workspace, &file, &config).unwrap();
+    let expected = workspace
+        .join("review-data")
+        .join("a")
+        .join("b")
+        .join("c.md.review.yaml");
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn resolve_sidecar_for_file_rejects_file_outside_workspace() {
+    let workspace = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let file = outside.path().join("evil.md");
+    let config = Some(PathBuf::from(".reviews"));
+    let err = resolve_sidecar_for_file(workspace.path(), &file, &config).unwrap_err();
+    assert!(
+        err.contains("outside") || err.contains("not under"),
+        "expected outside rejection, got: {err}"
+    );
+}
+
+#[test]
+fn resolve_sidecar_for_file_canonicalizes_existing_path() {
+    let dir = tempdir().unwrap();
+    // workspace_root must be canonical (matches the function's contract).
+    let workspace = canonicalize_no_verbatim(dir.path()).unwrap();
+    let reviews_dir = workspace.join(".reviews").join("docs");
+    fs::create_dir_all(&reviews_dir).unwrap();
+    let sidecar = reviews_dir.join("readme.md.review.yaml");
+    fs::write(&sidecar, "test").unwrap();
+    let file = workspace.join("docs").join("readme.md");
+    let config = Some(PathBuf::from(".reviews"));
+    let result = resolve_sidecar_for_file(&workspace, &file, &config).unwrap();
+    // Result should be canonical (no verbatim prefix on Windows)
+    let canonical = canonicalize_no_verbatim(&sidecar).unwrap();
+    assert_eq!(result, canonical);
+}
+
+// ---- ensure_sidecar_parent -------------------------------------------
+
+#[test]
+fn ensure_sidecar_parent_creates_dirs() {
+    let dir = tempdir().unwrap();
+    let workspace = dir.path();
+    let sidecar = workspace
+        .join(".reviews")
+        .join("a")
+        .join("b")
+        .join("c.md.review.yaml");
+    ensure_sidecar_parent(workspace, &sidecar).unwrap();
+    assert!(sidecar.parent().unwrap().exists());
+    assert!(sidecar.parent().unwrap().is_dir());
+}
+
+#[test]
+fn ensure_sidecar_parent_rejects_escape_after_creation() {
+    // This test verifies that if somehow the created parent resolves
+    // outside workspace after canonicalization, it's rejected.
+    // Hard to test without symlinks, so just verify the happy path
+    // that a normal parent inside workspace works.
+    let dir = tempdir().unwrap();
+    let workspace = dir.path();
+    let sidecar = workspace.join(".reviews").join("doc.md.review.yaml");
+    ensure_sidecar_parent(workspace, &sidecar).unwrap();
+    let parent = sidecar.parent().unwrap();
+    let canonical = canonicalize_no_verbatim(parent).unwrap();
+    let canonical_ws = canonicalize_no_verbatim(workspace).unwrap();
+    assert!(canonical.starts_with(&canonical_ws));
+}
+

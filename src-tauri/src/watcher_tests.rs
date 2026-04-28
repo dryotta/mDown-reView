@@ -216,3 +216,54 @@ fn is_path_allowed_checks_all_windows() {
     assert!(!state.is_path_allowed(&file_a));
     assert!(state.is_path_allowed(&file_b));
 }
+
+#[test]
+fn extra_watched_dirs_includes_workspace_roots_and_sidecar_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = canonicalize_no_verbatim(dir.path()).unwrap();
+
+    // Create a sidecar_root directory
+    let sr_dir = ws.join(".reviews");
+    std::fs::create_dir(&sr_dir).unwrap();
+    let sr_canonical = canonicalize_no_verbatim(&sr_dir).unwrap();
+
+    let state = super::SidecarConfigState::new();
+    // Register workspace with sidecar_root
+    state.set_config(ws.clone(), Some(std::path::PathBuf::from(".reviews")));
+
+    let dirs = state.extra_watched_dirs();
+
+    // Must include both the workspace root and the sidecar_root dir
+    assert!(
+        dirs.contains(&ws),
+        "extra_watched_dirs must include the workspace root"
+    );
+    assert!(
+        dirs.contains(&sr_canonical),
+        "extra_watched_dirs must include the resolved sidecar_root dir"
+    );
+}
+
+#[test]
+fn extra_watched_dirs_empty_when_no_configs() {
+    let state = super::SidecarConfigState::new();
+    assert!(
+        state.extra_watched_dirs().is_empty(),
+        "extra_watched_dirs must be empty when no configs are registered"
+    );
+}
+
+#[test]
+fn extra_watched_dirs_skips_nonexistent_sidecar_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = canonicalize_no_verbatim(dir.path()).unwrap();
+
+    let state = super::SidecarConfigState::new();
+    // sidecar_root dir doesn't exist on disk
+    state.set_config(ws.clone(), Some(std::path::PathBuf::from(".nonexistent")));
+
+    let dirs = state.extra_watched_dirs();
+    // Workspace root is included, but the nonexistent sidecar dir is not
+    assert!(dirs.contains(&ws));
+    assert_eq!(dirs.len(), 1, "only the workspace root should be present");
+}
