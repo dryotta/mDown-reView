@@ -132,7 +132,11 @@ impl WindowRegistry {
     }
 
     /// Update the kind of an existing window entry.
-    pub fn update_kind(&self, label: &str, kind: WindowKind) {
+    ///
+    /// NOTE: This does NOT enforce one-folder-one-window. Use
+    /// `try_claim_folder` for folder claims. This is only safe for
+    /// downgrading to `FileOnly` (e.g. `unregister_window_folder`).
+    pub(crate) fn update_kind(&self, label: &str, kind: WindowKind) {
         let mut entries = self.entries.lock().expect("registry lock poisoned");
         if let Some(entry) = entries.iter_mut().find(|e| e.label == label) {
             entry.kind = kind;
@@ -143,6 +147,7 @@ impl WindowRegistry {
     ///
     /// - If the folder is already owned by `label` → update in place, return `Ok`.
     /// - If the folder is owned by a different window → return `Err(existing_label)`.
+    /// - If `label` is not registered → return `Err("window not registered")`.
     /// - Otherwise → update `label`'s kind to `Folder(path)`, return `Ok`.
     pub fn try_claim_folder(&self, label: &str, path: PathBuf) -> Result<(), String> {
         let mut entries = self.entries.lock().expect("registry lock poisoned");
@@ -154,11 +159,13 @@ impl WindowRegistry {
                 }
             }
         }
-        // Safe to claim — update this window's kind
+        // Find and update this window's kind
         if let Some(entry) = entries.iter_mut().find(|e| e.label == label) {
             entry.kind = WindowKind::Folder(path);
+            Ok(())
+        } else {
+            Err("window not registered".to_string())
         }
-        Ok(())
     }
 
     /// Remove a window by label.
@@ -688,5 +695,16 @@ mod tests {
             RouteDecision::FocusExisting(label) => assert_eq!(label, "main"),
             other => panic!("expected FocusExisting, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn try_claim_folder_rejects_unregistered_label() {
+        let reg = WindowRegistry::new();
+        // Label "ghost" was never registered
+        let result = reg.try_claim_folder("ghost", PathBuf::from("/projects/a"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "window not registered");
+        // Folder should NOT be claimed
+        assert_eq!(reg.find_by_folder(Path::new("/projects/a")), None);
     }
 }

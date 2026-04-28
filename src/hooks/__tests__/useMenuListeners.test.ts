@@ -13,6 +13,11 @@ vi.mock("@/lib/tauri-events", () => ({
   }),
 }));
 
+const mockUnregisterWindowFolder = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/tauri-commands", () => ({
+  unregisterWindowFolder: (...args: unknown[]) => mockUnregisterWindowFolder(...args),
+}));
+
 vi.mock("@/logger", () => ({
   error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn(),
 }));
@@ -94,6 +99,15 @@ describe("useMenuListeners", () => {
     renderHook(() => useMenuListeners(callbacks));
     listeners.get("menu-check-updates")?.();
     expect(callbacks.checkForUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("menu-close-folder calls closeFolder and unregisterWindowFolder", () => {
+    const closeFolder = vi.fn();
+    useStore.setState({ closeFolder });
+    renderHook(() => useMenuListeners(callbacks));
+    listeners.get("menu-close-folder")?.();
+    expect(closeFolder).toHaveBeenCalledOnce();
+    expect(mockUnregisterWindowFolder).toHaveBeenCalledOnce();
   });
 
   it("dispatches openSettings on menu-help-settings event", () => {

@@ -33,48 +33,58 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
         "sidecar_root: .reviews\n",
       );
 
-      // Poll for .mrsf.yaml config to be picked up by the watcher by
-      // attempting add_comment and checking the result location. This
-      // replaces the previous fixed-sleep approach.
+      // Phase 1: Poll `get_sidecar_config` until the watcher picks up
+      // .mrsf.yaml. This is deterministic (IPC query to the config cache)
+      // and avoids relying on filesystem side-effects that are
+      // timing-sensitive on slow CI runners.
+      const MAX_CONFIG_POLLS = 60; // 60 × 500ms = 30s budget
+      let configDetected = false;
+      for (let i = 0; i < MAX_CONFIG_POLLS; i++) {
+        await nativePage.waitForTimeout(500);
+        const result = await nativePage.evaluate((root: string) => {
+          // @ts-ignore — Tauri internals
+          return window.__TAURI_INTERNALS__.invoke("get_sidecar_config", { root });
+        }, tmpDir);
+        if (result && (result as { enabled: boolean }).enabled) {
+          configDetected = true;
+          break;
+        }
+      }
+      expect(
+        configDetected,
+        "get_sidecar_config should report enabled=true after watcher reloads .mrsf.yaml",
+      ).toBe(true);
+
+      // Phase 2: Config is confirmed loaded — verify add_comment writes
+      // the sidecar into .reviews/.
       const reviewsDir = path.join(tmpDir, ".reviews");
       const sidecarPath = path.join(reviewsDir, "readme.md.review.yaml");
       const colocated = path.join(tmpDir, "readme.md.review.yaml");
 
-      let found = false;
-      for (let attempt = 0; attempt < 20; attempt++) {
-        // Clean up any prior attempt artifacts
-        if (fs.existsSync(colocated)) fs.unlinkSync(colocated);
-        if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
+      // Clean up any artifacts from Phase 1 probes (get_sidecar_config
+      // doesn't write, but be safe).
+      if (fs.existsSync(colocated)) fs.unlinkSync(colocated);
+      if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
 
-        await nativePage.waitForTimeout(500);
+      await nativePage.evaluate((fp: string) => {
+        // @ts-ignore — Tauri internals
+        return window.__TAURI_INTERNALS__.invoke("add_comment", {
+          filePath: fp,
+          author: "e2e-test",
+          text: "Comment under sidecar_root",
+          anchor: null,
+          commentType: null,
+          severity: null,
+          document: null,
+        });
+      }, docFile);
 
-        // Try adding a comment — the sidecar should land in .reviews/
-        await nativePage.evaluate((fp: string) => {
-          // @ts-ignore — Tauri internals
-          return window.__TAURI_INTERNALS__.invoke("add_comment", {
-            filePath: fp,
-            author: "e2e-test",
-            text: "Comment under sidecar_root",
-            anchor: null,
-            commentType: null,
-            severity: null,
-            document: null,
-          });
-        }, docFile);
-
-        // Give the write a moment to flush
-        await nativePage.waitForTimeout(200);
-
-        if (fs.existsSync(sidecarPath)) {
-          found = true;
-          break;
-        }
-      }
+      // Give the write a moment to flush
+      await nativePage.waitForTimeout(500);
 
       // Verify: sidecar landed in .reviews/ directory
-      expect(found, `sidecar should exist at ${sidecarPath} within 10s`).toBe(true);
+      expect(fs.existsSync(sidecarPath), `sidecar should exist at ${sidecarPath}`).toBe(true);
       expect(fs.existsSync(reviewsDir)).toBe(true);
-      expect(fs.existsSync(sidecarPath)).toBe(true);
 
       // Verify co-located sidecar was NOT created
       expect(

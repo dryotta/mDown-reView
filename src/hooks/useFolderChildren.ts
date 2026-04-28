@@ -53,19 +53,23 @@ export function useFolderChildren(root: string | null) {
   // Refresh cached entries when Rust reports a folder change. We only refresh
   // dirs we already have in the cache — unknown dirs would be loaded lazily
   // on expand. Reads the cache via ref so the listener doesn't re-subscribe
-  // on every cache mutation.
+  // on every cache mutation. A generation counter guards against stale async
+  // responses after root changes (issue #250).
+  const generationRef = useRef(0);
   useEffect(() => {
+    const gen = ++generationRef.current;
     const unlisten = listenEvent("folder-changed", ({ path }) => {
       if (childrenCacheRef.current[path] === undefined) return;
       readDir(path, undefined, showSidecarFilesRef.current || undefined)
-        .then((result) =>
+        .then((result) => {
+          if (generationRef.current !== gen) return;
           setChildrenCache((prev) => {
             const value: CachedDir = { entries: result.entries, hasMore: result.has_more, total: result.total };
             const next = { ...prev, [path]: value };
             childrenCacheRef.current = next;
             return next;
-          })
-        )
+          });
+        })
         .catch((err) =>
           warn(`[useFolderChildren] folder-changed refresh failed: ${err}`)
         );
@@ -73,7 +77,7 @@ export function useFolderChildren(root: string | null) {
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
     };
-  }, []);
+  }, [root]);
 
   return { childrenCache, loadChildren };
 }

@@ -352,8 +352,13 @@ pub fn run() {
                         let label = reg.next_label();
                         let display = folder_display_name(&path);
                         match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
-                            Ok(_) => {
+                            Ok(new_win) => {
                                 reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
+                                reg.push_args(&label, LaunchArgs {
+                                    folders: vec![path.to_string_lossy().into_owned()],
+                                    files: vec![],
+                                });
+                                let _ = new_win.emit("args-received", ());
                                 log::info!("[window] setup: created {label} for {}", path.display());
                             }
                             Err(e) => log::error!("[window] setup: window for {} failed: {e}", path.display()),

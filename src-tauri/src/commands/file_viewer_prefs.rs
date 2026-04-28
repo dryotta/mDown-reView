@@ -127,7 +127,7 @@ pub fn set_pref_at(
 
 #[tauri::command]
 pub fn get_file_viewer_pref(app: AppHandle, path: String) -> Option<FileViewerPref> {
-    let canonical = match std::fs::canonicalize(&path) {
+    let canonical = match crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&path)) {
         Ok(c) => c,
         Err(_) => return None,
     };
@@ -145,7 +145,8 @@ pub fn set_file_viewer_pref(
     path: String,
     allow_images: bool,
 ) -> Result<(), String> {
-    let canonical = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+    let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&path))
+        .map_err(|e| e.to_string())?;
     let key = hash_path(&canonical);
     let mut prefs = load_prefs(&app);
     prefs.entries.insert(
