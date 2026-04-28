@@ -9,7 +9,7 @@ const FIXTURES_DIR = "/e2e/fixtures";
 
 async function setupPdfMocks(page: Page) {
   await page.addInitScript((dir: string) => {
-    window.__TAURI_IPC_MOCK__ = async (cmd: string, _args: Record<string, unknown>) => {
+    window.__TAURI_IPC_MOCK__ = async (cmd: string, args: Record<string, unknown>) => {
       if (cmd === "get_launch_args") return { files: [], folders: [dir] };
       if (cmd === "read_dir") {
         return {
@@ -24,9 +24,22 @@ async function setupPdfMocks(page: Page) {
       if (cmd === "check_path_exists") return "file";
       if (cmd === "get_log_path") return "/mock/log.log";
       if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
+      if (cmd === "get_file_badges") return {};
+      if (cmd === "scan_review_files") return [];
+      if (cmd === "update_watched_files") return undefined;
+      if (cmd === "update_tree_watched_dirs") return undefined;
+      if (cmd === "canonicalize_path") return typeof args?.path === "string" ? args.path : "";
+      if (cmd === "get_file_viewer_pref") return null;
+      if (cmd === "set_file_viewer_pref") return undefined;
+      if (cmd === "get_author") return "test-user";
+      if (cmd === "stat_file") return { size_bytes: 1024, mtime_ms: null };
+      if (cmd === "register_window_folder") return undefined;
+      if (cmd === "unregister_window_folder") return undefined;
+      if (cmd === "get_sidecar_config") return { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 };
+      if (cmd === "check_update") return null;
+      if (cmd === "onboarding_state") return { schema_version: 1, last_seen_sections: [] };
+      if (cmd === "cli_shim_status" || cmd === "default_handler_status") return "missing";
       // PdfViewer streams via asset:// — no read_text_file / read_binary_file.
-      // Returning null for any unexpected command surfaces accidental reads
-      // as test failures (the wrappers throw on null where they expect data).
       return null;
     };
   }, FIXTURES_DIR);
