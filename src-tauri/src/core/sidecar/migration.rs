@@ -11,14 +11,21 @@ use std::path::{Path, PathBuf};
 /// Hard ceiling on sidecar files matched during a walk (performance.md rule 1).
 const MAX_FILES_SCANNED: usize = 10_000;
 
-/// Create a gitignore-aware walker for sidecar scanning.
-/// Respects `.gitignore` so `node_modules/`, `.git/`, `target/`, etc. are
-/// skipped automatically without a hardcoded list.
-fn sidecar_walker(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
-    ignore::WalkBuilder::new(root)
-        .max_depth(Some(50))
-        .hidden(false) // don't skip dotfiles — .reviews/ is a dotdir
-        .build()
+/// Create a walker for sidecar scanning. Skips known-heavy directories
+/// (`.git`, `node_modules`, `target`) for performance, but does NOT
+/// respect `.gitignore` — review sidecar files are commonly gitignored,
+/// and the counter/migration must find ALL sidecars regardless.
+fn sidecar_walker(root: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
+    walkdir::WalkDir::new(root)
+        .max_depth(50)
+        .into_iter()
+        .filter_entry(|e| {
+            if !e.file_type().is_dir() {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !matches!(name.as_ref(), ".git" | "node_modules" | "target" | ".next" | "dist" | "__pycache__")
+        })
         .filter_map(|e| e.ok())
 }
 
