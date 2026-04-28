@@ -27,6 +27,7 @@ import { basename } from "@/lib/path-utils";
 import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
+import { unregisterWindowFolder } from "@/lib/tauri-commands";
 
 export default function App() {
   const {
@@ -72,6 +73,13 @@ export default function App() {
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
+
+  // Shared close-folder handler: resets store root AND unregisters from
+  // the Rust WindowRegistry so the folder can be re-opened elsewhere.
+  const handleCloseFolder = useCallback(() => {
+    useStore.getState().closeFolder();
+    unregisterWindowFolder().catch(() => {});
+  }, []);
 
   // F1 — Ctrl/Cmd+Shift+M: trigger the existing selection-toolbar add-
   // comment path. We dispatch a real bubbling `mouseup` from the end of
@@ -197,7 +205,7 @@ export default function App() {
           {root !== null && (
             <>
               <ErrorBoundary>
-                <FolderTree onFileOpen={openFile} onCloseFolder={() => useStore.getState().closeFolder()} />
+                <FolderTree onFileOpen={openFile} onCloseFolder={handleCloseFolder} />
               </ErrorBoundary>
               <div className="drag-handle" onMouseDown={onDragStart} />
             </>

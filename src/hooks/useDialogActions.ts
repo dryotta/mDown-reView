@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { showOpenDialog, registerWindowFolder } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
 import { useStore } from "@/store";
 
 export function useDialogActions() {
@@ -34,8 +35,11 @@ export function useDialogActions() {
         await setRoot(selected);
         addRecentItem(selected, "folder");
       }
-    } catch {
-      // User cancelled, dialog error, or folder already open in another window
+    } catch (err) {
+      // Distinguish registry rejection from user cancellation
+      if (err && typeof err === "string" && err.includes("already open")) {
+        warn(`[useDialogActions] folder already open in another window`);
+      }
     }
   }, [setRoot, addRecentItem]);
 

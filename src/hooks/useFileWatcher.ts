@@ -78,20 +78,25 @@ export function useFileWatcher() {
     };
   }, [debouncedScan]);
 
-  // Scan for ghost entries when workspace root changes
+  // Scan for ghost entries when workspace root changes.
+  // A `cancelled` flag guards against stale responses after rapid root
+  // switches (issue #250).
   useEffect(() => {
     if (!root) {
       setGhostEntries([]);
       return;
     }
+    let cancelled = false;
     scanReviewFiles(root)
-      .then((pairs) =>
+      .then((pairs) => {
+        if (cancelled) return;
         setGhostEntries(
           pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
-        )
-      )
+        );
+      })
       .catch((err) =>
         warn(`[useFileWatcher] failed to scan review files: ${err}`)
       );
+    return () => { cancelled = true; };
   }, [root, setGhostEntries]);
 }

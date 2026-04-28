@@ -51,6 +51,48 @@ describe("useCrossWindowPrefsSync", () => {
     expect(useStore.getState().commentsPaneVisible).toBe(true);
   });
 
+  it("does not sync showSidecarFiles (per-window preference)", () => {
+    useStore.setState({ showSidecarFiles: false });
+    renderHook(() => useCrossWindowPrefsSync());
+
+    act(() => {
+      fireStorageEvent(
+        "mdownreview-ui",
+        payload({ showSidecarFiles: true }),
+      );
+    });
+
+    expect(useStore.getState().showSidecarFiles).toBe(false);
+  });
+
+  it("syncs readingWidth across windows", () => {
+    useStore.setState({ readingWidth: 720 });
+    renderHook(() => useCrossWindowPrefsSync());
+
+    act(() => {
+      fireStorageEvent(
+        "mdownreview-ui",
+        payload({ readingWidth: 1200 }),
+      );
+    });
+
+    expect(useStore.getState().readingWidth).toBe(1200);
+  });
+
+  it("syncs zoomByFiletype across windows", () => {
+    useStore.setState({ zoomByFiletype: {} });
+    renderHook(() => useCrossWindowPrefsSync());
+
+    act(() => {
+      fireStorageEvent(
+        "mdownreview-ui",
+        payload({ zoomByFiletype: { ".md": 1.5 } }),
+      );
+    });
+
+    expect(useStore.getState().zoomByFiletype).toEqual({ ".md": 1.5 });
+  });
+
   it("updates global prefs when a storage event fires with the persist key", () => {
     renderHook(() => useCrossWindowPrefsSync());
 

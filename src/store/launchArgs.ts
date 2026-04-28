@@ -22,15 +22,21 @@ export async function openFilesFromArgs(
   folders: string[],
   store: ReturnType<typeof useStore.getState>,
 ): Promise<void> {
-  // Last folder wins (spec requirement)
+  // Last folder wins (spec requirement).
+  // Confirm registration with the Rust registry (the Rust setup/router
+  // already claimed the folder — this re-confirms and updates the title).
+  // If it fails (e.g., folder already open), log but still set root since
+  // the Rust side already routed this folder to this window.
   if (folders.length > 0) {
     const lastFolder = folders[folders.length - 1];
     const canonicalFolder = await canonicalizeOrFallback(lastFolder);
     await store.setRoot(canonicalFolder);
     store.addRecentItem(canonicalFolder, "folder");
-    registerWindowFolder(canonicalFolder).catch((err) =>
-      warn(`[launchArgs] register_window_folder failed: ${err}`)
-    );
+    try {
+      await registerWindowFolder(canonicalFolder);
+    } catch (err) {
+      warn(`[launchArgs] register_window_folder failed: ${err}`);
+    }
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));
   // Deduplicate incoming files
