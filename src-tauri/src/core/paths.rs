@@ -339,14 +339,20 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
         .parent()
         .ok_or_else(|| format!("sidecar path '{}' has no parent", sidecar_path.display()))?;
 
+    // Track whether the parent already existed so error-path cleanup
+    // only removes directories we actually created (security rule 4:
+    // a failed write must never destroy existing data).
+    let parent_existed = parent.exists();
+
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("failed to create sidecar dir '{}': {e}", parent.display()))?;
 
     let canonical_parent = match canonicalize_no_verbatim(parent) {
         Ok(p) => p,
         Err(e) => {
-            // Clean up and fail.
-            let _ = std::fs::remove_dir_all(parent);
+            if !parent_existed {
+                let _ = std::fs::remove_dir_all(parent);
+            }
             return Err(format!(
                 "cannot canonicalize created dir '{}': {e}",
                 parent.display()
@@ -357,7 +363,9 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
     let canonical_ws = match canonicalize_no_verbatim(workspace_root) {
         Ok(p) => p,
         Err(e) => {
-            let _ = std::fs::remove_dir_all(parent);
+            if !parent_existed {
+                let _ = std::fs::remove_dir_all(parent);
+            }
             return Err(format!(
                 "cannot canonicalize workspace root '{}': {e}",
                 workspace_root.display()
@@ -366,7 +374,9 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
     };
 
     if !canonical_parent.starts_with(&canonical_ws) {
-        let _ = std::fs::remove_dir_all(parent);
+        if !parent_existed {
+            let _ = std::fs::remove_dir_all(parent);
+        }
         return Err(format!(
             "created dir '{}' resolves outside workspace root",
             parent.display()
