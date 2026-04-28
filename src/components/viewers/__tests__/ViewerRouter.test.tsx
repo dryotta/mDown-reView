@@ -48,12 +48,6 @@ vi.mock("../AudioViewer", () => ({
   getAudioMime: (p: string) => (p.endsWith(".mp3") ? "audio/mpeg" : "audio/*"),
 }));
 
-vi.mock("../PdfViewer", () => ({
-  PdfViewer: ({ path }: { path: string }) => (
-    <div data-testid="pdf-viewer" data-path={path}>PdfViewer</div>
-  ),
-}));
-
 vi.mock("../BinaryViewerShell", () => ({
   BinaryViewerShell: ({ path, size, onCommentOnFile }: { path: string; size?: number; onCommentOnFile?: () => void }) => (
     <div data-testid="binary-viewer-shell" data-path={path} data-size={size} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
@@ -129,14 +123,6 @@ describe("ViewerRouter routing", () => {
     render(<ViewerRouter path="/music/song.mp3" />);
     expect(screen.getByTestId("audio-viewer")).toBeInTheDocument();
     expect(screen.getByTestId("audio-viewer").dataset.path).toBe("/music/song.mp3");
-  });
-
-  it("pdf status routes to PdfViewer (#65 F3)", () => {
-    mockUseFileContent.mockReturnValue({ status: "pdf" });
-    useStore.setState({ tabs: [{ path: "/docs/spec.pdf", scrollTop: 0 }] });
-    render(<ViewerRouter path="/docs/spec.pdf" />);
-    expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument();
-    expect(screen.getByTestId("pdf-viewer").dataset.path).toBe("/docs/spec.pdf");
   });
 
   it("loading status shows SkeletonLoader", () => {
@@ -239,14 +225,6 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     render(<ViewerRouter path="/s.mp3" />);
     fireEvent.click(expectCommentOnFileButton());
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/s.mp3");
-  });
-
-  it("pdf viewer surfaces a Comment-on-file button", () => {
-    mockUseFileContent.mockReturnValue({ status: "pdf" });
-    useStore.setState({ tabs: [{ path: "/d.pdf", scrollTop: 0 }], pendingFileLevelInputFor: null });
-    render(<ViewerRouter path="/d.pdf" />);
-    fireEvent.click(expectCommentOnFileButton());
-    expect(useStore.getState().pendingFileLevelInputFor).toBe("/d.pdf");
   });
 
   it("binary viewer passes onCommentOnFile to BinaryViewerShell", () => {

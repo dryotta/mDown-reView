@@ -9,7 +9,6 @@ export type FileCategory =
   | "kql"
   | "image"
   | "audio"
-  | "pdf"
   | "text";
 
 const CATEGORY_MAP: Record<string, FileCategory> = {
@@ -33,7 +32,6 @@ const CATEGORY_MAP: Record<string, FileCategory> = {
   ".webp": "image",
   ".bmp": "image",
   ".ico": "image",
-  ".pdf": "pdf",
   ".mp3": "audio",
   ".wav": "audio",
   ".ogg": "audio",
@@ -54,7 +52,6 @@ const VISUALIZABLE: Set<FileCategory> = new Set([
   "html",
   "mermaid",
   "kql",
-  "pdf",
   "audio",
 ]);
 
@@ -66,7 +63,6 @@ const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
   mermaid: "visual",
   kql: "visual",
   image: "visual",
-  pdf: "visual",
   audio: "visual",
   text: "source",
 };
@@ -87,7 +83,6 @@ export function getFiletypeKey(path: string, viewMode?: "source" | "visual"): st
   const cat = getFileCategory(path);
   if (cat === "image") return ".image";
   if (cat === "audio") return ".audio";
-  if (cat === "pdf") return ".pdf";
   const view = viewMode ?? getDefaultView(cat);
   if (view === "source") return ".source";
   switch (cat) {

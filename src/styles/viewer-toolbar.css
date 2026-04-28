@@ -155,31 +155,6 @@
   max-height: 100%;
 }
 
-.pdf-viewer {
-  width: 100%;
-  height: 100%;
-  border: none;
-}
-
-.pdf-viewer-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 24px;
-  color: var(--color-muted);
-  gap: 8px;
-}
-
-.pdf-viewer-error__title {
-  font-weight: 600;
-}
-
-.pdf-viewer-error__filename {
-  font-size: 13px;
-}
-
 .viewer-toolbar-icon-btn {
   display: inline-flex;
   align-items: center;
