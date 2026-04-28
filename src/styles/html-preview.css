@@ -18,6 +18,12 @@
   flex: 1;
   min-height: 0;
   display: flex;
+  /* Override the card-style margin from .reading-width — the HTML preview
+     fills the viewport vertically, so vertical margin creates dead space. */
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 0;
+  border-radius: 0;
 }
 
 /* Wrapper around iframe + overlay — fills reading-width. */

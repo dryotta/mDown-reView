@@ -230,12 +230,13 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     expect(screen.getByTestId("enhanced-viewer").dataset.hasCommentOnFile).toBe("true");
   });
 
-  it("clicking the wired callback in EnhancedViewer sets pendingFileLevelInputFor to the file path", () => {
+  it("clicking the wired callback in EnhancedViewer sets pendingFileLevelInputFor and shows comments pane", () => {
     mockUseFileContent.mockReturnValue({ status: "ready", content: "# Hello" });
-    useStore.setState({ tabs: [{ path: "/r.md", scrollTop: 0 }], pendingFileLevelInputFor: null });
+    useStore.setState({ tabs: [{ path: "/r.md", scrollTop: 0 }], pendingFileLevelInputFor: null, commentsPaneVisible: false });
     render(<ViewerRouter path="/r.md" />);
     fireEvent.click(screen.getByTestId("enhanced-viewer-comment-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/r.md");
+    expect(useStore.getState().commentsPaneVisible).toBe(true);
   });
 
   it("image viewer passes onCommentOnFile to ImageViewerShell", () => {

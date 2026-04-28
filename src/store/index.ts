@@ -228,7 +228,7 @@ export const useStore = create<Store>()(
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
-      requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath }),
+      requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath, commentsPaneVisible: true }),
       clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
       showSidecarFiles: false,
       toggleShowSidecarFiles: () => set((s) => ({ showSidecarFiles: !s.showSidecarFiles })),

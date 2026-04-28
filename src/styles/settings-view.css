@@ -14,6 +14,7 @@
   background: transparent;
   max-width: 100vw;
   max-height: 100vh;
+  margin: auto;
 }
 
 .settings-dialog::backdrop {
@@ -27,8 +28,6 @@
   min-width: 480px;
   max-width: 600px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  overflow-y: auto;
-  max-height: 85vh;
 }
 
 .settings-body {

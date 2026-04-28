@@ -55,40 +55,44 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     let id = |action: &str| encode_menu_id(label, action);
 
     let open_file =
-        MenuItem::with_id(handle, &id("open-file"), "Open File…", true, Some("CmdOrCtrl+O"))?;
+        MenuItem::with_id(handle, id("open-file"), "Open File…", true, Some("CmdOrCtrl+O"))?;
     let open_folder = MenuItem::with_id(
-        handle, &id("open-folder"), "Open Folder…", true, Some("CmdOrCtrl+Shift+O"),
+        handle, id("open-folder"), "Open Folder…", true, Some("CmdOrCtrl+Shift+O"),
     )?;
     let close_folder =
-        MenuItem::with_id(handle, &id("close-folder"), "Close Folder", true, None::<&str>)?;
+        MenuItem::with_id(handle, id("close-folder"), "Close Folder", true, None::<&str>)?;
     let new_window = MenuItem::with_id(
-        handle, "new-window", "New Window", true, Some("CmdOrCtrl+Shift+N"),
+        handle, id("new-window"), "New Window", true, Some("CmdOrCtrl+Shift+N"),
     )?;
     let close_tab =
-        MenuItem::with_id(handle, &id("close-tab"), "Close Tab", true, Some("CmdOrCtrl+W"))?;
+        MenuItem::with_id(handle, id("close-tab"), "Close Tab", true, Some("CmdOrCtrl+W"))?;
     let close_all_tabs = MenuItem::with_id(
-        handle, &id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
+        handle, id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
+    let help_settings = MenuItem::with_id(handle, id("help-settings"), "Settings…", true, Some("CmdOrCtrl+,"))?;
     let file_menu = SubmenuBuilder::new(handle, "File")
+        .item(&new_window)
+        .separator()
         .item(&open_file)
         .item(&open_folder)
-        .item(&new_window)
         .item(&close_folder)
         .separator()
         .item(&close_tab)
         .item(&close_all_tabs)
         .separator()
+        .item(&help_settings)
+        .separator()
         .quit()
         .build()?;
 
     let toggle_comments_pane = MenuItem::with_id(
-        handle, &id("toggle-comments-pane"), "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"),
+        handle, id("toggle-comments-pane"), "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"),
     )?;
-    let next_tab = MenuItem::with_id(handle, &id("next-tab"), "Next Tab", true, None::<&str>)?;
-    let prev_tab = MenuItem::with_id(handle, &id("prev-tab"), "Previous Tab", true, None::<&str>)?;
-    let theme_system = MenuItem::with_id(handle, &id("theme-system"), "System Theme", true, None::<&str>)?;
-    let theme_light = MenuItem::with_id(handle, &id("theme-light"), "Light Theme", true, None::<&str>)?;
-    let theme_dark = MenuItem::with_id(handle, &id("theme-dark"), "Dark Theme", true, None::<&str>)?;
+    let next_tab = MenuItem::with_id(handle, id("next-tab"), "Next Tab", true, None::<&str>)?;
+    let prev_tab = MenuItem::with_id(handle, id("prev-tab"), "Previous Tab", true, None::<&str>)?;
+    let theme_system = MenuItem::with_id(handle, id("theme-system"), "System Theme", true, None::<&str>)?;
+    let theme_light = MenuItem::with_id(handle, id("theme-light"), "Light Theme", true, None::<&str>)?;
+    let theme_dark = MenuItem::with_id(handle, id("theme-dark"), "Dark Theme", true, None::<&str>)?;
     let theme_menu = SubmenuBuilder::new(handle, "Theme")
         .item(&theme_system).item(&theme_light).item(&theme_dark).build()?;
     let view_menu = SubmenuBuilder::new(handle, "View")
@@ -96,16 +100,15 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
         .item(&next_tab).item(&prev_tab).separator()
         .item(&theme_menu).build()?;
 
-    let win_minimize = MenuItem::with_id(handle, &id("win-minimize"), "Minimize", true, Some("CmdOrCtrl+M"))?;
-    let win_bring_all = MenuItem::with_id(handle, "win-bring-all", "Bring All to Front", true, None::<&str>)?;
+    let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
+    let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
     let window_menu = SubmenuBuilder::new(handle, "Window")
         .item(&win_minimize).separator().item(&win_bring_all).build()?;
 
-    let help_settings = MenuItem::with_id(handle, &id("help-settings"), "Settings…", true, None::<&str>)?;
-    let about_item = MenuItem::with_id(handle, &id("about"), "About mdownreview", true, None::<&str>)?;
-    let check_updates = MenuItem::with_id(handle, &id("check-updates"), "Check for Updates…", true, None::<&str>)?;
+    let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(handle, id("check-updates"), "Check for Updates…", true, None::<&str>)?;
     let help_menu = SubmenuBuilder::new(handle, "Help")
-        .item(&help_settings).separator().item(&about_item).separator().item(&check_updates).build()?;
+        .item(&check_updates).separator().item(&about_item).build()?;
 
     MenuBuilder::new(handle)
         .item(&file_menu).item(&view_menu).item(&window_menu).item(&help_menu)
@@ -349,33 +352,9 @@ pub fn run() {
 
             // ── Menu event routing ───────────────────────────────────────────
             // Menu item IDs encode the originating window as `{label}:{action}`
-            // (per rule `multiwin-per-window-menu`). Global actions use un-prefixed IDs.
+            // (per rule `multiwin-per-window-menu`). All IDs are window-scoped.
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
-
-                // Global actions (no window prefix)
-                match id {
-                    "new-window" => {
-                        let reg = app.state::<registry::WindowRegistry>();
-                        let label = reg.next_label();
-                        match create_app_window(app, &label, "mdownreview") {
-                            Ok(_) => {
-                                reg.register(label.clone(), registry::WindowKind::FileOnly);
-                                log::info!("[window] new-window: created {label}");
-                            }
-                            Err(e) => log::error!("[window] new-window failed: {e}"),
-                        }
-                        return;
-                    }
-                    "win-bring-all" => {
-                        for w in app.webview_windows().values() {
-                            let _ = w.unminimize();
-                            let _ = w.show();
-                        }
-                        return;
-                    }
-                    _ => {}
-                }
 
                 // Window-scoped actions: parse `{label}:{action}` from the menu item ID.
                 let Some((label, action)) = parse_menu_id(id) else {
@@ -389,6 +368,25 @@ pub fn run() {
                 // Rust-handled actions
                 if action == "win-minimize" {
                     let _ = window.minimize();
+                    return;
+                }
+                if action == "win-bring-all" {
+                    for w in app.webview_windows().values() {
+                        let _ = w.unminimize();
+                        let _ = w.show();
+                    }
+                    return;
+                }
+                if action == "new-window" {
+                    let reg = app.state::<registry::WindowRegistry>();
+                    let new_label = reg.next_label();
+                    match create_app_window(app, &new_label, "mdownreview") {
+                        Ok(_) => {
+                            reg.register(new_label.clone(), registry::WindowKind::FileOnly);
+                            log::info!("[window] new-window: created {new_label}");
+                        }
+                        Err(e) => log::error!("[window] new-window failed: {e}"),
+                    }
                     return;
                 }
 

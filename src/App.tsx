@@ -51,12 +51,20 @@ export default function App() {
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
 
-  // Update document.title to reflect the active file (#127 MDR-DEFAULT-DOC-TITLE)
+  // Update document.title to reflect the active file and root folder
   useEffect(() => {
-    document.title = activeTabPath
-      ? `${basename(activeTabPath)} — mdownreview`
-      : "mdownreview";
-  }, [activeTabPath]);
+    const folderName = root ? basename(root) : null;
+    if (activeTabPath) {
+      const fileName = basename(activeTabPath);
+      document.title = folderName
+        ? `${fileName} — ${folderName} — mdownreview`
+        : `${fileName} — mdownreview`;
+    } else {
+      document.title = folderName
+        ? `${folderName} — mdownreview`
+        : "mdownreview";
+    }
+  }, [activeTabPath, root]);
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const settingsDialogOpen = useStore((s) => s.settingsDialogOpen);

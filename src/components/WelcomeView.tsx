@@ -2,6 +2,8 @@ import { useStore } from "@/store";
 import type { RecentItem } from "@/store";
 import { useRecentItemStatus } from "@/hooks/useRecentItemStatus";
 import { basename, dirname } from "@/lib/path-utils";
+import { registerWindowFolder } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
 import { IconFile, IconFolder } from "@/components/Icons";
 import "@/styles/welcome-view.css";
 
@@ -26,6 +28,9 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
     if (item.type === "folder") {
       await setRoot(item.path);
       addRecentItem(item.path, "folder");
+      registerWindowFolder(item.path).catch((err) =>
+        warn(`[WelcomeView] register_window_folder failed: ${err}`)
+      );
     } else {
       openFile(item.path);
       addRecentItem(item.path, "file");

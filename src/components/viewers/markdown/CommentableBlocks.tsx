@@ -13,6 +13,7 @@ import type {
   CommentThread as CommentThreadType,
   CommentAnchor,
 } from "@/lib/tauri-commands";
+import { formatBadgeCount } from "@/lib/format-badge-count";
 
 // Context for inline comment gutters in markdown blocks
 export interface MdCommentContextValue {
@@ -34,7 +35,7 @@ export function makeCommentableBlock(Tag: string) {
       <div
         className={`md-commentable-block${count > 0 ? " has-comments" : ""}`}
         data-source-line={line}
-        data-comment-count={count > 0 ? count : undefined}
+        data-comment-count={count > 0 ? formatBadgeCount(count) : undefined}
       >
         {React.createElement(Tag, props, children)}
       </div>
@@ -64,13 +65,13 @@ export function CommentableWrapper({
     {
       className: `md-commentable-block${count > 0 ? " has-comments" : ""}`,
       "data-source-line": line,
-      "data-comment-count": count > 0 ? count : undefined,
+      "data-comment-count": count > 0 ? formatBadgeCount(count) : undefined,
     },
     children,
   );
 }
 
-// Cell-level commentable factory for `td` / `th`. Unlike makeCommentableBlock,
+// Cell-level commentable factoryfor `td` / `th`. Unlike makeCommentableBlock,
 // this MUST apply data attributes inline on the cell — wrapping a `<td>` in a
 // `<div>` would inject a non-cell child into `<tr>` and break the table
 // layout model. Mirrors the inline-attrs pattern from CommentableLi.
@@ -101,7 +102,7 @@ export function CommentableTableCell(Tag: "td" | "th") {
         // line across all its `<td>`s, so `[data-source-line]` alone is
         // ambiguous for tables).
         "data-source-cell-line": line,
-        "data-comment-count": count > 0 ? count : undefined,
+        "data-comment-count": count > 0 ? formatBadgeCount(count) : undefined,
       },
       children,
     );
@@ -117,7 +118,7 @@ export function CommentableLi({ children, node, ...props }: ComponentPropsWithou
     <li
       {...props}
       data-source-line={line}
-      data-comment-count={count > 0 ? count : undefined}
+      data-comment-count={count > 0 ? formatBadgeCount(count) : undefined}
       className={`md-commentable-li${count > 0 ? " has-comments" : ""}`}
     >
       {children}

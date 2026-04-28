@@ -35,6 +35,7 @@
      does not collapse on continued scroll (#90). */
   min-height: 100%;
   background: var(--color-bg);
+  padding-left: 8px;
   --source-zoom: 1;
 }
 
@@ -86,13 +87,13 @@
   height: 18px;
   padding: 0;
   line-height: 18px;
-  border-radius: 3px;
+  border-radius: 50%;
   opacity: 0;
   transition: opacity 0.1s;
   border: none;
-  background: none;
+  background: var(--color-accent, #0969da);
   cursor: pointer;
-  color: var(--color-accent, #0969da);
+  color: white;
 }
 
 .source-line:hover .source-line-comment-zone .comment-plus-btn {
