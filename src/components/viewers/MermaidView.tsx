@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, forwardRef, useImperativeHandle } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useId } from "react";
 import "@/styles/mermaid-view.css";
 
 interface Props {
@@ -7,12 +7,6 @@ interface Props {
   path?: string;
   /** Zoom level from the shared useZoom hook, driven by EnhancedViewer. */
   zoom?: number;
-}
-
-/** Handle exposed to EnhancedViewer for toolbar export buttons. */
-export interface MermaidViewHandle {
-  exportPng: () => void;
-  exportSvg: () => void;
 }
 
 function escapeRegExp(s: string): string {
@@ -57,7 +51,7 @@ function mapNodeToSourceLine(node: SVGGElement, lines: string[]): number | null 
   return null;
 }
 
-export const MermaidView = forwardRef<MermaidViewHandle, Props>(function MermaidView({ content, path, zoom = 1 }, ref) {
+export function MermaidView({ content, path, zoom = 1 }: Props) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -127,42 +121,6 @@ export const MermaidView = forwardRef<MermaidViewHandle, Props>(function Mermaid
     }
   }, [svg, content, filePath]);
 
-  const handleExportSvg = useCallback(() => {
-    if (!svg) return;
-    const blob = new Blob([svg], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "diagram.svg";
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [svg]);
-
-  const handleExportPng = useCallback(() => {
-    if (!svg) return;
-    const canvas = document.createElement("canvas");
-    const img = new Image();
-    img.onload = () => {
-      canvas.width = img.width * 2;
-      canvas.height = img.height * 2;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.scale(2, 2);
-        ctx.drawImage(img, 0, 0);
-        const a = document.createElement("a");
-        a.href = canvas.toDataURL("image/png");
-        a.download = "diagram.png";
-        a.click();
-      }
-    };
-    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
-  }, [svg]);
-
-  useImperativeHandle(ref, () => ({
-    exportPng: handleExportPng,
-    exportSvg: handleExportSvg,
-  }), [handleExportPng, handleExportSvg]);
-
   return (
     <div className="mermaid-view" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
@@ -177,4 +135,4 @@ export const MermaidView = forwardRef<MermaidViewHandle, Props>(function Mermaid
       </div>
     </div>
   );
-});
+}

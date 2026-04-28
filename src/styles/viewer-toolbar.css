@@ -10,6 +10,25 @@
   z-index: 2;
 }
 
+/* Three-section layout: left / center / right.  Each section is flex:1
+   so the center content is truly centered regardless of left/right width. */
+.viewer-toolbar-left,
+.viewer-toolbar-center,
+.viewer-toolbar-right {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 4px;
+}
+
+.viewer-toolbar-center {
+  justify-content: center;
+}
+
+.viewer-toolbar-right {
+  justify-content: flex-end;
+}
+
 .viewer-toolbar-toggle {
   display: flex;
   border: 1px solid var(--color-border);
@@ -59,26 +78,13 @@
   border-radius: 4px;
 }
 
-/* Comment-on-file sits in the middle: auto-margins on both sides centre
-   it between the left group (toggle/wrap) and the right group (zoom/reveal). */
-.viewer-toolbar-comment-on-file {
-  margin-left: auto;
-}
-
 .viewer-toolbar-zoom {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 4px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
-}
-
-/* When comment-on-file is present before zoom, zoom sits flush after it
-   instead of claiming its own margin-left: auto. */
-.viewer-toolbar-comment-on-file ~ .viewer-toolbar-zoom {
-  margin-left: 4px;
 }
 
 .viewer-toolbar-zoom-btn {
@@ -95,31 +101,16 @@
 }
 
 /* G4 / L1 — reveal/open file actions, pinned to the right edge of the
-   toolbar. When no other right-aligned group precedes it, claims the
-   margin-left:auto itself; otherwise sits flush after them. */
+   toolbar. Lives inside the .viewer-toolbar-right section. */
 .file-actions-bar {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
   padding: 4px 8px;
   flex-shrink: 0;
 }
 
-/* When zoom or comment-on-file precede the file-actions-bar, they already
-   claimed the auto-margin; the bar sits flush. */
-.viewer-toolbar-zoom ~ .file-actions-bar,
-.viewer-toolbar-comment-on-file ~ .file-actions-bar {
-  margin-left: 0;
-}
-
-.file-actions-bar__mime {
-  font-size: 12px;
-  color: var(--color-muted);
-  margin-right: 4px;
-}
-
-/* When rendered as the only row above a viewer (audio/video/pdf), pad +
+/* When rendered as the only row above a viewer (audio), pad +
    border match the toolbar. */
 .viewer-actions-row {
   display: flex;

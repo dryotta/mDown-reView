@@ -5,28 +5,19 @@ import { warn } from "@/logger";
 interface Props {
   /** Absolute path the actions operate on. */
   path: string;
-  /**
-   * Optional MIME hint rendered before the buttons. Surfaces the file type
-   * for viewers (audio/video) that no longer carry their own header.
-   */
-  mime?: string;
 }
 
 /**
  * L1 — slim action bar with a single icon button (Reveal in folder).
- * Replaces the inline action group that used to live inside `ViewerToolbar`
- * and the text buttons inside `BinaryPlaceholder`.
- *
  * Dispatches to the workspace-allowlisted `revealInFolder` Rust command via
  * the typed wrapper.
  */
-export function FileActionsBar({ path, mime }: Props) {
+export function FileActionsBar({ path }: Props) {
   const handleReveal = () => {
     void revealInFolder(path).catch((e) => warn(`revealInFolder failed: ${String(e)}`));
   };
   return (
     <div className="file-actions-bar" aria-label="File actions">
-      {mime && <span className="file-actions-bar__mime">{mime}</span>}
       <button
         type="button"
         className="viewer-toolbar-btn viewer-toolbar-icon-btn"

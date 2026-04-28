@@ -39,12 +39,11 @@ beforeEach(() => {
 });
 
 describe("ImageViewerShell", () => {
-  it("renders a ViewerToolbar with zoom controls, fit toggle, and FileActionsBar", () => {
+  it("renders a ViewerToolbar with zoom controls and FileActionsBar", () => {
     render(<ImageViewerShell path="/photos/test.png" />);
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /zoom in/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /zoom out/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /original size/i })).toBeInTheDocument();
   });
 
   it("renders Comment on file button when onCommentOnFile is provided", () => {
@@ -55,23 +54,10 @@ describe("ImageViewerShell", () => {
     expect(onCof).toHaveBeenCalledOnce();
   });
 
-  it("toggles fit/original when button is clicked", () => {
-    render(<ImageViewerShell path="/photos/test.png" />);
-    const btn = screen.getByRole("button", { name: /original size/i });
-    fireEvent.click(btn);
-    expect(screen.getByRole("button", { name: /fit to view/i })).toBeInTheDocument();
-  });
-
-  it("passes zoom and fit props to ImageViewer", () => {
+  it("passes zoom and fit=true to ImageViewer", () => {
     render(<ImageViewerShell path="/photos/test.png" />);
     const viewer = screen.getByTestId("image-viewer");
     expect(viewer.dataset.zoom).toBe("1");
     expect(viewer.dataset.fit).toBe("true");
-  });
-
-  it("passes updated fit=false after toggle", () => {
-    render(<ImageViewerShell path="/photos/test.png" />);
-    fireEvent.click(screen.getByRole("button", { name: /original size/i }));
-    expect(screen.getByTestId("image-viewer").dataset.fit).toBe("false");
   });
 });

@@ -173,16 +173,6 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("deleted-file-viewer")).toBeInTheDocument();
     expect(screen.queryByText(/Error loading file/)).not.toBeInTheDocument();
   });
-
-  it("ghost branch toolbar has 'Show comments' button", () => {
-    mockUseFileContent.mockReturnValue({ status: "error", error: "file not found" });
-    useStore.setState({
-      tabs: [{ path: "/gone.md", scrollTop: 0 }],
-      ghostEntries: [{ sidecarPath: "/gone.md.review.yaml", sourcePath: "/gone.md" }],
-    });
-    render(<ViewerRouter path="/gone.md" />);
-    expect(screen.getByRole("button", { name: /show comments/i })).toBeInTheDocument();
-  });
 });
 
 // ─── Iter 5 Group B: file-anchored entry point is universal ─────────────────

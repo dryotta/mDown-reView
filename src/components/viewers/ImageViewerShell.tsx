@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useZoom } from "@/hooks/useZoom";
 import { ViewerToolbar } from "./ViewerToolbar";
 import { FileActionsBar } from "./FileActionsBar";
@@ -10,12 +9,11 @@ interface Props {
 }
 
 /**
- * Shell component that owns zoom and fit state and composes the ViewerToolbar
- * above ImageViewer. Zoom and fit-toggle surface through the toolbar instead
- * of the image viewer's body.
+ * Shell component that owns zoom state and composes the ViewerToolbar
+ * above ImageViewer. Zoom surfaces through the toolbar instead of the
+ * image viewer's body.
  */
 export function ImageViewerShell({ path, onCommentOnFile }: Props) {
-  const [fit, setFit] = useState(true);
   const { zoom, zoomIn, zoomOut, reset } = useZoom(".image");
 
   return (
@@ -26,22 +24,9 @@ export function ImageViewerShell({ path, onCommentOnFile }: Props) {
         hidden
         onCommentOnFile={onCommentOnFile}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
-        trailing={
-          <>
-            <button
-              type="button"
-              className="viewer-toolbar-btn"
-              onClick={() => setFit(!fit)}
-              aria-label={fit ? "Original size" : "Fit to view"}
-              title={fit ? "Show at original size" : "Fit image to view"}
-            >
-              {fit ? "Original size" : "Fit to view"}
-            </button>
-            <FileActionsBar path={path} />
-          </>
-        }
+        trailing={<FileActionsBar path={path} />}
       />
-      <ImageViewer key={path} path={path} zoom={zoom} fit={fit} />
+      <ImageViewer key={path} path={path} zoom={zoom} fit={true} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useFileContent } from "@/hooks/useFileContent";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewerShell } from "./ImageViewerShell";
-import { AudioViewer, getAudioMime } from "./AudioViewer";
+import { AudioViewer } from "./AudioViewer";
 import { BinaryViewerShell } from "./BinaryViewerShell";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
@@ -145,9 +145,8 @@ export function ViewerRouter({ path }: Props) {
   }
 
   // R1+R2+R3 — every routed viewer is keyed on `path`. A path change forces
-  // unmount+remount, which: (a) stops audio playback that would otherwise
-  // continue after a tab switch, (b) resets HexView byte state without an
-  // explicit `setBytes(null)` effect.
+  // unmount+remount, which stops audio playback that would otherwise
+  // continue after a tab switch.
   //
   // Iter 5 Group B — media/binary viewers have no `EnhancedViewer` host, so we
   // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
@@ -164,7 +163,7 @@ export function ViewerRouter({ path }: Props) {
           onViewChange={() => {}}
           hidden
           onCommentOnFile={handleCommentOnFile}
-          trailing={<FileActionsBar path={path} mime={getAudioMime(path)} />}
+          trailing={<FileActionsBar path={path} />}
         />
         <AudioViewer key={path} path={path} />
       </div>
@@ -199,17 +198,6 @@ export function ViewerRouter({ path }: Props) {
             onViewChange={() => {}}
             hidden
             onCommentOnFile={handleCommentOnFile}
-            trailing={
-              <button
-                type="button"
-                className="viewer-toolbar-btn"
-                onClick={() => useStore.getState().toggleCommentsPane()}
-                aria-label="Show comments"
-                title="Show comments panel"
-              >
-                Show comments
-              </button>
-            }
           />
           <DeletedFileViewer key={path} filePath={path} />
         </div>

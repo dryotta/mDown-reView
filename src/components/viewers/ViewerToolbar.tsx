@@ -51,47 +51,53 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
 
   return (
     <div className="viewer-toolbar" role="toolbar" aria-label="View mode">
-      {!hidden && (
-        <div className="viewer-toolbar-toggle">
+      <div className="viewer-toolbar-left">
+        {!hidden && (
+          <div className="viewer-toolbar-toggle">
+            <button
+              className={`viewer-toolbar-btn${activeView === "source" ? " active" : ""}`}
+              onClick={() => onViewChange("source")}
+              aria-pressed={activeView === "source"}
+            >
+              Source
+            </button>
+            <button
+              className={`viewer-toolbar-btn${activeView === "visual" ? " active" : ""}`}
+              onClick={() => onViewChange("visual")}
+              aria-pressed={activeView === "visual"}
+            >
+              Visual
+            </button>
+          </div>
+        )}
+        {showWrapToggle && (
           <button
-            className={`viewer-toolbar-btn${activeView === "source" ? " active" : ""}`}
-            onClick={() => onViewChange("source")}
-            aria-pressed={activeView === "source"}
+            className={`viewer-toolbar-btn viewer-toolbar-wrap${wordWrap ? " active" : ""}`}
+            onClick={onToggleWrap}
+            aria-pressed={wordWrap}
+            title={wordWrap ? "Disable word wrap" : "Enable word wrap"}
           >
-            Source
+            Wrap
           </button>
+        )}
+      </div>
+      <div className="viewer-toolbar-center">
+        {onCommentOnFile && (
           <button
-            className={`viewer-toolbar-btn${activeView === "visual" ? " active" : ""}`}
-            onClick={() => onViewChange("visual")}
-            aria-pressed={activeView === "visual"}
+            className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
+            onClick={onCommentOnFile}
+            title="Comment on file (Ctrl+Shift+M)"
+            aria-label="Comment on file (Ctrl+Shift+M)"
           >
-            Visual
+            <IconComment />
+            <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
           </button>
-        </div>
-      )}
-      {showWrapToggle && (
-        <button
-          className={`viewer-toolbar-btn viewer-toolbar-wrap${wordWrap ? " active" : ""}`}
-          onClick={onToggleWrap}
-          aria-pressed={wordWrap}
-          title={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-        >
-          Wrap
-        </button>
-      )}
-      {onCommentOnFile && (
-        <button
-          className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
-          onClick={onCommentOnFile}
-          title="Comment on file (Ctrl+Shift+M)"
-          aria-label="Comment on file (Ctrl+Shift+M)"
-        >
-          <IconComment />
-          <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
-        </button>
-      )}
-      {zoom && <ZoomControl {...zoom} />}
-      {trailing}
+        )}
+      </div>
+      <div className="viewer-toolbar-right">
+        {zoom && <ZoomControl {...zoom} />}
+        {trailing}
+      </div>
     </div>
   );
 }
