@@ -272,6 +272,8 @@ pub fn resolve_sidecar_for_file(
 
             let sidecar_dir = workspace_root.join(root);
             let sidecar_path = sidecar_dir.join(format!("{}.review.yaml", relative.display()));
+            let json_sidecar_path =
+                sidecar_dir.join(format!("{}.review.json", relative.display()));
 
             // TOCTOU defence: canonicalize whatever already exists and
             // verify containment inside workspace_root.
@@ -282,6 +284,7 @@ pub fn resolve_sidecar_for_file(
                 )
             })?;
 
+            // Check YAML first, then JSON fallback
             if sidecar_path.exists() {
                 let canon = canonicalize_no_verbatim(&sidecar_path).map_err(|e| {
                     format!(
@@ -293,6 +296,20 @@ pub fn resolve_sidecar_for_file(
                     return Err(format!(
                         "sidecar '{}' resolves outside workspace root",
                         sidecar_path.display()
+                    ));
+                }
+                return Ok(canon);
+            } else if json_sidecar_path.exists() {
+                let canon = canonicalize_no_verbatim(&json_sidecar_path).map_err(|e| {
+                    format!(
+                        "cannot canonicalize sidecar '{}': {e}",
+                        json_sidecar_path.display()
+                    )
+                })?;
+                if !canon.starts_with(&canonical_ws) {
+                    return Err(format!(
+                        "sidecar '{}' resolves outside workspace root",
+                        json_sidecar_path.display()
                     ));
                 }
                 return Ok(canon);
