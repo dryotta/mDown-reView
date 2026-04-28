@@ -39,6 +39,7 @@ Canonical: [`docs/principles.md`](docs/principles.md). Summary:
 - **Rust-First with MVVM** — Rust (`src-tauri/src/core/`, `src-tauri/src/commands/`) is the Model: data + business logic over typed Tauri commands. `src/lib/vm/` + `src/hooks/` + `src/store/` is the ViewModel. React components are the View. A component that calls `invoke()` or holds business state is a layering violation; a hook that serializes YAML or computes anchors is a Rust-First violation.
 - **Never Increase Engineering Debt** — every change holds debt flat or reduces it. Actively close Gaps from the deep-dive docs, delete dead code in the same PR, no TODOs, no workarounds, no "fix later". Drift from canonical patterns is debt.
 - **Zero Bug Policy** — every confirmed bug is fixed using the canonical architecture (`docs/architecture.md`) and design patterns (`docs/design-patterns.md`) — not workarounds. Every fix ships with a regression test that reproduces the original failure mode.
+- **Proper Fix Over Patch** — every change uses the platform's intended architecture. Never hack around a limitation with a targeted workaround. Fix the design, not the symptom. Use the platform's grain (per-window menus, `emit_to`, `useShallow`), not weaker alternatives (global broadcast + filtering, focus-polling). Scope is not an excuse — a proper fix that touches more files is cheaper long-term than a patch that leaves the wrong abstraction in place.
 
 ## Principles & Rules (deep-dives)
 
