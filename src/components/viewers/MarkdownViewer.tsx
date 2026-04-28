@@ -41,6 +41,7 @@ import { useFindInPage } from "@/hooks/useFindInPage";
 import { FindInPageBar } from "@/components/FindInPageBar";
 import "@/styles/markdown.css";
 import "@/styles/find-in-page.css";
+import "@/styles/viewer-banner.css";
 
 interface Props {
   content: string;
@@ -123,17 +124,21 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     [filePath, img, workspaceRoot],
   );
 
-  // A1 banner: only when the doc has remote-image refs AND the user hasn't
-  // already opted in for this filePath.
+  // A1 banner: show when the doc has remote-image refs — both to allow and
+  // to revoke. The banner stays visible in either state so the user can
+  // toggle the permission.
   const remoteImagesAllowed = useStore(
     (s) => s.allowedRemoteImageDocs[filePath] === true,
   );
-  const showRemoteImageBanner = useMemo(
-    () => !remoteImagesAllowed && hasRemoteImageReferences(body),
-    [remoteImagesAllowed, body],
+  const hasRemoteImages = useMemo(
+    () => hasRemoteImageReferences(body),
+    [body],
   );
   const handleAllowRemoteImages = useCallback(() => {
     useStore.getState().allowRemoteImagesForDoc(filePath);
+  }, [filePath]);
+  const handleDisallowRemoteImages = useCallback(() => {
+    useStore.getState().disallowRemoteImagesForDoc(filePath);
   }, [filePath]);
 
   // B3: detect math syntax in the body. Cheap regex pre-scan so we only
@@ -298,27 +303,21 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
             This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
           </div>
         )}
-        {showRemoteImageBanner && (
+        {hasRemoteImages && (
           <div
-            className="remote-image-banner"
+            className="viewer-info-banner"
             role="status"
-            style={{
-              padding: "6px 12px",
-              marginBottom: 12,
-              background: "var(--color-canvas-subtle, #f6f8fa)",
-              border: "1px solid var(--color-border, #d0d7de)",
-              borderRadius: 6,
-              fontSize: 12,
-            }}
           >
-            This document contains remote images.{" "}
+            {remoteImagesAllowed
+              ? "Remote images allowed for this document. "
+              : "This document contains remote images. "}
             <button
               type="button"
               className="comment-btn"
-              onClick={handleAllowRemoteImages}
-              aria-label="Allow remote images for this document"
+              onClick={remoteImagesAllowed ? handleDisallowRemoteImages : handleAllowRemoteImages}
+              aria-label={remoteImagesAllowed ? "Disallow remote images" : "Allow remote images for this document"}
             >
-              Allow remote images for this document
+              {remoteImagesAllowed ? "Disallow remote images" : "Allow remote images"}
             </button>
           </div>
         )}

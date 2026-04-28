@@ -421,6 +421,8 @@ pub fn run() {
                 commands::cli_shim::remove_cli_shim,
                 commands::default_handler::default_handler_status,
                 commands::default_handler::set_default_handler,
+                commands::file_viewer_prefs::get_file_viewer_pref,
+                commands::file_viewer_prefs::set_file_viewer_pref,
 
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,

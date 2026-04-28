@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { resolveHtmlAssets, openExternalUrl } from "@/lib/tauri-commands";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { resolveHtmlAssets, openExternalUrl, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
@@ -9,6 +9,7 @@ import { useZoom } from "@/hooks/useZoom";
 import { warn, info } from "@/logger";
 import { buildBridgeSrcDoc, isBridgeMsg } from "@/lib/html-bridge";
 import "@/styles/html-preview.css";
+import "@/styles/viewer-banner.css";
 
 interface Props {
   content: string;
@@ -30,6 +31,32 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const workspaceRoot = useStore((s) => s.root) ?? "";
   const { zoom } = useZoom(".html");
   const baseDir = filePath ? dirname(filePath) : undefined;
+
+  // Load persisted `allowImages` pref on mount (keyed by file path).
+  // Only `allowImages` for HTML preview persists — `allowScripts` is session-only.
+  useEffect(() => {
+    if (!filePath) return;
+    let cancelled = false;
+    getFileViewerPref(filePath)
+      .then((pref) => {
+        if (!cancelled && pref?.allow_images) {
+          setAllowImages(true);
+        }
+      })
+      .catch(() => {}); // safe default (false) on any error
+    return () => { cancelled = true; };
+  }, [filePath]);
+
+  // Persist callback — fire-and-forget alongside state update.
+  const handleToggleImages = useCallback(() => {
+    setAllowImages((prev) => {
+      const next = !prev;
+      if (filePath) {
+        setFileViewerPref(filePath, next).catch(() => {});
+      }
+      return next;
+    });
+  }, [filePath]);
 
   // Per-mount nonce — regenerated on every mount, never logged or persisted.
   // crypto.randomUUID is available in Tauri's webview and modern jsdom.
@@ -158,16 +185,15 @@ export function HtmlPreviewView({ content, filePath }: Props) {
 
   return (
     <div className="html-preview" data-zoom={zoom} style={{ display: "flex", flexDirection: "column", height: "100%", fontSize: `${zoom * 100}%` }}>
-      <div className="html-preview-banner" style={{ padding: "6px 12px", background: "var(--color-warning-bg, #fff3cd)", borderBottom: "1px solid var(--color-warning-border, #ffc107)", fontSize: 12 }}>
+      <div className="viewer-info-banner">
         ⚠ Sandboxed preview — scripts and external resources disabled
-        {resolving && <span style={{ marginLeft: 8 }}>⏳ Resolving local images…</span>}
+        {resolving && <span className="viewer-info-banner-note">⏳ Resolving local images…</span>}
         <button
           className="comment-btn"
           type="button"
           aria-pressed={allowImages}
           aria-label={allowImages ? "Disallow external images" : "Allow external images"}
-          onClick={() => setAllowImages((v) => !v)}
-          style={{ marginLeft: 8 }}
+          onClick={handleToggleImages}
         >
           {allowImages ? "Disallow external images" : "Allow external images"}
         </button>
@@ -177,13 +203,12 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           aria-pressed={allowScripts}
           aria-label={allowScripts ? "Disable scripts" : "Enable scripts"}
           onClick={() => setAllowScripts((v) => !v)}
-          style={{ marginLeft: 8 }}
         >
           {allowScripts ? "Disable scripts" : "Enable scripts"}
-          <span style={{ marginLeft: 4, opacity: 0.7 }}>(higher risk — runs sandboxed JS)</span>
+          <span className="viewer-info-banner-note">(higher risk — runs sandboxed JS)</span>
         </button>
         {allowScripts && (
-          <span style={{ marginLeft: 8, fontStyle: "italic" }}>
+          <span className="viewer-info-banner-note">
             Scripts enabled — sandboxed JS runs inside the iframe.
           </span>
         )}

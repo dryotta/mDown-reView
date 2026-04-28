@@ -8,6 +8,7 @@ pub mod cli_shim;
 pub mod comments;
 pub mod config;
 pub mod default_handler;
+pub mod file_viewer_prefs;
 pub mod fs;
 pub mod html;
 pub mod launch;
@@ -32,6 +33,7 @@ pub use comments::{
     NewCommentAnchor, TaggedNewAnchor,
 };
 pub use config::{set_author, set_author_at, validate_author, ConfigError};
+pub use file_viewer_prefs::{get_file_viewer_pref, set_file_viewer_pref, FileViewerPref};
 pub use fs::{
     check_path_exists, read_binary_file, read_dir, read_text_file, stat_file, stat_file_inner,
     update_tree_watched_dirs, FileStat, TextFileResult,

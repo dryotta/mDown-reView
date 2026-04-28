@@ -10,15 +10,19 @@ vi.mock("@/lib/tauri-commands", () => ({
     bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     contentType: "image/png",
   })),
+  getFileViewerPref: vi.fn(async () => null),
+  setFileViewerPref: vi.fn(async () => {}),
 }));
 
 import { HtmlPreviewView } from "../HtmlPreviewView";
-import { openExternalUrl, fetchRemoteAsset } from "@/lib/tauri-commands";
+import { openExternalUrl, fetchRemoteAsset, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
 
 beforeEach(() => {
   (openExternalUrl as unknown as { mockClear: () => void }).mockClear();
   (fetchRemoteAsset as unknown as { mockClear: () => void }).mockClear();
+  (getFileViewerPref as unknown as { mockClear: () => void }).mockClear();
+  (setFileViewerPref as unknown as { mockClear: () => void }).mockClear();
 });
 
 describe("HtmlPreviewView — sandbox toggles (H1)", () => {
@@ -35,6 +39,14 @@ describe("HtmlPreviewView — sandbox toggles (H1)", () => {
   it("shows safety warning banner", () => {
     render(<HtmlPreviewView content="<p>test</p>" />);
     expect(screen.getByText(/sandboxed preview/i)).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("banner uses shared viewer-info-banner class with no inline style (#212)", () => {
+    render(<HtmlPreviewView content="<p>test</p>" />);
+    const banner = screen.getByText(/sandboxed preview/i).closest(".viewer-info-banner");
+    expect(banner).toBeInTheDocument();
+    expect(banner?.getAttribute("style")).toBeNull();
     cleanup();
   });
 
@@ -100,6 +112,32 @@ describe("HtmlPreviewView — sandbox toggles (H1)", () => {
       URL.revokeObjectURL = originalRevoke;
       cleanup();
     }
+  });
+
+  it("toggling images calls setFileViewerPref IPC for persistence (#212)", async () => {
+    render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
+    fireEvent.click(screen.getByRole("button", { name: /allow external images/i }));
+    await waitFor(() => {
+      expect(setFileViewerPref).toHaveBeenCalledWith("/wk/page.html", true);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /disallow external images/i }));
+    await waitFor(() => {
+      expect(setFileViewerPref).toHaveBeenCalledWith("/wk/page.html", false);
+    });
+    cleanup();
+  });
+
+  it("loads persisted pref on mount (#212)", async () => {
+    (getFileViewerPref as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ allow_images: true });
+    render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
+    await waitFor(() => {
+      expect(getFileViewerPref).toHaveBeenCalledWith("/wk/page.html");
+    });
+    // The button should reflect the persisted state
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /disallow external images/i })).toBeInTheDocument();
+    });
+    cleanup();
   });
 });
 

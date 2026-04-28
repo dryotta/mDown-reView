@@ -35,6 +35,7 @@ export interface ViewerPrefsSlice {
   /** Per-document remote-image allowance (markdown viewer — A1). Session-only. */
   allowedRemoteImageDocs: Record<string, boolean>;
   allowRemoteImagesForDoc: (filePath: string) => void;
+  disallowRemoteImagesForDoc: (filePath: string) => void;
   /** Per-filetype zoom level (e.g. `{ ".md": 1.21, ".image": 2.0 }`). Persisted. */
   zoomByFiletype: Record<string, number>;
   /** Set zoom for a filetype key. Value is clamped to [ZOOM_MIN, ZOOM_MAX]. */
@@ -57,6 +58,12 @@ export function createViewerPrefsSlice(set: SliceSet, get: SliceGet): ViewerPref
       set((s) => ({
         allowedRemoteImageDocs: { ...s.allowedRemoteImageDocs, [filePath]: true },
       })),
+    disallowRemoteImagesForDoc: (filePath) =>
+      set((s) => {
+        const next = { ...s.allowedRemoteImageDocs };
+        delete next[filePath];
+        return { allowedRemoteImageDocs: next };
+      }),
     zoomByFiletype: {},
     setZoom: (filetype, zoom) =>
       set((s) => ({
