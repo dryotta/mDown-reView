@@ -142,3 +142,87 @@ fn json_fallback_under_sidecar_root() {
     let loaded = load_sidecar_at(&yaml_path, &json_path).unwrap();
     assert!(loaded.is_some(), "JSON sidecar should be loadable");
 }
+
+/// End-to-end: `SidecarConfigState` + `resolve_sidecar_pair` +
+/// `mutate_sidecar_or_create` routes sidecar writes through
+/// the configured `sidecar_root` directory.
+#[test]
+fn sidecar_config_state_routes_through_sidecar_root() {
+    use mdown_review_lib::commands::mutate_sidecar_or_create;
+    use mdown_review_lib::core::paths::canonicalize_no_verbatim;
+    use mdown_review_lib::watcher::SidecarConfigState;
+
+    let dir = tempdir().unwrap();
+    let ws = dir.path();
+
+    // Write .mrsf.yaml with sidecar_root
+    std::fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+
+    // Create a source file
+    std::fs::create_dir_all(ws.join("src")).unwrap();
+    std::fs::write(ws.join("src").join("app.rs"), "fn main() {}").unwrap();
+
+    // Load config and populate SidecarConfigState
+    let canonical_ws = canonicalize_no_verbatim(ws).unwrap();
+    let config = load_mrsf_config(ws).unwrap();
+    let state = SidecarConfigState::new();
+    state.set_config(canonical_ws.clone(), config);
+
+    // Use mutate_sidecar_or_create with the config state
+    let file_path = canonicalize_no_verbatim(&ws.join("src").join("app.rs")).unwrap();
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    mutate_sidecar_or_create(&file_path_str, Some("app.rs".into()), &state, |sidecar| {
+        sidecar.comments.push(create_test_comment("c1", "Test via config state"));
+        Ok(())
+    })
+    .unwrap();
+
+    // Verify sidecar was written under .reviews, not co-located
+    let colocated = ws.join("src").join("app.rs.review.yaml");
+    assert!(
+        !colocated.exists(),
+        "sidecar must NOT be co-located when sidecar_root is configured"
+    );
+
+    let redirected = ws.join(".reviews").join("src").join("app.rs.review.yaml");
+    assert!(
+        redirected.exists(),
+        "sidecar must be under .reviews/src/app.rs.review.yaml, checked: {}",
+        redirected.display()
+    );
+
+    // Load it back and verify
+    let yaml_str = redirected.to_string_lossy().to_string();
+    let json_str = yaml_str.replace(".review.yaml", ".review.json");
+    let loaded = load_sidecar_at(&yaml_str, &json_str).unwrap().unwrap();
+    assert_eq!(loaded.comments.len(), 1);
+    assert_eq!(loaded.comments[0].id, "c1");
+    assert_eq!(loaded.comments[0].text, "Test via config state");
+}
+
+/// Verify `SidecarConfigState::new()` (empty config) falls back
+/// to co-located sidecars — the default behaviour.
+#[test]
+fn sidecar_config_state_empty_uses_colocated() {
+    use mdown_review_lib::commands::mutate_sidecar_or_create;
+    use mdown_review_lib::watcher::SidecarConfigState;
+
+    let dir = tempdir().unwrap();
+    let ws = dir.path();
+    std::fs::write(ws.join("doc.md"), "# Hello").unwrap();
+    let file_path = ws.join("doc.md").to_string_lossy().to_string();
+
+    let state = SidecarConfigState::new();
+    mutate_sidecar_or_create(&file_path, None, &state, |sidecar| {
+        sidecar.comments.push(create_test_comment("c1", "colocated"));
+        Ok(())
+    })
+    .unwrap();
+
+    let colocated = ws.join("doc.md.review.yaml");
+    assert!(
+        colocated.exists(),
+        "sidecar must be co-located when no config is set"
+    );
+}

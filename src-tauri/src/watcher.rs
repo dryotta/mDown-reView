@@ -9,6 +9,49 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Maximum number of tree-watched dirs across ALL windows (merged union).
 pub const MAX_TREE_WATCHED_DIRS: usize = 1024;
 
+/// Per-workspace `.mrsf.yaml` configuration cache.
+/// Maps canonical workspace root → `Option<PathBuf>` (the `sidecar_root` value).
+/// `None` value means either no `.mrsf.yaml` exists or it has no `sidecar_root`.
+pub struct SidecarConfigState {
+    configs: Arc<Mutex<HashMap<PathBuf, Option<PathBuf>>>>,
+}
+
+impl SidecarConfigState {
+    pub fn new() -> Self {
+        Self {
+            configs: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Look up the sidecar config for a file path by finding which workspace root it belongs to.
+    /// Returns `(workspace_root, sidecar_root)` if a workspace matches.
+    /// When multiple workspace roots match (nested workspaces), the longest
+    /// (most specific) root wins.
+    pub fn resolve_for_file(&self, file_path: &Path) -> Option<(PathBuf, Option<PathBuf>)> {
+        let guard = self.configs.lock().ok()?;
+        let canonical = canonicalize_no_verbatim(file_path).ok()?;
+        guard
+            .iter()
+            .filter(|(root, _)| canonical.starts_with(root))
+            .max_by_key(|(root, _)| root.components().count())
+            .map(|(root, config)| (root.clone(), config.clone()))
+    }
+
+    /// Register or update the config for a workspace root.
+    pub fn set_config(&self, workspace_root: PathBuf, sidecar_root: Option<PathBuf>) {
+        if let Ok(mut guard) = self.configs.lock() {
+            guard.insert(workspace_root, sidecar_root);
+        }
+    }
+
+    /// Remove config for a workspace root.
+    pub fn remove_config(&self, workspace_root: &Path) {
+        if let Ok(mut guard) = self.configs.lock() {
+            guard.remove(workspace_root);
+        }
+    }
+}
+
 pub struct WatcherState {
     /// Per-window watched file paths (keyed by window label).
     watched_paths: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,

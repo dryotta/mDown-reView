@@ -248,15 +248,34 @@ pub fn stat_file_inner(
 /// pass any absolute form. Each entry must exist and be a directory, and every
 /// dir must be contained within `root`. At most
 /// [`crate::watcher::MAX_TREE_WATCHED_DIRS`] entries per call.
+///
+/// Also loads the `.mrsf.yaml` config for the workspace root and caches
+/// its `sidecar_root` value in [`SidecarConfigState`] so that subsequent
+/// sidecar reads/writes use the configured path.
 #[tauri::command]
 pub fn update_tree_watched_dirs(
     window: tauri::Window,
     root: String,
     dirs: Vec<String>,
     state: tauri::State<'_, crate::watcher::WatcherState>,
+    config_state: tauri::State<'_, crate::watcher::SidecarConfigState>,
 ) -> Result<(), String> {
-    state.set_tree_watched_dirs(window.label(), root, dirs).map_err(|e| {
+    state.set_tree_watched_dirs(window.label(), root.clone(), dirs).map_err(|e| {
         tracing::warn!("[rust] update_tree_watched_dirs rejected: {}", e);
         e
-    })
+    })?;
+
+    // Load .mrsf.yaml config for this workspace root.
+    let canonical_root = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&root))
+        .map_err(|e| format!("cannot canonicalize root: {e}"))?;
+    let config = crate::core::paths::load_mrsf_config(&canonical_root).unwrap_or_else(|e| {
+        tracing::warn!(
+            "[sidecar-config] failed to load .mrsf.yaml for {}: {e}",
+            root
+        );
+        None
+    });
+    config_state.set_config(canonical_root, config);
+
+    Ok(())
 }

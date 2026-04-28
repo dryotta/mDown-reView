@@ -2,7 +2,7 @@
 
 use super::{enforce_workspace_path, CommentsEmitter};
 use crate::core::types::{Anchor, Reaction};
-use crate::watcher::WatcherState;
+use crate::watcher::{SidecarConfigState, WatcherState};
 use tauri::{AppHandle, Runtime, State};
 
 /// Patch payloads for `update_comment`. Discriminated enum (serde adjacent
@@ -37,11 +37,12 @@ pub enum CommentPatch {
 pub fn update_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     comment_id: String,
     patch: CommentPatch,
 ) -> Result<(), String> {
-    update_comment_inner(&app, &state, file_path, comment_id, patch)
+    update_comment_inner(&app, &state, &config_state, file_path, comment_id, patch)
 }
 
 /// Test seam for [`update_comment`]. See `add_comment_inner` for rationale.
@@ -50,12 +51,13 @@ pub fn update_comment<R: Runtime>(
 pub fn update_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     comment_id: String,
     patch: CommentPatch,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    let changed = update_comment_apply(&file_path, &comment_id, patch)?;
+    let changed = update_comment_apply(&file_path, &comment_id, patch, config_state)?;
     if changed {
         emitter.emit_comments_changed(&file_path);
     }
@@ -74,8 +76,10 @@ pub fn update_comment_apply(
     file_path: &str,
     comment_id: &str,
     patch: CommentPatch,
+    config_state: &SidecarConfigState,
 ) -> Result<bool, String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+    let (yaml, json, ws_root) = super::resolve_sidecar_pair(file_path, config_state);
+    let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
         .map_err(|e| e.to_string())?
         .ok_or("sidecar not found")?;
     let comment = sidecar
@@ -119,7 +123,12 @@ pub fn update_comment_apply(
         }
     };
     if mutated {
-        crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
+        let save_path = std::path::PathBuf::from(&yaml);
+        if let Some(ref root) = ws_root {
+            crate::core::paths::ensure_sidecar_parent(root, &save_path)
+                .map_err(|e| e.to_string())?;
+        }
+        crate::core::sidecar::save_sidecar_at(&save_path, &sidecar.document, &sidecar.comments)
             .map_err(|e| e.to_string())?;
     }
     Ok(mutated)

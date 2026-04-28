@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
-use crate::watcher::WatcherState;
+use crate::watcher::{SidecarConfigState, WatcherState};
 
 pub mod badges;
 pub mod get;
@@ -77,17 +77,55 @@ impl<R: Runtime> CommentsEmitter for AppHandle<R> {
     }
 }
 
+/// Compute the YAML and JSON sidecar paths for a source file, consulting
+/// the workspace's `.mrsf.yaml` config if present. When `sidecar_root` is
+/// configured, paths are redirected under `workspace_root/sidecar_root/`.
+/// Falls back to co-located paths when no config is active.
+///
+/// Returns `(yaml_path, json_path, Option<workspace_root>)`. The third
+/// element is `Some` when a redirected config is active — callers use it
+/// to call [`crate::core::paths::ensure_sidecar_parent`] before writing.
+pub(crate) fn resolve_sidecar_pair(
+    file_path: &str,
+    config_state: &SidecarConfigState,
+) -> (String, String, Option<std::path::PathBuf>) {
+    let file = Path::new(file_path);
+    if let Some((ws_root, Some(sr))) = config_state.resolve_for_file(file) {
+        if let Ok(relative) = file.strip_prefix(&ws_root) {
+            let sidecar_dir = ws_root.join(&sr);
+            let yaml = sidecar_dir.join(format!("{}.review.yaml", relative.display()));
+            let json = sidecar_dir.join(format!("{}.review.json", relative.display()));
+            return (
+                yaml.to_string_lossy().into_owned(),
+                json.to_string_lossy().into_owned(),
+                Some(ws_root),
+            );
+        }
+    }
+    (
+        format!("{}.review.yaml", file_path),
+        format!("{}.review.json", file_path),
+        None,
+    )
+}
+
 /// Load a sidecar, apply a mutation, save, and emit `comments-changed`.
 fn with_sidecar_mut<E: CommentsEmitter>(
     emitter: &E,
     file_path: &str,
+    config_state: &SidecarConfigState,
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+    let (yaml, json, ws_root) = resolve_sidecar_pair(file_path, config_state);
+    let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
         .map_err(|e| e.to_string())?
         .ok_or("sidecar not found")?;
     mutate(&mut sidecar)?;
-    crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
+    let save_path = std::path::PathBuf::from(&yaml);
+    if let Some(ref root) = ws_root {
+        crate::core::paths::ensure_sidecar_parent(root, &save_path).map_err(|e| e.to_string())?;
+    }
+    crate::core::sidecar::save_sidecar_at(&save_path, &sidecar.document, &sidecar.comments)
         .map_err(|e| e.to_string())?;
     emitter.emit_comments_changed(file_path);
     Ok(())
@@ -101,9 +139,11 @@ fn with_sidecar_mut<E: CommentsEmitter>(
 pub fn mutate_sidecar_or_create(
     file_path: &str,
     document_default: Option<String>,
+    config_state: &SidecarConfigState,
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+    let (yaml, json, ws_root) = resolve_sidecar_pair(file_path, config_state);
+    let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| MrsfSidecar {
             mrsf_version: MRSF_VERSION_DEFAULT.to_string(),
@@ -116,7 +156,11 @@ pub fn mutate_sidecar_or_create(
             comments: vec![],
         });
     mutate(&mut sidecar)?;
-    crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
+    let save_path = std::path::PathBuf::from(&yaml);
+    if let Some(ref root) = ws_root {
+        crate::core::paths::ensure_sidecar_parent(root, &save_path).map_err(|e| e.to_string())?;
+    }
+    crate::core::sidecar::save_sidecar_at(&save_path, &sidecar.document, &sidecar.comments)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -127,9 +171,10 @@ fn with_sidecar_or_create<E: CommentsEmitter>(
     emitter: &E,
     file_path: &str,
     document_default: Option<String>,
+    config_state: &SidecarConfigState,
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
-    mutate_sidecar_or_create(file_path, document_default, mutate)?;
+    mutate_sidecar_or_create(file_path, document_default, config_state, mutate)?;
     emitter.emit_comments_changed(file_path);
     Ok(())
 }
@@ -237,6 +282,7 @@ impl NewCommentAnchor {
 pub fn add_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     author: String,
     text: String,
@@ -248,6 +294,7 @@ pub fn add_comment<R: Runtime>(
     add_comment_inner(
         &app,
         &state,
+        &config_state,
         file_path,
         author,
         text,
@@ -268,6 +315,7 @@ pub fn add_comment<R: Runtime>(
 pub fn add_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     author: String,
     text: String,
@@ -311,7 +359,7 @@ pub fn add_comment_inner<E: CommentsEmitter>(
         }
         comment.anchor = canonical;
     }
-    with_sidecar_or_create(emitter, &file_path, document, |sidecar| {
+    with_sidecar_or_create(emitter, &file_path, document, config_state, |sidecar| {
         sidecar.comments.push(comment);
         Ok(())
     })
@@ -335,25 +383,27 @@ pub fn check_workspace_for(
 pub fn add_reply<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     parent_id: String,
     author: String,
     text: String,
 ) -> Result<(), String> {
-    add_reply_inner(&app, &state, file_path, parent_id, author, text)
+    add_reply_inner(&app, &state, &config_state, file_path, parent_id, author, text)
 }
 
 /// Test seam for [`add_reply`]. See [`add_comment_inner`] for rationale.
 pub fn add_reply_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     parent_id: String,
     author: String,
     text: String,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, |sidecar| {
+    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         let parent = sidecar
             .comments
             .iter()
@@ -371,23 +421,25 @@ pub fn add_reply_inner<E: CommentsEmitter>(
 pub fn edit_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     comment_id: String,
     text: String,
 ) -> Result<(), String> {
-    edit_comment_inner(&app, &state, file_path, comment_id, text)
+    edit_comment_inner(&app, &state, &config_state, file_path, comment_id, text)
 }
 
 /// Test seam for [`edit_comment`]. See [`add_comment_inner`] for rationale.
 pub fn edit_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     comment_id: String,
     text: String,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, |sidecar| {
+    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         let comment = sidecar
             .comments
             .iter_mut()
@@ -403,21 +455,23 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
 pub fn delete_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
-    delete_comment_inner(&app, &state, file_path, comment_id)
+    delete_comment_inner(&app, &state, &config_state, file_path, comment_id)
 }
 
 /// Test seam for [`delete_comment`]. See [`add_comment_inner`] for rationale.
 pub fn delete_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, |sidecar| {
+    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         sidecar.comments = crate::core::comments::delete_comment(&sidecar.comments, &comment_id);
         Ok(())
     })
