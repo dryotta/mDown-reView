@@ -14,6 +14,7 @@ import { useFolderTree } from "@/hooks/useFolderTree";
 import { useTreeWatcher } from "@/hooks/useTreeWatcher";
 import { useFileBadges } from "@/hooks/useFileBadges";
 import { CommentBadge } from "@/components/comments/CommentBadge";
+import type { Severity } from "@/lib/tauri-commands";
 import {
   pathStartsWithRootCrossPlatform,
   getAncestors,
@@ -32,6 +33,8 @@ interface NavRow {
   isDir: boolean;
   name: string;
 }
+
+const SEVERITY_ORDER: Record<Severity, number> = { none: 0, low: 1, medium: 2, high: 3 };
 
 export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   const { root, expandedFolders, activeTabPath, ghostEntries, tabs, folderPaneWidth } = useStore(
@@ -64,7 +67,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   }, []);
 
   // ── Tree mode list (no filter — filter mode uses grouped view below) ──────
-  const treeList = useFolderTree(root, childrenCache, expandedFolders, "", ghostEntries);
+  const { nodes: treeList, hiddenGhostsByFolder } = useFolderTree(root, childrenCache, expandedFolders, "", ghostEntries);
 
   // ── "Other files" derived from open tabs that live outside `root` ─────────
   const otherFiles = useMemo(
@@ -100,8 +103,15 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
     return rows;
   }, [otherFiles, otherFilesOpen, deferredFilter, filterGroups, treeList]);
 
-  // Collect visible file paths for badge counts
-  const filePaths = useMemo(() => navRows.filter((r) => !r.isDir).map((r) => r.path), [navRows]);
+  // Collect visible file paths for badge counts, plus hidden ghost paths
+  // so collapsed folders can aggregate ghost badges. One deduped IPC call.
+  const filePaths = useMemo(() => {
+    const visible = navRows.filter((r) => !r.isDir).map((r) => r.path);
+    const hiddenGhosts = Object.values(hiddenGhostsByFolder).flat();
+    const deduped = [...new Set([...visible, ...hiddenGhosts])];
+    deduped.sort();
+    return deduped;
+  }, [navRows, hiddenGhostsByFolder]);
   const fileBadges = useFileBadges(filePaths);
 
   // ── Optimistic toggle ─────────────────────────────────────────────────────
@@ -235,6 +245,27 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
             className="tree-comment-badge"
           />
         )}
+        {opts.isDir && (() => {
+          const ghostPaths = hiddenGhostsByFolder[path];
+          if (!ghostPaths || ghostPaths.length === 0) return null;
+          let totalCount = 0;
+          let maxSev: Severity = "none";
+          for (const gp of ghostPaths) {
+            const badge = fileBadges[gp];
+            if (!badge) continue;
+            totalCount += badge.count;
+            if (SEVERITY_ORDER[badge.max_severity] > SEVERITY_ORDER[maxSev]) {
+              maxSev = badge.max_severity;
+            }
+          }
+          return (
+            <CommentBadge
+              count={totalCount}
+              severity={maxSev}
+              className="tree-comment-badge"
+            />
+          );
+        })()}
       </div>
     );
   };

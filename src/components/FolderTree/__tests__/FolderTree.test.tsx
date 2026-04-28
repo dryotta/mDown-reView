@@ -8,9 +8,12 @@ import type { DirEntry } from "@/lib/tauri-commands";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
-// Mock the hook to avoid IPC / event listener setup in tests
+// Mock the hook to avoid IPC / event listener setup in tests.
+// Controlled via mockUseFileBadges for tests that need badge data.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockUseFileBadges = vi.fn((_paths?: any) => ({}));
 vi.mock("@/hooks/useFileBadges", () => ({
-  useFileBadges: () => ({}),
+  useFileBadges: (paths: string[]) => mockUseFileBadges(paths),
 }));
 
 // Mock tauri-commands readDir so we can control what it returns
@@ -39,6 +42,8 @@ const initialState = useStore.getState();
 beforeEach(() => {
   useStore.setState(initialState, true);
   mockReadDir.mockReset();
+  mockUseFileBadges.mockReset();
+  mockUseFileBadges.mockReturnValue({});
   // Default: root returns ROOT_ENTRIES, subfolder returns SUB_ENTRIES
   mockReadDir.mockImplementation((path: string) => {
     if (path === FOLDER) return Promise.resolve(ROOT_ENTRIES);
@@ -540,5 +545,59 @@ describe("filter input shortcut hint placeholder (#209)", () => {
     await waitFor(() => screen.getByText("README.md"));
     const input = screen.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement;
     expect(input.placeholder).toBe("Filter files (Ctrl+P)");
+  });
+});
+
+// ─── Ghost badge on collapsed folders (#216) ─────────────────────────────────
+
+describe("#216 – ghost badge on collapsed folders", () => {
+  it("collapsed folder shows aggregated badge for hidden ghosts", async () => {
+    // Ghost under collapsed "subdir" should produce a badge on the folder row
+    useStore.setState({
+      root: FOLDER,
+      expandedFolders: {},
+      tabs: [],
+      activeTabPath: null,
+      folderPaneWidth: 240,
+      ghostEntries: [
+        { sourcePath: "/test/subdir/deleted.md", sidecarPath: "/test/subdir/deleted.md.review.json" },
+      ],
+    });
+    mockUseFileBadges.mockReturnValue({
+      "/test/subdir/deleted.md": { count: 3, max_severity: "high" as const },
+    });
+
+    render(<FolderTree onFileOpen={vi.fn()} onCloseFolder={vi.fn()} />);
+    await waitFor(() => screen.getByText("subdir"));
+
+    const subdirEntry = screen.getByText("subdir").closest(".tree-entry")!;
+    const badge = subdirEntry.querySelector(".tree-comment-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toBe("3");
+    expect(badge!.getAttribute("data-severity")).toBe("high");
+  });
+
+  it("expanded folder does NOT show ghost badge (ghosts are visible with own badges)", async () => {
+    useStore.setState({
+      root: FOLDER,
+      expandedFolders: { [SUBFOLDER]: true },
+      tabs: [],
+      activeTabPath: null,
+      folderPaneWidth: 240,
+      ghostEntries: [
+        { sourcePath: "/test/subdir/deleted.md", sidecarPath: "/test/subdir/deleted.md.review.json" },
+      ],
+    });
+    mockUseFileBadges.mockReturnValue({
+      "/test/subdir/deleted.md": { count: 2, max_severity: "medium" as const },
+    });
+
+    render(<FolderTree onFileOpen={vi.fn()} onCloseFolder={vi.fn()} />);
+    await waitFor(() => screen.getByText("subdir"));
+
+    const subdirEntry = screen.getByText("subdir").closest(".tree-entry")!;
+    const badge = subdirEntry.querySelector(".tree-comment-badge");
+    // Badge should not appear on the folder row (ghost is visible directly)
+    expect(badge).toBeNull();
   });
 });

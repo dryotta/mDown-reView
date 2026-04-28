@@ -12,13 +12,13 @@ describe("buildFolderTree", () => {
   const noGhosts: GhostEntry[] = [];
 
   it("returns [] for null root", () => {
-    const result = buildFolderTree(null, {}, {}, "", noGhosts);
-    expect(result).toEqual([]);
+    const { nodes } = buildFolderTree(null, {}, {}, "", noGhosts);
+    expect(nodes).toEqual([]);
   });
 
   it("returns [] for empty childrenCache", () => {
-    const result = buildFolderTree(ROOT, {}, {}, "", noGhosts);
-    expect(result).toEqual([]);
+    const { nodes } = buildFolderTree(ROOT, {}, {}, "", noGhosts);
+    expect(nodes).toEqual([]);
   });
 
   it("builds flat list from root entries", () => {
@@ -28,8 +28,8 @@ describe("buildFolderTree", () => {
         makeEntry("src", "/project/src", true),
       ],
     };
-    const result = buildFolderTree(ROOT, cache, {}, "", noGhosts);
-    expect(result).toEqual([
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "", noGhosts);
+    expect(nodes).toEqual([
       { path: "/project/readme.md", isDir: false, depth: 0, name: "readme.md" },
       { path: "/project/src", isDir: true, depth: 0, name: "src" },
     ]);
@@ -40,9 +40,9 @@ describe("buildFolderTree", () => {
       [ROOT]: [makeEntry("src", "/project/src", true)],
       "/project/src": [makeEntry("index.ts", "/project/src/index.ts", false)],
     };
-    const result = buildFolderTree(ROOT, cache, {}, "", noGhosts);
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("src");
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "", noGhosts);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].name).toBe("src");
   });
 
   it("expanded folders include children at increased depth", () => {
@@ -51,9 +51,9 @@ describe("buildFolderTree", () => {
       "/project/src": [makeEntry("index.ts", "/project/src/index.ts", false)],
     };
     const expanded = { "/project/src": true };
-    const result = buildFolderTree(ROOT, cache, expanded, "", noGhosts);
-    expect(result).toHaveLength(2);
-    expect(result[1]).toEqual({
+    const { nodes } = buildFolderTree(ROOT, cache, expanded, "", noGhosts);
+    expect(nodes).toHaveLength(2);
+    expect(nodes[1]).toEqual({
       path: "/project/src/index.ts",
       isDir: false,
       depth: 1,
@@ -68,9 +68,9 @@ describe("buildFolderTree", () => {
         makeEntry("notes.txt", "/project/notes.txt", false),
       ],
     };
-    const result = buildFolderTree(ROOT, cache, {}, "readme", noGhosts);
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("readme.md");
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "readme", noGhosts);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].name).toBe("readme.md");
   });
 
   it("filter keeps directories that have matching descendants", () => {
@@ -82,18 +82,18 @@ describe("buildFolderTree", () => {
       ],
     };
     const expanded = { "/project/src": true };
-    const result = buildFolderTree(ROOT, cache, expanded, "match", noGhosts);
-    expect(result).toHaveLength(2);
-    expect(result[0].name).toBe("src");
-    expect(result[1].name).toBe("match.ts");
+    const { nodes } = buildFolderTree(ROOT, cache, expanded, "match", noGhosts);
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0].name).toBe("src");
+    expect(nodes[1].name).toBe("match.ts");
   });
 
   it("filter is case-insensitive", () => {
     const cache: Record<string, DirEntry[]> = {
       [ROOT]: [makeEntry("README.md", "/project/README.md", false)],
     };
-    const result = buildFolderTree(ROOT, cache, {}, "readme", noGhosts);
-    expect(result).toHaveLength(1);
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "readme", noGhosts);
+    expect(nodes).toHaveLength(1);
   });
 
   it("ghost entries are inserted at the correct depth", () => {
@@ -105,8 +105,8 @@ describe("buildFolderTree", () => {
     const ghosts: GhostEntry[] = [
       { sourcePath: "/project/src/deleted.ts", sidecarPath: "/project/src/deleted.ts.review.json" },
     ];
-    const result = buildFolderTree(ROOT, cache, expanded, "", ghosts);
-    const ghost = result.find((n) => n.isGhost);
+    const { nodes } = buildFolderTree(ROOT, cache, expanded, "", ghosts);
+    const ghost = nodes.find((n) => n.isGhost);
     expect(ghost).toBeDefined();
     expect(ghost!.depth).toBe(1);
     expect(ghost!.name).toBe("deleted.ts");
@@ -120,8 +120,8 @@ describe("buildFolderTree", () => {
     const ghosts: GhostEntry[] = [
       { sourcePath: "/project/file.md", sidecarPath: "/project/file.md.review.json" },
     ];
-    const result = buildFolderTree(ROOT, cache, {}, "", ghosts);
-    const matches = result.filter((n) => n.path === "/project/file.md");
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "", ghosts);
+    const matches = nodes.filter((n) => n.path === "/project/file.md");
     expect(matches).toHaveLength(1);
     expect(matches[0].isGhost).toBeUndefined();
   });
@@ -133,8 +133,8 @@ describe("buildFolderTree", () => {
     const ghosts: GhostEntry[] = [
       { sourcePath: "/project/orphan.md", sidecarPath: "/project/orphan.md.review.json" },
     ];
-    const result = buildFolderTree(ROOT, cache, {}, "", ghosts);
-    const ghost = result.find((n) => n.isGhost);
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "", ghosts);
+    const ghost = nodes.find((n) => n.isGhost);
     expect(ghost).toBeDefined();
     expect(ghost!.depth).toBe(0);
   });
@@ -149,10 +149,105 @@ describe("buildFolderTree", () => {
     const ghosts: GhostEntry[] = [
       { sourcePath: "C:\\project\\src\\ghost.md", sidecarPath: "C:\\project\\src\\ghost.md.review.json" },
     ];
-    const result = buildFolderTree(winRoot, cache, expanded, "", ghosts);
-    const ghost = result.find((n) => n.isGhost);
+    const { nodes } = buildFolderTree(winRoot, cache, expanded, "", ghosts);
+    const ghost = nodes.find((n) => n.isGhost);
     expect(ghost).toBeDefined();
     expect(ghost!.name).toBe("ghost.md");
     expect(ghost!.depth).toBe(1);
+  });
+
+  // ── Ghost visibility under collapsed folders (issue #216) ──────────────
+
+  it("omits ghost entries under collapsed parent folders", () => {
+    const cache: Record<string, DirEntry[]> = {
+      [ROOT]: [makeEntry("src", "/project/src", true)],
+      "/project/src": [makeEntry("app.ts", "/project/src/app.ts", false)],
+    };
+    // src is collapsed (not in expandedFolders)
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "/project/src/deleted.ts", sidecarPath: "/project/src/deleted.ts.review.json" },
+    ];
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "", ghosts);
+    const ghost = nodes.find((n) => n.isGhost);
+    expect(ghost).toBeUndefined();
+    expect(nodes).toHaveLength(1); // just "src" folder
+  });
+
+  it("includes ghost entries under expanded parent folders", () => {
+    const cache: Record<string, DirEntry[]> = {
+      [ROOT]: [makeEntry("src", "/project/src", true)],
+      "/project/src": [],
+    };
+    const expanded = { "/project/src": true };
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "/project/src/deleted.ts", sidecarPath: "/project/src/deleted.ts.review.json" },
+    ];
+    const { nodes } = buildFolderTree(ROOT, cache, expanded, "", ghosts);
+    const ghost = nodes.find((n) => n.isGhost);
+    expect(ghost).toBeDefined();
+    expect(ghost!.depth).toBe(1);
+  });
+
+  it("root-level ghost entries are always visible regardless of expanded state", () => {
+    const cache: Record<string, DirEntry[]> = {
+      [ROOT]: [],
+    };
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "/project/root-ghost.md", sidecarPath: "/project/root-ghost.md.review.json" },
+    ];
+    const { nodes } = buildFolderTree(ROOT, cache, {}, "", ghosts);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].isGhost).toBe(true);
+    expect(nodes[0].name).toBe("root-ghost.md");
+  });
+
+  it("deeply nested ghost with ancestor collapsed is hidden and mapped to nearest visible ancestor", () => {
+    const cache: Record<string, DirEntry[]> = {
+      [ROOT]: [makeEntry("src", "/project/src", true)],
+      "/project/src": [makeEntry("lib", "/project/src/lib", true)],
+      "/project/src/lib": [],
+    };
+    // src expanded, lib collapsed
+    const expanded = { "/project/src": true };
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "/project/src/lib/deep.ts", sidecarPath: "/project/src/lib/deep.ts.review.json" },
+    ];
+    const { nodes, hiddenGhostsByFolder } = buildFolderTree(ROOT, cache, expanded, "", ghosts);
+    const ghost = nodes.find((n) => n.isGhost);
+    expect(ghost).toBeUndefined();
+    expect(hiddenGhostsByFolder).toEqual({
+      "/project/src/lib": ["/project/src/lib/deep.ts"],
+    });
+  });
+
+  it("hiddenGhostsByFolder correctly maps folder to ghost source paths", () => {
+    const cache: Record<string, DirEntry[]> = {
+      [ROOT]: [makeEntry("docs", "/project/docs", true)],
+      "/project/docs": [],
+    };
+    // docs is collapsed
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "/project/docs/a.md", sidecarPath: "/project/docs/a.md.review.json" },
+      { sourcePath: "/project/docs/b.md", sidecarPath: "/project/docs/b.md.review.json" },
+    ];
+    const { nodes, hiddenGhostsByFolder } = buildFolderTree(ROOT, cache, {}, "", ghosts);
+    expect(nodes.filter((n) => n.isGhost)).toHaveLength(0);
+    expect(hiddenGhostsByFolder["/project/docs"]).toEqual([
+      "/project/docs/a.md",
+      "/project/docs/b.md",
+    ]);
+  });
+
+  it("hiddenGhostsByFolder is empty when all ghosts are visible", () => {
+    const cache: Record<string, DirEntry[]> = {
+      [ROOT]: [makeEntry("src", "/project/src", true)],
+      "/project/src": [],
+    };
+    const expanded = { "/project/src": true };
+    const ghosts: GhostEntry[] = [
+      { sourcePath: "/project/src/visible.ts", sidecarPath: "/project/src/visible.ts.review.json" },
+    ];
+    const { hiddenGhostsByFolder } = buildFolderTree(ROOT, cache, expanded, "", ghosts);
+    expect(Object.keys(hiddenGhostsByFolder)).toHaveLength(0);
   });
 });
