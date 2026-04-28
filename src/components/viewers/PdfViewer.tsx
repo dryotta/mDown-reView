@@ -47,7 +47,6 @@ export function PdfViewer({ path }: Props) {
       className="pdf-viewer"
       title={filename}
       src={src}
-      sandbox=""
     />
   );
 }

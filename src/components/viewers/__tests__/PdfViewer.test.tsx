@@ -17,14 +17,16 @@ describe("PdfViewer (#65 F3)", () => {
     );
   });
 
-  it("applies an empty `sandbox=\"\"` attribute (scripts + forms disabled)", () => {
+  it("does NOT apply a sandbox attribute (Chromium PDF renderer requires scripts)", () => {
     render(<PdfViewer path="/docs/spec.pdf" />);
     const iframe = document.querySelector("iframe.pdf-viewer") as HTMLIFrameElement | null;
     expect(iframe).not.toBeNull();
-    // hasAttribute distinguishes `sandbox=""` from a missing `sandbox`. Empty
-    // value is the strictest sandbox per the HTML spec — no scripts, no forms.
-    expect(iframe!.hasAttribute("sandbox")).toBe(true);
-    expect(iframe!.getAttribute("sandbox")).toBe("");
+    // Chromium's built-in PDF viewer is a JS-based renderer that requires
+    // script execution + same-origin access. `sandbox=""` blocks both,
+    // preventing PDFs from rendering. Since PDFs are binary files loaded
+    // via the local asset:// protocol (not user-authored HTML/JS), removing
+    // sandbox is safe — the CSP still constrains the frame.
+    expect(iframe!.hasAttribute("sandbox")).toBe(false);
   });
 
   it("renders fallback UI when the iframe error event fires", () => {
