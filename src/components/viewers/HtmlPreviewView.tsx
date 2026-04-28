@@ -9,6 +9,7 @@ import { useZoom } from "@/hooks/useZoom";
 import { warn, info } from "@/logger";
 import { buildBridgeSrcDoc, isBridgeMsg } from "@/lib/html-bridge";
 import "@/styles/html-preview.css";
+import "@/styles/viewer-banner.css";
 
 interface Props {
   content: string;
@@ -158,16 +159,15 @@ export function HtmlPreviewView({ content, filePath }: Props) {
 
   return (
     <div className="html-preview" data-zoom={zoom} style={{ display: "flex", flexDirection: "column", height: "100%", fontSize: `${zoom * 100}%` }}>
-      <div className="html-preview-banner" style={{ padding: "6px 12px", background: "var(--color-warning-bg, #fff3cd)", borderBottom: "1px solid var(--color-warning-border, #ffc107)", fontSize: 12 }}>
+      <div className="viewer-info-banner">
         ⚠ Sandboxed preview — scripts and external resources disabled
-        {resolving && <span style={{ marginLeft: 8 }}>⏳ Resolving local images…</span>}
+        {resolving && <span className="viewer-info-banner-note">⏳ Resolving local images…</span>}
         <button
           className="comment-btn"
           type="button"
           aria-pressed={allowImages}
           aria-label={allowImages ? "Disallow external images" : "Allow external images"}
           onClick={() => setAllowImages((v) => !v)}
-          style={{ marginLeft: 8 }}
         >
           {allowImages ? "Disallow external images" : "Allow external images"}
         </button>
@@ -177,13 +177,12 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           aria-pressed={allowScripts}
           aria-label={allowScripts ? "Disable scripts" : "Enable scripts"}
           onClick={() => setAllowScripts((v) => !v)}
-          style={{ marginLeft: 8 }}
         >
           {allowScripts ? "Disable scripts" : "Enable scripts"}
-          <span style={{ marginLeft: 4, opacity: 0.7 }}>(higher risk — runs sandboxed JS)</span>
+          <span className="viewer-info-banner-note">(higher risk — runs sandboxed JS)</span>
         </button>
         {allowScripts && (
-          <span style={{ marginLeft: 8, fontStyle: "italic" }}>
+          <span className="viewer-info-banner-note">
             Scripts enabled — sandboxed JS runs inside the iframe.
           </span>
         )}

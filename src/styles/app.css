@@ -24,6 +24,9 @@
   --color-toggle-active-bg: rgba(9, 105, 218, 0.08);
   --color-toggle-active-bg-hover: rgba(9, 105, 218, 0.14);
   --color-btn-group-bg: #ffffff;
+  --color-warning-bg: #fff3cd;
+  --color-warning-border: #ffc107;
+  --color-warning-text: #664d03;
 }
 
 [data-theme="dark"] {
@@ -49,6 +52,9 @@
   --color-toggle-active-bg: rgba(88, 166, 255, 0.12);
   --color-toggle-active-bg-hover: rgba(88, 166, 255, 0.2);
   --color-btn-group-bg: #21262d;
+  --color-warning-bg: #3d2e00;
+  --color-warning-border: #7a5900;
+  --color-warning-text: #ffd54f;
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────── */

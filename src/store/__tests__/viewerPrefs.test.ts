@@ -83,6 +83,23 @@ describe("viewerPrefs.allowedRemoteImageDocs", () => {
     useStore.getState().allowRemoteImagesForDoc("/foo.md");
     expect(useStore.getState().allowedRemoteImageDocs["/foo.md"]).toBe(true);
   });
+
+  it("allow → revoke → blocked again lifecycle (#212)", () => {
+    useStore.getState().allowRemoteImagesForDoc("/a.md");
+    expect(useStore.getState().allowedRemoteImageDocs["/a.md"]).toBe(true);
+    useStore.getState().disallowRemoteImagesForDoc("/a.md");
+    expect(useStore.getState().allowedRemoteImageDocs["/a.md"]).toBeUndefined();
+  });
+
+  it("per-file independence (#212)", () => {
+    useStore.getState().allowRemoteImagesForDoc("/a.md");
+    useStore.getState().allowRemoteImagesForDoc("/b.md");
+    expect(useStore.getState().allowedRemoteImageDocs["/a.md"]).toBe(true);
+    expect(useStore.getState().allowedRemoteImageDocs["/b.md"]).toBe(true);
+    useStore.getState().disallowRemoteImagesForDoc("/a.md");
+    expect(useStore.getState().allowedRemoteImageDocs["/a.md"]).toBeUndefined();
+    expect(useStore.getState().allowedRemoteImageDocs["/b.md"]).toBe(true);
+  });
 });
 
 /**

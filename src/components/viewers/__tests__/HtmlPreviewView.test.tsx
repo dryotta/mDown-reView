@@ -38,6 +38,14 @@ describe("HtmlPreviewView — sandbox toggles (H1)", () => {
     cleanup();
   });
 
+  it("banner uses shared viewer-info-banner class with no inline style (#212)", () => {
+    render(<HtmlPreviewView content="<p>test</p>" />);
+    const banner = screen.getByText(/sandboxed preview/i).closest(".viewer-info-banner");
+    expect(banner).toBeInTheDocument();
+    expect(banner?.getAttribute("style")).toBeNull();
+    cleanup();
+  });
+
   it("toggling 'Allow external images' keeps sandbox safe and flips aria-pressed", () => {
     const { container } = render(<HtmlPreviewView content="<p>test</p>" />);
     const btn = screen.getByRole("button", { name: /allow external images/i });
