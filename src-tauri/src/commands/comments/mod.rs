@@ -396,7 +396,7 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
             .iter_mut()
             .find(|c| c.id == comment_id)
             .ok_or_else(|| format!("comment {} not found", comment_id))?;
-        comment.text = text;
+        comment.text = crate::core::comments::clamp_comment_text(&text);
         Ok(())
     })
 }

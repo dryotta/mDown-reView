@@ -13,6 +13,7 @@ mod io_guards;
 use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
 use io_guards::{read_capped, reject_yaml_anchors};
+use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
 
@@ -23,6 +24,7 @@ pub enum SidecarError {
     JsonParse(serde_json::Error),
     NotFound,
     CommentNotFound(String),
+    UnsupportedVersion(String),
 }
 
 impl fmt::Display for SidecarError {
@@ -33,6 +35,9 @@ impl fmt::Display for SidecarError {
             SidecarError::JsonParse(e) => write!(f, "JSON parse error: {}", e),
             SidecarError::NotFound => write!(f, "sidecar not found"),
             SidecarError::CommentNotFound(id) => write!(f, "comment not found: {}", id),
+            SidecarError::UnsupportedVersion(v) => {
+                write!(f, "unsupported MRSF version: {}", v)
+            }
         }
     }
 }
@@ -43,6 +48,72 @@ impl From<std::io::Error> for SidecarError {
             SidecarError::NotFound
         } else {
             SidecarError::Io(e)
+        }
+    }
+}
+
+/// Reject sidecars whose major version is unsupported (MRSF §5 MUST).
+/// Accepts major version 1 (any minor); rejects anything else.
+fn reject_unsupported_version(sidecar: &MrsfSidecar) -> Result<(), SidecarError> {
+    let ver = &sidecar.mrsf_version;
+    match ver.split('.').next().and_then(|m| m.parse::<u32>().ok()) {
+        Some(1) => Ok(()),
+        Some(_) | None => Err(SidecarError::UnsupportedVersion(ver.clone())),
+    }
+}
+
+/// Post-load advisory validation (MRSF §6.2, §7.1, §10).
+/// Logs warnings for data-quality issues; never rejects.
+fn validate_sidecar_warnings(sidecar: &MrsfSidecar) {
+    let ids: HashSet<&str> = sidecar.comments.iter().map(|c| c.id.as_str()).collect();
+
+    for c in &sidecar.comments {
+        // §6.2 — selected_text_hash integrity
+        if let (Some(text), Some(hash)) = (&c.selected_text, &c.selected_text_hash) {
+            let expected = crate::core::anchors::compute_selected_text_hash(text);
+            if *hash != expected {
+                tracing::warn!(
+                    "[sidecar] comment {} has selected_text_hash mismatch (expected {}, got {})",
+                    c.id,
+                    expected,
+                    hash
+                );
+            }
+        }
+
+        // §7.1 / §10 — cross-field constraints
+        if let (Some(line), Some(end_line)) = (c.line, c.end_line) {
+            if end_line < line {
+                tracing::warn!(
+                    "[sidecar] comment {} has end_line ({}) < line ({})",
+                    c.id,
+                    end_line,
+                    line
+                );
+            }
+            if line == end_line {
+                if let (Some(sc), Some(ec)) = (c.start_column, c.end_column) {
+                    if ec < sc {
+                        tracing::warn!(
+                            "[sidecar] comment {} has end_column ({}) < start_column ({})",
+                            c.id,
+                            ec,
+                            sc
+                        );
+                    }
+                }
+            }
+        }
+
+        // §10 — dangling reply_to
+        if let Some(ref reply_to) = c.reply_to {
+            if !ids.contains(reply_to.as_str()) {
+                tracing::warn!(
+                    "[sidecar] comment {} has reply_to \"{}\" which does not resolve to any id",
+                    c.id,
+                    reply_to
+                );
+            }
         }
     }
 }
@@ -58,6 +129,8 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
             reject_yaml_anchors(&content)?;
             let sidecar: MrsfSidecar =
                 serde_yaml_ng::from_str(&content).map_err(SidecarError::YamlParse)?;
+            reject_unsupported_version(&sidecar)?;
+            validate_sidecar_warnings(&sidecar);
             return Ok(Some(sidecar));
         }
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -70,6 +143,8 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
         Ok(content) => {
             let sidecar: MrsfSidecar =
                 serde_json::from_str(&content).map_err(SidecarError::JsonParse)?;
+            reject_unsupported_version(&sidecar)?;
+            validate_sidecar_warnings(&sidecar);
             Ok(Some(sidecar))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

@@ -1,5 +1,25 @@
 use crate::core::types::{CommentAnchor, MrsfComment};
 
+/// Maximum text length for a comment body (MRSF §6.1 SHOULD NOT exceed).
+const COMMENT_TEXT_MAX_LENGTH: usize = 16384;
+
+/// Clamp text to the MRSF §6.1 advisory limit.
+pub fn clamp_comment_text(text: &str) -> String {
+    clamp_text(text)
+}
+
+/// Clamp text to the MRSF §6.1 advisory limit.
+fn clamp_text(text: &str) -> String {
+    if text.chars().count() <= COMMENT_TEXT_MAX_LENGTH {
+        return text.to_string();
+    }
+    tracing::warn!(
+        "[comments] text exceeds {} chars, truncating",
+        COMMENT_TEXT_MAX_LENGTH
+    );
+    text.chars().take(COMMENT_TEXT_MAX_LENGTH).collect()
+}
+
 /// Filter to only unresolved comments.
 pub fn filter_unresolved(comments: &[MrsfComment]) -> Vec<&MrsfComment> {
     comments.iter().filter(|c| !c.resolved).collect()
@@ -122,7 +142,7 @@ pub fn create_comment(
             author.to_string()
         },
         timestamp: iso_now(),
-        text: text.to_string(),
+        text: clamp_text(text),
         resolved: false,
         line: Some(anchor.line),
         end_line: anchor.end_line,
@@ -149,7 +169,7 @@ pub fn create_reply(author: &str, text: &str, parent: &MrsfComment) -> MrsfComme
             author.to_string()
         },
         timestamp: iso_now(),
-        text: text.to_string(),
+        text: clamp_text(text),
         resolved: false,
         line: parent.line,
         end_line: None,
