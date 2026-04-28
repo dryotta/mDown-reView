@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 
 const mockCloseTab = vi.fn();
@@ -363,6 +363,78 @@ describe("useGlobalShortcuts", () => {
       expect(mockResolveFocusedThread).not.toHaveBeenCalled();
       expect(callbacks.startCommentOnSelection).not.toHaveBeenCalled();
       input.remove();
+    });
+  });
+
+  describe("Ctrl/Cmd+P file filter toggle (#209)", () => {
+    let filterInput: HTMLInputElement;
+
+    beforeEach(() => {
+      filterInput = document.createElement("input");
+      filterInput.id = "file-filter-input";
+      document.body.appendChild(filterInput);
+    });
+
+    afterEach(() => {
+      filterInput.remove();
+    });
+
+    it("Ctrl+P focuses the file filter input and prevents default", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "p" });
+      expect(document.activeElement).toBe(filterInput);
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it("Ctrl+P when filter is focused dispatches clear-filter and blurs", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      filterInput.focus();
+      expect(document.activeElement).toBe(filterInput);
+
+      const clearSpy = vi.fn();
+      filterInput.addEventListener("clear-filter", clearSpy);
+
+      const ev = fire({ key: "p" });
+      expect(clearSpy).toHaveBeenCalledOnce();
+      expect(document.activeElement).not.toBe(filterInput);
+      expect(ev.defaultPrevented).toBe(true);
+
+      filterInput.removeEventListener("clear-filter", clearSpy);
+    });
+
+    it("Cmd+P (metaKey) focuses the filter input (macOS path)", () => {
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = new KeyboardEvent("keydown", {
+        key: "p",
+        metaKey: true,
+        cancelable: true,
+        bubbles: true,
+      });
+      window.dispatchEvent(ev);
+      expect(document.activeElement).toBe(filterInput);
+      expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it("Ctrl+P is a no-op when filter input is absent (no folder open)", () => {
+      filterInput.remove();
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "p" });
+      expect(ev.defaultPrevented).toBe(true);
+      // No error thrown — clean no-op
+    });
+
+    it("Ctrl+P does NOT steal focus from other editable inputs", () => {
+      // Ctrl+P should always target the filter input, not the currently
+      // focused editable. When another input is focused, Ctrl+P should
+      // focus the filter input (not be blocked by isEditableTarget).
+      const otherInput = document.createElement("input");
+      document.body.appendChild(otherInput);
+      otherInput.focus();
+
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "p" });
+      expect(document.activeElement).toBe(filterInput);
+      otherInput.remove();
     });
   });
 });
