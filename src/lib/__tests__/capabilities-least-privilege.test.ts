@@ -75,7 +75,7 @@ describe("Tauri capabilities least-privilege", () => {
     expect(caps.permissions).toContain("log:default");
   });
 
-  it("scopes capabilities to only the main window", () => {
-    expect(caps.windows).toEqual(["main"]);
+  it("scopes capabilities to main and dynamically created windows", () => {
+    expect(caps.windows).toEqual(["main", "win-*"]);
   });
 });
