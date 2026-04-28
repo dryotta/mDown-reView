@@ -1,5 +1,4 @@
 import { useComments } from "@/lib/vm/use-comments";
-import { CommentThread } from "@/components/comments/CommentThread";
 import "@/styles/comments.css";
 
 interface Props {
@@ -7,7 +6,7 @@ interface Props {
 }
 
 export function DeletedFileViewer({ filePath }: Props) {
-  const { threads, comments } = useComments(filePath);
+  const { comments } = useComments(filePath);
 
   const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
 
@@ -31,12 +30,8 @@ export function DeletedFileViewer({ filePath }: Props) {
       <p style={{ fontSize: 13, color: "var(--color-muted)", marginBottom: 16 }}>
         {comments.length === 0
           ? "No comments found in the review sidecar."
-          : `${comments.length} comment${comments.length > 1 ? "s" : ""} from the review sidecar:`}
+          : `${comments.length} comment${comments.length > 1 ? "s" : ""} — open the comments panel to view.`}
       </p>
-
-      {threads.map(t => (
-        <CommentThread key={t.root.id} rootComment={t.root} replies={t.replies} filePath={filePath} />
-      ))}
     </div>
   );
 }

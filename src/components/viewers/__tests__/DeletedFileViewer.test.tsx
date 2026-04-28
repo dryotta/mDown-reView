@@ -78,10 +78,10 @@ describe("DeletedFileViewer", () => {
     mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
 
     render(<DeletedFileViewer filePath={FILE_PATH} />);
-    expect(screen.getByText("2 comments from the review sidecar:")).toBeInTheDocument();
+    expect(screen.getByText(/2 comments/)).toBeInTheDocument();
   });
 
-  it("renders comment threads from useComments hook", () => {
+  it("does not render inline comment threads (panel-only)", () => {
     const threads = [
       makeThread(makeComment("1", "Orphaned review comment")),
     ];
@@ -89,7 +89,8 @@ describe("DeletedFileViewer", () => {
     mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
 
     render(<DeletedFileViewer filePath={FILE_PATH} />);
-    expect(screen.getByText("Orphaned review comment")).toBeInTheDocument();
+    // Comment text should NOT appear inline — it's panel-only
+    expect(screen.queryByText("Orphaned review comment")).not.toBeInTheDocument();
   });
 
   it("calls useComments with the correct filePath", () => {
@@ -97,7 +98,7 @@ describe("DeletedFileViewer", () => {
     expect(mockUseComments).toHaveBeenCalledWith(FILE_PATH);
   });
 
-  it("shows orphan banner for orphaned comments", () => {
+  it("does not render orphan banner inline (panel-only)", () => {
     const threads = [
       makeThread(makeComment("1", "Orphaned", { isOrphaned: true })),
     ];
@@ -105,7 +106,7 @@ describe("DeletedFileViewer", () => {
     mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
 
     render(<DeletedFileViewer filePath={FILE_PATH} />);
-    expect(document.querySelector(".comment-orphan-banner")).toBeInTheDocument();
+    expect(document.querySelector(".comment-orphan-banner")).not.toBeInTheDocument();
   });
 
   it("singular comment count for single comment", () => {
@@ -114,6 +115,6 @@ describe("DeletedFileViewer", () => {
     mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
 
     render(<DeletedFileViewer filePath={FILE_PATH} />);
-    expect(screen.getByText("1 comment from the review sidecar:")).toBeInTheDocument();
+    expect(screen.getByText(/1 comment/)).toBeInTheDocument();
   });
 });

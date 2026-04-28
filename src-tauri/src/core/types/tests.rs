@@ -58,7 +58,13 @@ fn wrap_comment(comment_body: &str) -> String {
 fn v1_1_image_rect_round_trip_uses_tagged_layout() {
     let body = r#"{"id":"c1","author":"a","timestamp":"2025-01-01T00:00:00Z","text":"x","resolved":false,"anchor_kind":"image_rect","image_rect":{"x_pct":10.5,"y_pct":20.5,"w_pct":30.0,"h_pct":40.0}}"#;
     let c = parse_one(&wrap_comment(body));
-    assert!(matches!(c.anchor, Anchor::ImageRect(_)));
+    match &c.anchor {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "image_rect");
+            assert_eq!(data["x_pct"], 10.5);
+        }
+        other => panic!("expected Unknown, got {:?}", other),
+    }
     let re = serde_json::to_string(&c).unwrap();
     assert!(re.contains(r#""anchor_kind":"image_rect""#));
     assert!(re.contains(r#""image_rect""#));
@@ -69,7 +75,10 @@ fn v1_1_image_rect_round_trip_uses_tagged_layout() {
 fn v1_1_csv_cell_round_trip() {
     let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"csv_cell","csv_cell":{"row_idx":3,"col_idx":2,"col_header":"name"}}"#;
     let c = parse_one(&wrap_comment(body));
-    assert!(matches!(c.anchor, Anchor::CsvCell(_)));
+    match &c.anchor {
+        Anchor::Unknown { kind, .. } => assert_eq!(kind, "csv_cell"),
+        other => panic!("expected Unknown, got {:?}", other),
+    }
     let re = serde_json::to_string(&c).unwrap();
     assert!(re.contains(r#""anchor_kind":"csv_cell""#));
     assert!(re.contains(r#""csv_cell""#));
@@ -79,7 +88,10 @@ fn v1_1_csv_cell_round_trip() {
 fn v1_1_json_path_round_trip() {
     let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"json_path","json_path":{"json_path":"$.a","scalar_text":"v"}}"#;
     let c = parse_one(&wrap_comment(body));
-    assert!(matches!(c.anchor, Anchor::JsonPath(_)));
+    match &c.anchor {
+        Anchor::Unknown { kind, .. } => assert_eq!(kind, "json_path"),
+        other => panic!("expected Unknown, got {:?}", other),
+    }
     let re = serde_json::to_string(&c).unwrap();
     assert!(re.contains(r#""anchor_kind":"json_path""#));
 }
@@ -88,7 +100,10 @@ fn v1_1_json_path_round_trip() {
 fn v1_1_html_range_round_trip() {
     let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"html_range","html_range":{"selector_path":"p","start_offset":0,"end_offset":5,"selected_text":"hello"}}"#;
     let c = parse_one(&wrap_comment(body));
-    assert!(matches!(c.anchor, Anchor::HtmlRange(_)));
+    match &c.anchor {
+        Anchor::Unknown { kind, .. } => assert_eq!(kind, "html_range"),
+        other => panic!("expected Unknown, got {:?}", other),
+    }
     let re = serde_json::to_string(&c).unwrap();
     assert!(re.contains(r#""anchor_kind":"html_range""#));
 }
@@ -97,35 +112,33 @@ fn v1_1_html_range_round_trip() {
 fn v1_1_html_element_round_trip() {
     let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"html_element","html_element":{"selector_path":"div","tag":"div","text_preview":"hi"}}"#;
     let c = parse_one(&wrap_comment(body));
-    assert!(matches!(c.anchor, Anchor::HtmlElement(_)));
+    match &c.anchor {
+        Anchor::Unknown { kind, .. } => assert_eq!(kind, "html_element"),
+        other => panic!("expected Unknown, got {:?}", other),
+    }
     let re = serde_json::to_string(&c).unwrap();
     assert!(re.contains(r#""anchor_kind":"html_element""#));
 }
 
 #[test]
 fn discriminator_payload_mismatch_is_rejected() {
+    // image_rect without payload: now falls through to Unknown
     let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"image_rect"}"#;
-    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(body));
-    assert!(res.is_err(), "expected mismatch error, got {:?}", res);
-    let err = res.unwrap_err().to_string();
-    assert!(
-        err.contains("anchor_kind/payload mismatch"),
-        "unexpected error: {err}"
-    );
+    let c = parse_one(&wrap_comment(body));
+    match &c.anchor {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "image_rect");
+            assert_eq!(*data, serde_json::Value::Null);
+        }
+        other => panic!("expected Unknown, got {:?}", other),
+    }
 }
 
 /// B7: per-variant declared-kind-but-wrong-payload (missing matching payload)
 /// — every typed variant must reject its discriminator without payload.
 #[test]
 fn discriminator_missing_payload_rejected_for_all_typed_variants() {
-    for kind in [
-        "image_rect",
-        "csv_cell",
-        "json_path",
-        "html_range",
-        "html_element",
-        "word_range",
-    ] {
+    for kind in ["word_range"] {
         let body = format!(
             r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"{kind}"}}"#
         );
@@ -147,8 +160,11 @@ fn payload_present_without_anchor_kind_rejected() {
 /// is rejected, even when the matching payload is also present.
 #[test]
 fn mixed_payloads_with_typed_anchor_kind_rejected() {
-    let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"image_rect","image_rect":{"x_pct":1.0,"y_pct":2.0},"csv_cell":{"row_idx":0,"col_idx":0,"col_header":"h"}}"#;
-    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(body));
+    // word_range with a stray csv_cell sibling: payload_count > 1 → rejected
+    let body = format!(
+        r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"word_range","word_range":{{"start_word":0,"end_word":1,"line":1,"snippet":"x","line_text_hash":"{VALID_HASH}"}},"csv_cell":{{"row_idx":0,"col_idx":0,"col_header":"h"}}}}"#
+    );
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
     assert!(
         res.is_err(),
         "stray sibling payload alongside declared kind must be rejected"
@@ -385,14 +401,13 @@ fn try_from_mrsf_comment_repr_html_range_clamps_selected_text() {
     );
     let c = parse_one(&wrap_comment(&body));
     match &c.anchor {
-        Anchor::HtmlRange(p) => {
-            assert_eq!(
-                p.selected_text.chars().count(),
-                4096,
-                "HtmlRange selected_text must clamp to 4096 chars"
-            );
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "html_range");
+            // Unknown preserves original data without clamping
+            let st = data["selected_text"].as_str().expect("selected_text in data");
+            assert_eq!(st.len(), 5000, "Unknown preserves original unclamped text");
         }
-        _ => panic!("expected HtmlRange"),
+        other => panic!("expected Unknown, got {:?}", other),
     }
 }
 
@@ -424,9 +439,6 @@ fn try_from_anchor_repr_line_clamps_selected_text() {
 
 #[test]
 fn try_from_anchor_repr_html_range_clamps_selected_text() {
-    // AnchorRepr::HtmlRange direct-path (in `anchor_history`) must clamp
-    // selected_text the same way the MrsfCommentRepr path does. iter-3
-    // closed only the latter; this guards the symmetric blind spot.
     let long = "a".repeat(5000);
     let body = format!(
         r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"line":1,"anchor_history":[{{"anchor_kind":"html_range","anchor_data":{{"selector_path":"p","start_offset":0,"end_offset":5,"selected_text":"{}"}}}}]}}"#,
@@ -436,21 +448,17 @@ fn try_from_anchor_repr_html_range_clamps_selected_text() {
     let history = c.anchor_history.as_ref().expect("anchor_history present");
     assert_eq!(history.len(), 1);
     match &history[0] {
-        Anchor::HtmlRange(p) => {
-            assert_eq!(
-                p.selected_text.chars().count(),
-                4096,
-                "AnchorRepr::HtmlRange selected_text must clamp to 4096 chars"
-            );
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "html_range");
+            let st = data["selected_text"].as_str().expect("selected_text in data");
+            assert_eq!(st.len(), 5000, "Unknown in history preserves original text");
         }
-        _ => panic!("expected HtmlRange in history"),
+        other => panic!("expected Unknown in history, got {:?}", other),
     }
 }
 
 #[test]
 fn try_from_anchor_repr_html_element_clamps_text_preview() {
-    // AnchorRepr::HtmlElement direct-path (in `anchor_history`) must clamp
-    // text_preview to SELECTED_TEXT_MAX_LENGTH. Same blind spot as HtmlRange.
     let long = "a".repeat(5000);
     let body = format!(
         r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"line":1,"anchor_history":[{{"anchor_kind":"html_element","anchor_data":{{"selector_path":"p","tag":"p","text_preview":"{}"}}}}]}}"#,
@@ -460,14 +468,12 @@ fn try_from_anchor_repr_html_element_clamps_text_preview() {
     let history = c.anchor_history.as_ref().expect("anchor_history present");
     assert_eq!(history.len(), 1);
     match &history[0] {
-        Anchor::HtmlElement(p) => {
-            assert_eq!(
-                p.text_preview.chars().count(),
-                4096,
-                "AnchorRepr::HtmlElement text_preview must clamp to 4096 chars"
-            );
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "html_element");
+            let tp = data["text_preview"].as_str().expect("text_preview in data");
+            assert_eq!(tp.len(), 5000, "Unknown in history preserves original text");
         }
-        _ => panic!("expected HtmlElement in history"),
+        other => panic!("expected Unknown in history, got {:?}", other),
     }
 }
 
@@ -485,22 +491,22 @@ fn fixture_html_anchors_deserializes() {
     let sidecar: MrsfSidecar = serde_yaml_ng::from_str(&input).unwrap();
     assert_eq!(sidecar.mrsf_version, "1.1");
     assert_eq!(sidecar.comments.len(), 2);
-    assert!(
-        matches!(sidecar.comments[0].anchor, Anchor::HtmlRange(_)),
-        "first comment should have html_range anchor"
-    );
-    assert!(
-        matches!(sidecar.comments[1].anchor, Anchor::HtmlElement(_)),
-        "second comment should have html_element anchor"
-    );
-    if let Anchor::HtmlRange(ref hr) = sidecar.comments[0].anchor {
-        assert_eq!(hr.selector_path, "body > div:nth-child(2) > p:nth-child(1)");
-        assert_eq!(hr.start_offset, 0);
-        assert_eq!(hr.end_offset, 42);
+    match &sidecar.comments[0].anchor {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "html_range");
+            assert_eq!(data["selector_path"], "body > div:nth-child(2) > p:nth-child(1)");
+            assert_eq!(data["start_offset"], 0);
+            assert_eq!(data["end_offset"], 42);
+        }
+        other => panic!("expected Unknown html_range, got {:?}", other),
     }
-    if let Anchor::HtmlElement(ref he) = sidecar.comments[1].anchor {
-        assert_eq!(he.tag, "span");
-        assert_eq!(he.text_preview, "Section Title");
+    match &sidecar.comments[1].anchor {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "html_element");
+            assert_eq!(data["tag"], "span");
+            assert_eq!(data["text_preview"], "Section Title");
+        }
+        other => panic!("expected Unknown html_element, got {:?}", other),
     }
 }
 
@@ -522,4 +528,51 @@ fn fixture_reactions_deserializes() {
     let r2 = c2.reactions.as_ref().expect("reactions should be present");
     assert_eq!(r2.len(), 1);
     assert_eq!(r2[0].kind, "dismiss");
+}
+
+#[test]
+fn unknown_anchor_kind_round_trips_via_flat() {
+    let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"image_rect","image_rect":{"x_pct":10.5,"y_pct":20.5,"w_pct":30.0,"h_pct":40.0}}"#;
+    let c = parse_one(&wrap_comment(body));
+    match &c.anchor {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "image_rect");
+            assert_eq!(data["x_pct"], 10.5);
+        }
+        other => panic!("expected Unknown, got {:?}", other),
+    }
+    // Round-trip: serialize and re-parse
+    let re = serde_json::to_string(&c).unwrap();
+    assert!(re.contains(r#""anchor_kind":"image_rect""#), "anchor_kind preserved");
+    assert!(re.contains(r#""x_pct""#), "payload preserved");
+}
+
+#[test]
+fn unknown_in_anchor_history_round_trips() {
+    let body = format!(
+        r#"{{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"line":1,"anchor_history":[{{"anchor_kind":"image_rect","anchor_data":{{"x_pct":5.0,"y_pct":10.0}}}}]}}"#
+    );
+    let c = parse_one(&wrap_comment(&body));
+    let history = c.anchor_history.as_ref().expect("anchor_history present");
+    assert_eq!(history.len(), 1);
+    match &history[0] {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "image_rect");
+            assert_eq!(data["x_pct"], 5.0);
+        }
+        other => panic!("expected Unknown in history, got {:?}", other),
+    }
+}
+
+#[test]
+fn truly_unknown_anchor_kind_succeeds() {
+    let body = r#"{"id":"c1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"future_kind"}"#;
+    let c = parse_one(&wrap_comment(body));
+    match &c.anchor {
+        Anchor::Unknown { kind, data } => {
+            assert_eq!(kind, "future_kind");
+            assert_eq!(*data, serde_json::Value::Null);
+        }
+        other => panic!("expected Unknown, got {:?}", other),
+    }
 }

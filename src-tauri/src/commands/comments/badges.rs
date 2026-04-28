@@ -17,12 +17,7 @@ use tauri::State;
 fn is_typed_anchor(anchor: &Anchor) -> bool {
     matches!(
         anchor,
-        Anchor::ImageRect(_)
-            | Anchor::CsvCell(_)
-            | Anchor::JsonPath(_)
-            | Anchor::HtmlRange(_)
-            | Anchor::HtmlElement(_)
-            | Anchor::WordRange(_)
+        Anchor::WordRange(_) | Anchor::Unknown { .. }
     )
 }
 
@@ -146,9 +141,7 @@ mod tests {
     use super::*;
     use crate::core::paths::canonicalize_no_verbatim;
     use crate::core::sidecar::save_sidecar;
-    use crate::core::types::{
-        Anchor, CsvCellAnchor, HtmlElementAnchor, JsonPathAnchor, MrsfComment,
-    };
+    use crate::core::types::{Anchor, MrsfComment};
     use crate::watcher::WatcherState;
 
     fn watcher_state_allowing(dir: &std::path::Path) -> WatcherState {
@@ -218,22 +211,19 @@ mod tests {
 
         let unresolved = typed_comment(
             "u1",
-            Anchor::CsvCell(CsvCellAnchor {
-                row_idx: 0,
-                col_idx: 0,
-                col_header: "name".into(),
-                primary_key_col: None,
-                primary_key_value: None,
-            }),
+            Anchor::Unknown {
+                kind: "csv_cell".into(),
+                data: serde_json::json!({"row_idx":0,"col_idx":0,"col_header":"name"}),
+            },
             false,
             Some("medium"),
         );
         let resolved = typed_comment(
             "r1",
-            Anchor::JsonPath(JsonPathAnchor {
-                json_path: "$.foo".into(),
-                scalar_text: None,
-            }),
+            Anchor::Unknown {
+                kind: "json_path".into(),
+                data: serde_json::json!({"json_path":"$.foo"}),
+            },
             true,
             Some("high"),
         );
@@ -257,11 +247,10 @@ mod tests {
 
         let typed = typed_comment(
             "t1",
-            Anchor::HtmlElement(HtmlElementAnchor {
-                selector_path: "html>body>p".into(),
-                tag: "p".into(),
-                text_preview: "hi".into(),
-            }),
+            Anchor::Unknown {
+                kind: "html_element".into(),
+                data: serde_json::json!({"selector_path":"html>body>p","tag":"p","text_preview":"hi"}),
+            },
             false,
             Some("low"),
         );

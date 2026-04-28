@@ -43,11 +43,10 @@ pub enum Anchor {
         selected_text_hash: Option<String>,
     },
     File,
-    ImageRect(ImageRectAnchor),
-    CsvCell(CsvCellAnchor),
-    JsonPath(JsonPathAnchor),
-    HtmlRange(HtmlRangeAnchor),
-    HtmlElement(HtmlElementAnchor),
+    Unknown {
+        kind: String,
+        data: serde_json::Value,
+    },
     WordRange(WordRangePayload),
 }
 

@@ -7,10 +7,7 @@
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
 use crate::core::mrsf_version::MRSF_VERSION_DEFAULT;
-use crate::core::types::{
-    Anchor, CommentAnchor, CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor,
-    JsonPathAnchor, MrsfSidecar, WordRangePayload,
-};
+use crate::core::types::{Anchor, CommentAnchor, MrsfSidecar, WordRangePayload};
 use serde::Deserialize;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -176,11 +173,6 @@ pub enum TaggedNewAnchor {
         selected_text_hash: Option<String>,
     },
     File,
-    ImageRect(ImageRectAnchor),
-    CsvCell(CsvCellAnchor),
-    JsonPath(JsonPathAnchor),
-    HtmlRange(HtmlRangeAnchor),
-    HtmlElement(HtmlElementAnchor),
     WordRange(WordRangePayload),
 }
 
@@ -232,13 +224,6 @@ impl NewCommentAnchor {
                 (anchor, Some(flat))
             }
             NewCommentAnchor::Tagged(TaggedNewAnchor::File) => (Anchor::File, None),
-            NewCommentAnchor::Tagged(TaggedNewAnchor::ImageRect(p)) => (Anchor::ImageRect(p), None),
-            NewCommentAnchor::Tagged(TaggedNewAnchor::CsvCell(p)) => (Anchor::CsvCell(p), None),
-            NewCommentAnchor::Tagged(TaggedNewAnchor::JsonPath(p)) => (Anchor::JsonPath(p), None),
-            NewCommentAnchor::Tagged(TaggedNewAnchor::HtmlRange(p)) => (Anchor::HtmlRange(p), None),
-            NewCommentAnchor::Tagged(TaggedNewAnchor::HtmlElement(p)) => {
-                (Anchor::HtmlElement(p), None)
-            }
             NewCommentAnchor::Tagged(TaggedNewAnchor::WordRange(p)) => (Anchor::WordRange(p), None),
         }
     }

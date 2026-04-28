@@ -60,7 +60,7 @@ pub fn mrsf_version_for(comments: &[MrsfComment]) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::{ImageRectAnchor, MrsfSidecar, Reaction};
+    use crate::core::types::{MrsfSidecar, Reaction};
 
     #[test]
     fn version_selector_prefers_v1_0_for_pure_legacy_comments() {
@@ -79,12 +79,10 @@ mod tests {
     #[test]
     fn mrsf_version_for_promotes_on_image_rect_variant() {
         let c = MrsfComment {
-            anchor: Anchor::ImageRect(ImageRectAnchor {
-                x_pct: 1.0,
-                y_pct: 2.0,
-                w_pct: None,
-                h_pct: None,
-            }),
+            anchor: Anchor::Unknown {
+                kind: "image_rect".into(),
+                data: serde_json::json!({"x_pct":1.0,"y_pct":2.0}),
+            },
             ..Default::default()
         };
         assert_eq!(mrsf_version_for(&[c]), "1.1");

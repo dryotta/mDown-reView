@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
@@ -14,27 +14,54 @@ vi.mock("@/lib/tauri-commands", () => ({
   setFileViewerPref: vi.fn(async () => {}),
 }));
 
+vi.mock("@/lib/vm/use-comments", () => ({
+  useComments: () => ({
+    threads: [],
+    comments: [],
+    loading: false,
+    reload: () => {},
+  }),
+}));
+
+vi.mock("@/store", () => {
+  const state = {
+    root: "/wk",
+    readingWidth: 800,
+    toggleCommentsPane: vi.fn(),
+    zoomByFiletype: {} as Record<string, number>,
+    bumpZoom: () => {},
+    setZoom: () => {},
+    openFile: vi.fn(),
+  };
+  const useStore = (selector: (s: typeof state) => unknown) => selector(state);
+  (useStore as unknown as { getState: () => typeof state }).getState = () => state;
+  return { useStore };
+});
+
 import { HtmlPreviewView } from "../HtmlPreviewView";
 import { openExternalUrl, fetchRemoteAsset, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
-import { useStore } from "@/store";
 
 beforeEach(() => {
-  (openExternalUrl as unknown as { mockClear: () => void }).mockClear();
   (fetchRemoteAsset as unknown as { mockClear: () => void }).mockClear();
   (getFileViewerPref as unknown as { mockClear: () => void }).mockClear();
   (setFileViewerPref as unknown as { mockClear: () => void }).mockClear();
   vi.mocked(warn).mockClear();
 });
 
-describe("HtmlPreviewView — sandbox toggles (H1)", () => {
-  it("renders sandboxed iframe with default safe sandbox", () => {
+describe("HtmlPreviewView  hard-locked sandbox", () => {
+  it("renders sandboxed iframe with allow-same-origin only", () => {
     const { container } = render(<HtmlPreviewView content="<h1>Hello</h1>" />);
     const iframe = container.querySelector("iframe");
     expect(iframe).toBeInTheDocument();
     expect(iframe?.getAttribute("sandbox")).toBe("allow-same-origin");
-    expect(screen.getByRole("button", { name: /allow external images/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /enable scripts/i })).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("does not render a scripts toggle button", () => {
+    render(<HtmlPreviewView content="<p>test</p>" />);
+    expect(screen.queryByRole("button", { name: /enable scripts/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /disable scripts/i })).not.toBeInTheDocument();
     cleanup();
   });
 
@@ -52,71 +79,26 @@ describe("HtmlPreviewView — sandbox toggles (H1)", () => {
     cleanup();
   });
 
-  it("toggling 'Allow external images' keeps sandbox safe and flips aria-pressed", () => {
+  it("toggling 'Allow external images' keeps sandbox at allow-same-origin", () => {
     const { container } = render(<HtmlPreviewView content="<p>test</p>" />);
     const btn = screen.getByRole("button", { name: /allow external images/i });
     expect(btn.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(btn);
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("sandbox")).toBe("allow-same-origin");
-    const btn2 = screen.getByRole("button", { name: /disallow external images/i });
-    expect(btn2.getAttribute("aria-pressed")).toBe("true");
     cleanup();
   });
 
-  it("toggling 'Enable scripts' switches sandbox to allow-scripts (no allow-same-origin)", () => {
+  it("sandbox NEVER contains allow-scripts", () => {
     const { container } = render(<HtmlPreviewView content="<p>test</p>" />);
-    fireEvent.click(screen.getByRole("button", { name: /enable scripts/i }));
-    const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("sandbox")).toContain("allow-scripts");
-    expect(iframe?.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    const sb = container.querySelector("iframe")?.getAttribute("sandbox") ?? "";
+    expect(sb).not.toContain("allow-scripts");
     cleanup();
   });
+});
 
-  it("invariant: sandbox NEVER combines allow-scripts and allow-same-origin", () => {
-    const { container } = render(<HtmlPreviewView content="<p>test</p>" />);
-    const imgBtn = () => screen.getByRole("button", { name: /(allow|disallow) external images/i });
-    const scrBtn = () => screen.getByRole("button", { name: /(enable|disable) scripts/i });
-    const sandboxOf = () => container.querySelector("iframe")!.getAttribute("sandbox") ?? "";
-    const combos: [boolean, boolean][] = [[false,false],[true,false],[false,true],[true,true],[true,false],[false,false]];
-    let curImg = false, curScr = false;
-    for (const [wantImg, wantScr] of combos) {
-      if (wantImg !== curImg) { fireEvent.click(imgBtn()); curImg = wantImg; }
-      if (wantScr !== curScr) { fireEvent.click(scrBtn()); curScr = wantScr; }
-      const sb = sandboxOf();
-      const hasScripts = sb.includes("allow-scripts");
-      const hasSameOrigin = sb.includes("allow-same-origin");
-      expect(hasScripts && hasSameOrigin).toBe(false);
-    }
-    cleanup();
-  });
-
-  it("with images on + scripts off, fetches remote <img> via fetch_remote_asset", async () => {
-    // jsdom URL.createObjectURL is not implemented by default — stub it.
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    let next = 0;
-    URL.createObjectURL = vi.fn(() => `blob:mock-${++next}`) as unknown as typeof URL.createObjectURL;
-    URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL;
-    try {
-      const html = '<p><img src="https://cdn.example.com/x.png" alt="x"></p>';
-      const { container } = render(<HtmlPreviewView content={html} filePath="/wk/page.html" />);
-      fireEvent.click(screen.getByRole("button", { name: /allow external images/i }));
-      await waitFor(() => {
-        expect(fetchRemoteAsset).toHaveBeenCalledWith("https://cdn.example.com/x.png");
-      });
-      await waitFor(() => {
-        const srcdoc = container.querySelector("iframe")?.getAttribute("srcdoc") ?? "";
-        expect(srcdoc).toMatch(/src="blob:mock-\d+"/);
-      });
-    } finally {
-      URL.createObjectURL = originalCreate;
-      URL.revokeObjectURL = originalRevoke;
-      cleanup();
-    }
-  });
-
-  it("toggling images calls setFileViewerPref IPC for persistence (#212)", async () => {
+describe("HtmlPreviewViewimage toggle persistence (#212)", () => {
+  it("toggling images calls setFileViewerPref IPC for persistence", async () => {
     render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
     fireEvent.click(screen.getByRole("button", { name: /allow external images/i }));
     await waitFor(() => {
@@ -129,13 +111,12 @@ describe("HtmlPreviewView — sandbox toggles (H1)", () => {
     cleanup();
   });
 
-  it("loads persisted pref on mount (#212)", async () => {
+  it("loads persisted pref on mount", async () => {
     (getFileViewerPref as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ allow_images: true });
     render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
     await waitFor(() => {
       expect(getFileViewerPref).toHaveBeenCalledWith("/wk/page.html");
     });
-    // The button should reflect the persisted state
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /disallow external images/i })).toBeInTheDocument();
     });
@@ -143,120 +124,11 @@ describe("HtmlPreviewView — sandbox toggles (H1)", () => {
   });
 });
 
-// Helper: dispatch a synthetic MessageEvent that mimics what the bridge IIFE
-// would post. The handler filters by `event.source` so we have to spoof the
-// iframe contentWindow as the source.
-function dispatchBridgeMsg(
-  iframe: HTMLIFrameElement | null,
-  data: Record<string, unknown>,
-  sourceOverride?: Window | null,
-) {
-  const source = sourceOverride !== undefined ? sourceOverride : (iframe?.contentWindow ?? null);
-  const ev = new MessageEvent("message", { data, source: source as Window | null });
-  act(() => {
-    window.dispatchEvent(ev);
-  });
-}
-
-function nonceOf(iframe: HTMLIFrameElement): string {
-  const srcdoc = iframe.getAttribute("srcdoc") ?? "";
-  const m = srcdoc.match(/NONCE=("[^"]+")/);
-  if (!m) throw new Error("no NONCE in srcdoc");
-  return JSON.parse(m[1]) as string;
-}
-
-describe("HtmlPreviewView — comment mode removed", () => {
+describe("HtmlPreviewView  comment mode removed", () => {
   it("does not render a comment mode toggle button", () => {
     render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
     expect(screen.queryByRole("button", { name: /comment mode/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /enter comment/i })).not.toBeInTheDocument();
-    cleanup();
-  });
-});
-
-describe("HtmlPreviewView — link bridge in scripts mode (H2)", () => {
-  function enableScripts() {
-    fireEvent.click(screen.getByRole("button", { name: /enable scripts/i }));
-  }
-
-  it("external link → openExternalUrl", () => {
-    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
-    enableScripts();
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    const nonce = nonceOf(iframe);
-    dispatchBridgeMsg(iframe, {
-      source: "mdr-html-bridge", nonce, type: "link", href: "https://example.com",
-    });
-    expect(openExternalUrl).toHaveBeenCalledWith("https://example.com");
-    cleanup();
-  });
-
-  it("workspace link → store.openFile with resolved path", () => {
-    useStore.setState({ root: "/wk" });
-    const openFileSpy = vi.spyOn(useStore.getState(), "openFile").mockImplementation(() => {});
-    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
-    enableScripts();
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    const nonce = nonceOf(iframe);
-    dispatchBridgeMsg(iframe, {
-      source: "mdr-html-bridge", nonce, type: "link", href: "./other.md",
-    });
-    expect(openFileSpy).toHaveBeenCalledWith("/wk/other.md");
-    openFileSpy.mockRestore();
-    cleanup();
-  });
-
-  it("javascript: link is blocked, openExternalUrl NOT called", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
-    enableScripts();
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    const nonce = nonceOf(iframe);
-    dispatchBridgeMsg(iframe, {
-      source: "mdr-html-bridge", nonce, type: "link", href: "javascript:alert(1)",
-    });
-    expect(openExternalUrl).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-    cleanup();
-  });
-
-  it("non-string href is blocked", () => {
-    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
-    enableScripts();
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    const nonce = nonceOf(iframe);
-    dispatchBridgeMsg(iframe, {
-      source: "mdr-html-bridge", nonce, type: "link", href: 42,
-    });
-    expect(openExternalUrl).not.toHaveBeenCalled();
-    cleanup();
-  });
-
-  it("link message with wrong nonce is ignored", () => {
-    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
-    enableScripts();
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    dispatchBridgeMsg(iframe, {
-      source: "mdr-html-bridge", nonce: "WRONG", type: "link", href: "https://evil.example",
-    });
-    expect(openExternalUrl).not.toHaveBeenCalled();
-    cleanup();
-  });
-
-  it("openExternalUrl failure logs via warn()", async () => {
-    vi.mocked(openExternalUrl).mockRejectedValueOnce(new Error("plugin unavailable"));
-    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
-    enableScripts();
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    const nonce = nonceOf(iframe);
-    dispatchBridgeMsg(iframe, {
-      source: "mdr-html-bridge", nonce, type: "link", href: "https://example.com",
-    });
-    await waitFor(() => {
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("[HtmlPreviewView] link open failed:"),
-      );
-    });
     cleanup();
   });
 });

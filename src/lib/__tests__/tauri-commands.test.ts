@@ -283,10 +283,9 @@ describe("deriveAnchor — WordRange (Group D-wire, iter 3)", () => {
       anchor_kind: "word_range",
       line: 9,
     });
-    // Missing payload: deriveAnchor's switch breaks out and falls back to
-    // the flat-line constructor (matches the established sibling pattern).
-    expect(a.kind).toBe("line");
-    if (a.kind === "line") expect(a.line).toBe(9);
+    // Missing payload: deriveAnchor now returns unknown for word_range
+    // without payload (deleted-kind semantics).
+    expect(a.kind).toBe("unknown");
   });
 });
 
@@ -554,11 +553,7 @@ describe("getFileComments — Anchor discriminated union", () => {
     expect(threads).toHaveLength(1);
     const root = threads[0].root;
     const a = deriveAnchor(root);
-    expect(a.kind).toBe("image_rect");
-    if (a.kind === "image_rect") {
-      expect(a.x_pct).toBeCloseTo(0.25);
-      expect(a.y_pct).toBeCloseTo(0.5);
-    }
+    expect(a.kind).toBe("unknown");
   });
 
   it("does not log to console.error during the dispatch happy path", async () => {

@@ -1,33 +1,10 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, useMemo } from "react";
-import { useComments } from "@/lib/vm/use-comments";
-import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import { useStore } from "@/store";
-import { deriveAnchor, type Anchor } from "@/types/comments";
-import { CommentBadge } from "@/components/comments/CommentBadge";
-import { CommentInput } from "@/components/comments/CommentInput";
-import type { CommentThread as CommentThreadType } from "@/lib/tauri-commands";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from "react";
 import "@/styles/mermaid-view.css";
 
 interface Props {
   content: string;
-  /** Optional file path. When omitted, comment-affordance UI is hidden. */
+  /** Optional file path. When provided, a file-level comment badge is shown. */
   path?: string;
-}
-
-interface NodeOverlay {
-  /** 1-based source line, or null when mapping fell through to file-level. */
-  line: number | null;
-  /** Position relative to the overlay parent (px). */
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
-
-interface ComposerState {
-  line: number | null;
-  top: number;
-  left: number;
 }
 
 function escapeRegExp(s: string): string {
@@ -76,37 +53,11 @@ export function MermaidView({ content, path }: Props) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [scale, setScale] = useState(1);
-  const [overlays, setOverlays] = useState<NodeOverlay[]>([]);
-  const [composer, setComposer] = useState<ComposerState | null>(null);
-  // Bumped by the ResizeObserver below; an additional dep on the layout
-  // effect that walks the SVG so node-overlay rects get recomputed when the
-  // container resizes (e.g. window resize, sidebar toggle, font-size change).
-  const [layoutTick, setLayoutTick] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const overlayParentRef = useRef<HTMLDivElement>(null);
   const reactId = useId();
   const mermaidId = `mermaid-${reactId.replace(/:/g, "")}`;
 
   const filePath = path ?? null;
-  const { threads } = useComments(filePath);
-  const { addComment } = useCommentActions();
-  const setFocusedThread = useStore((s) => s.setFocusedThread);
-
-  // Index unresolved line-anchored threads by line number so we can render
-  // a badge over each mapped node.
-  const threadsByLine = useMemo(() => {
-    const m = new Map<number, CommentThreadType[]>();
-    if (!filePath) return m;
-    for (const t of threads) {
-      if (t.root.resolved) continue;
-      const a = deriveAnchor(t.root);
-      if (a.kind !== "line") continue;
-      const arr = m.get(a.line) ?? [];
-      arr.push(t);
-      m.set(a.line, arr);
-    }
-    return m;
-  }, [threads, filePath]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,114 +104,21 @@ export function MermaidView({ content, path }: Props) {
     }
   }, [svg]);
 
-  // After mermaid emits the SVG, walk it to (a) stamp `data-source-line`
-  // attributes for downstream tooling, (b) attach click handlers that open
-  // the inline composer at the clicked node, and (c) collect overlay rects
-  // so React-managed badges can be positioned over each node. Re-runs when
-  // the SVG changes (new diagram) or the zoom changes (rect coordinates
-  // shift). The path-less embed mode skips wiring entirely.
-  // The actual setState calls are wrapped in an async IIFE to avoid the
-  // react-hooks/set-state-in-effect lint rule (mirrors use-comments.ts).
-  // D1 — useLayoutEffect so the SVG walk + position computation runs
-  // synchronously before browser paint, eliminating a one-frame flash where
-  // overlays appear at stale positions.
+  // After mermaid emits the SVG, walk it to stamp `data-source-line`
+  // attributes for downstream tooling.
   useLayoutEffect(() => {
-    let cancelled = false;
-    let cleanups: Array<() => void> = [];
-
-    (async () => {
-      if (cancelled) return;
-      if (!filePath) {
-        setOverlays([]);
-        return;
-      }
-      const wrapper = containerRef.current;
-      const overlayParent = overlayParentRef.current;
-      if (!svg || !wrapper || !overlayParent) {
-        setOverlays([]);
-        return;
-      }
-      const svgEl = wrapper.querySelector("svg");
-      if (!svgEl) {
-        setOverlays([]);
-        return;
-      }
-      const lines = content.split("\n");
-      const nodes = Array.from(svgEl.querySelectorAll("g.node")) as SVGGElement[];
-      const overlayRect = overlayParent.getBoundingClientRect();
-      const nextOverlays: NodeOverlay[] = [];
-
-      for (const n of nodes) {
-        const line = mapNodeToSourceLine(n, lines);
-        if (line !== null) n.setAttribute("data-source-line", String(line));
-        n.style.cursor = "pointer";
-        const handler = (e: Event) => {
-          e.stopPropagation();
-          const parent = overlayParentRef.current;
-          if (!parent) return;
-          const rect = n.getBoundingClientRect();
-          const parentRect = parent.getBoundingClientRect();
-          setComposer({
-            line,
-            top: rect.bottom - parentRect.top,
-            left: rect.left - parentRect.left,
-          });
-        };
-        n.addEventListener("click", handler);
-        cleanups.push(() => n.removeEventListener("click", handler));
-
-        const r = n.getBoundingClientRect();
-        nextOverlays.push({
-          line,
-          top: r.top - overlayRect.top,
-          left: r.left - overlayRect.left,
-          width: r.width,
-          height: r.height,
-        });
-      }
-      if (!cancelled) setOverlays(nextOverlays);
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanups.forEach((c) => c());
-      cleanups = [];
-    };
-  }, [svg, content, scale, filePath, layoutTick]);
-
-  // D1 — observe size changes on the SVG container and bump `layoutTick`
-  // so the layout effect above re-walks the SVG and re-computes overlay
-  // rects. Without this, resizing the panel leaves badges at stale
-  // coordinates until the next zoom/svg change.
-  useEffect(() => {
+    if (!filePath) return;
     const wrapper = containerRef.current;
-    if (!wrapper || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => {
-      setLayoutTick((t) => t + 1);
-    });
-    ro.observe(wrapper);
-    return () => ro.disconnect();
-  }, [svg]);
-
-  const handleComposerSave = useCallback(
-    (text: string) => {
-      if (!filePath || !composer) return;
-      // F1 — emit `kind:"line"` when the heuristic mapped to a source line;
-      // omit the anchor (file-level fallback) when mapping returned null.
-      // D1 — when we have a mapped source line, also include the matched
-      // source-line text (capped at 256 chars) as `selected_text` so the
-      // anchor survives line renumbering / re-ordering via fuzzy match in
-      // the Rust resolver.
-      let anchor: Anchor | undefined;
-      if (composer.line !== null) {
-        const sourceLine = (content.split("\n")[composer.line - 1] ?? "").slice(0, 256);
-        anchor = { kind: "line", line: composer.line, selected_text: sourceLine };
-      }
-      addComment(filePath, text, anchor).catch(() => {});
-      setComposer(null);
-    },
-    [filePath, composer, addComment, content],
-  );
+    if (!svg || !wrapper) return;
+    const svgEl = wrapper.querySelector("svg");
+    if (!svgEl) return;
+    const lines = content.split("\n");
+    const nodes = Array.from(svgEl.querySelectorAll("g.node")) as SVGGElement[];
+    for (const n of nodes) {
+      const line = mapNodeToSourceLine(n, lines);
+      if (line !== null) n.setAttribute("data-source-line", String(line));
+    }
+  }, [svg, content, scale, filePath]);
 
   const handleExportSvg = useCallback(() => {
     if (!svg) return;
@@ -307,51 +165,11 @@ export function MermaidView({ content, path }: Props) {
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
         {error && <div className="mermaid-error" style={{ color: "var(--color-danger, #cf222e)", padding: 16 }}>{error}</div>}
         {svg && (
-          <div ref={overlayParentRef} className="mermaid-overlay-parent">
-            <div
-              ref={containerRef}
-              title="Mermaid diagram"
-              style={{ transform: `scale(${scale})`, transformOrigin: "top left" }}
-            />
-            {filePath && overlays.map((o, i) => {
-              if (o.line === null) return null;
-              const ts = threadsByLine.get(o.line) ?? [];
-              if (ts.length === 0) return null;
-              const firstThreadId = ts[0].root.id;
-              return (
-                <button
-                  key={`badge-${i}`}
-                  type="button"
-                  className="mermaid-node-badge-btn"
-                  style={{
-                    position: "absolute",
-                    top: o.top,
-                    left: o.left + o.width - 8,
-                  }}
-                  aria-label={`Open ${ts.length} comment${ts.length === 1 ? "" : "s"} on this node`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFocusedThread(firstThreadId);
-                  }}
-                >
-                  <CommentBadge count={ts.length} className="tree-comment-badge" />
-                </button>
-              );
-            })}
-            {filePath && composer && (
-              <div
-                className="mermaid-node-composer"
-                style={{ position: "absolute", top: composer.top, left: composer.left }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <CommentInput
-                  onSave={handleComposerSave}
-                  onClose={() => setComposer(null)}
-                  placeholder="Comment on this node…"
-                />
-              </div>
-            )}
-          </div>
+          <div
+            ref={containerRef}
+            title="Mermaid diagram"
+            style={{ transform: `scale(${scale})`, transformOrigin: "top left" }}
+          />
         )}
       </div>
     </div>

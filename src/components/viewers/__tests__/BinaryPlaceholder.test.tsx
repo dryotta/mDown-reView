@@ -32,12 +32,11 @@ beforeEach(() => {
 });
 
 describe("BinaryPlaceholder — Section E", () => {
-  it("renders the four action buttons", () => {
+  it("renders the three action buttons", () => {
     render(<BinaryPlaceholder path="/ws/sample.bin" size={512} />);
     expect(screen.getByRole("button", { name: /reveal in folder/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy path/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /show as hex/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /comment on this file/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open in default app/i })).not.toBeInTheDocument();
   });
 
@@ -90,11 +89,10 @@ describe("BinaryPlaceholder — Section E", () => {
     expect(screen.queryByRole("button", { name: /reveal in folder/i })).not.toBeInTheDocument();
   });
 
-  it("clicking 'Comment on this file' opens the file-level CommentInput", () => {
+  it("does not render inline comment UI (panel-only)", () => {
     render(<BinaryPlaceholder path="/ws/sample.bin" size={100} />);
+    expect(screen.queryByRole("button", { name: /comment on this file/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/comment on this file/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /comment on this file/i }));
-    expect(screen.getByPlaceholderText(/comment on this file/i)).toBeInTheDocument();
   });
 
   it("renders mtime row when mtime prop is present", () => {

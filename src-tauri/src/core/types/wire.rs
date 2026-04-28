@@ -18,6 +18,8 @@ use super::{
     Anchor, CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor, JsonPathAnchor,
     MrsfComment, Reaction, WordRangePayload,
 };
+// Note: CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor,
+// JsonPathAnchor are still imported for MrsfCommentRepr backward compat fields.
 
 /// `Default` is derived purely as the base for struct-update syntax in
 /// [`From<MrsfComment> for MrsfCommentRepr`] — this lets the per-variant
@@ -78,21 +80,75 @@ pub(super) struct MrsfCommentRepr {
 /// `anchor_kind` + `anchor_data` payload — simpler than the flat layout
 /// the top-level comment uses, since history entries don't share the
 /// comment's flat line fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(
-    tag = "anchor_kind",
-    content = "anchor_data",
-    rename_all = "snake_case"
-)]
+#[derive(Debug, Clone)]
 pub(super) enum AnchorRepr {
     Line(LineAnchorPayload),
     File,
-    ImageRect(ImageRectAnchor),
-    CsvCell(CsvCellAnchor),
-    JsonPath(JsonPathAnchor),
-    HtmlRange(HtmlRangeAnchor),
-    HtmlElement(HtmlElementAnchor),
     WordRange(WordRangePayload),
+    Unknown {
+        kind: String,
+        data: serde_json::Value,
+    },
+}
+
+impl<'de> serde::Deserialize<'de> for AnchorRepr {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct RawAnchor {
+            anchor_kind: String,
+            #[serde(default)]
+            anchor_data: serde_json::Value,
+        }
+        let raw = RawAnchor::deserialize(deserializer)?;
+        match raw.anchor_kind.as_str() {
+            "line" => {
+                let payload: LineAnchorPayload = serde_json::from_value(raw.anchor_data)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(AnchorRepr::Line(payload))
+            }
+            "file" => Ok(AnchorRepr::File),
+            "word_range" => {
+                let payload: WordRangePayload = serde_json::from_value(raw.anchor_data)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(AnchorRepr::WordRange(payload))
+            }
+            other => Ok(AnchorRepr::Unknown {
+                kind: other.to_string(),
+                data: raw.anchor_data,
+            }),
+        }
+    }
+}
+
+impl serde::Serialize for AnchorRepr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            AnchorRepr::Line(p) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("anchor_kind", "line")?;
+                map.serialize_entry("anchor_data", p)?;
+                map.end()
+            }
+            AnchorRepr::File => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("anchor_kind", "file")?;
+                map.end()
+            }
+            AnchorRepr::WordRange(p) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("anchor_kind", "word_range")?;
+                map.serialize_entry("anchor_data", p)?;
+                map.end()
+            }
+            AnchorRepr::Unknown { kind, data } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("anchor_kind", kind)?;
+                map.serialize_entry("anchor_data", data)?;
+                map.end()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -130,11 +186,7 @@ impl From<Anchor> for AnchorRepr {
                 selected_text_hash,
             }),
             Anchor::File => AnchorRepr::File,
-            Anchor::ImageRect(p) => AnchorRepr::ImageRect(p),
-            Anchor::CsvCell(p) => AnchorRepr::CsvCell(p),
-            Anchor::JsonPath(p) => AnchorRepr::JsonPath(p),
-            Anchor::HtmlRange(p) => AnchorRepr::HtmlRange(p),
-            Anchor::HtmlElement(p) => AnchorRepr::HtmlElement(p),
+            Anchor::Unknown { kind, data } => AnchorRepr::Unknown { kind, data },
             Anchor::WordRange(p) => AnchorRepr::WordRange(p),
         }
     }
@@ -156,17 +208,7 @@ impl TryFrom<AnchorRepr> for Anchor {
                 selected_text_hash: p.selected_text_hash,
             },
             AnchorRepr::File => Anchor::File,
-            AnchorRepr::ImageRect(p) => Anchor::ImageRect(p),
-            AnchorRepr::CsvCell(p) => Anchor::CsvCell(p),
-            AnchorRepr::JsonPath(p) => Anchor::JsonPath(p),
-            AnchorRepr::HtmlRange(mut p) => {
-                p.selected_text = crate::core::anchors::truncate_selected_text(&p.selected_text);
-                Anchor::HtmlRange(p)
-            }
-            AnchorRepr::HtmlElement(mut p) => {
-                p.text_preview = crate::core::anchors::truncate_selected_text(&p.text_preview);
-                Anchor::HtmlElement(p)
-            }
+            AnchorRepr::Unknown { kind, data } => Anchor::Unknown { kind, data },
             AnchorRepr::WordRange(mut p) => {
                 p.sanitize()?;
                 Anchor::WordRange(p)
@@ -225,33 +267,6 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
             (Some("line"), _) => Err(mismatch("anchor_kind=line with payload sibling")),
             (Some("file"), 0) => Ok(Anchor::File),
             (Some("file"), _) => Err(mismatch("anchor_kind=file with payload sibling")),
-            (Some("image_rect"), 1) => r
-                .image_rect
-                .clone()
-                .map(Anchor::ImageRect)
-                .ok_or_else(|| mismatch("anchor_kind=image_rect but image_rect field missing")),
-            (Some("csv_cell"), 1) => r
-                .csv_cell
-                .clone()
-                .map(Anchor::CsvCell)
-                .ok_or_else(|| mismatch("anchor_kind=csv_cell but csv_cell field missing")),
-            (Some("json_path"), 1) => r
-                .json_path
-                .clone()
-                .map(Anchor::JsonPath)
-                .ok_or_else(|| mismatch("anchor_kind=json_path but json_path field missing")),
-            (Some("html_range"), 1) => {
-                let mut p = r.html_range.clone().ok_or_else(|| {
-                    mismatch("anchor_kind=html_range but html_range field missing")
-                })?;
-                p.selected_text = crate::core::anchors::truncate_selected_text(&p.selected_text);
-                Ok(Anchor::HtmlRange(p))
-            }
-            (Some("html_element"), 1) => r
-                .html_element
-                .clone()
-                .map(Anchor::HtmlElement)
-                .ok_or_else(|| mismatch("anchor_kind=html_element but html_element field missing")),
             (Some("word_range"), 1) => {
                 let mut p = r.word_range.clone().ok_or_else(|| {
                     mismatch("anchor_kind=word_range but word_range field missing")
@@ -259,16 +274,29 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
                 p.sanitize()?;
                 Ok(Anchor::WordRange(p))
             }
-            (
-                Some(
-                    kind @ ("image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element"
-                    | "word_range"),
-                ),
-                _,
-            ) => Err(mismatch(format!(
-                "anchor_kind={kind} with wrong payload sibling count"
-            ))),
-            (Some(other), _) => Err(mismatch(format!("unknown anchor_kind `{other}`"))),
+            (Some("word_range"), _) => Err(mismatch(
+                "anchor_kind=word_range with wrong payload sibling count",
+            )),
+            // Known-but-deleted anchor types → Unknown (backward compat)
+            (Some(kind @ ("image_rect" | "csv_cell" | "json_path" | "html_range" | "html_element")), _) => {
+                let data = match kind {
+                    "image_rect" => r.image_rect.as_ref().map(|p| serde_json::to_value(p).unwrap_or_default()),
+                    "csv_cell" => r.csv_cell.as_ref().map(|p| serde_json::to_value(p).unwrap_or_default()),
+                    "json_path" => r.json_path.as_ref().map(|p| serde_json::to_value(p).unwrap_or_default()),
+                    "html_range" => r.html_range.as_ref().map(|p| serde_json::to_value(p).unwrap_or_default()),
+                    "html_element" => r.html_element.as_ref().map(|p| serde_json::to_value(p).unwrap_or_default()),
+                    _ => unreachable!(),
+                };
+                Ok(Anchor::Unknown {
+                    kind: kind.to_string(),
+                    data: data.unwrap_or(serde_json::Value::Null),
+                })
+            }
+            // Truly unknown anchor kinds
+            (Some(other), _) => Ok(Anchor::Unknown {
+                kind: other.to_string(),
+                data: serde_json::Value::Null,
+            }),
         }
     }
 }
@@ -367,30 +395,21 @@ impl From<MrsfComment> for MrsfCommentRepr {
                 anchor_kind: Some("file".into()),
                 ..base
             },
-            Anchor::ImageRect(p) => MrsfCommentRepr {
-                anchor_kind: Some("image_rect".into()),
-                image_rect: Some(p),
-                ..base
-            },
-            Anchor::CsvCell(p) => MrsfCommentRepr {
-                anchor_kind: Some("csv_cell".into()),
-                csv_cell: Some(p),
-                ..base
-            },
-            Anchor::JsonPath(p) => MrsfCommentRepr {
-                anchor_kind: Some("json_path".into()),
-                json_path: Some(p),
-                ..base
-            },
-            Anchor::HtmlRange(p) => MrsfCommentRepr {
-                anchor_kind: Some("html_range".into()),
-                html_range: Some(p),
-                ..base
-            },
-            Anchor::HtmlElement(p) => MrsfCommentRepr {
-                anchor_kind: Some("html_element".into()),
-                html_element: Some(p),
-                ..base
+            Anchor::Unknown { kind, data } => {
+                let mut repr = MrsfCommentRepr {
+                    anchor_kind: Some(kind.clone()),
+                    ..base
+                };
+                // Restore flat fields for known-but-deleted kinds (round-trip fidelity)
+                match kind.as_str() {
+                    "image_rect" => repr.image_rect = serde_json::from_value(data).ok(),
+                    "csv_cell" => repr.csv_cell = serde_json::from_value(data).ok(),
+                    "json_path" => repr.json_path = serde_json::from_value(data).ok(),
+                    "html_range" => repr.html_range = serde_json::from_value(data).ok(),
+                    "html_element" => repr.html_element = serde_json::from_value(data).ok(),
+                    _ => {} // truly unknown kind — no flat field to restore
+                }
+                repr
             },
             Anchor::WordRange(p) => MrsfCommentRepr {
                 anchor_kind: Some("word_range".into()),

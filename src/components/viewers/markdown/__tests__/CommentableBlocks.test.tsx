@@ -77,7 +77,7 @@ describe("makeCommentableBlock", () => {
   });
 
   it("adds has-comments class and data-comment-count when context reports a count", () => {
-    const Block = makeCommentableBlock("h2");
+    const Block = makeCommentableBlock("p");
     const counts = new Map([[3, 4]]);
     const { container } = render(
       <MdCommentContext.Provider value={{ commentCountByLine: counts }}>
@@ -87,7 +87,7 @@ describe("makeCommentableBlock", () => {
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper?.classList.contains("has-comments")).toBe(true);
     expect(wrapper?.getAttribute("data-comment-count")).toBe("4");
-    expect(wrapper?.querySelector("h2")?.textContent).toBe("title");
+    expect(wrapper?.querySelector("p")?.textContent).toBe("title");
   });
 
   it("falls back to line=0 when node position is missing", () => {
