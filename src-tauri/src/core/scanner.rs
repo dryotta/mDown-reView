@@ -1,4 +1,5 @@
 use crate::core::paths::canonicalize_no_verbatim;
+use crate::core::sidecar::migration::sidecar_walker;
 use crate::core::types::MrsfSidecar;
 use std::path::{Path, PathBuf};
 
@@ -21,11 +22,7 @@ pub fn delete_resolved_sidecars(
 ) -> std::io::Result<CleanupReport> {
     let mut report = CleanupReport::default();
 
-    let walker = ignore::WalkBuilder::new(root)
-        .max_depth(Some(50))
-        .hidden(false)
-        .build()
-        .filter_map(|e| e.ok());
+    let walker = sidecar_walker(root);
 
     for entry in walker {
         let path = entry.path();
@@ -95,11 +92,7 @@ pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
     let root_owned: PathBuf = canonicalize_no_verbatim(Path::new(root))
         .unwrap_or_else(|_| PathBuf::from(root));
 
-    let walker = ignore::WalkBuilder::new(&root_owned)
-        .max_depth(Some(50))
-        .hidden(false)
-        .build()
-        .filter_map(|e| e.ok());
+    let walker = sidecar_walker(&root_owned);
 
     // First pass: collect all YAML sidecars (they have priority)
     let entries: Vec<_> = walker.collect();
