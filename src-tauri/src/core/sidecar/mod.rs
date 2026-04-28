@@ -13,7 +13,9 @@ mod yaml_surgery;
 
 use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
-use io_guards::{read_capped, reject_yaml_anchors};
+// Re-export IO guards so sibling core modules (e.g. paths.rs) can reuse
+// the same capped-read + anchor-rejection defenses for config files.
+pub(crate) use io_guards::{read_capped, reject_yaml_anchors};
 use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
