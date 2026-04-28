@@ -93,7 +93,7 @@ export interface ReadDirResult {
 }
 
 export const readDir = (path: string, limit?: number, showSidecars?: boolean): Promise<ReadDirResult> =>
-  invoke<ReadDirResult>("read_dir", { path, limit: limit ?? null, showSidecars: showSidecars ?? null });
+  invoke<ReadDirResult>("read_dir", { path, limit: limit ?? null, show_sidecars: showSidecars ?? null });
 
 export const getLaunchArgs = (): Promise<LaunchArgs> =>
   invoke<LaunchArgs>("get_launch_args");
