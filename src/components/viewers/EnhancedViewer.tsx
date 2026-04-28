@@ -65,9 +65,11 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
       {showSource ? (
         <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} zoom={zoom} />
       ) : (
-        <Suspense fallback={<SkeletonLoader />}>
-          {renderVisualView(category, content, path, filePath, fileSize)}
-        </Suspense>
+        <div className="enhanced-viewer-content">
+          <Suspense fallback={<SkeletonLoader />}>
+            {renderVisualView(category, content, path, filePath, fileSize)}
+          </Suspense>
+        </div>
       )}
     </div>
   );

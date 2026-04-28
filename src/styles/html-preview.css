@@ -2,3 +2,36 @@
    Comment-mode CSS (toggle button, overlay, composer) was removed in
    issue #211 Group D. The HtmlPreviewView component retains only the
    sandbox toggles and link-routing bridge. */
+
+/* ── Layout — flex chain for vertical fill (#213) ──────────────── */
+
+/* Root container — fills the enhanced-viewer-content flex child. */
+.html-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Reading-width wrapper below the banner — fills remaining space. */
+.html-preview-reading {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* Wrapper around iframe + overlay — fills reading-width. */
+.html-preview-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* The sandboxed iframe itself — fills the wrapper. */
+.html-preview-iframe {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+}
