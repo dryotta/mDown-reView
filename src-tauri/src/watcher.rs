@@ -13,7 +13,7 @@ pub const MAX_TREE_WATCHED_DIRS: usize = 1024;
 /// Maps canonical workspace root → `Option<PathBuf>` (the `sidecar_root` value).
 /// `None` value means either no `.mrsf.yaml` exists or it has no `sidecar_root`.
 pub struct SidecarConfigState {
-    pub(crate) configs: Arc<Mutex<HashMap<PathBuf, Option<PathBuf>>>>,
+    configs: Arc<Mutex<HashMap<PathBuf, Option<PathBuf>>>>,
 }
 
 impl SidecarConfigState {
@@ -62,7 +62,7 @@ impl SidecarConfigState {
                 if let Some(sr_path) = sr {
                     let target = ws_root.join(sr_path);
                     if let Ok(c) = canonicalize_no_verbatim(&target) {
-                        if c.is_dir() {
+                        if c.is_dir() && c.starts_with(ws_root) {
                             dirs.insert(c);
                         }
                     }
