@@ -663,6 +663,7 @@ fn watcher_state_allowing(dir: &std::path::Path) -> mdown_review_lib::watcher::W
     let state = mdown_review_lib::watcher::WatcherState::new(tx);
     state
         .set_tree_watched_dirs(
+            "test",
             canonical.to_string_lossy().into_owned(),
             vec![canonical.to_string_lossy().into_owned()],
         )

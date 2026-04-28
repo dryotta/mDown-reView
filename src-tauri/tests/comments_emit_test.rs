@@ -70,6 +70,7 @@ fn watcher_allowing(dir: &Path) -> WatcherState {
     let state = WatcherState::new(tx);
     state
         .set_tree_watched_dirs(
+            "test",
             canonical.to_string_lossy().into_owned(),
             vec![canonical.to_string_lossy().into_owned()],
         )

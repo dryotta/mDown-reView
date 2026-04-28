@@ -234,11 +234,12 @@ pub fn stat_file_inner(
 /// [`crate::watcher::MAX_TREE_WATCHED_DIRS`] entries per call.
 #[tauri::command]
 pub fn update_tree_watched_dirs(
+    window: tauri::Window,
     root: String,
     dirs: Vec<String>,
     state: tauri::State<'_, crate::watcher::WatcherState>,
 ) -> Result<(), String> {
-    state.set_tree_watched_dirs(root, dirs).map_err(|e| {
+    state.set_tree_watched_dirs(window.label(), root, dirs).map_err(|e| {
         tracing::warn!("[rust] update_tree_watched_dirs rejected: {}", e);
         e
     })

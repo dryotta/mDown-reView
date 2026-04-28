@@ -16,6 +16,7 @@ fn update_tree_watched_dirs_canonicalizes_and_rejects_outside_root() {
 
     let err = state
         .set_tree_watched_dirs(
+            "test",
             root.to_string_lossy().into_owned(),
             vec![outside.to_string_lossy().into_owned()],
         )
@@ -28,6 +29,7 @@ fn update_tree_watched_dirs_canonicalizes_and_rejects_outside_root() {
     let inside_canonical = canonicalize_no_verbatim(&inside).unwrap();
     state
         .set_tree_watched_dirs(
+            "test",
             root.to_string_lossy().into_owned(),
             vec![inside_canonical.to_string_lossy().into_owned()],
         )
@@ -44,7 +46,7 @@ fn update_tree_watched_dirs_rejects_over_cap() {
     let state = make_state();
 
     let err = state
-        .set_tree_watched_dirs(root.to_string_lossy().into_owned(), dirs)
+        .set_tree_watched_dirs("test", root.to_string_lossy().into_owned(), dirs)
         .unwrap_err();
     assert!(err.contains("too many"), "unexpected error: {}", err);
 }
@@ -60,6 +62,7 @@ fn update_tree_watched_dirs_rejects_non_directory() {
 
     let err = state
         .set_tree_watched_dirs(
+            "test",
             root.to_string_lossy().into_owned(),
             vec![file_canonical.to_string_lossy().into_owned()],
         )
@@ -82,11 +85,11 @@ fn accepts_non_canonical_input_via_canonicalization() {
     let messy_root = dir.path().to_string_lossy().into_owned();
     let messy_dir = sub.to_string_lossy().into_owned();
     state
-        .set_tree_watched_dirs(messy_root, vec![messy_dir])
+        .set_tree_watched_dirs("test", messy_root, vec![messy_dir])
         .expect("non-canonical inputs must be normalized, not rejected");
     // The stored set must contain the canonical form of `sub`.
     let stored = state.tree_watched_dirs.lock().unwrap();
-    assert!(stored.contains(&canonicalize_no_verbatim(&sub).unwrap()));
+    assert!(stored.get("test").unwrap().contains(&canonicalize_no_verbatim(&sub).unwrap()));
 }
 
 #[test]
@@ -133,4 +136,83 @@ fn file_changed_still_fires_for_watched_paths_independently() {
         folder_dir.is_none(),
         "folder-changed must not fire when parent is not in tree_dirs"
     );
+}
+
+#[test]
+fn per_window_isolation() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let root_a = canonicalize_no_verbatim(dir_a.path()).unwrap();
+    let root_b = canonicalize_no_verbatim(dir_b.path()).unwrap();
+    let state = make_state();
+
+    state
+        .set_tree_watched_dirs(
+            "window-a",
+            root_a.to_string_lossy().into_owned(),
+            vec![root_a.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+    state
+        .set_tree_watched_dirs(
+            "window-b",
+            root_b.to_string_lossy().into_owned(),
+            vec![root_b.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+
+    // Both stored independently.
+    {
+        let guard = state.tree_watched_dirs.lock().unwrap();
+        assert!(guard.get("window-a").unwrap().contains(&root_a));
+        assert!(guard.get("window-b").unwrap().contains(&root_b));
+        assert!(!guard.get("window-a").unwrap().contains(&root_b));
+    }
+
+    // Remove window-a; window-b survives.
+    state.remove_window("window-a");
+    {
+        let guard = state.tree_watched_dirs.lock().unwrap();
+        assert!(!guard.contains_key("window-a"));
+        assert!(guard.get("window-b").unwrap().contains(&root_b));
+    }
+}
+
+#[test]
+fn is_path_allowed_checks_all_windows() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let root_a = canonicalize_no_verbatim(dir_a.path()).unwrap();
+    let root_b = canonicalize_no_verbatim(dir_b.path()).unwrap();
+    let state = make_state();
+
+    // Create files inside each workspace.
+    let file_a = root_a.join("a.md");
+    let file_b = root_b.join("b.md");
+    std::fs::write(&file_a, "a").unwrap();
+    std::fs::write(&file_b, "b").unwrap();
+
+    state
+        .set_tree_watched_dirs(
+            "win-a",
+            root_a.to_string_lossy().into_owned(),
+            vec![root_a.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+    state
+        .set_tree_watched_dirs(
+            "win-b",
+            root_b.to_string_lossy().into_owned(),
+            vec![root_b.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+
+    // Both files allowed via their respective windows.
+    assert!(state.is_path_allowed(&file_a));
+    assert!(state.is_path_allowed(&file_b));
+
+    // After removing win-a, file_a is no longer allowed.
+    state.remove_window("win-a");
+    assert!(!state.is_path_allowed(&file_a));
+    assert!(state.is_path_allowed(&file_b));
 }
