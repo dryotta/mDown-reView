@@ -138,17 +138,3 @@ describe("JsonTreeView  path rendering", () => {
     expect(paths).not.toContain("a.b");
   });
 });
-
-describe("JsonTreeView  FileCommentBadge", () => {
-  it("renders a FileCommentBadge when path is provided", async () => {
-    render(<JsonTreeView content='{"a":1}' path="/data.json" />);
-    await screen.findByText(/1 keys/);
-    expect(screen.getByRole("button", { name: /add comment/i })).toBeInTheDocument();
-  });
-
-  it("does NOT render FileCommentBadge when no path is provided", async () => {
-    render(<JsonTreeView content='{"a":1}' />);
-    await screen.findByText(/1 keys/);
-    expect(screen.queryByRole("button", { name: /add comment/i })).not.toBeInTheDocument();
-  });
-});

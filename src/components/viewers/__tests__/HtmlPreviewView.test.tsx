@@ -97,15 +97,7 @@ describe("HtmlPreviewView  hard-locked sandbox", () => {
   });
 });
 
-describe("HtmlPreviewView  FileCommentBadge", () => {
-  it("renders a FileCommentBadge when filePath is provided", () => {
-    render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
-    expect(screen.getByRole("button", { name: /add comment/i })).toBeInTheDocument();
-    cleanup();
-  });
-});
-
-describe("HtmlPreviewView  image toggle persistence (#212)", () => {
+describe("HtmlPreviewViewimage toggle persistence (#212)", () => {
   it("toggling images calls setFileViewerPref IPC for persistence", async () => {
     render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
     fireEvent.click(screen.getByRole("button", { name: /allow external images/i }));

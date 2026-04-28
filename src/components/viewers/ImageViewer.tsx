@@ -3,7 +3,6 @@ import { useImageData } from "@/hooks/useImageData";
 import { extname } from "@/lib/path-utils";
 import { useZoom } from "@/hooks/useZoom";
 import { ZoomControl } from "./ZoomControl";
-import { FileCommentBadge } from "@/components/comments/FileCommentBadge";
 import "@/styles/image-viewer.css";
 
 interface Props {
@@ -129,7 +128,6 @@ export function ImageViewer({ path }: Props) {
             {dimensions.w} × {dimensions.h}
           </span>
         )}
-        <FileCommentBadge filePath={path} />
         <button
           type="button"
           onClick={() => setFit(!fit)}

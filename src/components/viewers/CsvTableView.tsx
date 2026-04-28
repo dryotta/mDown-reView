@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import Papa from "papaparse";
 import { extname } from "@/lib/path-utils";
 import { useZoom } from "@/hooks/useZoom";
-import { FileCommentBadge } from "@/components/comments/FileCommentBadge";
 import "@/styles/csv-table.css";
 
 interface CsvTableViewProps {
@@ -98,7 +97,6 @@ export function CsvTableView({ content, path }: CsvTableViewProps) {
 
   return (
     <div className="csv-table-container" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
-      <FileCommentBadge filePath={path} />
       <table className="csv-table">
         <thead>
           <tr>

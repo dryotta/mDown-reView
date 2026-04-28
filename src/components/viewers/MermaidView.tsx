@@ -1,5 +1,4 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from "react";
-import { FileCommentBadge } from "@/components/comments/FileCommentBadge";
 import "@/styles/mermaid-view.css";
 
 interface Props {
@@ -155,7 +154,6 @@ export function MermaidView({ content, path }: Props) {
   return (
     <div className="mermaid-view" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div className="mermaid-toolbar" style={{ display: "flex", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--color-border, #d0d7de)", alignItems: "center" }}>
-        {filePath && <FileCommentBadge filePath={filePath} />}
         <button onClick={() => setScale(s => Math.max(0.25, s - 0.25))} aria-label="Zoom out">−</button>
         <span style={{ fontSize: 12, minWidth: 48, textAlign: "center" }}>{Math.round(scale * 100)}%</span>
         <button onClick={() => setScale(s => Math.min(4, s + 0.25))} aria-label="Zoom in">+</button>

@@ -55,10 +55,3 @@ describe("CsvTableView  rendering", () => {
     expect(() => render(<CsvTableView content={"a,b"} path="/data.csv" />)).not.toThrow();
   });
 });
-
-describe("CsvTableView  FileCommentBadge", () => {
-  it("renders a FileCommentBadge", () => {
-    render(<CsvTableView content={"A,B\n1,2"} path="/data.csv" />);
-    expect(screen.getByRole("button", { name: /add comment/i })).toBeInTheDocument();
-  });
-});

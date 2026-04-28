@@ -7,7 +7,6 @@ import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { warn } from "@/logger";
-import { FileCommentBadge } from "@/components/comments/FileCommentBadge";
 import "@/styles/html-preview.css";
 import "@/styles/viewer-banner.css";
 
@@ -131,7 +130,6 @@ export function HtmlPreviewView({ content, filePath }: Props) {
         >
           {allowImages ? "Disallow external images" : "Allow external images"}
         </button>
-        {filePath && <FileCommentBadge filePath={filePath} />}
       </div>
       <div
         className="reading-width html-preview-reading"

@@ -53,13 +53,3 @@ describe("MermaidView", () => {
     expect(screen.getByRole("button", { name: /svg/i })).toBeInTheDocument();
   });
 });
-
-describe("MermaidView  FileCommentBadge", () => {
-  it("renders a FileCommentBadge when path is provided", async () => {
-    render(<MermaidView content="graph TD; A-->B;" path="/diagram.mmd" />);
-    await waitFor(() => {
-      expect(screen.getByTitle("Mermaid diagram")).toBeInTheDocument();
-    });
-    expect(screen.getByRole("button", { name: /add comment/i })).toBeInTheDocument();
-  });
-});

@@ -75,17 +75,7 @@ describe("ImageViewer (existing behaviour)", () => {
   });
 });
 
-describe("ImageViewer  FileCommentBadge", () => {
-  it("renders a FileCommentBadge with Add comment label", async () => {
-    render(<ImageViewer path="/photos/test.png" />);
-    await waitFor(() => {
-      expect(screen.getByRole("img")).toBeInTheDocument();
-    });
-    expect(screen.getByRole("button", { name: /add comment/i })).toBeInTheDocument();
-  });
-});
-
-describe("ImageViewer (R1)  pointer capture, no window listeners", () => {
+describe("ImageViewer (R1)pointer capture, no window listeners", () => {
   beforeEach(() => {
     useStore.setState({ zoomByFiletype: { ".png": 2.0, ".image": 2.0 } });
   });

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { stripJsonComments } from "@/lib/tauri-commands";
 import { useZoom } from "@/hooks/useZoom";
-import { FileCommentBadge } from "@/components/comments/FileCommentBadge";
 import "../../styles/json-tree.css";
 
 interface JsonTreeViewProps {
@@ -144,15 +143,13 @@ function JsonNode({
   );
 }
 
-export function JsonTreeView({ content, path }: JsonTreeViewProps) {
+export function JsonTreeView({ content, path: _path }: JsonTreeViewProps) {
   const { zoom } = useZoom(".json");
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "ok"; value: unknown }
     | { status: "error" }
   >({ status: "loading" });
-
-  const filePath = path ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -183,7 +180,6 @@ export function JsonTreeView({ content, path }: JsonTreeViewProps) {
 
   return (
     <div className="json-tree" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
-      {filePath && <FileCommentBadge filePath={filePath} />}
       <JsonNode
         value={state.value}
         depth={0}
