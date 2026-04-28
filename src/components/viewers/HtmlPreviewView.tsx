@@ -184,7 +184,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   }, [allowScripts, nonce, baseDir, workspaceRoot]);
 
   return (
-    <div className="html-preview" data-zoom={zoom} style={{ display: "flex", flexDirection: "column", height: "100%", fontSize: `${zoom * 100}%` }}>
+    <div className="html-preview" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
       <div className="viewer-info-banner">
         ⚠ Sandboxed preview — scripts and external resources disabled
         {resolving && <span className="viewer-info-banner-note">⏳ Resolving local images…</span>}
@@ -214,16 +214,13 @@ export function HtmlPreviewView({ content, filePath }: Props) {
         )}
       </div>
       <div
-        className="reading-width"
+        className="reading-width html-preview-reading"
         ref={readingContainerRef}
         style={{
           ["--reading-width" as string]: `${readingWidth}px`,
-          flex: 1,
-          display: "flex",
-          minHeight: 0,
         }}
       >
-        <div style={{ position: "relative", flex: 1, display: "flex", minHeight: 0 }}>
+        <div ref={wrapperRef} className="html-preview-wrapper">
           <iframe
             // Chromium does not re-evaluate the sandbox attribute on srcdoc
             // changes — keying the iframe on sandbox forces a full remount so
@@ -233,7 +230,8 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             srcDoc={srcDoc}
             sandbox={sandbox}
             title="HTML preview"
-            style={{ width: "100%", border: "none", minHeight: 400, flex: 1, background: "white" }}
+            className="html-preview-iframe"
+            style={{ background: "white" }}
             onLoad={() => {
               // In script-enabled mode the iframe is cross-origin
               // and link routing is delivered via the bridge postMessage path

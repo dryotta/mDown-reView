@@ -208,6 +208,16 @@
   min-height: 100%;
 }
 
+/* L1 — flex child that fills all space below the sticky toolbar.
+   Used by visual-view wrappers so the viewer component can expand
+   to the bottom of the scroll region (#213). */
+.enhanced-viewer-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* L5 — shared scroll/error containers used by `ViewerRouter`. */
 .viewer-scroll-region {
   flex: 1;
