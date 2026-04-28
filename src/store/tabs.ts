@@ -21,7 +21,7 @@ import type { StoreApi } from "zustand";
 import type { Store } from "./index";
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
-export const MAX_TABS = 15;
+export const MAX_TABS = 5;
 
 export interface Tab {
   path: string;

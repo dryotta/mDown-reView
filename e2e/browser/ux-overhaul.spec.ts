@@ -72,37 +72,37 @@ async function installMock(
 }
 
 test.describe("UX overhaul (#41) — tab LRU cap", () => {
-  test("F1 — opens 16 files, caps at 15, oldest non-active is evicted", async ({ page }) => {
-    const files = makeFiles(16);
+  test("F1 — opens 6 files, caps at 5, oldest non-active is evicted", async ({ page }) => {
+    const files = makeFiles(6);
     await installMock(page, files);
     await page.goto("/");
 
-    // Open all 16 in order — file-01 is oldest, file-16 most recent.
+    // Open all 6 in order — file-01 is oldest, file-06 most recent.
     for (const f of files) {
       await page.locator(".folder-tree").getByText(f.name, { exact: true }).click();
     }
 
-    await expect(page.locator(".tab-bar .tab")).toHaveCount(15);
+    await expect(page.locator(".tab-bar .tab")).toHaveCount(5);
 
-    // The oldest (file-01) must be evicted — the active tab is file-16,
+    // The oldest (file-01) must be evicted — the active tab is file-06,
     // and the LRU policy drops the least-recently-accessed non-active tab.
     const tabTitles = await page.locator(".tab-bar .tab").evaluateAll((nodes) =>
       nodes.map((n) => n.getAttribute("title") ?? ""),
     );
     expect(tabTitles).not.toContain(`${FIXTURES_DIR}/file-01.md`);
-    expect(tabTitles).toContain(`${FIXTURES_DIR}/file-16.md`);
+    expect(tabTitles).toContain(`${FIXTURES_DIR}/file-06.md`);
   });
 
   test("F2 — active tab is never evicted; second-oldest is evicted instead", async ({ page }) => {
-    const files = makeFiles(16);
+    const files = makeFiles(6);
     await installMock(page, files);
     await page.goto("/");
 
-    // Open the first 15 files.
-    for (let i = 0; i < 15; i++) {
+    // Open the first 5 files.
+    for (let i = 0; i < 5; i++) {
       await page.locator(".folder-tree").getByText(files[i].name, { exact: true }).click();
     }
-    await expect(page.locator(".tab-bar .tab")).toHaveCount(15);
+    await expect(page.locator(".tab-bar .tab")).toHaveCount(5);
 
     // Re-activate file-01 so it becomes the active (and most-recently accessed) tab.
     await page.locator(".tab-bar .tab").filter({ hasText: "file-01.md" }).click();
@@ -110,15 +110,15 @@ test.describe("UX overhaul (#41) — tab LRU cap", () => {
       page.locator(".tab-bar .tab.active").filter({ hasText: "file-01.md" }),
     ).toBeVisible();
 
-    // Now open file-16 — eviction must drop the LRU non-active tab, which is file-02.
-    await page.locator(".folder-tree").getByText(files[15].name, { exact: true }).click();
-    await expect(page.locator(".tab-bar .tab")).toHaveCount(15);
+    // Now open file-06 — eviction must drop the LRU non-active tab, which is file-02.
+    await page.locator(".folder-tree").getByText(files[5].name, { exact: true }).click();
+    await expect(page.locator(".tab-bar .tab")).toHaveCount(5);
 
     const tabTitles = await page.locator(".tab-bar .tab").evaluateAll((nodes) =>
       nodes.map((n) => n.getAttribute("title") ?? ""),
     );
     expect(tabTitles).toContain(`${FIXTURES_DIR}/file-01.md`); // active — protected
-    expect(tabTitles).toContain(`${FIXTURES_DIR}/file-16.md`); // newly opened
+    expect(tabTitles).toContain(`${FIXTURES_DIR}/file-06.md`); // newly opened
     expect(tabTitles).not.toContain(`${FIXTURES_DIR}/file-02.md`); // LRU victim
   });
 });
@@ -127,17 +127,16 @@ test.describe("UX overhaul (#41) — tab overflow chevrons", () => {
   test("F3 — overflow chevrons appear at a realistic viewport with many tabs", async ({ page }) => {
     // The toolbar uses flex layout. With `.tab-bar-wrapper { flex-shrink: 1;
     // min-width: 0 }` the wrapper compresses inside the toolbar's flex line,
-    // so a 1024px viewport with 15 tabs (each min-width 80px / max-width
-    // 180px) is enough to overflow — no DOM mutation needed.
-    await page.setViewportSize({ width: 1024, height: 800 });
-    const files = makeFiles(15);
+    // so a narrow viewport with 5 tabs is enough to overflow.
+    await page.setViewportSize({ width: 480, height: 800 });
+    const files = makeFiles(5);
     await installMock(page, files);
     await page.goto("/");
 
     for (const f of files) {
       await page.locator(".folder-tree").getByText(f.name, { exact: true }).click();
     }
-    await expect(page.locator(".tab-bar .tab")).toHaveCount(15);
+    await expect(page.locator(".tab-bar .tab")).toHaveCount(5);
 
     // After the last open the strip auto-scrolls to the right edge. Reset
     // scrollLeft so the RIGHT chevron is the visible one to click.

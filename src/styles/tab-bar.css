@@ -1,19 +1,20 @@
+/* ── Tab bar wrapper ──────────────────────────────────────────────── */
+
 .tab-bar-wrapper {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  /* Must shrink so the inner .tab-bar (overflow-x: auto) overflows naturally
-     and the chevrons appear at realistic viewport widths. The toolbar pairs
-     this with min-width: 100px so at least one tab stays visible. */
+  /* No border — the toolbar's border-bottom is the shared bottom line.
+     The active tab's margin-bottom:-1px overlaps it for the connected effect. */
   flex-shrink: 1;
-  height: 34px;
+  height: 100%;
   min-width: 100px;
+  position: relative;
 }
 
 .tab-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   overflow-x: auto;
   flex: 1 1 auto;
   min-width: 0;
@@ -24,6 +25,8 @@
 .tab-bar::-webkit-scrollbar {
   display: none;
 }
+
+/* ── Scroll chevrons ──────────────────────────────────────────────── */
 
 .tab-chevron {
   display: flex;
@@ -54,20 +57,23 @@
   border-left: 1px solid var(--color-border);
 }
 
+/* ── Individual tab ───────────────────────────────────────────────── */
+
 .tab {
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  height: 100%;
-  min-width: 80px;
-  max-width: 180px;
+  padding: 6px 8px;
+  max-width: 200px;
   cursor: pointer;
-  border-right: 1px solid var(--color-border);
-  background: var(--color-surface);
+  background: transparent;
   white-space: nowrap;
-  gap: 6px;
+  gap: 4px;
   position: relative;
-  flex: 0 1 160px;
+  flex: 0 0 auto;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  transition: background 0.1s ease;
 }
 
 .tab:hover {
@@ -76,49 +82,87 @@
 
 .tab.active {
   background: var(--color-tab-active);
-  border-bottom: 2px solid var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-bottom-color: var(--color-tab-active);
+  margin-bottom: -1px;
+  padding-bottom: 7px;
+  z-index: 1;
 }
+
+.tab.active:hover {
+  background: var(--color-tab-active);
+}
+
+/* ── Tab name ─────────────────────────────────────────────────────── */
 
 .tab-name {
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
+  flex: 0 1 auto;
+  color: var(--color-muted);
 }
+
+.tab.active .tab-name {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+/* ── Trailing container (badge + close share this slot) ───────────── */
+
+.tab-trailing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 0;
+  position: relative;
+}
+
+/* ── Badge ────────────────────────────────────────────────────────── */
 
 .tab-badge {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 8px;
-  background: var(--color-badge);
-  color: var(--color-badge-text);
+  background: var(--color-muted);
+  color: #ffffff;
   flex-shrink: 0;
 }
-.tab-badge[data-severity="low"] { background: #9ca3af; color: white; }
-.tab-badge[data-severity="medium"] { background: #ea580c; color: white; }
-.tab-badge[data-severity="high"] { background: #dc2626; color: white; }
+
+/* Hide badge on hover — close button takes its place */
+.tab:hover .tab-badge,
+.tab.active .tab-badge {
+  display: none;
+}
+
+/* ── Close button ─────────────────────────────────────────────────── */
 
 .tab-close {
   visibility: hidden;
-  opacity: 0;
-  transition: opacity 0.1s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   cursor: pointer;
   color: var(--color-muted);
-  font-size: 14px;
-  padding: 0;
+  padding: 2px;
   line-height: 1;
   flex-shrink: 0;
+  opacity: 0;
+  border-radius: 4px;
+  transition: opacity 0.1s ease;
 }
 
 .tab:hover .tab-close,
 .tab.active .tab-close,
 .tab-close:focus-visible {
   visibility: visible;
-  opacity: 1;
+  opacity: 0.6;
 }
 
 .tab-close:hover {
+  opacity: 1;
   color: var(--color-text);
 }
