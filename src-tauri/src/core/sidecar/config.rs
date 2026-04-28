@@ -48,7 +48,7 @@ pub fn load_mrsf_config(workspace_root: &Path) -> Result<Option<PathBuf>, String
     reject_yaml_anchors(&content).map_err(|e| format!(".mrsf.yaml: {e}"))?;
 
     let cfg: MrsfConfigFile =
-        serde_yaml_ng::from_str(&content).map_err(|e| format!(".mrsf.yaml: {e}"))?;
+        serde_saphyr::from_str(&content).map_err(|e: serde_saphyr::Error| format!(".mrsf.yaml: {e}"))?;
 
     let val = match cfg.sidecar_root {
         Some(v) => v,
