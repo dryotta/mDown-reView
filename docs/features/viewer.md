@@ -18,7 +18,7 @@ The markdown anchor handler classifies clicks into four cases: in-document `#anc
 
 A single Shiki highlighter instance is shared across viewers — see the Shiki singleton rule in [`docs/design-patterns.md`](../design-patterns.md). The table of contents, selection toolbar, and viewer toolbar are composable overlays, not viewer-specific code.
 
-`CsvTableView`, `JsonTreeView`, `MermaidView`, `ImageViewer`, and `HtmlPreviewView` are commentable surfaces — see [`comments.md`](./comments.md) §"Structured-viewer entry points" for their per-viewer entry points and the typed anchors they produce. All commentable viewers also expose a right-click / Shift+F10 context menu (F6); see [`comments.md`](./comments.md) §"Right-click context menu (F6)". The HTML preview adds a comment-mode toggle that flips the iframe sandbox from `allow-same-origin` (safe default) to `allow-scripts` (cross-origin sandbox so the bridge IIFE can run); the two flags are never combined (rule alongside #12 in [`docs/security.md`](../security.md)).
+`CsvTableView`, `JsonTreeView`, `MermaidView`, `ImageViewer`, and `HtmlPreviewView` support file-level commenting via the toolbar "Comment on file" button; structured-anchor UI entry points (typed anchors like `CsvCell`, `JsonPath`, `ImageRect`) are defined in the Rust backend but not yet wired up in the frontend — see [`comments.md`](./comments.md) §"Structured-anchor backend". All text-based visual viewers can switch to source view for full line/selection commenting via SourceView. MarkdownViewer and SourceView expose a right-click / Shift+F10 context menu (F6); see [`comments.md`](./comments.md) §"Right-click context menu (F6)". For the complete capability matrix by viewer tier, see [`viewer-consistency.md`](./viewer-consistency.md).
 
 Markdown and HTML preview render inside a centred `.reading-width` column whose width is clamped to `--reading-width` (default 720 px, persisted in `uiSlice.readingWidth`, clamped to `[400, 1600]` by `setReadingWidth`). The viewer toolbar (Source / Visual / Wrap) is sticky-positioned at the top of its scroll container so it stays in view while the body scrolls. Two `ReadingWidthHandle` instances (left and right edges) let the user drag either side of the column outward to grow width symmetrically — a centred-column resize, not an asymmetric drag. The handle writes `--reading-width` to the container during pointermove (no React re-renders mid-drag) and only commits to the Zustand store on pointerup, so the resize stays at 60 fps regardless of body size.
 
@@ -58,6 +58,7 @@ Binary files are routed by `read_text_file` returning the sentinel error `binary
 
 ## Related rules
 
+- Viewer capability tiers and universal requirements — [`viewer-consistency.md`](viewer-consistency.md).
 - File-size budgets and viewer layering — [`docs/architecture.md`](../architecture.md) §Component & viewer boundaries, §File-size budgets.
 - Render-cost and Shiki singleton — [`docs/design-patterns.md`](../design-patterns.md) + [`docs/performance.md`](../performance.md).
 - Markdown XSS posture (`rehype-raw` + `rehype-sanitize` pairing, Mermaid sandboxing) — rule 12 in [`docs/security.md`](../security.md).

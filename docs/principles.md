@@ -25,7 +25,7 @@ Minimal memory, minimal disk, minimal dependencies, minimal binary size. Every n
 ### Architecturally Sound
 Clean layer boundaries, narrow IPC surface, single chokepoints for IPC and logging, testable in isolation. A codebase that stays comprehensible at 10× its current size.
 
-## Three engineering meta-principles
+## Five engineering meta-principles
 
 How we work. Non-negotiable.
 
@@ -93,6 +93,14 @@ Every change uses the platform's intended architecture. Never hack around a limi
 - **Use the platform's grain, not against it.** Tauri, React, and the OS each have intended patterns for common problems (per-window menus, `emit_to` for targeted events, `useShallow` for selective re-render). When the codebase uses a weaker alternative (global broadcast + frontend filtering, `is_focused()` polling), the fix migrates to the intended pattern — even if the weaker alternative "works most of the time."
 - **Scope is not an excuse.** A proper fix may touch more files than a patch. That is expected. A three-file patch that leaves the wrong abstraction in place is more expensive long-term than a twenty-file refactor that installs the right one. When scoping a fix, optimize for the codebase after merge, not for the size of the diff.
 - **If the platform can't do it, redesign the approach.** When the framework genuinely lacks a needed capability, adapt the design to work within the framework's model. Don't bolt on a workaround that fights the framework and breaks on the next update.
+
+### 5. Docs Reflect Shipped Code
+
+Feature documentation (`docs/features/`) describes what is implemented and shipped — not aspirational designs or planned work. Planned features belong in issue descriptions or design specs (`docs/superpowers/specs/`), never in the feature docs that agents and contributors read as ground truth.
+
+- The PR that ships a feature updates the corresponding feature doc in the same commit.
+- The PR that removes a feature updates the doc in the same commit.
+- A feature doc that describes UI or behavior that does not exist in the code is a bug, not a roadmap.
 
 ## Deep-dive documents
 
