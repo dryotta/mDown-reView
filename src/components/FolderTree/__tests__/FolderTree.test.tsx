@@ -102,7 +102,7 @@ describe("6.2 – clicking folder calls readDir / collapses when expanded", () =
     fireEvent.click(screen.getByText("subdir").closest(".tree-entry")!);
 
     await waitFor(() => {
-      expect(mockReadDir).toHaveBeenCalledWith(SUBFOLDER, undefined);
+      expect(mockReadDir).toHaveBeenCalledWith(SUBFOLDER, undefined, undefined);
     });
 
     // children should appear

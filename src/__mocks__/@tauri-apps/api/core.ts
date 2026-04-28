@@ -11,9 +11,11 @@ import type {
   KqlPipelineStep,
   LaunchArgs,
   MatchedComment,
+  MigrateSidecarsResult,
   MrsfSidecar,
   ReadDirResult,
   SearchMatch,
+  SidecarConfigResult,
   TextFileResult,
   WordSpan,
 } from "@/lib/tauri-commands";
@@ -39,6 +41,8 @@ type InvokeResult =
   | Record<string, FileBadge>
   | TextFileResult
   | FileViewerPref
+  | SidecarConfigResult
+  | MigrateSidecarsResult
   | ArrayBuffer
   | "file"
   | "dir"
@@ -159,6 +163,12 @@ async function defaultInvoke(
   }
   if (cmd === "get_file_viewer_pref") return null;
   if (cmd === "set_file_viewer_pref") return undefined;
+  if (cmd === "get_sidecar_config")
+    return { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 } satisfies SidecarConfigResult;
+  if (cmd === "set_sidecar_config")
+    return { enabled: (_args?.enabled as boolean) ?? false, sidecar_root: _args?.enabled ? ".reviews" : null, count_in_folder: 0, count_colocated: 0 } satisfies SidecarConfigResult;
+  if (cmd === "migrate_sidecars_cmd")
+    return { moved: 0, failed: [], config: { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 } } satisfies MigrateSidecarsResult;
   if (cmd === "read_dir") return { entries: [], total: 0, has_more: false } satisfies ReadDirResult;
   if (cmd === "register_window_folder") return undefined;
   if (cmd === "unregister_window_folder") return undefined;

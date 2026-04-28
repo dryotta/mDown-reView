@@ -88,6 +88,13 @@ interface UISlice {
   setReadingWidth: (n: number) => void;
   requestFileLevelInput: (filePath: string) => void;
   clearFileLevelInput: () => void;
+  /** When true, .review.yaml/.review.json files appear in the folder tree. */
+  showSidecarFiles: boolean;
+  toggleShowSidecarFiles: () => void;
+  /** Controls visibility of the sidecar config dialog. */
+  sidecarConfigDialogOpen: boolean;
+  openSidecarConfig: () => void;
+  closeSidecarConfig: () => void;
 }
 
 // ── Watcher slice ──────────────────────────────────────────────────────────
@@ -223,6 +230,11 @@ export const useStore = create<Store>()(
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
       requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath }),
       clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
+      showSidecarFiles: false,
+      toggleShowSidecarFiles: () => set((s) => ({ showSidecarFiles: !s.showSidecarFiles })),
+      sidecarConfigDialogOpen: false,
+      openSidecarConfig: () => set({ sidecarConfigDialogOpen: true }),
+      closeSidecarConfig: () => set({ sidecarConfigDialogOpen: false }),
 
       // Watcher
       ghostEntries: [],
@@ -338,6 +350,7 @@ export const useStore = create<Store>()(
         recentItems: state.recentItems,
         updateChannel: state.updateChannel,
         zoomByFiletype: state.zoomByFiletype,
+        showSidecarFiles: state.showSidecarFiles,
       }),
     }
   )

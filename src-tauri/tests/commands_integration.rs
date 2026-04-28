@@ -394,7 +394,7 @@ fn read_dir_hides_review_sidecars() {
     std::fs::write(dir.path().join("config.json"), "{}").unwrap();
 
     let state = SidecarConfigState::new();
-    let result = read_dir_inner(dir.path().to_str().unwrap().to_string(), None, &state).unwrap();
+    let result = read_dir_inner(dir.path().to_str().unwrap().to_string(), None, None, &state).unwrap();
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
 
     assert!(names.contains(&"readme.md"));
@@ -427,13 +427,13 @@ fn read_dir_hides_sidecar_root_dir() {
 
     // Without config: .reviews dir should be visible
     let state = SidecarConfigState::new();
-    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, &state).unwrap();
+    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, None, &state).unwrap();
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&".reviews"), ".reviews must be visible without config");
 
     // With config: .reviews dir should be hidden
     state.set_config(canonical_ws.clone(), Some(std::path::PathBuf::from(".reviews")));
-    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, &state).unwrap();
+    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, None, &state).unwrap();
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         !names.contains(&".reviews"),
@@ -444,7 +444,7 @@ fn read_dir_hides_sidecar_root_dir() {
 
     // Listing a subdirectory (not workspace root) should NOT hide .reviews
     std::fs::create_dir(ws.join("src").join(".reviews")).unwrap();
-    let result = read_dir_inner(ws.join("src").to_str().unwrap().to_string(), None, &state).unwrap();
+    let result = read_dir_inner(ws.join("src").to_str().unwrap().to_string(), None, None, &state).unwrap();
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         names.contains(&".reviews"),
