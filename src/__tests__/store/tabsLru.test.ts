@@ -8,8 +8,8 @@ beforeEach(() => {
 });
 
 describe("tabs slice — LRU eviction (MAX_TABS)", () => {
-  it("MAX_TABS is exported and equals 15", () => {
-    expect(MAX_TABS).toBe(15);
+  it("MAX_TABS is exported and equals 5", () => {
+    expect(MAX_TABS).toBe(5);
   });
 
   it("evicts oldest non-active tab when opening past MAX_TABS", () => {
