@@ -69,6 +69,37 @@ describe("useDialogActions", () => {
     expect(registerWindowFolder).toHaveBeenCalledWith("/test/folder");
   });
 
+  it("handleOpenFolder calls registerWindowFolder before setRoot", async () => {
+    const callOrder: string[] = [];
+    vi.mocked(registerWindowFolder).mockImplementation(async () => {
+      callOrder.push("register");
+    });
+    vi.mocked(showOpenDialog).mockResolvedValue("/test/folder");
+    const origSetRoot = useStore.getState().setRoot;
+    const setRootSpy = vi.fn(async (root: string | null) => {
+      callOrder.push("setRoot");
+      await origSetRoot(root);
+    });
+    useStore.setState({ setRoot: setRootSpy });
+
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => { await result.current.handleOpenFolder(); });
+
+    expect(callOrder).toEqual(["register", "setRoot"]);
+    expect(registerWindowFolder).toHaveBeenCalledWith("/test/folder");
+  });
+
+  it("handleOpenFolder does not set root when registerWindowFolder rejects", async () => {
+    vi.mocked(registerWindowFolder).mockRejectedValue(
+      new Error("folder already open in window 'w1'")
+    );
+    vi.mocked(showOpenDialog).mockResolvedValue("/test/folder");
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => { await result.current.handleOpenFolder(); });
+    // Root should remain null — registration was rejected
+    expect(useStore.getState().root).toBeNull();
+  });
+
   it("cancelled dialog (null) is no-op", async () => {
     vi.mocked(showOpenDialog).mockResolvedValue(null);
     const { result } = renderHook(() => useDialogActions());

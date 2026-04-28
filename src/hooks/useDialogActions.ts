@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 import { showOpenDialog, registerWindowFolder } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
 import { useStore } from "@/store";
 
 export function useDialogActions() {
@@ -29,14 +28,14 @@ export function useDialogActions() {
     try {
       const selected = await showOpenDialog({ directory: true, multiple: false });
       if (typeof selected === "string") {
+        // Register with the Rust registry first — if the folder is already
+        // open in another window, this rejects and we must not switch root.
+        await registerWindowFolder(selected);
         await setRoot(selected);
         addRecentItem(selected, "folder");
-        registerWindowFolder(selected).catch((err) =>
-          warn(`[useDialogActions] register_window_folder failed: ${err}`)
-        );
       }
     } catch {
-      // User cancelled or dialog error
+      // User cancelled, dialog error, or folder already open in another window
     }
   }, [setRoot, addRecentItem]);
 

@@ -139,6 +139,28 @@ impl WindowRegistry {
         }
     }
 
+    /// Atomically claim a folder for a window, enforcing one-folder-one-window.
+    ///
+    /// - If the folder is already owned by `label` → update in place, return `Ok`.
+    /// - If the folder is owned by a different window → return `Err(existing_label)`.
+    /// - Otherwise → update `label`'s kind to `Folder(path)`, return `Ok`.
+    pub fn try_claim_folder(&self, label: &str, path: PathBuf) -> Result<(), String> {
+        let mut entries = self.entries.lock().expect("registry lock poisoned");
+        // Check if another window already owns this folder
+        for entry in entries.iter() {
+            if let WindowKind::Folder(p) = &entry.kind {
+                if paths_equal(p, &path) && entry.label != label {
+                    return Err(entry.label.clone());
+                }
+            }
+        }
+        // Safe to claim — update this window's kind
+        if let Some(entry) = entries.iter_mut().find(|e| e.label == label) {
+            entry.kind = WindowKind::Folder(path);
+        }
+        Ok(())
+    }
+
     /// Remove a window by label.
     pub fn unregister(&self, label: &str) {
         let mut entries = self.entries.lock().expect("registry lock poisoned");
@@ -598,5 +620,73 @@ mod tests {
         let r2 = reg.drain_args("w2");
         assert_eq!(r1.files, vec!["/a.md".to_string()]);
         assert_eq!(r2.files, vec!["/b.md".to_string()]);
+    }
+
+    // ── try_claim_folder tests (issue #248) ────────────────────────────────
+
+    #[test]
+    fn try_claim_folder_succeeds_when_unclaimed() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::FileOnly);
+        assert!(reg.try_claim_folder("w1", PathBuf::from("/projects/a")).is_ok());
+        assert_eq!(reg.find_by_folder(Path::new("/projects/a")), Some("w1".into()));
+    }
+
+    #[test]
+    fn try_claim_folder_allows_same_window_reclaim() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::Folder(PathBuf::from("/projects/a")));
+        // Same window re-claiming same folder should succeed
+        assert!(reg.try_claim_folder("w1", PathBuf::from("/projects/a")).is_ok());
+    }
+
+    #[test]
+    fn try_claim_folder_allows_same_window_switch() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::Folder(PathBuf::from("/projects/a")));
+        // Same window switching to a different folder should succeed
+        assert!(reg.try_claim_folder("w1", PathBuf::from("/projects/b")).is_ok());
+        assert_eq!(reg.find_by_folder(Path::new("/projects/b")), Some("w1".into()));
+        // Old folder should no longer be claimed
+        assert_eq!(reg.find_by_folder(Path::new("/projects/a")), None);
+    }
+
+    #[test]
+    fn try_claim_folder_rejects_duplicate() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::Folder(PathBuf::from("/projects/a")));
+        reg.register("w2".into(), WindowKind::FileOnly);
+        // w2 trying to claim w1's folder should fail
+        let result = reg.try_claim_folder("w2", PathBuf::from("/projects/a"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "w1");
+        // w1 should still own the folder
+        assert_eq!(reg.find_by_folder(Path::new("/projects/a")), Some("w1".into()));
+    }
+
+    #[test]
+    fn try_claim_folder_case_insensitive_on_windows() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::Folder(PathBuf::from("C:\\Projects\\App")));
+        reg.register("w2".into(), WindowKind::FileOnly);
+        if cfg!(windows) {
+            // Different case should still be detected as duplicate
+            let result = reg.try_claim_folder("w2", PathBuf::from("c:\\projects\\app"));
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn setup_dedup_via_route_folder() {
+        // Simulates the setup() path: registering "main" then routing extras
+        let reg = WindowRegistry::new();
+        let folder = PathBuf::from("/projects/a");
+        reg.register("main".into(), WindowKind::Folder(folder.clone()));
+
+        // Routing the same folder should return FocusExisting, not CreateFolder
+        match reg.route_folder(&folder) {
+            RouteDecision::FocusExisting(label) => assert_eq!(label, "main"),
+            other => panic!("expected FocusExisting, got {other:?}"),
+        }
     }
 }

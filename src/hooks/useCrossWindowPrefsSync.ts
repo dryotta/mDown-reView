@@ -23,8 +23,9 @@ export function useCrossWindowPrefsSync(): void {
         const state = parsed?.state;
         if (!state) return;
 
-        // Apply only the keys that `partialize` persists (global prefs).
-        // Per-window state (tabs, expandedFolders, root…) is never touched.
+        // Apply only global prefs — NOT per-window layout state.
+        // folderPaneWidth, commentsPaneVisible, showSidecarFiles are persisted
+        // as defaults for new windows but never synced cross-window (issue #248).
         useStore.setState({
           ...(state.theme !== undefined && { theme: state.theme }),
           ...(state.authorName !== undefined && {
@@ -38,12 +39,6 @@ export function useCrossWindowPrefsSync(): void {
           }),
           ...(state.readingWidth !== undefined && {
             readingWidth: state.readingWidth,
-          }),
-          ...(state.folderPaneWidth !== undefined && {
-            folderPaneWidth: state.folderPaneWidth,
-          }),
-          ...(state.commentsPaneVisible !== undefined && {
-            commentsPaneVisible: state.commentsPaneVisible,
           }),
           ...(state.zoomByFiletype !== undefined && {
             zoomByFiletype: state.zoomByFiletype,
