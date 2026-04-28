@@ -44,8 +44,26 @@ pub struct ReadDirResult {
 /// Read directory entries, rejecting path traversal.
 /// Returns at most `limit` entries (default 250) with total count so the
 /// frontend can offer a "Show all N items…" affordance.
+/// Hides `.review.yaml`/`.review.json` sidecar files, and also hides the
+/// `sidecar_root` directory when listing a workspace root with an active
+/// redirect (AC10: prevents users from seeing the internal sidecar store).
 #[tauri::command]
-pub fn read_dir(path: String, limit: Option<usize>) -> Result<ReadDirResult, String> {
+pub fn read_dir(
+    path: String,
+    limit: Option<usize>,
+    config_state: tauri::State<'_, crate::watcher::SidecarConfigState>,
+) -> Result<ReadDirResult, String> {
+    read_dir_inner(path, limit, &config_state)
+}
+
+/// Inner implementation, decoupled from `tauri::State` so unit/integration
+/// tests can construct a plain `SidecarConfigState` and call this directly
+/// without spinning up a full `tauri::App`.
+pub fn read_dir_inner(
+    path: String,
+    limit: Option<usize>,
+    config_state: &crate::watcher::SidecarConfigState,
+) -> Result<ReadDirResult, String> {
     // Canonicalize to resolve symlinks and reject traversal
     let canonical = canonicalize_no_verbatim(std::path::Path::new(&path)).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
@@ -59,6 +77,24 @@ pub fn read_dir(path: String, limit: Option<usize>) -> Result<ReadDirResult, Str
             return Err("path traversal not allowed".into());
         }
     }
+
+    // Determine if we should hide a sidecar_root directory.
+    // Only applies when we're listing a workspace root that has sidecar_root configured.
+    let hide_dir_name: Option<String> = config_state
+        .resolve_for_file(&canonical)
+        .and_then(|(ws_root, sr)| {
+            if canonical == ws_root {
+                // We're listing the workspace root — hide the first component of sidecar_root
+                sr.and_then(|p| {
+                    p.components()
+                        .next()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                })
+            } else {
+                None
+            }
+        });
+
     let entries = std::fs::read_dir(&canonical).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
@@ -77,6 +113,12 @@ pub fn read_dir(path: String, limit: Option<usize>) -> Result<ReadDirResult, Str
         let name = entry.file_name().to_string_lossy().into_owned();
         if is_sidecar_file(&name) {
             continue;
+        }
+        // Hide the sidecar_root directory when it overlaps the workspace tree
+        if let Some(ref hide) = hide_dir_name {
+            if name == *hide && meta.is_dir() {
+                continue;
+            }
         }
 
         let path = entry.path().to_string_lossy().into_owned();

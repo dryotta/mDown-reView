@@ -226,3 +226,72 @@ fn sidecar_config_state_empty_uses_colocated() {
         "sidecar must be co-located when no config is set"
     );
 }
+
+/// AC15 regression: config disappearing mid-session gracefully falls back
+/// to co-located sidecars.  Proves that:
+/// 1. While `.mrsf.yaml` is present, comments land under `sidecar_root`.
+/// 2. After `.mrsf.yaml` is deleted and `load_mrsf_config` returns `None`,
+///    new comments land co-located with the source file.
+/// 3. Previously-saved redirected sidecars remain intact and loadable.
+#[test]
+fn config_disappearing_falls_back_to_colocated() {
+    use mdown_review_lib::core::paths::canonicalize_no_verbatim;
+    use mdown_review_lib::watcher::SidecarConfigState;
+
+    let dir = tempdir().unwrap();
+    let ws = dir.path();
+
+    // ── Phase 1: sidecar_root active ──
+    std::fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+    let config = load_mrsf_config(ws).unwrap();
+    assert_eq!(config, Some(PathBuf::from(".reviews")));
+
+    // Create source file
+    std::fs::create_dir_all(ws.join("docs")).unwrap();
+    std::fs::write(ws.join("docs/a.md"), "# A").unwrap();
+
+    let file_path = ws.join("docs").join("a.md");
+    let sidecar = resolve_sidecar_for_file(ws, &file_path, &config).unwrap();
+    ensure_sidecar_parent(ws, &sidecar).unwrap();
+    save_sidecar_at(&sidecar, "a.md", &[create_test_comment("c1", "Under sidecar_root")]).unwrap();
+    assert!(sidecar.exists(), "redirected sidecar must exist");
+
+    // Verify the SidecarConfigState flow also routes through sidecar_root
+    let canonical_ws = canonicalize_no_verbatim(ws).unwrap();
+    let state = SidecarConfigState::new();
+    state.set_config(canonical_ws.clone(), config);
+
+    // ── Phase 2: config disappears ──
+    std::fs::remove_file(ws.join(".mrsf.yaml")).unwrap();
+    let config2 = load_mrsf_config(ws).unwrap();
+    assert!(config2.is_none(), "config must be None after deletion");
+
+    // Update the state to reflect the missing config (simulates watcher reload)
+    state.set_config(canonical_ws.clone(), config2.clone());
+
+    // Save another comment — should go co-located now
+    let sidecar2 = resolve_sidecar_for_file(ws, &file_path, &config2).unwrap();
+    save_sidecar_at(&sidecar2, "a.md", &[create_test_comment("c2", "Co-located")]).unwrap();
+
+    // Verify: co-located sidecar exists
+    let colocated = PathBuf::from(format!("{}.review.yaml", file_path.display()));
+    assert!(colocated.exists(), "co-located sidecar must exist after config removal");
+
+    // Old redirected sidecar must still be intact
+    assert!(sidecar.exists(), "old redirected sidecar must remain untouched");
+
+    // Both sidecars are loadable independently
+    let yaml1 = sidecar.to_string_lossy().to_string();
+    let json1 = yaml1.replace(".review.yaml", ".review.json");
+    let loaded1 = load_sidecar_at(&yaml1, &json1).unwrap().unwrap();
+    assert_eq!(loaded1.comments.len(), 1);
+    assert_eq!(loaded1.comments[0].id, "c1");
+    assert_eq!(loaded1.comments[0].text, "Under sidecar_root");
+
+    let yaml2 = colocated.to_string_lossy().to_string();
+    let json2 = yaml2.replace(".review.yaml", ".review.json");
+    let loaded2 = load_sidecar_at(&yaml2, &json2).unwrap().unwrap();
+    assert_eq!(loaded2.comments.len(), 1);
+    assert_eq!(loaded2.comments[0].id, "c2");
+    assert_eq!(loaded2.comments[0].text, "Co-located");
+}
