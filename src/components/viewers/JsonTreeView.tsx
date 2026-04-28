@@ -316,11 +316,11 @@ export function JsonTreeView({ content, path }: JsonTreeViewProps) {
 
   const handleSave = (text: string) => {
     if (!filePath || composerPath === null) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
     const anchor: Anchor = {
       kind: "json_path",
       json_path: composerPath,
       ...(composerScalar !== undefined ? { scalar_text: composerScalar } : {}),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
     } as any;
     addComment(filePath, text, anchor).catch(() => {});
     setComposerPath(null);

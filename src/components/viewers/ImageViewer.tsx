@@ -191,9 +191,9 @@ export function ImageViewer({ path }: Props) {
   const handleSaveComment = useCallback(
     (text: string) => {
       if (!composer) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
       const anchor: Anchor = (composer.w_pct !== undefined && composer.h_pct !== undefined
         ? { kind: "image_rect", x_pct: composer.x_pct, y_pct: composer.y_pct, w_pct: composer.w_pct, h_pct: composer.h_pct }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
         : { kind: "image_rect", x_pct: composer.x_pct, y_pct: composer.y_pct }) as any;
       addComment(path, text, anchor).catch(() => {});
       setComposer(null);

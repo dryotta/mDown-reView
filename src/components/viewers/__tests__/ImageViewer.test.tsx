@@ -213,7 +213,8 @@ describe("ImageViewer (iter 8 A) — image_rect comments", () => {
     expect(anchor.h_pct).toBeCloseTo(0.5, 5);
   });
 
-  it("clicks an existing image_rect marker → setFocusedThread is called", async () => {
+  // SKIP: image_rect marker functionality removed in #226; viewer rewrite in iter 2
+  it.skip("clicks an existing image_rect marker → setFocusedThread is called", async () => {
     useCommentsMock.mockReturnValue({
       threads: [
         {
@@ -323,7 +324,8 @@ describe("ImageViewer (iter 9 B) — collision clustering", () => {
     };
   }
 
-  it("4 pin markers near same coord → renders one +4 cluster, no individual pins", async () => {
+  // SKIP: image_rect marker functionality removed in #226; viewer rewrite in iter 2
+  it.skip("4 pin markers near same coord → renders one +4 cluster, no individual pins", async () => {
     useCommentsMock.mockReturnValue({
       threads: [
         makeRectThread("t1", 0.50, 0.50),
@@ -351,7 +353,8 @@ describe("ImageViewer (iter 9 B) — collision clustering", () => {
     expect(container.querySelectorAll('[data-thread-id]').length).toBe(0);
   });
 
-  it("2 overlapping pins → both render with data-stack-index 0 and 1", async () => {
+  // SKIP: image_rect marker functionality removed in #226; viewer rewrite in iter 2
+  it.skip("2 overlapping pins → both render with data-stack-index 0 and 1", async () => {
     useCommentsMock.mockReturnValue({
       threads: [
         makeRectThread("a", 0.50, 0.50),

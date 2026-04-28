@@ -283,10 +283,9 @@ describe("deriveAnchor — WordRange (Group D-wire, iter 3)", () => {
       anchor_kind: "word_range",
       line: 9,
     });
-    // Missing payload: deriveAnchor's switch breaks out and falls back to
-    // the flat-line constructor (matches the established sibling pattern).
-    expect(a.kind).toBe("line");
-    if (a.kind === "line") expect(a.line).toBe(9);
+    // Missing payload: deriveAnchor now returns unknown for word_range
+    // without payload (deleted-kind semantics).
+    expect(a.kind).toBe("unknown");
   });
 });
 
