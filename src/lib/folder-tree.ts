@@ -1,4 +1,4 @@
-import type { DirEntry } from "@/lib/tauri-commands";
+import type { CachedDir } from "@/hooks/useFolderChildren";
 
 /**
  * Cross-platform path prefix check. Returns true when `filePath` lies inside
@@ -60,7 +60,7 @@ const DEFAULT_ENTRY_CAP = 10000;
  */
 export function buildGroupedFilterResult(
   root: string | null,
-  childrenCache: Record<string, DirEntry[]>,
+  childrenCache: Record<string, CachedDir>,
   filter: string,
   opts?: { depthCap?: number; entryCap?: number }
 ): FilterGroup[] {
@@ -73,7 +73,7 @@ export function buildGroupedFilterResult(
 
   const walk = (dir: string, depth: number): boolean => {
     if (depth > depthCap) return true;
-    const entries = childrenCache[dir];
+    const entries = childrenCache[dir]?.entries;
     if (!entries) return false;
     for (const e of entries) {
       if (visited++ >= entryCap) return true;

@@ -364,9 +364,60 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
             </div>
           ))
         ) : (
-          treeList.map((n) =>
-            renderRow(n.path, n.name, { isDir: n.isDir, depth: n.depth, isGhost: n.isGhost })
-          )
+          (() => {
+            const result: React.ReactNode[] = [];
+            // Track truncated (hasMore) folders as a stack to insert
+            // "Show all N items…" after their last descendant.
+            const truncatedStack: { path: string; depth: number }[] = [];
+            for (let i = 0; i < treeList.length; i++) {
+              const n = treeList[i];
+              // Before adding this node, check if any truncated folders on the
+              // stack have ended (this node's depth <= their depth).
+              while (truncatedStack.length > 0) {
+                const top = truncatedStack[truncatedStack.length - 1];
+                if (n.depth <= top.depth) {
+                  truncatedStack.pop();
+                  result.push(
+                    <div
+                      key={`load-more-${top.path}`}
+                      className="tree-row load-more"
+                      style={{ paddingLeft: `${(top.depth + 1) * 16 + 8}px` }}
+                      onClick={() => {
+                        const total = childrenCache[top.path]?.total ?? 10000;
+                        loadChildren(top.path, total);
+                      }}
+                    >
+                      Show all {childrenCache[top.path]?.total} items…
+                    </div>
+                  );
+                } else {
+                  break;
+                }
+              }
+              result.push(renderRow(n.path, n.name, { isDir: n.isDir, depth: n.depth, isGhost: n.isGhost }));
+              if (n.isDir && expandedFolders[n.path] && childrenCache[n.path]?.hasMore) {
+                truncatedStack.push({ path: n.path, depth: n.depth });
+              }
+            }
+            // Flush remaining truncated folders at end of list
+            while (truncatedStack.length > 0) {
+              const top = truncatedStack.pop()!;
+              result.push(
+                <div
+                  key={`load-more-${top.path}`}
+                  className="tree-row load-more"
+                  style={{ paddingLeft: `${(top.depth + 1) * 16 + 8}px` }}
+                  onClick={() => {
+                    const total = childrenCache[top.path]?.total ?? 10000;
+                    loadChildren(top.path, total);
+                  }}
+                >
+                  Show all {childrenCache[top.path]?.total} items…
+                </div>
+              );
+            }
+            return result;
+          })()
         )}
       </div>
     </div>

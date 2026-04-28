@@ -6,6 +6,12 @@ import {
   computeWatchedDirs,
 } from "../folder-tree";
 import type { DirEntry } from "@/lib/tauri-commands";
+import type { CachedDir } from "@/hooks/useFolderChildren";
+
+/** Wrap DirEntry[] in the CachedDir shape used by childrenCache. */
+function wrap(entries: DirEntry[]): CachedDir {
+  return { entries, hasMore: false, total: entries.length };
+}
 
 describe("pathStartsWithRootCrossPlatform", () => {
   it("matches identical paths", () => {
@@ -44,16 +50,16 @@ describe("getAncestors", () => {
 
 describe("buildGroupedFilterResult", () => {
   const ROOT = "/r";
-  const cache: Record<string, DirEntry[]> = {
-    "/r": [
+  const cache: Record<string, CachedDir> = {
+    "/r": wrap([
       { name: "alpha.md", path: "/r/alpha.md", is_dir: false },
       { name: "sub", path: "/r/sub", is_dir: true },
       { name: "skip.txt", path: "/r/skip.txt", is_dir: false },
-    ],
-    "/r/sub": [
+    ]),
+    "/r/sub": wrap([
       { name: "beta.md", path: "/r/sub/beta.md", is_dir: false },
       { name: "gamma.md", path: "/r/sub/gamma.md", is_dir: false },
-    ],
+    ]),
   };
 
   it("groups by immediate parent and sorts by relative path", () => {
@@ -80,12 +86,12 @@ describe("buildGroupedFilterResult", () => {
   });
 
   it("respects the entryCap budget", () => {
-    const big: Record<string, DirEntry[]> = {
-      "/r": Array.from({ length: 50 }, (_, i) => ({
+    const big: Record<string, CachedDir> = {
+      "/r": wrap(Array.from({ length: 50 }, (_, i) => ({
         name: `f${i}.md`,
         path: `/r/f${i}.md`,
         is_dir: false,
-      })),
+      }))),
     };
     const groups = buildGroupedFilterResult("/r", big, ".md", { entryCap: 5 });
     expect(groups[0].files.length).toBeLessThanOrEqual(5);

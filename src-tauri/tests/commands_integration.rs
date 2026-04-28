@@ -393,8 +393,8 @@ fn read_dir_hides_review_sidecars() {
     .unwrap();
     std::fs::write(dir.path().join("config.json"), "{}").unwrap();
 
-    let entries = read_dir(dir.path().to_str().unwrap().to_string()).unwrap();
-    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    let result = read_dir(dir.path().to_str().unwrap().to_string(), None).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
 
     assert!(names.contains(&"readme.md"));
     assert!(names.contains(&"main.rs"));

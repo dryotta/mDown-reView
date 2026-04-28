@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { DirEntry } from "@/lib/tauri-commands";
+import type { CachedDir } from "@/hooks/useFolderChildren";
 import type { GhostEntry } from "@/store";
 
 export type TreeNode = {
@@ -18,13 +18,13 @@ export interface FolderTreeResult {
 
 export function buildFolderTree(
   root: string | null,
-  childrenCache: Record<string, DirEntry[]>,
+  childrenCache: Record<string, CachedDir>,
   expandedFolders: Record<string, boolean>,
   filter: string,
   ghostEntries: GhostEntry[]
 ): FolderTreeResult {
   function hasMatch(folderPath: string): boolean {
-    const entries = childrenCache[folderPath] ?? [];
+    const entries = childrenCache[folderPath]?.entries ?? [];
     return entries.some(
       (e) =>
         (!e.is_dir && e.name.toLowerCase().includes(filter.toLowerCase())) ||
@@ -33,7 +33,7 @@ export function buildFolderTree(
   }
 
   function buildFlatList(parentPath: string, depth: number): TreeNode[] {
-    const entries = childrenCache[parentPath] ?? [];
+    const entries = childrenCache[parentPath]?.entries ?? [];
     const result: TreeNode[] = [];
     for (const entry of entries) {
       if (filter) {
@@ -133,7 +133,7 @@ export function buildFolderTree(
 
 export function useFolderTree(
   root: string | null,
-  childrenCache: Record<string, DirEntry[]>,
+  childrenCache: Record<string, CachedDir>,
   expandedFolders: Record<string, boolean>,
   filter: string,
   ghostEntries: GhostEntry[]

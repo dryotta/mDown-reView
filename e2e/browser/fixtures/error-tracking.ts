@@ -114,6 +114,12 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
                   : result.split("\n").length - (result.endsWith("\n") ? 1 : 0),
               };
             }
+            // read_dir changed shape from `DirEntry[]` to `{ entries, total, has_more }`.
+            // Tests authored before that change still return a plain array — wrap it
+            // transparently so the existing specs keep working without per-file edits.
+            if (cmd === "read_dir" && Array.isArray(result)) {
+              return { entries: result, total: result.length, has_more: false };
+            }
             // If the test mock returned null, apply safe defaults for
             // infrastructure commands that were added after the test was written.
             if (result === null) {
@@ -158,6 +164,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           // Default fallback when no test-specific mock is set
           if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
           if (cmd === "scan_review_files") return [];
+          if (cmd === "read_dir") return { entries: [], total: 0, has_more: false };
           if (cmd === "update_watched_files") return undefined;
           if (cmd === "update_tree_watched_dirs") return undefined;
           if (cmd === "check_update") return null;

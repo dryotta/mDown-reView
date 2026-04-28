@@ -271,3 +271,15 @@
   font-size: 13px;
   line-height: 1;
 }
+
+/* ── "Show all N items…" truncation row ─────────────────────────────────── */
+.tree-row.load-more {
+  color: var(--link-color, #0078d4);
+  cursor: pointer;
+  font-style: italic;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.tree-row.load-more:hover {
+  text-decoration: underline;
+}

@@ -31,9 +31,21 @@ pub fn check_path_exists(path: String) -> String {
     }
 }
 
+const DEFAULT_READ_DIR_LIMIT: usize = 250;
+
+/// Capped directory listing: entries + total count + overflow flag.
+#[derive(serde::Serialize, Debug)]
+pub struct ReadDirResult {
+    pub entries: Vec<DirEntry>,
+    pub total: usize,
+    pub has_more: bool,
+}
+
 /// Read directory entries, rejecting path traversal.
+/// Returns at most `limit` entries (default 250) with total count so the
+/// frontend can offer a "Show all N items…" affordance.
 #[tauri::command]
-pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
+pub fn read_dir(path: String, limit: Option<usize>) -> Result<ReadDirResult, String> {
     // Canonicalize to resolve symlinks and reject traversal
     let canonical = canonicalize_no_verbatim(std::path::Path::new(&path)).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
@@ -79,7 +91,11 @@ pub fn read_dir(path: String) -> Result<Vec<DirEntry>, String> {
         (false, true) => std::cmp::Ordering::Greater,
         _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
-    Ok(result)
+    let total = result.len();
+    let cap = limit.unwrap_or(DEFAULT_READ_DIR_LIMIT);
+    let has_more = total > cap;
+    result.truncate(cap);
+    Ok(ReadDirResult { entries: result, total, has_more })
 }
 
 /// Result of [`read_text_file`]: file content plus cheap-to-compute metadata

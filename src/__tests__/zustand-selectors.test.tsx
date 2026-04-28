@@ -9,7 +9,7 @@ import { resolve } from "path";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 vi.mock("@/lib/tauri-commands", () => ({
-  readDir: vi.fn().mockResolvedValue([]),
+  readDir: vi.fn().mockResolvedValue({ entries: [], total: 0, has_more: false }),
 }));
 
 const initialState = useStore.getState();
