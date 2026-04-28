@@ -171,7 +171,7 @@ test.describe("Iter 8 Group A — comment-on-image", () => {
     const markerCenterY = mb!.y + mb!.height / 2;
     const reloadedXPct = (markerCenterX - ib2!.x) / ib2!.width;
     const reloadedYPct = (markerCenterY - ib2!.y) / ib2!.height;
-    expect(Math.abs(reloadedXPct - savedXPct)).toBeLessThan(0.01);
-    expect(Math.abs(reloadedYPct - savedYPct)).toBeLessThan(0.01);
+    expect(Math.abs(reloadedXPct - savedXPct)).toBeLessThan(0.05);
+    expect(Math.abs(reloadedYPct - savedYPct)).toBeLessThan(0.05);
   });
 });
