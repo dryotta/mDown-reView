@@ -45,10 +45,11 @@ test.describe("PDF viewer (#65 F3)", () => {
     expect(src).toMatch(/asset[.:]/);
     expect(src).toContain(encodeURIComponent("spec.pdf"));
 
-    // Empty `sandbox=""` strips ALL capabilities — no scripts, no forms.
-    // Playwright surfaces an empty attribute as "".
+    // PdfViewer intentionally omits the sandbox attribute because the
+    // Chromium built-in PDF renderer requires script execution + same-origin
+    // access. The CSP still constrains the frame.
     const sandbox = await iframe.getAttribute("sandbox");
-    expect(sandbox).toBe("");
+    expect(sandbox).toBeNull();
 
     // Title is set to the filename so screen readers announce it.
     await expect(iframe).toHaveAttribute("title", "spec.pdf");
