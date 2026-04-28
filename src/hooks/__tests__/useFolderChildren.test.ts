@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useFolderChildren } from "@/hooks/useFolderChildren";
 import * as commands from "@/lib/tauri-commands";
+import type { ReadDirResult } from "@/lib/tauri-commands";
 import { listenEvent } from "@/lib/tauri-events";
 
 vi.mock("@/lib/tauri-commands");
@@ -20,6 +21,11 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/** Wrap DirEntry[] in the ReadDirResult shape returned by the Rust command. */
+function wrapEntries(entries: commands.DirEntry[]): ReadDirResult {
+  return { entries, total: entries.length, has_more: false };
+}
+
 function getFolderChangedCallback() {
   const call = vi
     .mocked(listenEvent)
@@ -34,19 +40,19 @@ describe("useFolderChildren", () => {
       { name: "file.md", path: "/root/file.md", is_dir: false },
       { name: "sub", path: "/root/sub", is_dir: true },
     ];
-    vi.mocked(commands.readDir).mockResolvedValue(entries);
+    vi.mocked(commands.readDir).mockResolvedValue(wrapEntries(entries));
 
     const { result } = renderHook(() => useFolderChildren("/root"));
 
     await act(async () => {});
 
-    expect(commands.readDir).toHaveBeenCalledWith("/root");
-    expect(result.current.childrenCache["/root"]).toEqual(entries);
+    expect(commands.readDir).toHaveBeenCalledWith("/root", undefined);
+    expect(result.current.childrenCache["/root"]?.entries).toEqual(entries);
   });
 
   it("caches results — second call returns cached without IPC", async () => {
     const entries = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
-    vi.mocked(commands.readDir).mockResolvedValue(entries);
+    vi.mocked(commands.readDir).mockResolvedValue(wrapEntries(entries));
 
     const { result } = renderHook(() => useFolderChildren("/root"));
 
@@ -67,8 +73,8 @@ describe("useFolderChildren", () => {
     const entriesA = [{ name: "a.md", path: "/rootA/a.md", is_dir: false }];
     const entriesB = [{ name: "b.md", path: "/rootB/b.md", is_dir: false }];
     vi.mocked(commands.readDir)
-      .mockResolvedValueOnce(entriesA)
-      .mockResolvedValueOnce(entriesB);
+      .mockResolvedValueOnce(wrapEntries(entriesA))
+      .mockResolvedValueOnce(wrapEntries(entriesB));
 
     const { result, rerender } = renderHook(
       ({ root }) => useFolderChildren(root),
@@ -76,14 +82,14 @@ describe("useFolderChildren", () => {
     );
 
     await act(async () => {});
-    expect(result.current.childrenCache["/rootA"]).toEqual(entriesA);
+    expect(result.current.childrenCache["/rootA"]?.entries).toEqual(entriesA);
 
     // Change root
     rerender({ root: "/rootB" });
 
     await act(async () => {});
     expect(result.current.childrenCache["/rootA"]).toBeUndefined();
-    expect(result.current.childrenCache["/rootB"]).toEqual(entriesB);
+    expect(result.current.childrenCache["/rootB"]?.entries).toEqual(entriesB);
   });
 
   it("returns empty array on error", async () => {
@@ -105,12 +111,51 @@ describe("useFolderChildren", () => {
   });
 
   it("does not load when root is null", async () => {
-    vi.mocked(commands.readDir).mockResolvedValue([]);
+    vi.mocked(commands.readDir).mockResolvedValue(wrapEntries([]));
 
     renderHook(() => useFolderChildren(null));
 
     await act(async () => {});
     expect(commands.readDir).not.toHaveBeenCalled();
+  });
+
+  it("stores hasMore and total from ReadDirResult", async () => {
+    const entries = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
+    vi.mocked(commands.readDir).mockResolvedValue({
+      entries,
+      total: 500,
+      has_more: true,
+    });
+
+    const { result } = renderHook(() => useFolderChildren("/root"));
+    await act(async () => {});
+
+    expect(result.current.childrenCache["/root"]?.hasMore).toBe(true);
+    expect(result.current.childrenCache["/root"]?.total).toBe(500);
+  });
+
+  it("bypasses cache when explicit limit is passed", async () => {
+    const initial = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
+    const full = [
+      { name: "a.md", path: "/root/a.md", is_dir: false },
+      { name: "b.md", path: "/root/b.md", is_dir: false },
+    ];
+    vi.mocked(commands.readDir)
+      .mockResolvedValueOnce({ entries: initial, total: 500, has_more: true })
+      .mockResolvedValueOnce({ entries: full, total: 2, has_more: false });
+
+    const { result } = renderHook(() => useFolderChildren("/root"));
+    await act(async () => {});
+    expect(result.current.childrenCache["/root"]?.hasMore).toBe(true);
+
+    // Re-fetch with explicit limit — should bypass cache
+    await act(async () => {
+      await result.current.loadChildren("/root", 10000);
+    });
+    expect(commands.readDir).toHaveBeenCalledTimes(2);
+    expect(commands.readDir).toHaveBeenLastCalledWith("/root", 10000);
+    expect(result.current.childrenCache["/root"]?.hasMore).toBe(false);
+    expect(result.current.childrenCache["/root"]?.entries).toEqual(full);
   });
 });
 
@@ -122,13 +167,13 @@ describe("useFolderChildren folder-changed listener", () => {
       { name: "b.md", path: "/root/b.md", is_dir: false },
     ];
     vi.mocked(commands.readDir)
-      .mockResolvedValueOnce(initial)
-      .mockResolvedValueOnce(refreshed);
+      .mockResolvedValueOnce(wrapEntries(initial))
+      .mockResolvedValueOnce(wrapEntries(refreshed));
 
     const { result } = renderHook(() => useFolderChildren("/root"));
     await act(async () => {});
 
-    expect(result.current.childrenCache["/root"]).toEqual(initial);
+    expect(result.current.childrenCache["/root"]?.entries).toEqual(initial);
 
     const cb = getFolderChangedCallback();
     await act(async () => {
@@ -137,12 +182,12 @@ describe("useFolderChildren folder-changed listener", () => {
 
     expect(commands.readDir).toHaveBeenCalledTimes(2);
     expect(commands.readDir).toHaveBeenLastCalledWith("/root");
-    expect(result.current.childrenCache["/root"]).toEqual(refreshed);
+    expect(result.current.childrenCache["/root"]?.entries).toEqual(refreshed);
   });
 
   it("ignores 'folder-changed' for an uncached dir", async () => {
     const initial = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
-    vi.mocked(commands.readDir).mockResolvedValue(initial);
+    vi.mocked(commands.readDir).mockResolvedValue(wrapEntries(initial));
 
     renderHook(() => useFolderChildren("/root"));
     await act(async () => {});
@@ -161,7 +206,7 @@ describe("useFolderChildren folder-changed listener", () => {
   it("unsubscribes on unmount", async () => {
     const unlisten = vi.fn();
     vi.mocked(listenEvent).mockResolvedValue(unlisten);
-    vi.mocked(commands.readDir).mockResolvedValue([]);
+    vi.mocked(commands.readDir).mockResolvedValue(wrapEntries([]));
 
     const { unmount } = renderHook(() => useFolderChildren("/root"));
     await act(async () => {});

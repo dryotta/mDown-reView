@@ -86,8 +86,14 @@ export const revealInFolder = (path: string): Promise<void> =>
 export const resolveHtmlAssets = (html: string, htmlDir: string): Promise<string> =>
   invoke<string>("resolve_html_assets", { html, htmlDir });
 
-export const readDir = (path: string): Promise<DirEntry[]> =>
-  invoke<DirEntry[]>("read_dir", { path });
+export interface ReadDirResult {
+  entries: DirEntry[];
+  total: number;
+  has_more: boolean;
+}
+
+export const readDir = (path: string, limit?: number): Promise<ReadDirResult> =>
+  invoke<ReadDirResult>("read_dir", { path, limit: limit ?? null });
 
 export const getLaunchArgs = (): Promise<LaunchArgs> =>
   invoke<LaunchArgs>("get_launch_args");

@@ -12,6 +12,7 @@ import type {
   LaunchArgs,
   MatchedComment,
   MrsfSidecar,
+  ReadDirResult,
   SearchMatch,
   TextFileResult,
   WordSpan,
@@ -25,6 +26,7 @@ type InvokeResult =
   | string
   | string[]
   | DirEntry[]
+  | ReadDirResult
   | LaunchArgs
   | MrsfSidecar
   | CommentThread[]
@@ -157,6 +159,7 @@ async function defaultInvoke(
   }
   if (cmd === "get_file_viewer_pref") return null;
   if (cmd === "set_file_viewer_pref") return undefined;
+  if (cmd === "read_dir") return { entries: [], total: 0, has_more: false } satisfies ReadDirResult;
   return undefined;
 }
 

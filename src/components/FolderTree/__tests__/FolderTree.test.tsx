@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FolderTree } from "../FolderTree";
 import { useStore } from "@/store";
-import type { DirEntry } from "@/lib/tauri-commands";
+import type { DirEntry, ReadDirResult } from "@/lib/tauri-commands";
 
 // Auto-resolved mocks
 vi.mock("@tauri-apps/api/core");
@@ -23,6 +23,11 @@ vi.mock("@/lib/tauri-commands", () => ({
 
 import { readDir } from "@/lib/tauri-commands";
 const mockReadDir = readDir as ReturnType<typeof vi.fn>;
+
+/** Wrap DirEntry[] in the ReadDirResult shape returned by the Rust command. */
+function wrapEntries(entries: DirEntry[]): ReadDirResult {
+  return { entries, total: entries.length, has_more: false };
+}
 
 const FOLDER = "/test";
 const SUBFOLDER = "/test/subdir";
@@ -46,9 +51,9 @@ beforeEach(() => {
   mockUseFileBadges.mockReturnValue({});
   // Default: root returns ROOT_ENTRIES, subfolder returns SUB_ENTRIES
   mockReadDir.mockImplementation((path: string) => {
-    if (path === FOLDER) return Promise.resolve(ROOT_ENTRIES);
-    if (path === SUBFOLDER) return Promise.resolve(SUB_ENTRIES);
-    return Promise.resolve([]);
+    if (path === FOLDER) return Promise.resolve(wrapEntries(ROOT_ENTRIES));
+    if (path === SUBFOLDER) return Promise.resolve(wrapEntries(SUB_ENTRIES));
+    return Promise.resolve(wrapEntries([]));
   });
 });
 
@@ -97,7 +102,7 @@ describe("6.2 – clicking folder calls readDir / collapses when expanded", () =
     fireEvent.click(screen.getByText("subdir").closest(".tree-entry")!);
 
     await waitFor(() => {
-      expect(mockReadDir).toHaveBeenCalledWith(SUBFOLDER);
+      expect(mockReadDir).toHaveBeenCalledWith(SUBFOLDER, undefined);
     });
 
     // children should appear
@@ -312,8 +317,8 @@ describe("6.9 – optimistic folder toggle", () => {
   it("flips aria-expanded synchronously even when loadChildren never resolves", async () => {
     // Make readDir(SUBFOLDER) hang forever; root still resolves so the tree mounts.
     mockReadDir.mockImplementation((path: string) => {
-      if (path === FOLDER) return Promise.resolve(ROOT_ENTRIES);
-      return new Promise<DirEntry[]>(() => {}); // never resolves
+      if (path === FOLDER) return Promise.resolve(wrapEntries(ROOT_ENTRIES));
+      return new Promise<ReadDirResult>(() => {}); // never resolves
     });
 
     renderTree();
@@ -369,14 +374,14 @@ describe("6.11 – grouped flat filter view", () => {
     // only in README.md. Use a filter that finds 3 files in 2 folders.
     mockReadDir.mockImplementation((path: string) => {
       if (path === FOLDER)
-        return Promise.resolve([
+        return Promise.resolve(wrapEntries([
           { name: "subdir", path: SUBFOLDER, is_dir: true },
           { name: "alpha.md", path: "/test/alpha.md", is_dir: false },
           { name: "beta.md", path: "/test/beta.md", is_dir: false },
-        ]);
+        ]));
       if (path === SUBFOLDER)
-        return Promise.resolve([{ name: "gamma.md", path: "/test/subdir/gamma.md", is_dir: false }]);
-      return Promise.resolve([]);
+        return Promise.resolve(wrapEntries([{ name: "gamma.md", path: "/test/subdir/gamma.md", is_dir: false }]));
+      return Promise.resolve(wrapEntries([]));
     });
 
     renderTree();

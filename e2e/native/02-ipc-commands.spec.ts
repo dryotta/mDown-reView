@@ -80,12 +80,12 @@ test.describe("Native IPC commands", () => {
     fs.writeFileSync(path.join(tmpDir, "other.md.review.json"), `{"mrsf_version":"1.0","document":"other.md","comments":[]}`);
 
     try {
-      const entries = await nativePage.evaluate((dirPath: string) => {
+      const result = await nativePage.evaluate((dirPath: string) => {
         // @ts-ignore
         return window.__TAURI_INTERNALS__.invoke("read_dir", { path: dirPath });
       }, tmpDir);
 
-      const names = (entries as Array<{ name: string }>).map((e) => e.name);
+      const names = ((result as { entries: Array<{ name: string }> }).entries).map((e) => e.name);
       expect(names).toContain("visible.md");
       expect(names).not.toContain("visible.md.review.yaml");
       expect(names).not.toContain("other.md.review.json");

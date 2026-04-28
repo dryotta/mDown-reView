@@ -1,10 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { buildFolderTree } from "../useFolderTree";
 import type { DirEntry } from "@/lib/tauri-commands";
+import type { CachedDir } from "@/hooks/useFolderChildren";
 import type { GhostEntry } from "@/store";
 
 function makeEntry(name: string, path: string, is_dir: boolean): DirEntry {
   return { name, path, is_dir };
+}
+
+/** Wrap DirEntry[] in the CachedDir shape used by childrenCache. */
+function wrap(entries: DirEntry[]): CachedDir {
+  return { entries, hasMore: false, total: entries.length };
 }
 
 describe("buildFolderTree", () => {
@@ -22,11 +28,11 @@ describe("buildFolderTree", () => {
   });
 
   it("builds flat list from root entries", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([
         makeEntry("readme.md", "/project/readme.md", false),
         makeEntry("src", "/project/src", true),
-      ],
+      ]),
     };
     const { nodes } = buildFolderTree(ROOT, cache, {}, "", noGhosts);
     expect(nodes).toEqual([
@@ -36,9 +42,9 @@ describe("buildFolderTree", () => {
   });
 
   it("collapsed folders omit children", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [makeEntry("index.ts", "/project/src/index.ts", false)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([makeEntry("index.ts", "/project/src/index.ts", false)]),
     };
     const { nodes } = buildFolderTree(ROOT, cache, {}, "", noGhosts);
     expect(nodes).toHaveLength(1);
@@ -46,9 +52,9 @@ describe("buildFolderTree", () => {
   });
 
   it("expanded folders include children at increased depth", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [makeEntry("index.ts", "/project/src/index.ts", false)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([makeEntry("index.ts", "/project/src/index.ts", false)]),
     };
     const expanded = { "/project/src": true };
     const { nodes } = buildFolderTree(ROOT, cache, expanded, "", noGhosts);
@@ -62,11 +68,11 @@ describe("buildFolderTree", () => {
   });
 
   it("filter correctly hides non-matching files", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([
         makeEntry("readme.md", "/project/readme.md", false),
         makeEntry("notes.txt", "/project/notes.txt", false),
-      ],
+      ]),
     };
     const { nodes } = buildFolderTree(ROOT, cache, {}, "readme", noGhosts);
     expect(nodes).toHaveLength(1);
@@ -74,12 +80,12 @@ describe("buildFolderTree", () => {
   });
 
   it("filter keeps directories that have matching descendants", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([
         makeEntry("match.ts", "/project/src/match.ts", false),
         makeEntry("other.js", "/project/src/other.js", false),
-      ],
+      ]),
     };
     const expanded = { "/project/src": true };
     const { nodes } = buildFolderTree(ROOT, cache, expanded, "match", noGhosts);
@@ -89,17 +95,17 @@ describe("buildFolderTree", () => {
   });
 
   it("filter is case-insensitive", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("README.md", "/project/README.md", false)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("README.md", "/project/README.md", false)]),
     };
     const { nodes } = buildFolderTree(ROOT, cache, {}, "readme", noGhosts);
     expect(nodes).toHaveLength(1);
   });
 
   it("ghost entries are inserted at the correct depth", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [makeEntry("app.ts", "/project/src/app.ts", false)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([makeEntry("app.ts", "/project/src/app.ts", false)]),
     };
     const expanded = { "/project/src": true };
     const ghosts: GhostEntry[] = [
@@ -114,8 +120,8 @@ describe("buildFolderTree", () => {
   });
 
   it("ghost entries are not duplicated if already in tree", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("file.md", "/project/file.md", false)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("file.md", "/project/file.md", false)]),
     };
     const ghosts: GhostEntry[] = [
       { sourcePath: "/project/file.md", sidecarPath: "/project/file.md.review.json" },
@@ -127,8 +133,8 @@ describe("buildFolderTree", () => {
   });
 
   it("ghost entries at root depth get depth 0", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
     };
     const ghosts: GhostEntry[] = [
       { sourcePath: "/project/orphan.md", sidecarPath: "/project/orphan.md.review.json" },
@@ -141,9 +147,9 @@ describe("buildFolderTree", () => {
 
   it("ghost entries with backslash paths are handled", () => {
     const winRoot = "C:\\project";
-    const cache: Record<string, DirEntry[]> = {
-      [winRoot]: [makeEntry("src", "C:\\project\\src", true)],
-      "C:\\project\\src": [],
+    const cache: Record<string, CachedDir> = {
+      [winRoot]: wrap([makeEntry("src", "C:\\project\\src", true)]),
+      "C:\\project\\src": wrap([]),
     };
     const expanded = { "C:\\project\\src": true };
     const ghosts: GhostEntry[] = [
@@ -159,9 +165,9 @@ describe("buildFolderTree", () => {
   // ── Ghost visibility under collapsed folders (issue #216) ──────────────
 
   it("omits ghost entries under collapsed parent folders", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [makeEntry("app.ts", "/project/src/app.ts", false)],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([makeEntry("app.ts", "/project/src/app.ts", false)]),
     };
     // src is collapsed (not in expandedFolders)
     const ghosts: GhostEntry[] = [
@@ -174,9 +180,9 @@ describe("buildFolderTree", () => {
   });
 
   it("includes ghost entries under expanded parent folders", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([]),
     };
     const expanded = { "/project/src": true };
     const ghosts: GhostEntry[] = [
@@ -189,8 +195,8 @@ describe("buildFolderTree", () => {
   });
 
   it("root-level ghost entries are always visible regardless of expanded state", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([]),
     };
     const ghosts: GhostEntry[] = [
       { sourcePath: "/project/root-ghost.md", sidecarPath: "/project/root-ghost.md.review.json" },
@@ -202,10 +208,10 @@ describe("buildFolderTree", () => {
   });
 
   it("deeply nested ghost with ancestor collapsed is hidden and mapped to nearest visible ancestor", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [makeEntry("lib", "/project/src/lib", true)],
-      "/project/src/lib": [],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([makeEntry("lib", "/project/src/lib", true)]),
+      "/project/src/lib": wrap([]),
     };
     // src expanded, lib collapsed
     const expanded = { "/project/src": true };
@@ -221,9 +227,9 @@ describe("buildFolderTree", () => {
   });
 
   it("hiddenGhostsByFolder correctly maps folder to ghost source paths", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("docs", "/project/docs", true)],
-      "/project/docs": [],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("docs", "/project/docs", true)]),
+      "/project/docs": wrap([]),
     };
     // docs is collapsed
     const ghosts: GhostEntry[] = [
@@ -239,9 +245,9 @@ describe("buildFolderTree", () => {
   });
 
   it("hiddenGhostsByFolder is empty when all ghosts are visible", () => {
-    const cache: Record<string, DirEntry[]> = {
-      [ROOT]: [makeEntry("src", "/project/src", true)],
-      "/project/src": [],
+    const cache: Record<string, CachedDir> = {
+      [ROOT]: wrap([makeEntry("src", "/project/src", true)]),
+      "/project/src": wrap([]),
     };
     const expanded = { "/project/src": true };
     const ghosts: GhostEntry[] = [

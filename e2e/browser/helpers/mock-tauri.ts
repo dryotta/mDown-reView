@@ -6,7 +6,7 @@ interface MockConfig {
 
 const defaultMocks: MockConfig = {
   get_launch_args: () => ({ files: [], folders: [] }),
-  read_dir: () => [],
+  read_dir: () => ({ entries: [], total: 0, has_more: false }),
   read_text_file: () => ({ content: "", size_bytes: 0, line_count: 0 }),
   get_log_path: () => "/mock/path/mdownreview.log",
   save_review_comments: () => null,

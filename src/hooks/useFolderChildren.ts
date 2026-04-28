@@ -5,24 +5,31 @@ import { warn } from "@/logger";
 
 export type { DirEntry };
 
+export interface CachedDir {
+  entries: DirEntry[];
+  hasMore: boolean;
+  total: number;
+}
+
 export function useFolderChildren(root: string | null) {
-  const [childrenCache, setChildrenCache] = useState<Record<string, DirEntry[]>>({});
+  const [childrenCache, setChildrenCache] = useState<Record<string, CachedDir>>({});
   const childrenCacheRef = useRef(childrenCache);
   // eslint-disable-next-line react-hooks/refs -- sync ref is the documented pattern for stable callbacks
   childrenCacheRef.current = childrenCache;
 
   const loadChildren = useCallback(
-    async (path: string): Promise<DirEntry[]> => {
+    async (path: string, limit?: number): Promise<DirEntry[]> => {
       const cached = childrenCacheRef.current[path];
-      if (cached) return cached;
+      if (cached && limit === undefined) return cached.entries;
       try {
-        const entries = await readDir(path);
+        const result = await readDir(path, limit);
+        const value: CachedDir = { entries: result.entries, hasMore: result.has_more, total: result.total };
         setChildrenCache((prev) => {
-          const next = { ...prev, [path]: entries };
+          const next = { ...prev, [path]: value };
           childrenCacheRef.current = next;
           return next;
         });
-        return entries;
+        return result.entries;
       } catch {
         return [];
       }
@@ -45,9 +52,10 @@ export function useFolderChildren(root: string | null) {
     const unlisten = listenEvent("folder-changed", ({ path }) => {
       if (childrenCacheRef.current[path] === undefined) return;
       readDir(path)
-        .then((entries) =>
+        .then((result) =>
           setChildrenCache((prev) => {
-            const next = { ...prev, [path]: entries };
+            const value: CachedDir = { entries: result.entries, hasMore: result.has_more, total: result.total };
+            const next = { ...prev, [path]: value };
             childrenCacheRef.current = next;
             return next;
           })
