@@ -1,4 +1,4 @@
-//! Sidecar load / save / patch.
+//! Sidecar load / save / patch + workspace config.
 //!
 //! Read-side I/O guards (size cap + YAML anchor rejection) live in
 //! [`io_guards`] — see that module's doc-comment for the threat model.
@@ -7,13 +7,19 @@
 //! handing bytes to a parser. Order: `read_capped` → `reject_yaml_anchors`
 //! → parse. JSON reads intentionally skip the YAML anchor check (anchors
 //! are a YAML-only construct).
+//!
+//! Workspace `.mrsf.yaml` config (loading, validation, caching) lives in
+//! [`config`].
 
+pub mod config;
 mod io_guards;
 mod yaml_surgery;
 
 use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
-use io_guards::{read_capped, reject_yaml_anchors};
+// Re-export IO guards so sibling core modules (e.g. paths.rs) can reuse
+// the same capped-read + anchor-rejection defenses for config files.
+pub(crate) use io_guards::{read_capped, reject_yaml_anchors};
 use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
@@ -119,13 +125,13 @@ fn validate_sidecar_warnings(sidecar: &MrsfSidecar) {
     }
 }
 
-/// Load a sidecar file. Tries .review.yaml first, then .review.json.
-/// Returns None if no sidecar exists.
-pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError> {
-    let yaml_path = format!("{}.review.yaml", file_path);
-    let json_path = format!("{}.review.json", file_path);
-
-    match read_capped(&yaml_path) {
+/// Load a sidecar from explicit YAML/JSON paths.
+/// Tries `yaml_path` first, then `json_path`. Returns `None` if neither exists.
+pub fn load_sidecar_at(
+    yaml_path: &str,
+    json_path: &str,
+) -> Result<Option<MrsfSidecar>, SidecarError> {
+    match read_capped(yaml_path) {
         Ok(content) => {
             reject_yaml_anchors(&content)?;
             let sidecar: MrsfSidecar =
@@ -140,7 +146,7 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
         _ => {} // Not found, try JSON
     }
 
-    match read_capped(&json_path) {
+    match read_capped(json_path) {
         Ok(content) => {
             let sidecar: MrsfSidecar =
                 serde_json::from_str(&content).map_err(SidecarError::JsonParse)?;
@@ -153,18 +159,25 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
     }
 }
 
-/// Save a complete sidecar. Atomically writes via temp+rename.
-/// Deletes the sidecar if comments is empty.
-pub fn save_sidecar(
-    file_path: &str,
+/// Load a sidecar file. Tries .review.yaml first, then .review.json.
+/// Returns None if no sidecar exists.
+/// (Test convenience — production code uses `load_sidecar_at` with explicit paths.)
+pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError> {
+    let yaml_path = format!("{}.review.yaml", file_path);
+    let json_path = format!("{}.review.json", file_path);
+    load_sidecar_at(&yaml_path, &json_path)
+}
+
+/// Save a complete sidecar to an explicit path. Atomically writes via
+/// temp+rename. Deletes the sidecar if comments is empty.
+pub fn save_sidecar_at(
+    sidecar_path: &Path,
     document: &str,
     comments: &[MrsfComment],
 ) -> Result<(), SidecarError> {
-    let sidecar_path = std::path::PathBuf::from(format!("{}.review.yaml", file_path));
-
     if comments.is_empty() {
         if sidecar_path.exists() {
-            std::fs::remove_file(&sidecar_path)?;
+            std::fs::remove_file(sidecar_path)?;
         }
         return Ok(());
     }
@@ -176,31 +189,41 @@ pub fn save_sidecar(
     };
     let yaml = serde_saphyr::to_string(&payload).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
 
-    crate::core::atomic::write_atomic(&sidecar_path, yaml.as_bytes())?;
+    crate::core::atomic::write_atomic(sidecar_path, yaml.as_bytes())?;
     Ok(())
 }
 
-/// Surgically modify a comment in a sidecar file.
+/// Save a complete sidecar. Atomically writes via temp+rename.
+/// Deletes the sidecar if comments is empty.
+/// (Test convenience — production code uses `save_sidecar_at` with explicit paths.)
+pub fn save_sidecar(
+    file_path: &str,
+    document: &str,
+    comments: &[MrsfComment],
+) -> Result<(), SidecarError> {
+    let sidecar_path = std::path::PathBuf::from(format!("{}.review.yaml", file_path));
+    save_sidecar_at(&sidecar_path, document, comments)
+}
+
+/// Surgically modify a comment in a sidecar file at explicit paths.
 ///
 /// Attempts format-preserving YAML surgery first (preserves comments,
 /// key ordering, scalar styles). Falls back to the lossy
 /// parse→mutate→serialize path if surgery cannot handle the input.
-pub fn patch_comment(
-    file_path: &str,
+pub fn patch_comment_at(
+    yaml_path: &str,
+    json_path: &str,
     comment_id: &str,
     mutations: &[CommentMutation],
 ) -> Result<(), SidecarError> {
-    let yaml_path = format!("{}.review.yaml", file_path);
-    let json_path = format!("{}.review.json", file_path);
-
     // ── Fast path: format-preserving surgery on YAML ──────────────
-    if let Ok(original) = read_capped(&yaml_path) {
+    if let Ok(original) = read_capped(yaml_path) {
         if reject_yaml_anchors(&original).is_ok() {
             if let Some(patched) = yaml_surgery::try_patch(&original, comment_id, mutations) {
                 // Validate: the result must still parse as valid YAML.
                 let _: serde_json::Value = serde_saphyr::from_str(&patched)
                     .map_err(|e| SidecarError::YamlParse(e.to_string()))?;
-                crate::core::atomic::write_atomic(Path::new(&yaml_path), patched.as_bytes())?;
+                crate::core::atomic::write_atomic(Path::new(yaml_path), patched.as_bytes())?;
                 return Ok(());
             }
         }
@@ -208,20 +231,18 @@ pub fn patch_comment(
     }
 
     // ── Fallback: parse → mutate → serialize (lossy) ──────────────
-    let (content, _source_path) = match read_capped(&yaml_path) {
+    let content = match read_capped(yaml_path) {
         Ok(c) => {
             reject_yaml_anchors(&c)?;
-            (c, yaml_path.clone())
+            c
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            match read_capped(&json_path) {
+            match read_capped(json_path) {
                 Ok(c) => {
                     // Convert JSON to YAML Value
                     let json_val: serde_json::Value =
                         serde_json::from_str(&c).map_err(SidecarError::JsonParse)?;
-                    let yaml_str =
-                        serde_saphyr::to_string(&json_val).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
-                    (yaml_str, yaml_path.clone()) // Write as YAML
+                    serde_saphyr::to_string(&json_val).map_err(|e| SidecarError::YamlParse(e.to_string()))?
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Err(SidecarError::NotFound);
@@ -280,9 +301,21 @@ pub fn patch_comment(
 
     let yaml_out = serde_saphyr::to_string(&doc).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
 
-    // Atomic write — always re-target YAML regardless of the original format.
-    crate::core::atomic::write_atomic(Path::new(&yaml_path), yaml_out.as_bytes())?;
+    // Atomic write — always target the provided yaml_path.
+    crate::core::atomic::write_atomic(Path::new(yaml_path), yaml_out.as_bytes())?;
     Ok(())
+}
+
+/// Surgically modify a comment in a co-located sidecar file.
+/// Delegates to `patch_comment_at` with derived YAML/JSON paths.
+pub fn patch_comment(
+    file_path: &str,
+    comment_id: &str,
+    mutations: &[CommentMutation],
+) -> Result<(), SidecarError> {
+    let yaml_path = format!("{}.review.yaml", file_path);
+    let json_path = format!("{}.review.json", file_path);
+    patch_comment_at(&yaml_path, &json_path, comment_id, mutations)
 }
 #[cfg(test)]
 #[path = "tests.rs"]

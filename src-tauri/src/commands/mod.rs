@@ -35,8 +35,8 @@ pub use comments::{
 pub use config::{set_author, set_author_at, validate_author, ConfigError};
 pub use file_viewer_prefs::{get_file_viewer_pref, set_file_viewer_pref, FileViewerPref};
 pub use fs::{
-    check_path_exists, read_binary_file, read_dir, read_text_file, stat_file, stat_file_inner,
-    update_tree_watched_dirs, FileStat, ReadDirResult, TextFileResult,
+    check_path_exists, read_binary_file, read_dir, read_dir_inner, read_text_file, stat_file,
+    stat_file_inner, update_tree_watched_dirs, FileStat, ReadDirResult, TextFileResult,
 };
 pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
 #[cfg(debug_assertions)]

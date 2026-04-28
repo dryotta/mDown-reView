@@ -1,22 +1,25 @@
 //! Comment thread mutation commands (sidecar reads, writes, anchor hashing).
 //!
-//! Split into 4 submodules for the 400-LOC budget (architecture rule 23):
+//! Split into 5 submodules for the 400-LOC budget (architecture rule 23):
 //! - `mod.rs` — workspace guard + CRUD entry points
+//! - `anchor_input.rs` — `NewCommentAnchor` / `TaggedNewAnchor` wire types
 //! - `badges.rs` — `get_file_badges`
 //! - `get.rs` — `get_file_comments` (typed-anchor dispatch + matching)
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
 use crate::core::mrsf_version::MRSF_VERSION_DEFAULT;
-use crate::core::types::{Anchor, CommentAnchor, MrsfSidecar, WordRangePayload};
-use serde::Deserialize;
+use crate::core::types::{Anchor, MrsfSidecar};
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
-use crate::watcher::WatcherState;
+use crate::watcher::{SidecarConfigState, WatcherState};
 
+pub mod anchor_input;
 pub mod badges;
 pub mod get;
 pub mod update;
+
+pub use anchor_input::{NewCommentAnchor, TaggedNewAnchor};
 
 pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
 pub use get::{get_file_comments, get_file_comments_inner, GetFileCommentsResult};
@@ -77,18 +80,47 @@ impl<R: Runtime> CommentsEmitter for AppHandle<R> {
     }
 }
 
+/// Thin wrapper around [`crate::core::paths::resolve_sidecar_pair`] that
+/// extracts the workspace config from managed state.
+pub(crate) fn resolve_sidecar_pair(
+    file_path: &str,
+    config_state: &SidecarConfigState,
+) -> (String, String, Option<std::path::PathBuf>) {
+    let file = Path::new(file_path);
+    let config_data = config_state.resolve_for_file(file);
+    let config = config_data.as_ref().map(|(ws, sr)| (ws.as_path(), sr));
+    crate::core::paths::resolve_sidecar_pair(file, config)
+}
+
+/// Save a sidecar to a resolved path, creating parent dirs if needed.
+pub(super) fn save_with_parent_creation(
+    yaml_path: &str,
+    ws_root: Option<&std::path::Path>,
+    document: &str,
+    comments: &[crate::core::types::MrsfComment],
+) -> Result<(), String> {
+    let save_path = std::path::PathBuf::from(yaml_path);
+    if let Some(root) = ws_root {
+        crate::core::paths::ensure_sidecar_parent(root, &save_path)
+            .map_err(|e| e.to_string())?;
+    }
+    crate::core::sidecar::save_sidecar_at(&save_path, document, comments)
+        .map_err(|e| e.to_string())
+}
+
 /// Load a sidecar, apply a mutation, save, and emit `comments-changed`.
 fn with_sidecar_mut<E: CommentsEmitter>(
     emitter: &E,
     file_path: &str,
+    config_state: &SidecarConfigState,
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+    let (yaml, json, ws_root) = resolve_sidecar_pair(file_path, config_state);
+    let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
         .map_err(|e| e.to_string())?
         .ok_or("sidecar not found")?;
     mutate(&mut sidecar)?;
-    crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
-        .map_err(|e| e.to_string())?;
+    save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
     emitter.emit_comments_changed(file_path);
     Ok(())
 }
@@ -101,9 +133,11 @@ fn with_sidecar_mut<E: CommentsEmitter>(
 pub fn mutate_sidecar_or_create(
     file_path: &str,
     document_default: Option<String>,
+    config_state: &SidecarConfigState,
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut sidecar = crate::core::sidecar::load_sidecar(file_path)
+    let (yaml, json, ws_root) = resolve_sidecar_pair(file_path, config_state);
+    let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| MrsfSidecar {
             mrsf_version: MRSF_VERSION_DEFAULT.to_string(),
@@ -116,8 +150,7 @@ pub fn mutate_sidecar_or_create(
             comments: vec![],
         });
     mutate(&mut sidecar)?;
-    crate::core::sidecar::save_sidecar(file_path, &sidecar.document, &sidecar.comments)
-        .map_err(|e| e.to_string())?;
+    save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
     Ok(())
 }
 
@@ -127,9 +160,10 @@ fn with_sidecar_or_create<E: CommentsEmitter>(
     emitter: &E,
     file_path: &str,
     document_default: Option<String>,
+    config_state: &SidecarConfigState,
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
-    mutate_sidecar_or_create(file_path, document_default, mutate)?;
+    mutate_sidecar_or_create(file_path, document_default, config_state, mutate)?;
     emitter.emit_comments_changed(file_path);
     Ok(())
 }
@@ -137,94 +171,6 @@ fn with_sidecar_or_create<E: CommentsEmitter>(
 // `get_file_comments` lives in [`get`] (split out to keep this file under
 // the architecture rule 23 LOC budget). Re-exported above so the IPC
 // registration in `lib.rs` stays unchanged.
-
-/// Wire-format anchor for `add_comment`. Accepts BOTH the legacy flat
-/// `{ line, ... }` shape used by line-anchored composers and the tagged
-/// `{ kind: "...", ... }` shape introduced for file-level + typed
-/// anchors (Group A/B). Untagged so the JS chokepoint (`addComment` in
-/// `lib/tauri-commands.ts`) does not have to convert.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum NewCommentAnchor {
-    Tagged(TaggedNewAnchor),
-    Legacy(CommentAnchor),
-}
-
-/// Tagged variant of [`NewCommentAnchor`]. Mirrors the TS `Anchor` union
-/// in `src/types/comments.ts` — discriminator is `kind`, payload fields
-/// are flattened alongside it (internally tagged).
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum TaggedNewAnchor {
-    Line {
-        line: u32,
-        #[serde(default)]
-        end_line: Option<u32>,
-        #[serde(default)]
-        start_column: Option<u32>,
-        #[serde(default)]
-        end_column: Option<u32>,
-        #[serde(default)]
-        selected_text: Option<String>,
-        #[serde(default)]
-        selected_text_hash: Option<String>,
-    },
-    File,
-    WordRange(WordRangePayload),
-}
-
-impl NewCommentAnchor {
-    /// Convert into the canonical in-memory [`Anchor`] enum + a legacy
-    /// flat [`CommentAnchor`] (used by `create_comment` to populate the
-    /// MrsfComment's flat line fields). For non-Line variants, the flat
-    /// fields are left as the default — callers must not rely on them.
-    /// Exposed `pub` for integration tests of `add_comment`'s anchor
-    /// dispatch (the `#[tauri::command]` itself can't be invoked outside
-    /// a Tauri runtime).
-    pub fn into_anchor_pair(self) -> (Anchor, Option<CommentAnchor>) {
-        match self {
-            NewCommentAnchor::Legacy(c) => {
-                let anchor = Anchor::Line {
-                    line: c.line,
-                    end_line: c.end_line,
-                    start_column: c.start_column,
-                    end_column: c.end_column,
-                    selected_text: c.selected_text.clone(),
-                    selected_text_hash: c.selected_text_hash.clone(),
-                };
-                (anchor, Some(c))
-            }
-            NewCommentAnchor::Tagged(TaggedNewAnchor::Line {
-                line,
-                end_line,
-                start_column,
-                end_column,
-                selected_text,
-                selected_text_hash,
-            }) => {
-                let flat = CommentAnchor {
-                    line,
-                    end_line,
-                    start_column,
-                    end_column,
-                    selected_text: selected_text.clone(),
-                    selected_text_hash: selected_text_hash.clone(),
-                };
-                let anchor = Anchor::Line {
-                    line,
-                    end_line,
-                    start_column,
-                    end_column,
-                    selected_text,
-                    selected_text_hash,
-                };
-                (anchor, Some(flat))
-            }
-            NewCommentAnchor::Tagged(TaggedNewAnchor::File) => (Anchor::File, None),
-            NewCommentAnchor::Tagged(TaggedNewAnchor::WordRange(p)) => (Anchor::WordRange(p), None),
-        }
-    }
-}
 
 /// Create a new comment, save to sidecar.
 ///
@@ -237,6 +183,7 @@ impl NewCommentAnchor {
 pub fn add_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     author: String,
     text: String,
@@ -248,6 +195,7 @@ pub fn add_comment<R: Runtime>(
     add_comment_inner(
         &app,
         &state,
+        &config_state,
         file_path,
         author,
         text,
@@ -268,6 +216,7 @@ pub fn add_comment<R: Runtime>(
 pub fn add_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     author: String,
     text: String,
@@ -311,7 +260,7 @@ pub fn add_comment_inner<E: CommentsEmitter>(
         }
         comment.anchor = canonical;
     }
-    with_sidecar_or_create(emitter, &file_path, document, |sidecar| {
+    with_sidecar_or_create(emitter, &file_path, document, config_state, |sidecar| {
         sidecar.comments.push(comment);
         Ok(())
     })
@@ -335,25 +284,27 @@ pub fn check_workspace_for(
 pub fn add_reply<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     parent_id: String,
     author: String,
     text: String,
 ) -> Result<(), String> {
-    add_reply_inner(&app, &state, file_path, parent_id, author, text)
+    add_reply_inner(&app, &state, &config_state, file_path, parent_id, author, text)
 }
 
 /// Test seam for [`add_reply`]. See [`add_comment_inner`] for rationale.
 pub fn add_reply_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     parent_id: String,
     author: String,
     text: String,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, |sidecar| {
+    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         let parent = sidecar
             .comments
             .iter()
@@ -371,23 +322,25 @@ pub fn add_reply_inner<E: CommentsEmitter>(
 pub fn edit_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     comment_id: String,
     text: String,
 ) -> Result<(), String> {
-    edit_comment_inner(&app, &state, file_path, comment_id, text)
+    edit_comment_inner(&app, &state, &config_state, file_path, comment_id, text)
 }
 
 /// Test seam for [`edit_comment`]. See [`add_comment_inner`] for rationale.
 pub fn edit_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     comment_id: String,
     text: String,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, |sidecar| {
+    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         let comment = sidecar
             .comments
             .iter_mut()
@@ -403,21 +356,23 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
 pub fn delete_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
+    config_state: State<'_, SidecarConfigState>,
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
-    delete_comment_inner(&app, &state, file_path, comment_id)
+    delete_comment_inner(&app, &state, &config_state, file_path, comment_id)
 }
 
 /// Test seam for [`delete_comment`]. See [`add_comment_inner`] for rationale.
 pub fn delete_comment_inner<E: CommentsEmitter>(
     emitter: &E,
     state: &WatcherState,
+    config_state: &SidecarConfigState,
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, |sidecar| {
+    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         sidecar.comments = crate::core::comments::delete_comment(&sidecar.comments, &comment_id);
         Ok(())
     })

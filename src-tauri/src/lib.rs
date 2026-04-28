@@ -284,6 +284,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(update::PendingUpdate(std::sync::Mutex::new(None)))
         .manage(watcher::WatcherState::new(sync_tx))
+        .manage(watcher::SidecarConfigState::new())
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
         .manage(registry::WindowRegistry::default())
         .setup(|app| {
