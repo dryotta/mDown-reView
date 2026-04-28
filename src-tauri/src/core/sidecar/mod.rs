@@ -13,6 +13,7 @@
 
 pub mod config;
 mod io_guards;
+pub mod migration;
 mod yaml_surgery;
 
 use crate::core::mrsf_version::mrsf_version_for;

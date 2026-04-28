@@ -160,6 +160,9 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               if (cmd === "set_file_viewer_pref") return undefined;
               if (cmd === "register_window_folder") return undefined;
               if (cmd === "unregister_window_folder") return undefined;
+              if (cmd === "get_sidecar_config") return { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 };
+              if (cmd === "set_sidecar_config") return { enabled: (args as { enabled?: boolean })?.enabled ?? false, sidecar_root: (args as { enabled?: boolean })?.enabled ? ".reviews" : null, count_in_folder: 0, count_colocated: 0 };
+              if (cmd === "migrate_sidecars_cmd") return { moved: 0, failed: [], config: { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 } };
             }
             return result;
           }
@@ -198,6 +201,9 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           if (cmd === "set_file_viewer_pref") return undefined;
           if (cmd === "register_window_folder") return undefined;
           if (cmd === "unregister_window_folder") return undefined;
+          if (cmd === "get_sidecar_config") return { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 };
+          if (cmd === "set_sidecar_config") return { enabled: (args as { enabled?: boolean })?.enabled ?? false, sidecar_root: (args as { enabled?: boolean })?.enabled ? ".reviews" : null, count_in_folder: 0, count_colocated: 0 };
+          if (cmd === "migrate_sidecars_cmd") return { moved: 0, failed: [], config: { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 } };
           // ── Two-layer mock parity (issue #135) ─────────────────────────
           // Mirroring the Vitest mock defaults so unit-tests and browser
           // e2e tests observe the same baseline shape. Locked in by

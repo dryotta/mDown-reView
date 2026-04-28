@@ -92,8 +92,8 @@ export interface ReadDirResult {
   has_more: boolean;
 }
 
-export const readDir = (path: string, limit?: number): Promise<ReadDirResult> =>
-  invoke<ReadDirResult>("read_dir", { path, limit: limit ?? null });
+export const readDir = (path: string, limit?: number, showSidecars?: boolean): Promise<ReadDirResult> =>
+  invoke<ReadDirResult>("read_dir", { path, limit: limit ?? null, showSidecars: showSidecars ?? null });
 
 export const getLaunchArgs = (): Promise<LaunchArgs> =>
   invoke<LaunchArgs>("get_launch_args");
@@ -298,7 +298,33 @@ export interface WordSpan {
 export const tokenizeWords = (text: string): Promise<WordSpan[]> =>
   invoke<WordSpan[]>("tokenize_words", { text });
 
-// ── Remote asset fetcher (bounded HTTPS image proxy) ─────────────────────
+// ── Sidecar config (issue #240) ──────────────────────────────────────────
+
+export interface SidecarConfigResult {
+  enabled: boolean;
+  sidecar_root: string | null;
+  count_in_folder: number;
+  count_colocated: number;
+}
+
+export interface MigrateSidecarsResult {
+  moved: number;
+  failed: string[];
+  config: SidecarConfigResult;
+}
+
+export type MigrateDirection = "to_folder" | "to_colocated";
+
+export const getSidecarConfig = (root: string): Promise<SidecarConfigResult> =>
+  invoke<SidecarConfigResult>("get_sidecar_config", { root });
+
+export const setSidecarConfig = (root: string, enabled: boolean): Promise<SidecarConfigResult> =>
+  invoke<SidecarConfigResult>("set_sidecar_config", { root, enabled });
+
+export const migrateSidecars = (root: string, direction: MigrateDirection): Promise<MigrateSidecarsResult> =>
+  invoke<MigrateSidecarsResult>("migrate_sidecars_cmd", { root, direction });
+
+// ── Remote asset fetcher(bounded HTTPS image proxy) ─────────────────────
 // Renderer hands a remote URL to Rust; Rust returns a single binary blob
 // (`tauri::ipc::Response`) so the payload bytes do NOT bloat through JSON
 // number-array encoding (~3-4× per byte). Wire format:

@@ -16,6 +16,7 @@ pub mod onboarding;
 pub mod remote_asset;
 pub mod search;
 pub mod system;
+pub mod sidecar_config;
 pub mod word_tokens;
 
 // ── Re-export core types so existing code (lib.rs, tests) still compiles ──
@@ -50,6 +51,10 @@ pub use search::{
     parse_kql, search_in_document, strip_json_comments, KqlPipelineStep, SearchMatch,
 };
 pub use system::{reveal_in_folder, SystemError};
+pub use sidecar_config::{
+    get_sidecar_config, migrate_sidecars_cmd, set_sidecar_config, MigrateSidecarsResult,
+    SidecarConfigResult,
+};
 pub use word_tokens::tokenize_words;
 
 /// True for `<file>.review.yaml` / `<file>.review.json` sidecar names.
