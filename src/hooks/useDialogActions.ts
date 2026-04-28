@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { showOpenDialog } from "@/lib/tauri-commands";
+import { showOpenDialog, registerWindowFolder } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
 import { useStore } from "@/store";
 
 export function useDialogActions() {
@@ -30,6 +31,9 @@ export function useDialogActions() {
       if (typeof selected === "string") {
         await setRoot(selected);
         addRecentItem(selected, "folder");
+        registerWindowFolder(selected).catch((err) =>
+          warn(`[useDialogActions] register_window_folder failed: ${err}`)
+        );
       }
     } catch {
       // User cancelled or dialog error

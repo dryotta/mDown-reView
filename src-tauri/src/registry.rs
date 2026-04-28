@@ -126,6 +126,14 @@ impl WindowRegistry {
         entries.push(WindowEntry { label, kind });
     }
 
+    /// Update the kind of an existing window entry.
+    pub fn update_kind(&self, label: &str, kind: WindowKind) {
+        let mut entries = self.entries.lock().expect("registry lock poisoned");
+        if let Some(entry) = entries.iter_mut().find(|e| e.label == label) {
+            entry.kind = kind;
+        }
+    }
+
     /// Remove a window by label.
     pub fn unregister(&self, label: &str) {
         let mut entries = self.entries.lock().expect("registry lock poisoned");
@@ -378,6 +386,25 @@ mod tests {
             let child = Path::new("/users/dev/project/src/main.rs");
             assert!(is_ancestor(parent, child));
         }
+    }
+
+    #[test]
+    fn update_kind_changes_existing_entry() {
+        let reg = WindowRegistry::new();
+        reg.register("main".to_string(), WindowKind::FileOnly);
+        assert!(reg.find_file_only().is_some());
+        reg.update_kind("main", WindowKind::Folder(PathBuf::from("/projects/myapp")));
+        assert!(reg.find_file_only().is_none());
+        assert!(reg.find_by_folder(Path::new("/projects/myapp")).is_some());
+    }
+
+    #[test]
+    fn update_kind_noop_for_unknown_label() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".to_string(), WindowKind::FileOnly);
+        reg.update_kind("unknown", WindowKind::Folder(PathBuf::from("/a")));
+        // w1 should remain FileOnly
+        assert!(reg.find_file_only().is_some());
     }
 
     #[test]

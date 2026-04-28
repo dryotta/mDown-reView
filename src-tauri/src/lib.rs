@@ -28,6 +28,33 @@ fn folder_display_name(path: &std::path::Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
+#[tauri::command]
+fn register_window_folder(
+    window: tauri::Window,
+    folder: String,
+    registry: tauri::State<'_, registry::WindowRegistry>,
+) -> Result<(), String> {
+    let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&folder))
+        .map_err(|e| format!("invalid folder: {}", e))?;
+    let display = folder_display_name(&canonical);
+    registry.update_kind(window.label(), registry::WindowKind::Folder(canonical));
+    let _ = window.set_title(&format!("mdownreview — {display}"));
+    log::info!("[window] {} registered folder: {display}", window.label());
+    Ok(())
+}
+
+#[tauri::command]
+fn unregister_window_folder(
+    window: tauri::Window,
+    registry: tauri::State<'_, registry::WindowRegistry>,
+) -> Result<(), String> {
+    registry.update_kind(window.label(), registry::WindowKind::FileOnly);
+    // TODO: call watcher_state.remove_window once fix/per-window-watcher-state merges
+    let _ = window.set_title("mdownreview");
+    log::info!("[window] {} unregistered folder", window.label());
+    Ok(())
+}
+
 /// Find the focused `WebviewWindow`, falling back to the "main" window.
 fn focused_or_main<M: Manager<tauri::Wry>>(manager: &M) -> Option<tauri::WebviewWindow> {
     manager
@@ -254,6 +281,13 @@ pub fn run() {
             )?;
             let close_folder =
                 MenuItem::with_id(app, "close-folder", "Close Folder", true, None::<&str>)?;
+            let new_window = MenuItem::with_id(
+                app,
+                "new-window",
+                "New Window",
+                true,
+                Some("CmdOrCtrl+Shift+N"),
+            )?;
             let close_tab =
                 MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
             let close_all_tabs = MenuItem::with_id(
@@ -266,6 +300,7 @@ pub fn run() {
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open_file)
                 .item(&open_folder)
+                .item(&new_window)
                 .item(&close_folder)
                 .separator()
                 .item(&close_tab)
@@ -339,6 +374,24 @@ pub fn run() {
                         for w in app.webview_windows().values() {
                             let _ = w.unminimize();
                             let _ = w.show();
+                        }
+                        return;
+                    }
+                    "new-window" => {
+                        let reg = app.state::<registry::WindowRegistry>();
+                        let label = reg.next_label();
+                        let builder = tauri::WebviewWindowBuilder::new(
+                            app, &label, tauri::WebviewUrl::App("index.html".into()),
+                        )
+                        .title("mdownreview")
+                        .inner_size(1100.0, 750.0)
+                        .min_inner_size(600.0, 400.0);
+                        match builder.build() {
+                            Ok(_) => {
+                                reg.register(label.clone(), registry::WindowKind::FileOnly);
+                                log::info!("[window] new-window: created {label}");
+                            }
+                            Err(e) => log::error!("[window] new-window failed: {e}"),
                         }
                         return;
                     }
@@ -434,6 +487,8 @@ pub fn run() {
                 commands::word_tokens::tokenize_words,
                 update::check_update,
                 update::install_update,
+                register_window_folder,
+                unregister_window_folder,
                 $($extra),*
             ]
         };
