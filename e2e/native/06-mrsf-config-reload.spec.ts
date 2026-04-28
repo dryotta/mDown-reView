@@ -22,7 +22,7 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
       });
 
       // Give the watcher time to register
-      await nativePage.waitForTimeout(2000);
+      await nativePage.waitForTimeout(3000);
 
       // Drop .mrsf.yaml — watcher should detect and reload config internally
       fs.writeFileSync(
@@ -30,8 +30,9 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
         "sidecar_root: .reviews\n",
       );
 
-      // Wait for watcher to pick up the .mrsf.yaml change (debounce 300ms + processing)
-      await nativePage.waitForTimeout(3000);
+      // Wait for watcher to pick up the .mrsf.yaml change (debounce 300ms +
+      // processing; Windows CI runners can be slow so allow up to 8s)
+      await nativePage.waitForTimeout(8000);
 
       // Add a comment via IPC — should land in .reviews/ not co-located
       await nativePage.evaluate((fp: string) => {
@@ -47,11 +48,17 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
         });
       }, docFile);
 
-      // Wait briefly for the sidecar write
-      await nativePage.waitForTimeout(1000);
+      // Wait for the sidecar write (poll up to 5s)
+      const reviewsDir = path.join(tmpDir, ".reviews");
+      const sidecarPath = path.join(reviewsDir, "readme.md.review.yaml");
+      let found = false;
+      for (let i = 0; i < 10; i++) {
+        if (fs.existsSync(sidecarPath)) { found = true; break; }
+        await nativePage.waitForTimeout(500);
+      }
 
       // Verify: sidecar landed in .reviews/ directory
-      const reviewsDir = path.join(tmpDir, ".reviews");
+      expect(found).toBe(true);
       expect(fs.existsSync(reviewsDir)).toBe(true);
 
       // Find the sidecar file under .reviews/
