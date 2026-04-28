@@ -183,6 +183,15 @@
   min-height: 100%;
 }
 
+/* Viewport-fill mode for viewers that should not scroll (e.g. Mermaid
+   visual). Adds `height: 100%` so `.enhanced-viewer-content` children
+   can resolve `height: 100%` against a definite container. Scrollable
+   viewers (markdown, source) must NOT use this — they need the parent
+   to grow beyond the viewport via `min-height` only. */
+.enhanced-viewer--fill {
+  height: 100%;
+}
+
 /* L1 — flex child that fills all space below the sticky toolbar.
    Used by visual-view wrappers so the viewer component can expand
    to the bottom of the scroll region (#213).

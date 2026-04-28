@@ -51,8 +51,13 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
 
   const isMermaidVisual = category === "mermaid" && !showSource;
 
+  // Categories whose visual view must fill the viewport (not scroll with
+  // content). These get `enhanced-viewer--fill` which adds `height: 100%`
+  // so children can resolve percentage heights.
+  const needsFill = !showSource && (category === "mermaid" || category === "csv" || category === "kql" || category === "html");
+
   return (
-    <div className="enhanced-viewer">
+    <div className={`enhanced-viewer${needsFill ? " enhanced-viewer--fill" : ""}`}>
       {/* L1 — file actions live in the toolbar's `trailing` slot so they
           inherit its sticky positioning instead of becoming a sibling row. */}
       <ViewerToolbar
