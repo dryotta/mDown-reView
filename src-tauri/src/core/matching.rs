@@ -7,7 +7,8 @@ const FUZZY_THRESHOLD: f64 = 0.6;
 ///
 /// For each comment:
 /// 1. Exact `selected_text` substring match (original line first, then full scan)
-/// 2. Line fallback when no `selected_text` is present
+///    — when multiple matches exist, pick closest to original line (MRSF §7.2)
+/// 2. Line fallback with plausibility check (MRSF §7.4 step 2b)
 /// 3. Fuzzy match via Levenshtein similarity
 /// 4. Orphan at clamped line or 1
 pub fn match_comments(comments: &[MrsfComment], file_lines: &[&str]) -> Vec<MatchedComment> {
@@ -39,71 +40,95 @@ pub fn match_comments(comments: &[MrsfComment], file_lines: &[&str]) -> Vec<Matc
                 };
             }
 
-            // Step 1: Exact selected_text match
+            // Step 1: Exact selected_text match (MRSF §7.4 step 1)
             if let Some(sel) = selected_text {
-                // Try at original line first
-                if let Some(ol) = orig_line {
-                    if ol >= 1 && ol <= line_count && file_lines[(ol - 1) as usize].contains(sel) {
-                        return MatchedComment {
-                            comment: comment.clone(),
-                            matched_line_number: ol,
-                            is_orphaned: false,
-                            anchored_text: None,
-                        };
-                    }
-                }
-                // Search entire file
-                for (i, line) in file_lines.iter().enumerate() {
-                    if line.contains(sel) {
-                        let new_line = (i as u32) + 1;
+                // Collect all matching lines
+                let matches: Vec<u32> = file_lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, line)| line.contains(sel))
+                    .map(|(i, _)| (i as u32) + 1)
+                    .collect();
+
+                if matches.len() == 1 {
+                    // §7.4 step 1a — single match
+                    let new_line = matches[0];
+                    let mut c = comment.clone();
+                    c.line = Some(new_line);
+                    return MatchedComment {
+                        comment: c,
+                        matched_line_number: new_line,
+                        is_orphaned: false,
+                        anchored_text: None,
+                    };
+                } else if matches.len() > 1 {
+                    // §7.4 step 1b / §7.2 — multiple matches
+                    if let Some(ol) = orig_line {
+                        // Disambiguate: pick closest to original line
+                        let best = *matches
+                            .iter()
+                            .min_by_key(|&&m| (m as i64 - ol as i64).unsigned_abs())
+                            .unwrap();
                         let mut c = comment.clone();
-                        c.line = Some(new_line);
+                        c.line = Some(best);
                         return MatchedComment {
                             comment: c,
-                            matched_line_number: new_line,
+                            matched_line_number: best,
                             is_orphaned: false,
                             anchored_text: None,
                         };
                     }
-                }
-            }
-
-            // Step 2: Line/column fallback
-            if let Some(ol) = orig_line {
-                if ol >= 1 && ol <= line_count {
-                    if selected_text.is_some() {
-                        // Step 3: Fuzzy match (selected_text provided but exact failed)
-                        if let Some(sel) = selected_text {
-                            if let Some(fuzzy) = find_fuzzy_match(file_lines, sel, ol) {
-                                let mut c = comment.clone();
-                                c.line = Some(fuzzy.line);
-                                return MatchedComment {
-                                    comment: c,
-                                    matched_line_number: fuzzy.line,
-                                    is_orphaned: false,
-                                    anchored_text: Some(fuzzy.anchored_text),
-                                };
-                            }
-                        }
-                        // Had selected_text but couldn't find it → orphan
-                        return MatchedComment {
-                            comment: comment.clone(),
-                            matched_line_number: ol,
-                            is_orphaned: true,
-                            anchored_text: None,
-                        };
-                    }
-                    // Pure line fallback (no selected_text)
+                    // No line hint — §7.2 SHOULD flag as ambiguous; pick first
+                    tracing::warn!(
+                        "[matching] comment {} has {} exact matches for selected_text but no line hint — ambiguous",
+                        comment.id,
+                        matches.len()
+                    );
+                    let first = matches[0];
+                    let mut c = comment.clone();
+                    c.line = Some(first);
                     return MatchedComment {
-                        comment: comment.clone(),
-                        matched_line_number: ol,
+                        comment: c,
+                        matched_line_number: first,
                         is_orphaned: false,
                         anchored_text: None,
                     };
                 }
+                // No matches found — fall through to step 2
             }
 
-            // Step 3: Fuzzy match (no valid line)
+            // Step 2: Line/column fallback with plausibility check (MRSF §7.4 step 2)
+            if let Some(ol) = orig_line {
+                if ol >= 1 && ol <= line_count {
+                    if let Some(sel) = selected_text {
+                        // §7.4 step 2b — check if content at original line is plausible
+                        let line_text = file_lines[(ol - 1) as usize];
+                        let plausibility = fuzzy_score(sel, line_text);
+                        if plausibility >= FUZZY_THRESHOLD {
+                            // Plausible: anchor here but mark as needing re-anchoring
+                            let mut c = comment.clone();
+                            c.line = Some(ol);
+                            return MatchedComment {
+                                comment: c,
+                                matched_line_number: ol,
+                                is_orphaned: false,
+                                anchored_text: Some(line_text.to_string()),
+                            };
+                        }
+                        // Not plausible — proceed to step 3 (fuzzy search)
+                    } else {
+                        // Pure line fallback (no selected_text)
+                        return MatchedComment {
+                            comment: comment.clone(),
+                            matched_line_number: ol,
+                            is_orphaned: false,
+                            anchored_text: None,
+                        };
+                    }
+                }
+            }
+
+            // Step 3: Fuzzy match (contextual re-anchoring, MRSF §7.4 step 3)
             if let Some(sel) = selected_text {
                 let center = orig_line.unwrap_or(1);
                 if let Some(fuzzy) = find_fuzzy_match(file_lines, sel, center) {
@@ -118,7 +143,7 @@ pub fn match_comments(comments: &[MrsfComment], file_lines: &[&str]) -> Vec<Matc
                 }
             }
 
-            // Step 4: Orphan
+            // Step 4: Orphan (MRSF §7.4 step 4)
             let fallback_line = match orig_line {
                 Some(ol) => ol.min(line_count),
                 None => 1,
@@ -334,4 +359,59 @@ mod tests {
     }
 
     // --- Tests for levenshtein and fuzzy_score live in core::fuzzy ---
+
+    #[test]
+    fn multiple_exact_matches_picks_closest_to_original_line() {
+        // "hello" appears on lines 1, 3, 5. Original line is 4 → pick line 3 (closest).
+        let comments = vec![make_comment("c1", Some(4), Some("hello"))];
+        let lines = vec![
+            "hello world",
+            "other stuff",
+            "hello there",
+            "something",
+            "hello again",
+        ];
+        let result = match_comments(&comments, &lines);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].matched_line_number, 3);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn multiple_exact_matches_no_line_hint_picks_first() {
+        // "hello" appears on lines 2, 4. No line hint → picks first (line 2).
+        let comments = vec![make_comment("c1", None, Some("hello"))];
+        let lines = vec!["other", "hello world", "stuff", "hello there"];
+        let result = match_comments(&comments, &lines);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].matched_line_number, 2);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn plausibility_check_skips_unrelated_line() {
+        // selected_text is "hello world", original line 2 now has "completely different".
+        // Plausibility check should fail → goes to fuzzy → finds "hello warld" on line 3.
+        let comments = vec![make_comment("c1", Some(2), Some("hello world"))];
+        let lines = vec!["first", "completely different content here", "hello warld"];
+        let result = match_comments(&comments, &lines);
+        assert_eq!(result.len(), 1);
+        // Should find fuzzy match on line 3, NOT fall back to unrelated line 2
+        assert_eq!(result[0].matched_line_number, 3);
+        assert!(!result[0].is_orphaned);
+        assert!(result[0].anchored_text.is_some());
+    }
+
+    #[test]
+    fn plausibility_check_accepts_similar_line() {
+        // selected_text is "hello world", original line 2 has "hello World!" (plausible).
+        // Should anchor at line 2 with anchored_text.
+        let comments = vec![make_comment("c1", Some(2), Some("hello world"))];
+        let lines = vec!["first", "hello World!", "third"];
+        let result = match_comments(&comments, &lines);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].matched_line_number, 2);
+        assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].anchored_text.as_deref(), Some("hello World!"));
+    }
 }

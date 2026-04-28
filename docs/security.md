@@ -71,7 +71,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 - **`check_path_exists` and `read_binary_file` lack the canonicalization guard used by `read_dir`** (`commands/fs.rs:9-15, 96-109`). A symlink could redirect image loads outside the workspace.
 - **Sidecar `selected_text` and `text` have no per-field length limit** (`core/types.rs:17-45`); the file-level 10 MB cap (rule 3) bounds total sidecar size, but a single comment can still occupy most of that budget.
 - **Full file paths are logged unredacted** (across `commands/*.rs` `tracing::error!` sites and `watcher.rs:158`). Shared logs leak workspace structure and usernames.
-- **No MRSF schema version gate.** `load_sidecar` accepts any `mrsf_version`; a future-versioned sidecar may deserialize with silently dropped fields.
+- **MRSF schema version gate.** `load_sidecar` rejects sidecars with unsupported major versions (> 1) via `reject_unsupported_version`. Minor versions within major 1 are accepted per spec §5.
 - **Mermaid SVG injected via `dangerouslySetInnerHTML`** (`MermaidView.tsx:89`) relies on upstream `securityLevel: "strict"` with no defense in depth.
 - **Supply-chain rule is not codified.** No `deny.toml` / `cargo-deny` or npm audit gate in CI.
 - **`patch_comment` in `core/sidecar.rs` is public and internally reachable.** Future wiring without `with_sidecar_mut` would bypass atomic-save.

@@ -93,7 +93,7 @@ flowchart LR
 
 ## MRSF v1.0 / v1.1 sidecar schema
 
-Comments persist as **Markdown Review Sidecar Format (MRSF) v1.0** — an open standard ([specification](https://sidemark.org/specification.html)) compatible with VS Code's Sidemark extension. v1.1 extends the schema with a tagged `Anchor` discriminator (image/csv/json/html/word_range anchors), an `anchor_history` FIFO(3) fallback chain, and per-comment `reactions`. Source of truth: `src-tauri/src/core/types/wire.rs` (serde repr + tagged discriminator) and `src-tauri/src/core/types/mod.rs` (in-memory `Anchor` enum). One sidecar per reviewed document:
+Comments persist as **Markdown Review Sidecar Format (MRSF) v1.0** — an open standard ([upstream specification](https://github.com/wictorwilen/MRSF/blob/main/MRSF-v1.0.md), [local copy](specs/MRSF-v1.0.md), [sidemark.org](https://sidemark.org/specification.html)) compatible with VS Code's Sidemark extension. v1.1 extends the schema with a tagged `Anchor` discriminator (image/csv/json/html/word_range anchors), an `anchor_history` FIFO(3) fallback chain, and per-comment `reactions`. Source of truth: `src-tauri/src/core/types/wire.rs` (serde repr + tagged discriminator) and `src-tauri/src/core/types/mod.rs` (in-memory `Anchor` enum). One sidecar per reviewed document:
 
 - `<filename>.review.yaml` (primary)
 - `<filename>.review.json` (legacy read-only fallback)

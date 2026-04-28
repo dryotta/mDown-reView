@@ -241,3 +241,56 @@ fn load_sidecar_rejects_yaml_anchors() {
         other => panic!("expected SidecarError::Io, got {:?}", other),
     }
 }
+
+#[test]
+fn load_sidecar_rejects_unsupported_major_version() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("future.md");
+    let yaml_path = tmp.path().join("future.md.review.yaml");
+    std::fs::write(&file_path, "# t").unwrap();
+    std::fs::write(
+        &yaml_path,
+        "mrsf_version: \"2.0\"\ndocument: future.md\ncomments: []\n",
+    )
+    .unwrap();
+
+    let err = load_sidecar(file_path.to_str().unwrap()).unwrap_err();
+    assert!(
+        matches!(err, SidecarError::UnsupportedVersion(ref v) if v == "2.0"),
+        "expected UnsupportedVersion(\"2.0\"), got {:?}",
+        err
+    );
+}
+
+#[test]
+fn load_sidecar_rejects_malformed_version() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("bad.md");
+    let yaml_path = tmp.path().join("bad.md.review.yaml");
+    std::fs::write(&file_path, "# t").unwrap();
+    std::fs::write(
+        &yaml_path,
+        "mrsf_version: \"banana\"\ndocument: bad.md\ncomments: []\n",
+    )
+    .unwrap();
+
+    let err = load_sidecar(file_path.to_str().unwrap()).unwrap_err();
+    assert!(matches!(err, SidecarError::UnsupportedVersion(_)));
+}
+
+#[test]
+fn load_sidecar_accepts_v1_minor_versions() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("v1x.md");
+    let yaml_path = tmp.path().join("v1x.md.review.yaml");
+    std::fs::write(&file_path, "# t").unwrap();
+    std::fs::write(
+        &yaml_path,
+        "mrsf_version: \"1.5\"\ndocument: v1x.md\ncomments: []\n",
+    )
+    .unwrap();
+
+    let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().mrsf_version, "1.5");
+}
