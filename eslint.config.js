@@ -5,6 +5,7 @@ import reactPlugin from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import prettier from "eslint-config-prettier";
 import security from "eslint-plugin-security";
+import noDirectInvoke from "./eslint-rules/no-direct-invoke.js";
 import noSharedBooleanMount from "./eslint-rules/no-shared-boolean-mount.js";
 
 export default [
@@ -21,7 +22,12 @@ export default [
       "react-hooks": reactHooks,
       // Local rules live under `eslint-rules/`. See docs/architecture.md
       // rule 28 for the no-shared-boolean-mount enforcement.
-      local: { rules: { "no-shared-boolean-mount": noSharedBooleanMount } },
+      local: {
+        rules: {
+          "no-shared-boolean-mount": noSharedBooleanMount,
+          "no-direct-invoke": noDirectInvoke,
+        },
+      },
       security: security,
     },
     rules: {
@@ -34,6 +40,7 @@ export default [
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "local/no-shared-boolean-mount": "error",
+      "local/no-direct-invoke": "error",
 
       // Import hygiene
       "import-x/no-duplicates": "warn",
@@ -81,6 +88,7 @@ export default [
     ],
     rules: {
       "no-console": "off",
+      "local/no-direct-invoke": "off",
     },
   },
   prettier,
