@@ -1,7 +1,6 @@
 pub mod anchors;
 pub mod atomic;
 pub mod comments;
-pub mod export;
 pub mod fold_regions;
 pub mod fuzzy;
 pub mod html_assets;

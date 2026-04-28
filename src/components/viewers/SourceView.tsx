@@ -1,5 +1,4 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
-import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
@@ -39,7 +38,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
   const sourceLinesRef = useRef<HTMLDivElement>(null);
 
   const { threads } = useComments(filePath);
-  const { addComment, commitMoveAnchor } = useCommentActions();
+  const { addComment } = useCommentActions();
 
   const lines = useMemo(() => content.split("\n"), [content]);
 
@@ -138,25 +137,6 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
-  const handleSourceLinesClick = useCallback((e: React.MouseEvent) => {
-    const moveTarget = useStore.getState().moveAnchorTarget;
-    if (moveTarget === null) return;
-    const lineEl = (e.target as HTMLElement).closest<HTMLElement>("[data-line-idx]");
-    const idxStr = lineEl?.dataset.lineIdx;
-    if (idxStr !== undefined) {
-      const lineIdx = parseInt(idxStr, 10);
-      if (!Number.isNaN(lineIdx)) {
-        // Source view is 0-indexed in DOM; commenter API is 1-indexed.
-        const line = lineIdx + 1;
-        void commitMoveAnchor(filePath, moveTarget, { kind: "line", line });
-        useStore.getState().setMoveAnchorTarget(null);
-        e.stopPropagation();
-      }
-    }
-    // Missed click (no [data-line-idx] under target, or NaN) → leave move
-    // mode active. Esc / Cancel button still cancels.
-  }, [commitMoveAnchor, filePath]);
-
   // F6 — right-click context menu. Source view lines use `data-line-idx`
   // (0-indexed in DOM); commenter API is 1-indexed, so we add 1.
   const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } = useViewerContextMenu({
@@ -189,7 +169,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
           This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
         </div>
       )}
-      <div className="source-lines" ref={sourceLinesRef} onClick={handleSourceLinesClick} onMouseUp={handleMouseUp} onContextMenu={handleContextMenu}>
+      <div className="source-lines" ref={sourceLinesRef} onMouseUp={handleMouseUp} onContextMenu={handleContextMenu}>
         {model.map((item) => {
           // Build the per-line save callback only for the currently-commenting
           // line; all other lines receive `undefined` (a stable reference) so

@@ -48,7 +48,6 @@ export default function App() {
   const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
-  const isMoveAnchorMode = useStore((s) => s.moveAnchorTarget !== null);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
 
@@ -132,25 +131,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [checkForUpdate]);
 
-  // Move-anchor mode: toggle a body class so global CSS can swap the cursor
-  // for every element under <body> while the user picks a target line.
-  useEffect(() => {
-    document.body.classList.toggle("mode-move-anchor", isMoveAnchorMode);
-    return () => { document.body.classList.remove("mode-move-anchor"); };
-  }, [isMoveAnchorMode]);
-
-  // Move-anchor mode: global Esc cancels. Capture phase so it wins over
-  // any per-component keydown handler. Read the current value via getState()
-  // (rule 9) so the listener doesn't need to re-bind on every state change.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && useStore.getState().moveAnchorTarget !== null) {
-        useStore.getState().setMoveAnchorTarget(null);
-      }
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, []);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
@@ -176,12 +156,6 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      {isMoveAnchorMode && (
-        <div className="move-anchor-banner" role="status" aria-live="polite" data-testid="move-anchor-banner">
-          Click a line to move the comment.{" "}
-          <button onClick={() => useStore.getState().setMoveAnchorTarget(null)}>Cancel</button>
-        </div>
-      )}
       <ErrorBoundary>
       <div className="toolbar">
         <div className="toolbar-btn-group">

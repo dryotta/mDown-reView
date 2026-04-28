@@ -16,9 +16,8 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 /// Hard cap on sidecar size (10 MB). Protects every reader
-/// (`load_sidecar`, `patch_comment`, `get_file_comments`, `get_file_badges`,
-/// `export_review_summary`) against OOM from a maliciously-crafted or
-/// pathologically-large sidecar.
+/// (`load_sidecar`, `patch_comment`, `get_file_comments`, `get_file_badges`)
+/// against OOM from a maliciously-crafted or pathologically-large sidecar.
 pub(crate) const SIDECAR_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Read a sidecar file, refusing anything larger than [`SIDECAR_MAX_BYTES`].

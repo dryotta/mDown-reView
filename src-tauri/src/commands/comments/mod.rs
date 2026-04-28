@@ -1,9 +1,8 @@
 //! Comment thread mutation commands (sidecar reads, writes, anchor hashing).
 //!
-//! Split into 5 submodules for the 400-LOC budget (architecture rule 23):
+//! Split into 4 submodules for the 400-LOC budget (architecture rule 23):
 //! - `mod.rs` — workspace guard + CRUD entry points
 //! - `badges.rs` — `get_file_badges`
-//! - `export.rs` — `export_review_summary`
 //! - `get.rs` — `get_file_comments` (typed-anchor dispatch + matching)
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
@@ -19,12 +18,10 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use crate::watcher::WatcherState;
 
 pub mod badges;
-pub mod export;
 pub mod get;
 pub mod update;
 
 pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
-pub use export::{export_review_summary, export_review_summary_inner};
 pub use get::{get_file_comments, get_file_comments_inner, GetFileCommentsResult};
 pub use update::{update_comment, update_comment_apply, update_comment_inner, CommentPatch};
 

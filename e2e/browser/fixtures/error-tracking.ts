@@ -198,7 +198,6 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           }
           if (cmd === "get_file_badges") return {};
           if (cmd === "tokenize_words") return [];
-          if (cmd === "export_review_summary") return "";
           if (cmd === "update_comment") return undefined;
           if (cmd === "set_author") return "";
           if (cmd === "get_author") return "Test User";

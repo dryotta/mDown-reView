@@ -432,25 +432,6 @@ describe("F0 IPC surface", () => {
     });
   });
 
-  it("updateComment dispatches move_anchor with tagged Anchor payload", async () => {
-    // Wire-shape contract: the tagged `{kind, anchor_kind, ...}` Anchor must
-    // pass through unchanged so the Rust `AnchorRepr` deserialiser accepts
-    // it. Asserting the exact patch object guards against an over-eager
-    // wrapper introducing accidental field reshaping.
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockClear();
-    const { updateComment } = await import("../tauri-commands");
-    await updateComment("/ws/a.md", "c3", {
-      kind: "move_anchor",
-      data: { new_anchor: { kind: "file" } },
-    });
-    expect(invoke).toHaveBeenCalledWith("update_comment", {
-      filePath: "/ws/a.md",
-      commentId: "c3",
-      patch: { kind: "move_anchor", data: { new_anchor: { kind: "file" } } },
-    });
-  });
-
   it("getFileBadges dispatches to get_file_badges with filePaths", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     vi.mocked(invoke).mockClear();
@@ -460,16 +441,6 @@ describe("F0 IPC surface", () => {
     expect(invoke).toHaveBeenCalledWith("get_file_badges", { filePaths: ["/ws/a.md"] });
     expect(out["/ws/a.md"].count).toBe(2);
     expect(out["/ws/a.md"].max_severity).toBe("high");
-  });
-
-  it("exportReviewSummary dispatches to export_review_summary", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce("# Review summary\n");
-    const { exportReviewSummary } = await import("../tauri-commands");
-    const out = await exportReviewSummary("/ws");
-    expect(invoke).toHaveBeenCalledWith("export_review_summary", { workspace: "/ws" });
-    expect(out).toContain("# Review summary");
   });
 
   it("setAuthor dispatches to set_author and returns trimmed name", async () => {
@@ -488,8 +459,8 @@ describe("F0 IPC surface", () => {
     vi.mocked(invoke).mockResolvedValueOnce(undefined);
     const { updateComment } = await import("../tauri-commands");
     await updateComment("/ws/a.md", "c1", {
-      kind: "add_reaction",
-      data: { user: "u", kind: "thumbs_up", ts: "2025-01-01T00:00:00Z" },
+      kind: "set_resolved",
+      data: { resolved: true },
     });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();

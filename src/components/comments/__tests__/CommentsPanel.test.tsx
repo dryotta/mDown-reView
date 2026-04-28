@@ -22,8 +22,6 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
     deleteComment: vi.fn().mockResolvedValue(undefined),
     resolveComment: vi.fn().mockResolvedValue(undefined),
     unresolveComment: vi.fn().mockResolvedValue(undefined),
-    commitMoveAnchor: vi.fn().mockResolvedValue(undefined),
-    addReaction: vi.fn().mockResolvedValue(undefined),
     resolveFocusedThread: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -79,8 +77,6 @@ beforeEach(() => {
     deleteComment: vi.fn().mockResolvedValue(undefined),
     resolveComment: vi.fn().mockResolvedValue(undefined),
     unresolveComment: vi.fn().mockResolvedValue(undefined),
-    commitMoveAnchor: vi.fn().mockResolvedValue(undefined),
-    addReaction: vi.fn().mockResolvedValue(undefined),
     resolveFocusedThread: vi.fn().mockResolvedValue(undefined),
   });
   mockUseComments.mockReturnValue({ threads: [], comments: [], loading: false, reload: vi.fn() });

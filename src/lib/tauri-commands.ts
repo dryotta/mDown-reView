@@ -38,7 +38,6 @@ export type {
   WordRangeAnchor,
 } from "@/types/comments";
 import type { MrsfComment } from "@/types/comments";
-import type { Anchor } from "@/types/comments";
 
 // ── Typed wrappers ─────────────────────────────────────────────────────────
 
@@ -211,9 +210,7 @@ export interface FileBadge {
  * editing both this union and `commands/comments/update.rs`.
  */
 export type CommentPatch =
-  | { kind: "add_reaction"; data: { user: string; kind: string; ts: string } }
-  | { kind: "set_resolved"; data: { resolved: boolean } }
-  | { kind: "move_anchor"; data: { new_anchor: Anchor } };
+  | { kind: "set_resolved"; data: { resolved: boolean } };
 
 /** Apply a discriminated patch to a single comment. */
 export const updateComment = (
@@ -228,10 +225,6 @@ export const getFileBadges = (
   filePaths: string[],
 ): Promise<Record<string, FileBadge>> =>
   invoke<Record<string, FileBadge>>("get_file_badges", { filePaths });
-
-/** Render a markdown digest of every thread under `workspace`. */
-export const exportReviewSummary = (workspace: string): Promise<string> =>
-  invoke<string>("export_review_summary", { workspace });
 
 /** Discriminated error from `set_author`. */
 export type ConfigError =
