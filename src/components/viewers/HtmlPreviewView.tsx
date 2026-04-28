@@ -26,6 +26,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const [resolving, setResolving] = useState(false);
   const readingContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const revokeImagesRef = useRef<(() => void) | null>(null);
   const readingWidth = useStore((s) => s.readingWidth);
   const workspaceRoot = useStore((s) => s.root) ?? "";
