@@ -125,7 +125,7 @@ export const MermaidView = forwardRef<MermaidViewHandle, Props>(function Mermaid
       const line = mapNodeToSourceLine(n, lines);
       if (line !== null) n.setAttribute("data-source-line", String(line));
     }
-  }, [svg, content, zoom, filePath]);
+  }, [svg, content, filePath]);
 
   const handleExportSvg = useCallback(() => {
     if (!svg) return;

@@ -79,7 +79,7 @@ describe("useCrossWindowPrefsSync", () => {
     expect(useStore.getState().readingWidth).toBe(1200);
   });
 
-  it("syncs zoomByFiletype across windows", () => {
+  it("does not sync zoomByFiletype (per-window session-only state)", () => {
     useStore.setState({ zoomByFiletype: {} });
     renderHook(() => useCrossWindowPrefsSync());
 
@@ -90,7 +90,7 @@ describe("useCrossWindowPrefsSync", () => {
       );
     });
 
-    expect(useStore.getState().zoomByFiletype).toEqual({ ".md": 1.5 });
+    expect(useStore.getState().zoomByFiletype).toEqual({});
   });
 
   it("updates global prefs when a storage event fires with the persist key", () => {
@@ -105,6 +105,23 @@ describe("useCrossWindowPrefsSync", () => {
 
     expect(useStore.getState().theme).toBe("dark");
     expect(useStore.getState().authorName).toBe("Alice");
+  });
+
+  it("skips setState when incoming values match current state (ping-pong guard)", () => {
+    useStore.setState({ theme: "dark", authorName: "Alice" });
+    renderHook(() => useCrossWindowPrefsSync());
+    const spy = vi.spyOn(useStore, "setState");
+
+    act(() => {
+      fireStorageEvent(
+        "mdownreview-ui",
+        payload({ theme: "dark", authorName: "Alice" }),
+      );
+    });
+
+    // setState should NOT be called when values haven't changed
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("ignores storage events for unrelated keys", () => {

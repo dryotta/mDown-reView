@@ -6,8 +6,10 @@
  *   1. `setZoom` clamps to [ZOOM_MIN, ZOOM_MAX] and rejects non-finite values.
  *   2. `bumpZoom` is the single mutation chokepoint (in/out/reset) and is
  *      itself clamped.
- *   3. The persistence allowlist (`partialize`) includes `zoomByFiletype`
- *      but NOT `allowedRemoteImageDocs` — trust decisions are session-only.
+ *   3. The persistence allowlist (`partialize`) excludes BOTH
+ *      `allowedRemoteImageDocs` (session-only trust) AND `zoomByFiletype`
+ *      (per-window session-only — persisting/syncing causes storage-event
+ *      ping-pong between windows).
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { useStore } from "@/store";
@@ -122,8 +124,8 @@ describe("viewerPrefs persistence allowlist", () => {
   // Crude but stable: extract the partialize body and string-match keys.
   const partializeBody = storeIndex.match(/partialize:\s*\(state\)\s*=>\s*\(\{([\s\S]*?)\}\)/)?.[1] ?? "";
 
-  it("includes zoomByFiletype (persisted)", () => {
-    expect(partializeBody).toMatch(/zoomByFiletype:\s*state\.zoomByFiletype/);
+  it("excludes zoomByFiletype (session-only — persisting causes ping-pong)", () => {
+    expect(partializeBody).not.toMatch(/zoomByFiletype/);
   });
 
   it("excludes allowedRemoteImageDocs (session-only trust)", () => {

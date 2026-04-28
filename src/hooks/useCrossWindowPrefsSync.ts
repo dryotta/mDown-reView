@@ -11,6 +11,13 @@ const PERSIST_KEY = "mdownreview-ui";
  * `localStorage.setItem` is called, so any prefs change made in one
  * window (theme, author, recents …) propagates live to every other
  * open window without IPC.
+ *
+ * **Equality guard:** each incoming field is compared to its current
+ * value before being included in the `setState` patch.  Without this,
+ * every `setState` call triggers the persist middleware to write ALL
+ * partialize'd fields (including per-window ones like `folderPaneWidth`)
+ * back to localStorage, which fires a `storage` event in the *other*
+ * window, creating an infinite ping-pong loop.
  */
 export function useCrossWindowPrefsSync(): void {
   useEffect(() => {
@@ -26,24 +33,33 @@ export function useCrossWindowPrefsSync(): void {
         // Apply only global prefs — NOT per-window layout state.
         // folderPaneWidth, commentsPaneVisible, showSidecarFiles are persisted
         // as defaults for new windows but never synced cross-window (issue #248).
-        useStore.setState({
-          ...(state.theme !== undefined && { theme: state.theme }),
-          ...(state.authorName !== undefined && {
-            authorName: state.authorName,
-          }),
-          ...(state.recentItems !== undefined && {
-            recentItems: state.recentItems,
-          }),
-          ...(state.updateChannel !== undefined && {
-            updateChannel: state.updateChannel,
-          }),
-          ...(state.readingWidth !== undefined && {
-            readingWidth: state.readingWidth,
-          }),
-          ...(state.zoomByFiletype !== undefined && {
-            zoomByFiletype: state.zoomByFiletype,
-          }),
-        });
+        // zoomByFiletype is session-only (not persisted or synced).
+        //
+        // Equality guard: only include fields whose value actually changed to
+        // avoid a persist → storage-event → persist ping-pong between windows.
+        const cur = useStore.getState();
+        const patch: Record<string, unknown> = {};
+
+        if (state.theme !== undefined && state.theme !== cur.theme) {
+          patch.theme = state.theme;
+        }
+        if (state.authorName !== undefined && state.authorName !== cur.authorName) {
+          patch.authorName = state.authorName;
+        }
+        if (state.updateChannel !== undefined && state.updateChannel !== cur.updateChannel) {
+          patch.updateChannel = state.updateChannel;
+        }
+        if (state.readingWidth !== undefined && state.readingWidth !== cur.readingWidth) {
+          patch.readingWidth = state.readingWidth;
+        }
+        if (state.recentItems !== undefined &&
+            JSON.stringify(state.recentItems) !== JSON.stringify(cur.recentItems)) {
+          patch.recentItems = state.recentItems;
+        }
+
+        if (Object.keys(patch).length > 0) {
+          useStore.setState(patch);
+        }
       } catch {
         // Malformed storage value — ignore silently.
       }

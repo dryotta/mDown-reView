@@ -205,8 +205,9 @@ export const useStore = create<Store>()(
       // ViewerPrefs (delegated to ./viewerPrefs.ts).
       // - `allowedRemoteImageDocs` is intentionally NOT in `partialize` below:
       //   trust decisions must not silently survive an app restart.
-      // - `zoomByFiletype` IS persisted (small bounded map, one entry per
-      //   filetype key) — see partialize.
+      // - `zoomByFiletype` is intentionally NOT in `partialize`: zoom is
+      //   per-window session-only state (persisting/syncing it causes a
+      //   storage-event ping-pong loop between windows).
       ...createViewerPrefsSlice(set, get),
 
       // TabHistory (delegated to ./tabHistory.ts) — per-window back/forward.
@@ -349,7 +350,6 @@ export const useStore = create<Store>()(
         readingWidth: state.readingWidth,
         recentItems: state.recentItems,
         updateChannel: state.updateChannel,
-        zoomByFiletype: state.zoomByFiletype,
         showSidecarFiles: state.showSidecarFiles,
       }),
     }

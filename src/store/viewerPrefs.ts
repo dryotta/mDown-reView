@@ -7,10 +7,10 @@
  *      A1). NEVER persisted: trust decisions must not silently survive an
  *      app restart, and the per-path map would bloat the persisted snapshot.
  *
- *   2. `zoomByFiletype` — per-filetype zoom level (#65 D1/D2/D3). PERSISTED
- *      via the `partialize` allowlist in `src/store/index.ts`. Bounded to a
- *      handful of small numeric entries (one per filetype key, ~10 max), so
- *      it does not bloat persistence.
+ *   2. `zoomByFiletype` — per-filetype zoom level (#65 D1/D2/D3). NOT
+ *      persisted: zoom is per-window, session-only state that must not
+ *      survive app restart or sync across windows (causes storage-event
+ *      ping-pong between windows).
  *
  * Composed into the combined store in `src/store/index.ts`. Follows the
  * extraction pattern of `src/store/tabs.ts`.
