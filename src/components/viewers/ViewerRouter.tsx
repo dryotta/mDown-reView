@@ -205,7 +205,7 @@ export function ViewerRouter({ path }: Props) {
 
   if (status === "too_large") {
     return (
-      <div className="viewer-scroll-region">
+      <div className="viewer-media-container">
         <ViewerToolbar
           activeView="visual"
           onViewChange={() => {}}

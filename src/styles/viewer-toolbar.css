@@ -210,9 +210,12 @@
 
 /* L1 — flex child that fills all space below the sticky toolbar.
    Used by visual-view wrappers so the viewer component can expand
-   to the bottom of the scroll region (#213). */
+   to the bottom of the scroll region (#213).
+   `height: 0` gives the flex item a definite height so children
+   (e.g. MermaidView) can resolve `height: 100%` against it. */
 .enhanced-viewer-content {
   flex: 1;
+  height: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -225,8 +228,14 @@
 }
 
 .viewer-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
   padding: 20px;
-  color: var(--color-badge);
+  color: var(--color-muted);
 }
 
 /* ── Responsive toolbar labels ─────────────────────────────────────── */

@@ -14,6 +14,16 @@
   color: var(--color-muted);
 }
 
+.too-large-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: var(--color-muted);
+}
+
 .binary-filename {
   font-weight: 600;
   color: var(--color-text);
