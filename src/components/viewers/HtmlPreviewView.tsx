@@ -167,7 +167,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             warn(`HtmlPreviewView: blocked iframe link (${route.reason}): ${route.href}`);
             break;
           case "external":
-            openExternalUrl(route.href).catch(() => {});
+            openExternalUrl(route.href).catch((e) => warn(`[HtmlPreviewView] link open failed: ${e}`));
             break;
           case "fragment":
             // Best-effort placeholder — full in-iframe scroll requires
@@ -238,30 +238,46 @@ export function HtmlPreviewView({ content, filePath }: Props) {
               // and link routing is delivered via the bridge postMessage path
               // (see the message-handler effect above).
               if (allowScripts) return;
+              const installClickHandler = (doc: Document) => {
+                doc.addEventListener("click", (event) => {
+                  const target = event.target as Element | null;
+                  const anchor = target?.closest?.("a") as HTMLAnchorElement | null;
+                  if (!anchor) return;
+                  const href = anchor.getAttribute("href");
+                  if (href === null) return;
+                  const route = routeLinkClick(href, { baseDir, workspaceRoot });
+                  switch (route.kind) {
+                    case "fragment":
+                      return; // let the browser scroll natively
+                    case "blocked":
+                      event.preventDefault();
+                      warn(`HtmlPreviewView: blocked iframe link (${route.reason}): ${route.href}`);
+                      return;
+                    case "external":
+                      event.preventDefault();
+                      openExternalUrl(route.href).catch((e) => warn(`[HtmlPreviewView] link open failed: ${e}`));
+                      return;
+                    case "workspace":
+                      event.preventDefault();
+                      useStore.getState().openFile(route.path);
+                      return;
+                  }
+                });
+              };
               const doc = iframeRef.current?.contentDocument;
-              if (!doc) return;
-              doc.addEventListener("click", (event) => {
-                const target = event.target as Element | null;
-                const anchor = target?.closest?.("a") as HTMLAnchorElement | null;
-                if (!anchor) return;
-                const href = anchor.getAttribute("href");
-                if (href === null) return;
-                const route = routeLinkClick(href, { baseDir, workspaceRoot });
-                switch (route.kind) {
-                  case "fragment":
-                    return; // let the browser scroll natively
-                  case "blocked":
-                    event.preventDefault();
-                    warn(`HtmlPreviewView: blocked iframe link (${route.reason}): ${route.href}`);
-                    return;
-                  case "external":
-                    event.preventDefault();
-                    openExternalUrl(route.href).catch(() => {});
-                    return;
-                  case "workspace":
-                    event.preventDefault();
-                    useStore.getState().openFile(route.path);
-                    return;
+              if (doc) {
+                installClickHandler(doc);
+                return;
+              }
+              // Bounded retry — contentDocument can be null when the load
+              // event fires before the document is fully committed (observed
+              // in some Chromium builds with srcdoc). One rAF is enough.
+              requestAnimationFrame(() => {
+                const retryDoc = iframeRef.current?.contentDocument;
+                if (retryDoc) {
+                  installClickHandler(retryDoc);
+                } else {
+                  warn("[HtmlPreviewView] contentDocument unavailable after rAF retry");
                 }
               });
             }}

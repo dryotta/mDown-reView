@@ -1,5 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { warn } from "@/logger";
 import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 
@@ -368,7 +369,7 @@ export const openExternalUrl = (url: string): Promise<void> => {
     warn(`openExternalUrl: blocked URL scheme: ${url}`);
     return Promise.reject(new Error(`Blocked URL scheme: ${url}`));
   }
-  return import("@tauri-apps/plugin-opener").then((m) => m.openUrl(url));
+  return openUrl(url);
 };
 
 export const restartApp = (): Promise<void> => {

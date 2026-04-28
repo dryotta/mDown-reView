@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-// Mock the underlying Tauri plugins. The wrappers in tauri-commands.ts use
-// dynamic imports, so vi.mock intercepts them when the wrapper is invoked.
-const writeText = vi.fn().mockResolvedValue(undefined);
-const openUrl = vi.fn().mockResolvedValue(undefined);
-const relaunch = vi.fn().mockResolvedValue(undefined);
-const open = vi.fn().mockResolvedValue("/some/path");
+// vi.hoisted ensures these variables are available when the hoisted vi.mock
+// factories run. Required because @tauri-apps/plugin-opener is now a static
+// import in tauri-commands.ts.
+const { writeText, openUrl, relaunch, open } = vi.hoisted(() => ({
+  writeText: vi.fn().mockResolvedValue(undefined),
+  openUrl: vi.fn().mockResolvedValue(undefined),
+  relaunch: vi.fn().mockResolvedValue(undefined),
+  open: vi.fn().mockResolvedValue("/some/path"),
+}));
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
