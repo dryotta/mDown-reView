@@ -139,7 +139,10 @@
 /* ── Close button ─────────────────────────────────────────────────── */
 
 .tab-close {
-  display: none;
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   cursor: pointer;
@@ -147,7 +150,7 @@
   padding: 2px;
   line-height: 1;
   flex-shrink: 0;
-  opacity: 0.6;
+  opacity: 0;
   border-radius: 4px;
   transition: opacity 0.1s ease;
 }
@@ -155,9 +158,8 @@
 .tab:hover .tab-close,
 .tab.active .tab-close,
 .tab-close:focus-visible {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  visibility: visible;
+  opacity: 0.6;
 }
 
 .tab-close:hover {
