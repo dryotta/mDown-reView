@@ -123,12 +123,7 @@ pub fn update_comment_apply(
         }
     };
     if mutated {
-        let save_path = std::path::PathBuf::from(&yaml);
-        if let Some(ref root) = ws_root {
-            crate::core::paths::ensure_sidecar_parent(root, &save_path)
-                .map_err(|e| e.to_string())?;
-        }
-        crate::core::sidecar::save_sidecar_at(&save_path, &sidecar.document, &sidecar.comments)
+        crate::core::sidecar::save_sidecar_routed(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)
             .map_err(|e| e.to_string())?;
     }
     Ok(mutated)

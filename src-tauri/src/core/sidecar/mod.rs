@@ -188,6 +188,23 @@ pub fn save_sidecar_at(
     Ok(())
 }
 
+/// Save a sidecar to a resolved path, creating parent dirs if needed.
+/// `ws_root` is `Some` when writing to a redirected sidecar_root — triggers
+/// [`crate::core::paths::ensure_sidecar_parent`] before the write.
+pub fn save_sidecar_routed(
+    yaml_path: &str,
+    ws_root: Option<&std::path::Path>,
+    document: &str,
+    comments: &[MrsfComment],
+) -> Result<(), SidecarError> {
+    let save_path = std::path::PathBuf::from(yaml_path);
+    if let Some(root) = ws_root {
+        crate::core::paths::ensure_sidecar_parent(root, &save_path)
+            .map_err(|e| SidecarError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    }
+    save_sidecar_at(&save_path, document, comments)
+}
+
 /// Save a complete sidecar. Atomically writes via temp+rename.
 /// Deletes the sidecar if comments is empty.
 pub fn save_sidecar(

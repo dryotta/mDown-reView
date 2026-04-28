@@ -403,6 +403,41 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
     Ok(())
 }
 
+/// Resolve the YAML and JSON sidecar paths for a source file, consulting
+/// a workspace config. Routes through [`resolve_sidecar_for_file`] for
+/// TOCTOU-safe canonicalization + containment checking.
+///
+/// Returns `(yaml_path, json_path, Option<workspace_root>)`. The third
+/// element is `Some` when a redirected config is active — callers use it
+/// to call [`ensure_sidecar_parent`] before writing.
+pub fn resolve_sidecar_pair(
+    file_path: &Path,
+    config: Option<(&Path, &Option<PathBuf>)>,
+) -> (String, String, Option<PathBuf>) {
+    if let Some((ws_root, sidecar_root)) = config {
+        match resolve_sidecar_for_file(ws_root, file_path, sidecar_root) {
+            Ok(resolved) => {
+                let resolved_str = resolved.to_string_lossy().into_owned();
+                if resolved_str.ends_with(".review.json") {
+                    let yaml = resolved_str.replace(".review.json", ".review.yaml");
+                    return (yaml, resolved_str, Some(ws_root.to_path_buf()));
+                }
+                let json = resolved_str.replace(".review.yaml", ".review.json");
+                return (resolved_str, json, Some(ws_root.to_path_buf()));
+            }
+            Err(e) => {
+                tracing::warn!("[sidecar-config] path resolution failed, falling back to co-located: {e}");
+            }
+        }
+    }
+    let fp = file_path.to_string_lossy();
+    (
+        format!("{}.review.yaml", fp),
+        format!("{}.review.json", fp),
+        None,
+    )
+}
+
 #[cfg(test)]
 #[path = "paths_tests.rs"]
 mod tests;
