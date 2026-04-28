@@ -216,4 +216,44 @@ describe("useFolderChildren folder-changed listener", () => {
 
     expect(unlisten).toHaveBeenCalled();
   });
+
+  it("discards stale folder-changed readDir results after root change", async () => {
+    // Simulate: rootA is loaded, folder-changed fires for rootA, then root
+    // switches to rootB before the readDir resolves. The stale result for
+    // rootA must be discarded.
+    const entriesA = [{ name: "a.md", path: "/rootA/a.md", is_dir: false }];
+    const staleRefresh = [{ name: "stale.md", path: "/rootA/stale.md", is_dir: false }];
+    const entriesB = [{ name: "b.md", path: "/rootB/b.md", is_dir: false }];
+
+    let resolveStale!: (v: ReadDirResult) => void;
+    const stalePromise = new Promise<ReadDirResult>((r) => { resolveStale = r; });
+
+    vi.mocked(commands.readDir)
+      .mockResolvedValueOnce(wrapEntries(entriesA))  // initial rootA load
+      .mockReturnValueOnce(stalePromise as never)     // folder-changed readDir (slow)
+      .mockResolvedValueOnce(wrapEntries(entriesB));  // rootB load
+
+    // Mount with rootA — loads & caches entriesA
+    const { result, rerender } = renderHook(
+      ({ root }) => useFolderChildren(root),
+      { initialProps: { root: "/rootA" as string | null } },
+    );
+    await act(async () => {});
+    expect(result.current.childrenCache["/rootA"]?.entries).toEqual(entriesA);
+
+    // Fire folder-changed for rootA — starts the slow readDir
+    const cb = getFolderChangedCallback();
+    await act(async () => { cb({ path: "/rootA" }); });
+
+    // Switch root to rootB — clears cache, sets cancelled flag
+    rerender({ root: "/rootB" });
+    await act(async () => {});
+    expect(result.current.childrenCache["/rootB"]?.entries).toEqual(entriesB);
+
+    // Now the stale readDir resolves — must be discarded
+    await act(async () => { resolveStale(wrapEntries(staleRefresh)); });
+
+    // rootA's stale result should NOT appear in the cache
+    expect(result.current.childrenCache["/rootA"]).toBeUndefined();
+  });
 });
