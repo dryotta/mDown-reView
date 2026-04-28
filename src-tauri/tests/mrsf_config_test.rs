@@ -1,9 +1,14 @@
 //! Integration tests for .mrsf.yaml sidecar_root redirection.
 //! Proves the end-to-end flow: config load → path resolve → sidecar I/O.
 
-use mdown_review_lib::core::paths::{ensure_sidecar_parent, load_mrsf_config, resolve_sidecar_for_file};
+use mdown_review_lib::commands::comments::{
+    get_file_comments_inner, get_file_badges_inner, mutate_sidecar_or_create,
+};
+use mdown_review_lib::core::paths::{canonicalize_no_verbatim, ensure_sidecar_parent, load_mrsf_config, resolve_sidecar_for_file};
+use mdown_review_lib::core::sidecar::config::SidecarConfigState;
 use mdown_review_lib::core::sidecar::{load_sidecar_at, save_sidecar_at};
 use mdown_review_lib::core::types::MrsfComment;
+use mdown_review_lib::watcher::WatcherState;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -294,4 +299,109 @@ fn config_disappearing_falls_back_to_colocated() {
     assert_eq!(loaded2.comments.len(), 1);
     assert_eq!(loaded2.comments[0].id, "c2");
     assert_eq!(loaded2.comments[0].text, "Co-located");
+}
+
+// ---------------------------------------------------------------------------
+// Missing coverage: command-layer round-trips under sidecar_root
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_file_comments_inner_with_active_sidecar_root() {
+    let dir = tempdir().unwrap();
+    let ws = dir.path();
+
+    // Create source file + config
+    std::fs::write(ws.join("readme.md"), "# Hello\nLine 2").unwrap();
+    std::fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+
+    let canonical_ws = canonicalize_no_verbatim(ws).unwrap();
+    let config = load_mrsf_config(&canonical_ws).unwrap();
+
+    // Populate SidecarConfigState
+    let state = SidecarConfigState::new();
+    state.set_config(canonical_ws.clone(), config.clone());
+
+    // Save a comment under sidecar_root
+    let file_path = canonical_ws.join("readme.md");
+    let file_str = file_path.to_string_lossy().to_string();
+    mutate_sidecar_or_create(&file_str, Some("readme.md".into()), &state, |sidecar| {
+        sidecar.comments.push(create_test_comment("c1", "From sidecar_root"));
+        Ok(())
+    }).unwrap();
+
+    // get_file_comments_inner should find the comment via the same config
+    let result = get_file_comments_inner(&file_str, &state).unwrap();
+    assert!(!result.threads.is_empty(), "should find comments under sidecar_root");
+    assert_eq!(result.threads[0].root.comment.text, "From sidecar_root");
+    assert!(result.sidecar_mtime_ms.is_some(), "mtime should be populated");
+}
+
+#[test]
+fn get_file_badges_inner_with_active_sidecar_root() {
+    let dir = tempdir().unwrap();
+    let ws = dir.path();
+
+    // Create source file + config
+    std::fs::write(ws.join("readme.md"), "# Hello").unwrap();
+    std::fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+
+    let canonical_ws = canonicalize_no_verbatim(ws).unwrap();
+    let config = load_mrsf_config(&canonical_ws).unwrap();
+
+    // Set up state
+    let config_state = SidecarConfigState::new();
+    config_state.set_config(canonical_ws.clone(), config.clone());
+    let (sync_tx, _sync_rx) = std::sync::mpsc::sync_channel::<()>(1);
+    let watcher_state = WatcherState::new(sync_tx);
+    watcher_state.set_tree_watched_dirs(
+        "test",
+        canonical_ws.to_string_lossy().into_owned(),
+        vec![canonical_ws.to_string_lossy().into_owned()],
+    ).unwrap();
+
+    // Save a comment
+    let file_path = canonical_ws.join("readme.md");
+    let file_str = file_path.to_string_lossy().to_string();
+    mutate_sidecar_or_create(&file_str, Some("readme.md".into()), &config_state, |sidecar| {
+        sidecar.comments.push(create_test_comment("c1", "Badge test"));
+        Ok(())
+    }).unwrap();
+
+    // get_file_badges should find badge via sidecar_root
+    let badges = get_file_badges_inner(&watcher_state, &config_state, &[file_str.clone()]);
+    assert!(badges.contains_key(&file_str), "badge should exist for file under sidecar_root");
+    assert_eq!(badges[&file_str].count, 1);
+}
+
+#[test]
+fn resolve_for_file_nested_workspace_longest_prefix() {
+    let dir = tempdir().unwrap();
+    let outer = dir.path().join("outer");
+    let inner = outer.join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+
+    let canonical_outer = canonicalize_no_verbatim(&outer).unwrap();
+    let canonical_inner = canonicalize_no_verbatim(&inner).unwrap();
+
+    let state = SidecarConfigState::new();
+    state.set_config(canonical_outer.clone(), Some(PathBuf::from(".reviews-outer")));
+    state.set_config(canonical_inner.clone(), Some(PathBuf::from(".reviews-inner")));
+
+    // File in inner workspace should resolve to inner config
+    let file = inner.join("doc.md");
+    std::fs::write(&file, "# Doc").unwrap();
+    let result = state.resolve_for_file(&file);
+    assert!(result.is_some(), "should find a matching workspace");
+    let (ws_root, sr) = result.unwrap();
+    assert_eq!(ws_root, canonical_inner, "should match inner (most specific) workspace");
+    assert_eq!(sr, Some(PathBuf::from(".reviews-inner")));
+
+    // File in outer (but not inner) should resolve to outer config
+    let outer_file = outer.join("top.md");
+    std::fs::write(&outer_file, "# Top").unwrap();
+    let result2 = state.resolve_for_file(&outer_file);
+    assert!(result2.is_some());
+    let (ws_root2, sr2) = result2.unwrap();
+    assert_eq!(ws_root2, canonical_outer, "should match outer workspace");
+    assert_eq!(sr2, Some(PathBuf::from(".reviews-outer")));
 }

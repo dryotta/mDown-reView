@@ -92,6 +92,22 @@ pub(crate) fn resolve_sidecar_pair(
     crate::core::paths::resolve_sidecar_pair(file, config)
 }
 
+/// Save a sidecar to a resolved path, creating parent dirs if needed.
+pub(super) fn save_with_parent_creation(
+    yaml_path: &str,
+    ws_root: Option<&std::path::Path>,
+    document: &str,
+    comments: &[crate::core::types::MrsfComment],
+) -> Result<(), String> {
+    let save_path = std::path::PathBuf::from(yaml_path);
+    if let Some(root) = ws_root {
+        crate::core::paths::ensure_sidecar_parent(root, &save_path)
+            .map_err(|e| e.to_string())?;
+    }
+    crate::core::sidecar::save_sidecar_at(&save_path, document, comments)
+        .map_err(|e| e.to_string())
+}
+
 /// Load a sidecar, apply a mutation, save, and emit `comments-changed`.
 fn with_sidecar_mut<E: CommentsEmitter>(
     emitter: &E,
@@ -104,8 +120,7 @@ fn with_sidecar_mut<E: CommentsEmitter>(
         .map_err(|e| e.to_string())?
         .ok_or("sidecar not found")?;
     mutate(&mut sidecar)?;
-    crate::core::sidecar::save_sidecar_routed(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)
-        .map_err(|e| e.to_string())?;
+    save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
     emitter.emit_comments_changed(file_path);
     Ok(())
 }
@@ -135,8 +150,7 @@ pub fn mutate_sidecar_or_create(
             comments: vec![],
         });
     mutate(&mut sidecar)?;
-    crate::core::sidecar::save_sidecar_routed(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)
-        .map_err(|e| e.to_string())?;
+    save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
     Ok(())
 }
 

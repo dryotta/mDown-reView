@@ -123,8 +123,7 @@ pub fn update_comment_apply(
         }
     };
     if mutated {
-        crate::core::sidecar::save_sidecar_routed(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)
-            .map_err(|e| e.to_string())?;
+        super::save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
     }
     Ok(mutated)
 }

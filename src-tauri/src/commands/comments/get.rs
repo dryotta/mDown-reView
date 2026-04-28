@@ -24,26 +24,23 @@ pub struct GetFileCommentsResult {
     pub sidecar_mtime_ms: Option<i64>,
 }
 
-/// Resolve the on-disk sidecar path the loader would pick for `file_path`,
-/// consulting the workspace's `.mrsf.yaml` config if present. Prefers
-/// `.review.yaml` over `.review.json` to match
-/// [`crate::core::sidecar::load_sidecar_at`]. Returns `None` when neither
-/// exists.
-fn resolve_sidecar_path(file_path: &str, config_state: &SidecarConfigState) -> Option<std::path::PathBuf> {
-    let (yaml, json, _) = super::resolve_sidecar_pair(file_path, config_state);
-    let yaml = std::path::PathBuf::from(&yaml);
+/// Resolve the on-disk sidecar path from pre-resolved YAML/JSON paths.
+/// Prefers YAML over JSON to match [`crate::core::sidecar::load_sidecar_at`].
+/// Returns `None` when neither exists.
+fn resolve_sidecar_path_from(yaml: &str, json: &str) -> Option<std::path::PathBuf> {
+    let yaml = std::path::PathBuf::from(yaml);
     if yaml.exists() {
         return Some(yaml);
     }
-    let json = std::path::PathBuf::from(&json);
+    let json = std::path::PathBuf::from(json);
     if json.exists() {
         return Some(json);
     }
     None
 }
 
-fn sidecar_mtime_ms(file_path: &str, config_state: &SidecarConfigState) -> Option<i64> {
-    let path = resolve_sidecar_path(file_path, config_state)?;
+fn sidecar_mtime_ms_from(yaml: &str, json: &str) -> Option<i64> {
+    let path = resolve_sidecar_path_from(yaml, json)?;
     std::fs::metadata(&path)
         .ok()?
         .modified()
@@ -88,12 +85,14 @@ pub fn get_file_comments_inner(file_path: &str, config_state: &SidecarConfigStat
     use crate::core::anchors::{resolve_anchor, LazyParsedDoc, MatchOutcome};
     use crate::core::types::{Anchor, MatchedComment};
 
+    // Resolve sidecar paths ONCE — used for both mtime and load.
+    let (yaml, json, _) = super::resolve_sidecar_pair(file_path, config_state);
+
     // Capture sidecar mtime up-front so the value reflects the same on-disk
     // state the loader is about to read. Loader failure does not invalidate
     // the mtime — return it anyway so callers can still detect edits.
-    let sidecar_mtime_ms = sidecar_mtime_ms(file_path, config_state);
+    let sidecar_mtime_ms = sidecar_mtime_ms_from(&yaml, &json);
 
-    let (yaml, json, _) = super::resolve_sidecar_pair(file_path, config_state);
     let sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json).map_err(|e| e.to_string())?;
     let comments = match sidecar {
         Some(s) => s.comments,

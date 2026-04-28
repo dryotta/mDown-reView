@@ -1,4 +1,4 @@
-//! Sidecar load / save / patch.
+//! Sidecar load / save / patch + workspace config.
 //!
 //! Read-side I/O guards (size cap + YAML anchor rejection) live in
 //! [`io_guards`] — see that module's doc-comment for the threat model.
@@ -7,7 +7,11 @@
 //! handing bytes to a parser. Order: `read_capped` → `reject_yaml_anchors`
 //! → parse. JSON reads intentionally skip the YAML anchor check (anchors
 //! are a YAML-only construct).
+//!
+//! Workspace `.mrsf.yaml` config (loading, validation, caching) lives in
+//! [`config`].
 
+pub mod config;
 mod io_guards;
 mod yaml_surgery;
 
@@ -157,6 +161,7 @@ pub fn load_sidecar_at(
 
 /// Load a sidecar file. Tries .review.yaml first, then .review.json.
 /// Returns None if no sidecar exists.
+/// (Test convenience — production code uses `load_sidecar_at` with explicit paths.)
 pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError> {
     let yaml_path = format!("{}.review.yaml", file_path);
     let json_path = format!("{}.review.json", file_path);
@@ -188,25 +193,9 @@ pub fn save_sidecar_at(
     Ok(())
 }
 
-/// Save a sidecar to a resolved path, creating parent dirs if needed.
-/// `ws_root` is `Some` when writing to a redirected sidecar_root — triggers
-/// [`crate::core::paths::ensure_sidecar_parent`] before the write.
-pub fn save_sidecar_routed(
-    yaml_path: &str,
-    ws_root: Option<&std::path::Path>,
-    document: &str,
-    comments: &[MrsfComment],
-) -> Result<(), SidecarError> {
-    let save_path = std::path::PathBuf::from(yaml_path);
-    if let Some(root) = ws_root {
-        crate::core::paths::ensure_sidecar_parent(root, &save_path)
-            .map_err(|e| SidecarError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
-    }
-    save_sidecar_at(&save_path, document, comments)
-}
-
 /// Save a complete sidecar. Atomically writes via temp+rename.
 /// Deletes the sidecar if comments is empty.
+/// (Test convenience — production code uses `save_sidecar_at` with explicit paths.)
 pub fn save_sidecar(
     file_path: &str,
     document: &str,

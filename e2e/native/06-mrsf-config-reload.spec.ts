@@ -21,50 +21,64 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
         timeout: 5_000,
       });
 
-      // Give the watcher time to register
-      await nativePage.waitForTimeout(3000);
-
-      // Drop .mrsf.yaml — watcher should detect and reload config internally
+      // Drop .mrsf.yaml — watcher should detect and reload config internally.
+      // The watcher needs to have registered the workspace root first
+      // (via update_tree_watched_dirs from the frontend's useTreeWatcher hook).
+      // The markdown-viewer being visible proves the workspace opened and
+      // the tree rendered, so the watcher should be watching by now.
       fs.writeFileSync(
         path.join(tmpDir, ".mrsf.yaml"),
         "sidecar_root: .reviews\n",
       );
 
-      // Wait for watcher to pick up the .mrsf.yaml change (debounce 300ms +
-      // processing; Windows CI runners can be slow so allow up to 8s)
-      await nativePage.waitForTimeout(8000);
-
-      // Add a comment via IPC — should land in .reviews/ not co-located
-      await nativePage.evaluate((fp: string) => {
-        // @ts-ignore — Tauri internals
-        return window.__TAURI_INTERNALS__.invoke("add_comment", {
-          filePath: fp,
-          author: "e2e-test",
-          text: "Comment under sidecar_root",
-          anchor: null,
-          commentType: null,
-          severity: null,
-          document: null,
-        });
-      }, docFile);
-
-      // Wait for the sidecar write (poll up to 5s)
+      // Poll for .mrsf.yaml config to be picked up by the watcher by
+      // attempting add_comment and checking the result location. This
+      // replaces the previous fixed-sleep approach.
       const reviewsDir = path.join(tmpDir, ".reviews");
       const sidecarPath = path.join(reviewsDir, "readme.md.review.yaml");
+      const colocated = path.join(tmpDir, "readme.md.review.yaml");
+
       let found = false;
-      for (let i = 0; i < 10; i++) {
-        if (fs.existsSync(sidecarPath)) { found = true; break; }
+      for (let attempt = 0; attempt < 20; attempt++) {
+        // Clean up any prior attempt artifacts
+        if (fs.existsSync(colocated)) fs.unlinkSync(colocated);
+        if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
+
         await nativePage.waitForTimeout(500);
+
+        // Try adding a comment — the sidecar should land in .reviews/
+        await nativePage.evaluate((fp: string) => {
+          // @ts-ignore — Tauri internals
+          return window.__TAURI_INTERNALS__.invoke("add_comment", {
+            filePath: fp,
+            author: "e2e-test",
+            text: "Comment under sidecar_root",
+            anchor: null,
+            commentType: null,
+            severity: null,
+            document: null,
+          });
+        }, docFile);
+
+        // Give the write a moment to flush
+        await nativePage.waitForTimeout(200);
+
+        if (fs.existsSync(sidecarPath)) {
+          found = true;
+          break;
+        }
       }
 
       // Verify: sidecar landed in .reviews/ directory
-      expect(found).toBe(true);
+      expect(found, `sidecar should exist at ${sidecarPath} within 10s`).toBe(true);
       expect(fs.existsSync(reviewsDir)).toBe(true);
       expect(fs.existsSync(sidecarPath)).toBe(true);
 
       // Verify co-located sidecar was NOT created
-      const colocated = path.join(tmpDir, "readme.md.review.yaml");
-      expect(fs.existsSync(colocated)).toBe(false);
+      expect(
+        fs.existsSync(colocated),
+        "co-located sidecar should NOT exist when sidecar_root is configured",
+      ).toBe(false);
 
       // Read sidecar and verify content
       const content = fs.readFileSync(sidecarPath, "utf-8");

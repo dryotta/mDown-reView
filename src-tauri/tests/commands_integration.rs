@@ -427,14 +427,14 @@ fn read_dir_hides_sidecar_root_dir() {
 
     // Without config: .reviews dir should be visible
     let state = SidecarConfigState::new();
-    let entries = read_dir_inner(ws.to_str().unwrap().to_string(), &state).unwrap();
-    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&".reviews"), ".reviews must be visible without config");
 
     // With config: .reviews dir should be hidden
     state.set_config(canonical_ws.clone(), Some(std::path::PathBuf::from(".reviews")));
-    let entries = read_dir_inner(ws.to_str().unwrap().to_string(), &state).unwrap();
-    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    let result = read_dir_inner(ws.to_str().unwrap().to_string(), None, &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         !names.contains(&".reviews"),
         ".reviews dir must be hidden when it is the sidecar_root"
@@ -444,8 +444,8 @@ fn read_dir_hides_sidecar_root_dir() {
 
     // Listing a subdirectory (not workspace root) should NOT hide .reviews
     std::fs::create_dir(ws.join("src").join(".reviews")).unwrap();
-    let entries = read_dir_inner(ws.join("src").to_str().unwrap().to_string(), &state).unwrap();
-    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    let result = read_dir_inner(ws.join("src").to_str().unwrap().to_string(), None, &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         names.contains(&".reviews"),
         ".reviews in subdirs must NOT be hidden (only workspace root is filtered)"

@@ -152,91 +152,29 @@ fn outside_root_error(input: &str, folder: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// .mrsf.yaml config loading + sidecar-root path resolution
+// .mrsf.yaml config loading lives in core/sidecar/config.rs.
+// Re-export for backward compatibility with existing callers.
 // ---------------------------------------------------------------------------
 
-/// On-disk shape of `.mrsf.yaml`. Only the fields we consume;
-/// `deny_unknown_fields` ensures we reject typos early.
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MrsfConfigFile {
-    sidecar_root: Option<String>,
-}
+pub use crate::core::sidecar::config::load_mrsf_config;
 
-/// Load `.mrsf.yaml` from `workspace_root` and return the validated
-/// `sidecar_root` relative path (if configured).
-///
-/// Returns `Ok(None)` when the file is absent or when it exists but
-/// omits the `sidecar_root` key. All load-time validation lives here
-/// (absolute path rejection, `..` component rejection, empty-string
-/// rejection, symlink-escape check if the dir already exists).
-pub fn load_mrsf_config(workspace_root: &Path) -> Result<Option<PathBuf>, String> {
-    use crate::core::sidecar::{read_capped, reject_yaml_anchors};
+// ---------------------------------------------------------------------------
+// Sidecar-root path resolution
+// ---------------------------------------------------------------------------
 
-    let config_path = workspace_root.join(".mrsf.yaml");
-    let config_str = config_path
-        .to_str()
-        .ok_or_else(|| ".mrsf.yaml: path is not valid UTF-8".to_string())?;
-
-    // Read with the same 10 MB cap used for sidecars.
-    let content = match read_capped(config_str) {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!(".mrsf.yaml: {e}")),
-    };
-
-    // Reject YAML anchors/aliases (billion-laughs defense).
-    reject_yaml_anchors(&content).map_err(|e| format!(".mrsf.yaml: {e}"))?;
-
-    let cfg: MrsfConfigFile =
-        serde_yaml_ng::from_str(&content).map_err(|e| format!(".mrsf.yaml: {e}"))?;
-
-    let val = match cfg.sidecar_root {
-        Some(v) => v,
-        None => return Ok(None),
-    };
-
-    // --- load-time validation (doesn't require the dir to exist) ---
-
-    if val.is_empty() {
-        return Err(".mrsf.yaml: sidecar_root must not be empty".into());
-    }
-
-    let sr = Path::new(&val);
-    if sr.is_absolute() {
+/// Verify that `path` is contained within `workspace_root` after
+/// canonicalization. Returns canonical `path` on success.
+fn check_containment(path: &Path, canonical_ws: &Path) -> Result<PathBuf, String> {
+    let canon = canonicalize_no_verbatim(path).map_err(|e| {
+        format!("cannot canonicalize '{}': {e}", path.display())
+    })?;
+    if !canon.starts_with(canonical_ws) {
         return Err(format!(
-            ".mrsf.yaml: sidecar_root must be relative, got '{val}'"
+            "'{}' resolves outside workspace root",
+            path.display()
         ));
     }
-
-    use std::path::Component;
-    if sr.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(format!(
-            ".mrsf.yaml: sidecar_root must not contain '..', got '{val}'"
-        ));
-    }
-
-    // --- runtime checks when the target dir already exists ---
-
-    let target = workspace_root.join(&val);
-    if target.exists() {
-        if !target.is_dir() {
-            return Err(format!(
-                ".mrsf.yaml: sidecar_root '{val}' exists but is not a directory"
-            ));
-        }
-        let canonical_target =
-            canonicalize_no_verbatim(&target).map_err(|e| format!(".mrsf.yaml: {e}"))?;
-        let canonical_root =
-            canonicalize_no_verbatim(workspace_root).map_err(|e| format!(".mrsf.yaml: {e}"))?;
-        if !canonical_target.starts_with(&canonical_root) {
-            return Err(format!(
-                ".mrsf.yaml: sidecar_root '{val}' resolves outside workspace"
-            ));
-        }
-    }
-
-    Ok(Some(PathBuf::from(val)))
+    Ok(canon)
 }
 
 /// Single chokepoint for all sidecar path resolution.
@@ -244,6 +182,10 @@ pub fn load_mrsf_config(workspace_root: &Path) -> Result<Option<PathBuf>, String
 /// When `sidecar_root` is `None` the sidecar is co-located with the
 /// source file (current/default behaviour). When `Some(root)` the
 /// sidecar is placed under `workspace_root/root/<relative-file-path>.review.yaml`.
+///
+/// `workspace_root` **must** already be canonical (callers canonicalize
+/// at the IPC boundary). `file_path` is canonicalized internally to
+/// handle 8.3 short-name mismatches on Windows.
 ///
 /// Per-call canonicalization (TOCTOU defence) is performed whenever
 /// the resolved path or its nearest existing ancestor can be
@@ -262,10 +204,15 @@ pub fn resolve_sidecar_for_file(
             )))
         }
         Some(root) => {
-            let relative = file_path.strip_prefix(workspace_root).map_err(|_| {
+            // Best-effort canonicalization of file_path to handle 8.3
+            // short-name mismatches on Windows CI (RUNNER~1 vs runneradmin).
+            // Falls back to the raw path when the file doesn't exist yet.
+            let effective_file = canonicalize_no_verbatim(file_path)
+                .unwrap_or_else(|_| file_path.to_path_buf());
+            let relative = effective_file.strip_prefix(workspace_root).map_err(|_| {
                 format!(
                     "file '{}' is not under workspace root '{}'",
-                    file_path.display(),
+                    effective_file.display(),
                     workspace_root.display()
                 )
             })?;
@@ -276,61 +223,19 @@ pub fn resolve_sidecar_for_file(
                 sidecar_dir.join(format!("{}.review.json", relative.display()));
 
             // TOCTOU defence: canonicalize whatever already exists and
-            // verify containment inside workspace_root.
-            let canonical_ws = canonicalize_no_verbatim(workspace_root).map_err(|e| {
-                format!(
-                    "cannot canonicalize workspace root '{}': {e}",
-                    workspace_root.display()
-                )
-            })?;
+            // verify containment inside workspace_root (already canonical).
 
             // Check YAML first, then JSON fallback
             if sidecar_path.exists() {
-                let canon = canonicalize_no_verbatim(&sidecar_path).map_err(|e| {
-                    format!(
-                        "cannot canonicalize sidecar '{}': {e}",
-                        sidecar_path.display()
-                    )
-                })?;
-                if !canon.starts_with(&canonical_ws) {
-                    return Err(format!(
-                        "sidecar '{}' resolves outside workspace root",
-                        sidecar_path.display()
-                    ));
-                }
-                return Ok(canon);
+                return check_containment(&sidecar_path, workspace_root);
             } else if json_sidecar_path.exists() {
-                let canon = canonicalize_no_verbatim(&json_sidecar_path).map_err(|e| {
-                    format!(
-                        "cannot canonicalize sidecar '{}': {e}",
-                        json_sidecar_path.display()
-                    )
-                })?;
-                if !canon.starts_with(&canonical_ws) {
-                    return Err(format!(
-                        "sidecar '{}' resolves outside workspace root",
-                        json_sidecar_path.display()
-                    ));
-                }
-                return Ok(canon);
+                return check_containment(&json_sidecar_path, workspace_root);
             }
 
             // Sidecar doesn't exist yet — try canonicalizing its parent.
             if let Some(parent) = sidecar_path.parent() {
                 if parent.exists() {
-                    let canon_parent =
-                        canonicalize_no_verbatim(parent).map_err(|e| {
-                            format!(
-                                "cannot canonicalize parent '{}': {e}",
-                                parent.display()
-                            )
-                        })?;
-                    if !canon_parent.starts_with(&canonical_ws) {
-                        return Err(format!(
-                            "sidecar parent '{}' resolves outside workspace root",
-                            parent.display()
-                        ));
-                    }
+                    let canon_parent = check_containment(parent, workspace_root)?;
                     // Return canonical parent + file name.
                     if let Some(name) = sidecar_path.file_name() {
                         return Ok(canon_parent.join(name));
@@ -359,6 +264,8 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
     // Track whether the parent already existed so error-path cleanup
     // only removes directories we actually created (security rule 4:
     // a failed write must never destroy existing data).
+    // Uses remove_dir (non-recursive) to avoid following symlinks and
+    // deleting content outside the workspace.
     let parent_existed = parent.exists();
 
     std::fs::create_dir_all(parent)
@@ -368,7 +275,7 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
         Ok(p) => p,
         Err(e) => {
             if !parent_existed {
-                let _ = std::fs::remove_dir_all(parent);
+                let _ = std::fs::remove_dir(parent);
             }
             return Err(format!(
                 "cannot canonicalize created dir '{}': {e}",
@@ -381,7 +288,7 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
         Ok(p) => p,
         Err(e) => {
             if !parent_existed {
-                let _ = std::fs::remove_dir_all(parent);
+                let _ = std::fs::remove_dir(parent);
             }
             return Err(format!(
                 "cannot canonicalize workspace root '{}': {e}",
@@ -392,7 +299,7 @@ pub fn ensure_sidecar_parent(workspace_root: &Path, sidecar_path: &Path) -> Resu
 
     if !canonical_parent.starts_with(&canonical_ws) {
         if !parent_existed {
-            let _ = std::fs::remove_dir_all(parent);
+            let _ = std::fs::remove_dir(parent);
         }
         return Err(format!(
             "created dir '{}' resolves outside workspace root",
