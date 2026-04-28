@@ -548,6 +548,38 @@ describe("filter input shortcut hint placeholder (#209)", () => {
   });
 });
 
+// ─── Regression: expanding a folder must NOT scroll to the active file ───────
+
+describe("expanding a folder does not scroll to the active file", () => {
+  it("scrollIntoView is not called on the active row when only a folder is toggled", async () => {
+    renderTree();
+    await waitFor(() => screen.getByText("README.md"));
+
+    // Simulate opening README.md so it becomes the active tab
+    act(() => {
+      useStore.setState({ activeTabPath: "/test/README.md" });
+    });
+
+    // Wait for the initial scroll-into-view to fire
+    await waitFor(() => {
+      const el = screen.getByText("README.md").closest(".tree-entry")!;
+      expect(el).toHaveAttribute("data-path", "/test/README.md");
+    });
+
+    // Spy on scrollIntoView after the initial active-tab scroll has settled
+    const readmeEntry = screen.getByText("README.md").closest(".tree-entry")!;
+    const spy = vi.fn();
+    readmeEntry.scrollIntoView = spy;
+
+    // Now expand the subfolder — this changes navRows but NOT activeTabPath
+    fireEvent.click(screen.getByText("subdir").closest(".tree-entry")!);
+    await waitFor(() => screen.getByText("child.md"));
+
+    // scrollIntoView on the active entry must NOT have been called
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Ghost badge on collapsed folders (#216) ─────────────────────────────────
 
 describe("#216 – ghost badge on collapsed folders", () => {

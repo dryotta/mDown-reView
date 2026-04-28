@@ -55,6 +55,8 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   const [otherFilesOpen, setOtherFilesOpen] = useState(true);
   const [, startTransition] = useTransition();
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollTargetRef = useRef<string | null>(null);
+  const prevActiveRef = useRef<string | null>(null);
 
   // Listen for the clear-filter custom event dispatched by the Ctrl/Cmd+P
   // toggle-off path in useGlobalShortcuts.
@@ -153,12 +155,22 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   }, [activeTabPath, root]);
 
   // ── Effect B: scroll the active row into view once it has rendered ───────
+  // Only scrolls when activeTabPath actually changes (not on every navRows
+  // update, which would hijack viewport on manual folder toggles).
   useLayoutEffect(() => {
-    if (!activeTabPath) return;
+    if (activeTabPath !== prevActiveRef.current) {
+      prevActiveRef.current = activeTabPath;
+      scrollTargetRef.current = activeTabPath;
+    }
+    const target = scrollTargetRef.current;
+    if (!target) return;
     const el = containerRef.current?.querySelector<HTMLDivElement>(
-      `[data-path="${CSS.escape(activeTabPath)}"]`
+      `[data-path="${CSS.escape(target)}"]`
     );
-    el?.scrollIntoView?.({ block: "nearest" });
+    if (el) {
+      el.scrollIntoView?.({ block: "nearest" });
+      scrollTargetRef.current = null;
+    }
   }, [activeTabPath, navRows]);
 
   const handleKeyDown = (e: React.KeyboardEvent, path: string, isDir: boolean) => {
