@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { resolveHtmlAssets, openExternalUrl } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
@@ -7,11 +7,7 @@ import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { warn, info } from "@/logger";
-import { useCommentActions } from "@/lib/vm/use-comment-actions";
-import { IconComment } from "@/components/Icons";
-import { CommentInput } from "@/components/comments/CommentInput";
 import { buildBridgeSrcDoc, isBridgeMsg } from "@/lib/html-bridge";
-import type { Anchor } from "@/types/comments";
 import "@/styles/html-preview.css";
 
 interface Props {
@@ -19,31 +15,21 @@ interface Props {
   filePath?: string;
 }
 
-interface Composer {
-  anchor: Anchor;
-  top: number;
-  left: number;
-}
-
 export function HtmlPreviewView({ content, filePath }: Props) {
   // Two independent toggles — see the sandbox matrix below. We never combine
   // allow-scripts + allow-same-origin (security.md rule 12a).
   const [allowImages, setAllowImages] = useState(false);
   const [allowScripts, setAllowScripts] = useState(false);
-  const [commentMode, setCommentMode] = useState(false);
   const [resolvedBase, setResolvedBase] = useState(content);
   const [resolvedContent, setResolvedContent] = useState(content);
   const [resolving, setResolving] = useState(false);
-  const [composer, setComposer] = useState<Composer | null>(null);
   const readingContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const revokeImagesRef = useRef<(() => void) | null>(null);
   const readingWidth = useStore((s) => s.readingWidth);
   const workspaceRoot = useStore((s) => s.root) ?? "";
   const { zoom } = useZoom(".html");
   const baseDir = filePath ? dirname(filePath) : undefined;
-  const { addComment } = useCommentActions();
 
   // Per-mount nonce — regenerated on every mount, never logged or persisted.
   // crypto.randomUUID is available in Tauri's webview and modern jsdom.
@@ -55,19 +41,17 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   //   false       | false        | allow-same-origin (default safe)
   //   true        | false        | allow-same-origin
   //   any         | true         | allow-scripts
-  // Comment mode implies scripts (the bridge needs them) so it forces the
-  // allow-scripts branch. We never combine allow-scripts + allow-same-origin.
-  const scriptsActive = allowScripts || commentMode;
-  const sandbox = scriptsActive ? "allow-scripts" : "allow-same-origin";
+  // We never combine allow-scripts + allow-same-origin.
+  const sandbox = allowScripts ? "allow-scripts" : "allow-same-origin";
 
-  // When scripts/comment mode is on, install the bridge IIFE so anchor
+  // When scripts mode is on, install the bridge IIFE so anchor
   // clicks come back to us via postMessage (the iframe is cross-origin in
   // that mode and we cannot reach contentDocument). Safe mode keeps the
   // raw resolved content + uses the onLoad contentDocument listener.
   const srcDoc = useMemo(() => {
-    if (!scriptsActive) return resolvedContent;
-    return buildBridgeSrcDoc(resolvedContent, { nonce, commentMode });
-  }, [resolvedContent, scriptsActive, commentMode, nonce]);
+    if (!allowScripts) return resolvedContent;
+    return buildBridgeSrcDoc(resolvedContent, { nonce });
+  }, [resolvedContent, allowScripts, nonce]);
 
   // Effect 1 — local-asset resolution. Keyed only on inputs that affect the
   // resolved-base HTML (path + content). The remote-image / scripts toggles
@@ -138,16 +122,11 @@ export function HtmlPreviewView({ content, filePath }: Props) {
     };
   }, []);
 
-  // Bridge listener — installed whenever scripts OR comment mode is on, so
-  // both link routing (always) and the comment composer (commentMode only)
-  // can react to bridge messages. Filter strictly by source-window AND
-  // nonce — drop anything else.
+  // Bridge listener — installed whenever scripts mode is on, so
+  // link routing can react to bridge messages. Filter strictly by
+  // source-window AND nonce — drop anything else.
   useEffect(() => {
-    if (!commentMode && !scriptsActive) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset when toggling off
-      setComposer(null);
-      return;
-    }
+    if (!allowScripts) return;
     const handler = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (!isBridgeMsg(event.data)) return;
@@ -171,50 +150,11 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             useStore.getState().openFile(route.path);
             break;
         }
-        return;
       }
-      if (!commentMode) return;
-      const wrap = wrapperRef.current;
-      const iframe = iframeRef.current;
-      let top = msg.clientY + 8;
-      let left = msg.clientX + 8;
-      if (wrap && iframe) {
-        const wr = wrap.getBoundingClientRect();
-        const fr = iframe.getBoundingClientRect();
-        top = (fr.top - wr.top) + msg.clientY + 8;
-        left = (fr.left - wr.left) + msg.clientX + 8;
-      }
-      const anchor: Anchor = msg.type === "selection"
-        ? {
-            kind: "html_range",
-            selector_path: msg.selectorPath,
-            start_offset: msg.startOffset,
-            end_offset: msg.endOffset,
-            selected_text: msg.selectedText,
-          }
-        : {
-            kind: "html_element",
-            selector_path: msg.selectorPath,
-            tag: msg.tag,
-            text_preview: msg.textPreview,
-          };
-      setComposer({ anchor, top, left });
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [commentMode, scriptsActive, nonce, baseDir, workspaceRoot]);
-
-  const handleSaveComment = useCallback(
-    (text: string) => {
-      if (!composer || !filePath) {
-        setComposer(null);
-        return;
-      }
-      addComment(filePath, text, composer.anchor).catch(() => {});
-      setComposer(null);
-    },
-    [composer, filePath, addComment],
-  );
+  }, [allowScripts, nonce, baseDir, workspaceRoot]);
 
   return (
     <div className="html-preview" data-zoom={zoom} style={{ display: "flex", flexDirection: "column", height: "100%", fontSize: `${zoom * 100}%` }}>
@@ -242,23 +182,9 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           {allowScripts ? "Disable scripts" : "Enable scripts"}
           <span style={{ marginLeft: 4, opacity: 0.7 }}>(higher risk — runs sandboxed JS)</span>
         </button>
-        <button
-          type="button"
-          aria-pressed={commentMode}
-          aria-label={commentMode ? "Exit comment mode" : "Enter comment mode"}
-          className={"html-preview-comment-toggle" + (commentMode ? " is-active" : "")}
-          onClick={() => setCommentMode((m) => !m)}
-          style={{ marginLeft: 8 }}
-          disabled={!filePath}
-          title={filePath ? undefined : "Save the file to enable commenting"}
-        >
-          <IconComment /> Comment
-        </button>
-        {(allowScripts || commentMode) && (
+        {allowScripts && (
           <span style={{ marginLeft: 8, fontStyle: "italic" }}>
-            {commentMode
-              ? "Comment mode runs scripts in the iframe (sandboxed)."
-              : "Scripts enabled — sandboxed JS runs inside the iframe."}
+            Scripts enabled — sandboxed JS runs inside the iframe.
           </span>
         )}
       </div>
@@ -272,7 +198,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           minHeight: 0,
         }}
       >
-        <div ref={wrapperRef} style={{ position: "relative", flex: 1, display: "flex", minHeight: 0 }}>
+        <div style={{ position: "relative", flex: 1, display: "flex", minHeight: 0 }}>
           <iframe
             // Chromium does not re-evaluate the sandbox attribute on srcdoc
             // changes — keying the iframe on sandbox forces a full remount so
@@ -282,13 +208,12 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             srcDoc={srcDoc}
             sandbox={sandbox}
             title="HTML preview"
-            data-comment-mode={commentMode || undefined}
             style={{ width: "100%", border: "none", minHeight: 400, flex: 1, background: "white" }}
             onLoad={() => {
-              // In script-enabled or comment modes the iframe is cross-origin
+              // In script-enabled mode the iframe is cross-origin
               // and link routing is delivered via the bridge postMessage path
               // (see the message-handler effect above).
-              if (scriptsActive) return;
+              if (allowScripts) return;
               const doc = iframeRef.current?.contentDocument;
               if (!doc) return;
               doc.addEventListener("click", (event) => {
@@ -317,21 +242,6 @@ export function HtmlPreviewView({ content, filePath }: Props) {
               });
             }}
           />
-          {composer && (
-            <div className="html-preview-overlay">
-              <div
-                className="html-preview-composer"
-                data-testid="html-preview-composer"
-                style={{ top: composer.top, left: composer.left }}
-              >
-                <CommentInput
-                  onSave={handleSaveComment}
-                  onClose={() => setComposer(null)}
-                  placeholder={composer.anchor.kind === "html_range" ? "Comment on selection…" : "Comment on element…"}
-                />
-              </div>
-            </div>
-          )}
         </div>
         <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
         <ReadingWidthHandle containerRef={readingContainerRef} side="right" />

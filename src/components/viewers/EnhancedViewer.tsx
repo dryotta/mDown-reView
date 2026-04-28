@@ -47,15 +47,6 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
   const filetypeKey = getFiletypeKey(path, showSource ? "source" : "visual");
   const { zoom, zoomIn, zoomOut, reset } = useZoom(filetypeKey);
 
-  // #65 G3 — Print is wired only for filetypes whose rendered output is
-  // worth printing: markdown (.md/.mdx) and HTML preview. Other viewers
-  // leave `onPrint` undefined so the toolbar omits the button entirely.
-  // The browser's native Ctrl+P still works on every page; the button is
-  // a discoverable affordance, not the only entry point.
-  const lower = path.toLowerCase();
-  const canPrint =
-    lower.endsWith(".md") || lower.endsWith(".mdx") || lower.endsWith(".html");
-
   return (
     <div className="enhanced-viewer">
       {/* L1 — file actions live in the toolbar's `trailing` slot so they
@@ -69,7 +60,6 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
         onToggleWrap={() => setWordWrap(!wordWrap)}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
         onCommentOnFile={onCommentOnFile}
-        onPrint={canPrint ? () => window.print() : undefined}
         trailing={<FileActionsBar path={filePath} />}
       />
       {showSource ? (

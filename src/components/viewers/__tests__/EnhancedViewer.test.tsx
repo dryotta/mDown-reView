@@ -87,24 +87,6 @@ describe("EnhancedViewer", () => {
     expect(screen.getByRole("button", { name: /wrap/i })).toBeInTheDocument();
   });
 
-  // #65 G3 — Print button only surfaces for visualisable filetypes (md/mdx/html).
-  it("shows Print button for markdown files; clicking invokes window.print", () => {
-    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
-    try {
-      render(<EnhancedViewer content="# Hello" path="/test.md" filePath="/test.md" />);
-      const btn = screen.getByRole("button", { name: /^print$/i });
-      fireEvent.click(btn);
-      expect(printSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      printSpy.mockRestore();
-    }
-  });
-
-  it("hides Print button for plain .txt files", () => {
-    render(<EnhancedViewer content="hello" path="/test.txt" filePath="/test.txt" />);
-    expect(screen.queryByRole("button", { name: /^print$/i })).toBeNull();
-  });
-
   // #92 — single owner of `useZoom` lives in EnhancedViewer; SourceView
   // accepts `zoom` as a prop. Clicking the toolbar zoom-in must update
   // the value the SourceView receives so its `--source-zoom` CSS var

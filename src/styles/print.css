@@ -47,7 +47,6 @@
      - .find-bar            global Ctrl+F find-in-page bar (FindInPageBar.tsx)
      - .code-copy-btn       hover-revealed copy button on fenced code blocks
      - .html-preview-banner sandbox warning banner above HtmlPreviewView
-     - .move-anchor-banner  iter-banner at the top of App.tsx in move mode
   */
   .toolbar,
   .viewer-toolbar,
@@ -63,8 +62,7 @@
   .search-bar,
   .find-bar,
   .code-copy-btn,
-  .html-preview-banner,
-  .move-anchor-banner {
+  .html-preview-banner {
     display: none !important;
   }
 

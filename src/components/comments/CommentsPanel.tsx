@@ -1,21 +1,18 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
-import { useFilteredComments, type SeverityFilter } from "@/lib/vm/useFilteredComments";
+import { useFilteredComments } from "@/lib/vm/useFilteredComments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentThread } from "./CommentThread";
 import { CommentInput } from "./CommentInput";
 import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
-import { exportReviewSummary, type MatchedComment } from "@/lib/tauri-commands";
-import { error } from "@/logger";
+import type { MatchedComment } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
 interface Props {
   filePath: string;
   onScrollToLine?: (lineNumber: number) => void;
 }
-
-const SEVERITY_CHIPS: SeverityFilter[] = ["none", "low", "medium", "high"];
 
 export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   // `useComments` is still called for the unresolved/resolved counters in the
@@ -24,13 +21,6 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   const { addComment } = useCommentActions();
   const [showResolved, setShowResolved] = useState(false);
   const [showFileLevelInput, setShowFileLevelInput] = useState(false);
-  const [search, setSearch] = useState("");
-  const [severities, setSeverities] = useState<Set<SeverityFilter>>(() => new Set());
-  const [workspaceWide, setWorkspaceWide] = useState(false);
-  // Iter 6 F2 — transient "Exported to clipboard" status. Cleared after a
-  // short timer so the header doesn't accumulate stale chrome.
-  const [exportStatus, setExportStatus] = useState<string | null>(null);
-  const root = useStore((s) => s.root);
 
   // Iter 5 Group B — single-field selector (architecture rule 9). When this
   // matches our `filePath`, the toolbar's "Comment on file" button has
@@ -60,8 +50,8 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   const resolvedCount = threads.length - unresolvedCount;
 
   const filters = useMemo(
-    () => ({ search, severities, showResolved, workspaceWide }),
-    [search, severities, showResolved, workspaceWide],
+    () => ({ showResolved }),
+    [showResolved],
   );
   const displayed = useFilteredComments(filePath || null, filters);
   const openFile = useStore((s) => s.openFile);
@@ -93,20 +83,6 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     }
   }, [handleClick]);
 
-  const toggleSeverity = useCallback((sev: SeverityFilter) => {
-    setSeverities((prev) => {
-      const next = new Set(prev);
-      if (next.has(sev)) next.delete(sev);
-      else next.add(sev);
-      return next;
-    });
-  }, []);
-
-  const relativePath = useCallback((p: string) => {
-    if (!root) return p;
-    return p.startsWith(root) ? p.slice(root.length).replace(/^[\\/]+/, "") : p;
-  }, [root]);
-
   const handleSaveFileLevel = useCallback((text: string) => {
     // File-anchored comment — no line gutter, no selected text. We let the
     // VM hook chokepoint funnel the discriminated `{ kind: "file" }` anchor
@@ -116,45 +92,6 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   }, [addComment, filePath]);
 
   const canCommentOnFile = filePath.length > 0;
-
-  // Iter 6 F2 — workspace-wide review-summary export. Calls the existing
-  // `export_review_summary` IPC, copies the rendered markdown to the clipboard,
-  // and shows a transient status. Falls back to `filePath` when no workspace
-  // root is open (single-file launches).
-  const exportWorkspace = root ?? filePath;
-  const canExport = exportWorkspace.length > 0;
-  // A3 (iter 7) — race guard. Each click increments the token; only the
-  // most-recent in-flight call is allowed to set `exportStatus`. Without
-  // this, a slow first click that resolves AFTER a fast second click would
-  // overwrite the second click's status with stale chrome.
-  const exportTokenRef = useRef(0);
-  const handleExport = useCallback(async () => {
-    if (!canExport) return;
-    const token = ++exportTokenRef.current;
-    try {
-      const markdown = await exportReviewSummary(exportWorkspace);
-      // B4 (iter 7 forward-fix) — check the token BEFORE writing to the
-      // clipboard. Otherwise a slow first export can land its stale
-      // markdown on the clipboard after a faster second export already
-      // wrote the user's intended content.
-      if (token !== exportTokenRef.current) return;
-      await navigator.clipboard.writeText(markdown);
-      if (token === exportTokenRef.current) {
-        setExportStatus("Exported to clipboard");
-      }
-    } catch (e) {
-      error(`[CommentsPanel] export failed: ${e}`);
-      if (token === exportTokenRef.current) {
-        setExportStatus("Export failed");
-      }
-    }
-  }, [exportWorkspace, canExport]);
-
-  useEffect(() => {
-    if (!exportStatus) return;
-    const id = window.setTimeout(() => setExportStatus(null), 2000);
-    return () => window.clearTimeout(id);
-  }, [exportStatus]);
 
   // C3 (iter 6 Group A) — focus halo is now CSS-only via `:focus-within`
   // on `.comment-panel-item`. See `src/styles/comments.css`.
@@ -172,56 +109,9 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         >
           +
         </button>
-        <button
-          className="comment-btn comment-btn-export"
-          onClick={handleExport}
-          disabled={!canExport}
-          title="Export review summary to clipboard"
-          aria-label="Export review summary"
-        >
-          Export
-        </button>
         <button className="comment-btn" onClick={() => setShowResolved(v => !v)}>
           {showResolved ? "Hide resolved" : `Show resolved (${resolvedCount})`}
         </button>
-        {exportStatus && (
-          <span className="comments-panel-status" role="status" aria-live="polite">
-            {exportStatus}
-          </span>
-        )}
-      </div>
-      <div className="comments-panel-filters">
-        <input
-          type="search"
-          className="comments-filter-search"
-          placeholder="Search comments…"
-          aria-label="Search comments"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <div className="comments-filter-chips" role="group" aria-label="Filter by severity">
-          {SEVERITY_CHIPS.map((sev) => (
-            <button
-              key={sev}
-              type="button"
-              className={`comments-filter-chip comments-filter-chip--${sev}`}
-              aria-pressed={severities.has(sev)}
-              aria-label={`Severity ${sev}`}
-              onClick={() => toggleSeverity(sev)}
-            >
-              {sev}
-            </button>
-          ))}
-        </div>
-        <label className="comments-filter-workspace">
-          <input
-            type="checkbox"
-            checked={workspaceWide}
-            onChange={(e) => setWorkspaceWide(e.target.checked)}
-            aria-label="Show all files"
-          />
-          Show all files
-        </label>
       </div>
       <div className="comments-panel-body">
         {showFileLevelInput && canCommentOnFile && (
@@ -246,9 +136,6 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
               onClick={() => handleClick(thread.root, tp)}
               onKeyDown={(e) => handleKeyDown(e, thread.root, tp)}
             >
-              {workspaceWide && tp !== filePath && (
-                <div className="comment-panel-item-path" title={tp}>{relativePath(tp)}</div>
-              )}
               <div className="comment-panel-item-line">
                 Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}
                 {thread.root.isOrphaned && <span className="comment-orphaned-icon" title="Orphaned">⚠</span>}

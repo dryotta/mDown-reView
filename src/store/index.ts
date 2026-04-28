@@ -74,8 +74,6 @@ interface UISlice {
   authorName: string;
   /** Reading column width (CSS pixels). Persisted. Clamped to [400, 1600]. */
   readingWidth: number;
-  /** Transient: ID of the comment thread being re-anchored, or null. NOT persisted. */
-  moveAnchorTarget: string | null;
   /**
    * Transient: file path whose `CommentsPanel` should auto-open its inline
    * file-level input on the next render. Cleared by the panel after it
@@ -88,7 +86,6 @@ interface UISlice {
   toggleCommentsPane: () => void;
   setAuthorName: (name: string) => void;
   setReadingWidth: (n: number) => void;
-  setMoveAnchorTarget: (id: string | null) => void;
   requestFileLevelInput: (filePath: string) => void;
   clearFileLevelInput: () => void;
 }
@@ -218,14 +215,12 @@ export const useStore = create<Store>()(
       commentsPaneVisible: true,
       authorName: "",
       readingWidth: 720,
-      moveAnchorTarget: null,
       pendingFileLevelInputFor: null,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
-      setMoveAnchorTarget: (id) => set({ moveAnchorTarget: id }),
       requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath }),
       clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
 

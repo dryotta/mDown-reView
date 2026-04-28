@@ -470,3 +470,56 @@ fn try_from_anchor_repr_html_element_clamps_text_preview() {
         _ => panic!("expected HtmlElement in history"),
     }
 }
+
+// ── Backward-compat fixture tests (#211) ────────────────────────────────────
+//
+// Standalone YAML fixtures ensure sidecars with html_range/html_element
+// anchors and reactions fields deserialize correctly after the UI features
+// were removed. The Anchor enum variants and reactions field are kept for
+// read compatibility.
+
+#[test]
+fn fixture_html_anchors_deserializes() {
+    let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/html_anchors.review.yaml");
+    let input = raw.replace("\r\n", "\n");
+    let sidecar: MrsfSidecar = serde_yaml_ng::from_str(&input).unwrap();
+    assert_eq!(sidecar.mrsf_version, "1.1");
+    assert_eq!(sidecar.comments.len(), 2);
+    assert!(
+        matches!(sidecar.comments[0].anchor, Anchor::HtmlRange(_)),
+        "first comment should have html_range anchor"
+    );
+    assert!(
+        matches!(sidecar.comments[1].anchor, Anchor::HtmlElement(_)),
+        "second comment should have html_element anchor"
+    );
+    if let Anchor::HtmlRange(ref hr) = sidecar.comments[0].anchor {
+        assert_eq!(hr.selector_path, "body > div:nth-child(2) > p:nth-child(1)");
+        assert_eq!(hr.start_offset, 0);
+        assert_eq!(hr.end_offset, 42);
+    }
+    if let Anchor::HtmlElement(ref he) = sidecar.comments[1].anchor {
+        assert_eq!(he.tag, "span");
+        assert_eq!(he.text_preview, "Section Title");
+    }
+}
+
+#[test]
+fn fixture_reactions_deserializes() {
+    let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/reactions.review.yaml");
+    let input = raw.replace("\r\n", "\n");
+    let sidecar: MrsfSidecar = serde_yaml_ng::from_str(&input).unwrap();
+    assert_eq!(sidecar.mrsf_version, "1.1");
+    assert_eq!(sidecar.comments.len(), 2);
+    let c1 = &sidecar.comments[0];
+    let reactions = c1.reactions.as_ref().expect("reactions should be present");
+    assert_eq!(reactions.len(), 2);
+    assert_eq!(reactions[0].user, "bob");
+    assert_eq!(reactions[0].kind, "thumbs_up");
+    assert_eq!(reactions[1].user, "carol");
+    assert_eq!(reactions[1].kind, "acknowledge");
+    let c2 = &sidecar.comments[1];
+    let r2 = c2.reactions.as_ref().expect("reactions should be present");
+    assert_eq!(r2.len(), 1);
+    assert_eq!(r2[0].kind, "dismiss");
+}

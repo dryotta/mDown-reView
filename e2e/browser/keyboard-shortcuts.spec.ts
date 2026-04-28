@@ -73,66 +73,6 @@ function setupKeyboardShortcutsMock(page: Page) {
 }
 
 test.describe("F1 keyboard shortcuts", () => {
-  test("J advances focusedThreadId through unresolved threads", async ({ page }) => {
-    await setupKeyboardShortcutsMock(page);
-    await page.goto("/");
-    await page.locator(".folder-tree").getByText("sample.md").click();
-    await expect(page.getByText("First unresolved")).toBeVisible();
-
-    // First J → focuses t1 (no prior focus).
-    await page.locator("body").focus();
-    await page.keyboard.press("j");
-    await page.waitForFunction(() => {
-      const w = window as unknown as { __SCROLL_CALLS__?: number[] };
-      return (w.__SCROLL_CALLS__ ?? []).length >= 1;
-    });
-    let scrolls = await page.evaluate(
-      () => (window as Record<string, unknown>).__SCROLL_CALLS__,
-    );
-    expect(scrolls).toEqual([1]);
-
-    // Second J → advances to t2.
-    await page.keyboard.press("j");
-    await page.waitForFunction(() => {
-      const w = window as unknown as { __SCROLL_CALLS__?: number[] };
-      return (w.__SCROLL_CALLS__ ?? []).length >= 2;
-    });
-    scrolls = await page.evaluate(
-      () => (window as Record<string, unknown>).__SCROLL_CALLS__,
-    );
-    expect(scrolls).toEqual([1, 3]);
-  });
-
-  test("R routes through update_comment for the focused thread", async ({ page }) => {
-    await setupKeyboardShortcutsMock(page);
-    await page.goto("/");
-    await page.locator(".folder-tree").getByText("sample.md").click();
-    await expect(page.getByText("First unresolved")).toBeVisible();
-
-    // J focuses t1 first.
-    await page.locator("body").focus();
-    await page.keyboard.press("j");
-    await page.waitForFunction(() => {
-      const w = window as unknown as { __SCROLL_CALLS__?: number[] };
-      return (w.__SCROLL_CALLS__ ?? []).length >= 1;
-    });
-
-    // R → resolveFocusedThread → updateComment(t1, set_resolved=true).
-    await page.keyboard.press("r");
-    await page.waitForFunction(() => {
-      const w = window as unknown as { __RESOLVE_CALLS__?: unknown[] };
-      return (w.__RESOLVE_CALLS__ ?? []).length >= 1;
-    });
-    const calls = (await page.evaluate(
-      () => (window as Record<string, unknown>).__RESOLVE_CALLS__,
-    )) as Array<Record<string, unknown>>;
-    expect(calls.length).toBe(1);
-    expect(calls[0].commentId).toBe("t1");
-    const patch = calls[0].patch as { kind: string; data: { resolved: boolean } };
-    expect(patch.kind).toBe("set_resolved");
-    expect(patch.data.resolved).toBe(true);
-  });
-
   test("Esc closes an open inline comment composer", async ({ page }) => {
     await setupKeyboardShortcutsMock(page);
     await page.goto("/");

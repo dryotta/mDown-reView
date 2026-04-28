@@ -12,7 +12,6 @@ import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
 import { useAuthor } from "@/lib/vm/useAuthor";
-import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
@@ -49,7 +48,6 @@ export default function App() {
   const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
-  const isMoveAnchorMode = useStore((s) => s.moveAnchorTarget !== null);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
 
@@ -66,16 +64,6 @@ export default function App() {
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
-
-  // F1 — register the VM resolveFocusedThread handler with the store so
-  // the `R` keyboard shortcut can route through `update_comment` (the
-  // single mutation chokepoint) without the slice importing IPC mutations.
-  const { resolveFocusedThread } = useCommentActions();
-  const setResolveFocusedThreadHandler = useStore((s) => s.setResolveFocusedThreadHandler);
-  useEffect(() => {
-    setResolveFocusedThreadHandler(resolveFocusedThread);
-    return () => setResolveFocusedThreadHandler(null);
-  }, [resolveFocusedThread, setResolveFocusedThreadHandler]);
 
   // F1 — Ctrl/Cmd+Shift+M: trigger the existing selection-toolbar add-
   // comment path. We dispatch a real bubbling `mouseup` from the end of
@@ -143,25 +131,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [checkForUpdate]);
 
-  // Move-anchor mode: toggle a body class so global CSS can swap the cursor
-  // for every element under <body> while the user picks a target line.
-  useEffect(() => {
-    document.body.classList.toggle("mode-move-anchor", isMoveAnchorMode);
-    return () => { document.body.classList.remove("mode-move-anchor"); };
-  }, [isMoveAnchorMode]);
-
-  // Move-anchor mode: global Esc cancels. Capture phase so it wins over
-  // any per-component keydown handler. Read the current value via getState()
-  // (rule 9) so the listener doesn't need to re-bind on every state change.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && useStore.getState().moveAnchorTarget !== null) {
-        useStore.getState().setMoveAnchorTarget(null);
-      }
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, []);
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
@@ -187,12 +156,6 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      {isMoveAnchorMode && (
-        <div className="move-anchor-banner" role="status" aria-live="polite" data-testid="move-anchor-banner">
-          Click a line to move the comment.{" "}
-          <button onClick={() => useStore.getState().setMoveAnchorTarget(null)}>Cancel</button>
-        </div>
-      )}
       <ErrorBoundary>
       <div className="toolbar">
         <div className="toolbar-btn-group">

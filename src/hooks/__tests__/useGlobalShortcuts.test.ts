@@ -7,10 +7,6 @@ const mockSetActiveTab = vi.fn();
 const mockBumpZoom = vi.fn();
 const mockBack = vi.fn();
 const mockForward = vi.fn();
-const mockNextUnresolvedInActiveFile = vi.fn();
-const mockPrevUnresolvedInActiveFile = vi.fn();
-const mockNextUnresolvedAcrossFiles = vi.fn();
-const mockResolveFocusedThread = vi.fn();
 const mockActiveViewerContextMenu = vi.fn();
 
 const storeState = {
@@ -21,10 +17,6 @@ const storeState = {
   bumpZoom: mockBumpZoom,
   back: mockBack,
   forward: mockForward,
-  nextUnresolvedInActiveFile: mockNextUnresolvedInActiveFile,
-  prevUnresolvedInActiveFile: mockPrevUnresolvedInActiveFile,
-  nextUnresolvedAcrossFiles: mockNextUnresolvedAcrossFiles,
-  resolveFocusedThread: mockResolveFocusedThread,
   activeViewerContextMenu: mockActiveViewerContextMenu as
     | ((x: number, y: number) => void)
     | null,
@@ -315,31 +307,6 @@ describe("useGlobalShortcuts", () => {
       expect(ev.defaultPrevented).toBe(true);
     });
 
-    it("J calls nextUnresolvedInActiveFile", () => {
-      renderHook(() => useGlobalShortcuts(callbacks));
-      const ev = fire({ key: "j", mod: false });
-      expect(mockNextUnresolvedInActiveFile).toHaveBeenCalledOnce();
-      expect(ev.defaultPrevented).toBe(true);
-    });
-
-    it("K calls prevUnresolvedInActiveFile", () => {
-      renderHook(() => useGlobalShortcuts(callbacks));
-      fire({ key: "k", mod: false });
-      expect(mockPrevUnresolvedInActiveFile).toHaveBeenCalledOnce();
-    });
-
-    it("N calls nextUnresolvedAcrossFiles", () => {
-      renderHook(() => useGlobalShortcuts(callbacks));
-      fire({ key: "n", mod: false });
-      expect(mockNextUnresolvedAcrossFiles).toHaveBeenCalledOnce();
-    });
-
-    it("R calls resolveFocusedThread", () => {
-      renderHook(() => useGlobalShortcuts(callbacks));
-      fire({ key: "r", mod: false });
-      expect(mockResolveFocusedThread).toHaveBeenCalledOnce();
-    });
-
     it("Esc is not bound globally (handled per-input by CommentInput)", () => {
       renderHook(() => useGlobalShortcuts(callbacks));
       const ev = fire({ key: "Escape", mod: false });
@@ -348,19 +315,11 @@ describe("useGlobalShortcuts", () => {
       expect(ev.defaultPrevented).toBe(false);
     });
 
-    it("J/K/N/R/Ctrl+Shift+M skip when target is editable", () => {
+    it("Ctrl+Shift+M skips when target is editable", () => {
       renderHook(() => useGlobalShortcuts(callbacks));
       const input = document.createElement("input");
       document.body.appendChild(input);
-      fire({ key: "j", mod: false, target: input });
-      fire({ key: "k", mod: false, target: input });
-      fire({ key: "n", mod: false, target: input });
-      fire({ key: "r", mod: false, target: input });
       fire({ key: "M", shift: true, target: input });
-      expect(mockNextUnresolvedInActiveFile).not.toHaveBeenCalled();
-      expect(mockPrevUnresolvedInActiveFile).not.toHaveBeenCalled();
-      expect(mockNextUnresolvedAcrossFiles).not.toHaveBeenCalled();
-      expect(mockResolveFocusedThread).not.toHaveBeenCalled();
       expect(callbacks.startCommentOnSelection).not.toHaveBeenCalled();
       input.remove();
     });

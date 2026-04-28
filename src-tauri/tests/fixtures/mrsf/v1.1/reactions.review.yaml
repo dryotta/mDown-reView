@@ -1,0 +1,27 @@
+mrsf_version: '1.1'
+document: notes.md
+comments:
+- id: reacted-comment-1
+  author: alice
+  timestamp: '2025-06-01T12:00:00Z'
+  text: Great explanation of the algorithm
+  resolved: false
+  line: 15
+  reactions:
+  - user: bob
+    kind: thumbs_up
+    ts: '2025-06-01T12:05:00Z'
+  - user: carol
+    kind: acknowledge
+    ts: '2025-06-01T12:10:00Z'
+- id: reacted-comment-2
+  author: bob
+  timestamp: '2025-06-01T13:00:00Z'
+  text: This section could be clearer
+  resolved: false
+  line: 30
+  severity: medium
+  reactions:
+  - user: alice
+    kind: dismiss
+    ts: '2025-06-01T13:15:00Z'

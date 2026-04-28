@@ -1,21 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { CommentsPanel } from "../CommentsPanel";
 import { useComments } from "@/lib/vm/use-comments";
-import { useWorkspaceComments } from "@/lib/vm/useWorkspaceComments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { useStore } from "@/store";
 import type { MatchedComment, CommentThread as CommentThreadType } from "@/lib/tauri-commands";
 
 vi.mock("@tauri-apps/api/core");
-vi.mock("@/logger");
 
 vi.mock("@/lib/vm/use-comments", () => ({
   useComments: vi.fn(() => ({ threads: [], comments: [], loading: false, reload: vi.fn() })),
-}));
-
-vi.mock("@/lib/vm/useWorkspaceComments", () => ({
-  useWorkspaceComments: vi.fn(() => ({})),
 }));
 
 const mockAddComment = vi.fn().mockResolvedValue(undefined);
@@ -28,15 +22,12 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
     deleteComment: vi.fn().mockResolvedValue(undefined),
     resolveComment: vi.fn().mockResolvedValue(undefined),
     unresolveComment: vi.fn().mockResolvedValue(undefined),
-    commitMoveAnchor: vi.fn().mockResolvedValue(undefined),
-    addReaction: vi.fn().mockResolvedValue(undefined),
     resolveFocusedThread: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 
 const mockUseComments = vi.mocked(useComments);
 const mockUseCommentActions = vi.mocked(useCommentActions);
-const mockUseWorkspaceComments = vi.mocked(useWorkspaceComments);
 
 const FILE = "/docs/README.md";
 
@@ -86,12 +77,9 @@ beforeEach(() => {
     deleteComment: vi.fn().mockResolvedValue(undefined),
     resolveComment: vi.fn().mockResolvedValue(undefined),
     unresolveComment: vi.fn().mockResolvedValue(undefined),
-    commitMoveAnchor: vi.fn().mockResolvedValue(undefined),
-    addReaction: vi.fn().mockResolvedValue(undefined),
     resolveFocusedThread: vi.fn().mockResolvedValue(undefined),
   });
   mockUseComments.mockReturnValue({ threads: [], comments: [], loading: false, reload: vi.fn() });
-  mockUseWorkspaceComments.mockReturnValue({});
   useStore.setState({ pendingFileLevelInputFor: null });
 });
 
@@ -426,252 +414,5 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
     expect(
       Object.entries(localStorage).find(([, v]) => v === "to discard"),
     ).toBeUndefined();
-  });
-});
-
-// ─── Iter 6 F2 — Export review summary button ──────────────────────────────
-
-describe("CommentsPanel — Export review summary (iter 6 F2)", () => {
-  let originalClipboard: typeof navigator.clipboard;
-  let originalRoot: string | null;
-
-  beforeEach(() => {
-    originalClipboard = navigator.clipboard;
-    originalRoot = useStore.getState().root;
-    // Default workspace root for these tests; tests may override.
-    useStore.setState({ root: "/ws" });
-    // Provide a clipboard mock that vitest can spy on.
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      configurable: true,
-      writable: true,
-    });
-  });
-
-  afterEach(() => {
-    // testing-library's afterEach (cleanup) is registered first and runs
-    // last (LIFO). Unmount before mutating store state so a re-render of a
-    // still-mounted CommentsPanel doesn't fire an act() warning.
-    cleanup();
-    Object.defineProperty(navigator, "clipboard", {
-      value: originalClipboard,
-      configurable: true,
-      writable: true,
-    });
-    useStore.setState({ root: originalRoot });
-  });
-
-  it("renders the Export button in the panel header", () => {
-    render(<CommentsPanel filePath={FILE} />);
-    expect(screen.getByRole("button", { name: /export review summary/i })).toBeInTheDocument();
-  });
-
-  it("clicking Export invokes export_review_summary IPC with workspace root and copies markdown to clipboard", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce("# Review Summary\n- thread");
-
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /export review summary/i }));
-
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("export_review_summary", { workspace: "/ws" });
-    });
-    await waitFor(() => {
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("# Review Summary\n- thread");
-    });
-    expect(await screen.findByText(/exported to clipboard/i)).toBeInTheDocument();
-  });
-
-  it("falls back to filePath when no workspace root is set", async () => {
-    useStore.setState({ root: null });
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce("# x");
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /export review summary/i }));
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("export_review_summary", { workspace: FILE });
-    });
-  });
-
-  // A3 (iter 7) — token race guard. If a slow first click resolves AFTER
-  // a fast second click, only the second click's status must be visible.
-  // B4 (iter 7 forward-fix) — additionally, the stale first export must
-  // NOT write its (stale) markdown to the clipboard after the second
-  // click has already settled. Token check moved before `clipboard.writeText`.
-  it("ignores the first export's resolution when a second click resolves first", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    vi.mocked(invoke).mockClear();
-
-    let resolveFirst!: (v: string) => void;
-    const firstPromise = new Promise<string>((r) => { resolveFirst = r; });
-    let rejectSecond!: (e: unknown) => void;
-    const secondPromise = new Promise<string>((_r, rej) => { rejectSecond = rej; });
-
-    vi.mocked(invoke)
-      .mockImplementationOnce(() => firstPromise)
-      .mockImplementationOnce(() => secondPromise);
-
-    render(<CommentsPanel filePath={FILE} />);
-    const btn = screen.getByRole("button", { name: /export review summary/i });
-
-    // Fire two clicks back-to-back. Token increments on each.
-    fireEvent.click(btn);
-    fireEvent.click(btn);
-
-    // Resolve SECOND first (with rejection) → status should be "Export failed".
-    rejectSecond(new Error("boom"));
-    expect(await screen.findByText(/export failed/i)).toBeInTheDocument();
-
-    // Now finish the slow FIRST call with success. Without the token guard,
-    // this would flip the status back to "Exported to clipboard". With the
-    // guard, the stale resolution is dropped and "Export failed" persists.
-    resolveFirst("# first");
-    // Flush microtasks.
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(screen.getByText(/export failed/i)).toBeInTheDocument();
-    expect(screen.queryByText(/exported to clipboard/i)).toBeNull();
-
-    // B4 — the stale first export's markdown must NEVER reach the clipboard.
-    // The second export rejected (no markdown to write). Therefore
-    // `clipboard.writeText` must not have been called at all in this scenario.
-    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
-  });
-});
-
-
-//  Iter 9 F3  filter & search 
-
-describe("CommentsPanel  filter & search (iter 9 F3)", () => {
-  it("search filters threads by body text", () => {
-    setMockComments([
-      makeThread(makeComment("a", "alpha first", { line: 1, matchedLineNumber: 1 })),
-      makeThread(makeComment("b", "beta second", { line: 2, matchedLineNumber: 2 })),
-      makeThread(makeComment("c", "gamma third", { line: 3, matchedLineNumber: 3 })),
-    ]);
-
-    render(<CommentsPanel filePath={FILE} />);
-    const searchBox = screen.getByLabelText("Search comments");
-    fireEvent.change(searchBox, { target: { value: "alpha" } });
-
-    expect(screen.getByText("alpha first")).toBeInTheDocument();
-    expect(screen.queryByText("beta second")).not.toBeInTheDocument();
-    expect(screen.queryByText("gamma third")).not.toBeInTheDocument();
-
-    // B1.3 — case-insensitive lock: uppercase needle matches lowercase body.
-    fireEvent.change(searchBox, { target: { value: "ALPHA" } });
-    expect(screen.getByText("alpha first")).toBeInTheDocument();
-  });
-
-  it("severity chip narrows list to matching threads", () => {
-    setMockComments([
-      makeThread(makeComment("h1", "high one", { line: 1, matchedLineNumber: 1, severity: "high" })),
-      makeThread(makeComment("m1", "medium one", { line: 2, matchedLineNumber: 2, severity: "medium" })),
-      makeThread(makeComment("h2", "high two", { line: 3, matchedLineNumber: 3, severity: "high" })),
-    ]);
-
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /severity high/i }));
-
-    expect(screen.getByText("high one")).toBeInTheDocument();
-    expect(screen.getByText("high two")).toBeInTheDocument();
-    expect(screen.queryByText("medium one")).not.toBeInTheDocument();
-  });
-
-  it("workspace-wide toggle includes threads from other files with file path label", () => {
-    setMockComments([
-      makeThread(makeComment("local", "local note", { line: 1, matchedLineNumber: 1 })),
-    ]);
-    mockUseWorkspaceComments.mockReturnValue({
-      [FILE]: [makeThread(makeComment("local", "local note", { line: 1, matchedLineNumber: 1 }))],
-      "/docs/other.md": [makeThread(makeComment("ext", "external note", { line: 7, matchedLineNumber: 7 }))],
-    });
-    useStore.setState({ root: "/docs" });
-
-    render(<CommentsPanel filePath={FILE} />);
-    expect(screen.queryByText("external note")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByLabelText("Show all files"));
-
-    expect(screen.getByText("external note")).toBeInTheDocument();
-    expect(screen.getByText("other.md")).toBeInTheDocument();
-  });
-
-  it("showResolved=false hides fully-resolved threads (existing behavior preserved)", () => {
-    setMockComments([
-      makeThread(makeComment("u", "unresolved", { line: 1, matchedLineNumber: 1 })),
-      makeThread(makeComment("r", "all resolved", { line: 2, matchedLineNumber: 2, resolved: true })),
-    ]);
-
-    render(<CommentsPanel filePath={FILE} />);
-    expect(screen.getByText("unresolved")).toBeInTheDocument();
-    expect(screen.queryByText("all resolved")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText(/show resolved/i));
-    expect(screen.getByText("all resolved")).toBeInTheDocument();
-  });
-
-  // B1.3 — toggling a severity chip on then off returns to "no severity
-  // filter" (empty Set), which is equivalent to "all toggled off". Both
-  // variants must show every thread.
-  it("clicking high chip on then off restores all threads", () => {
-    setMockComments([
-      makeThread(makeComment("h", "high one", { line: 1, matchedLineNumber: 1, severity: "high" })),
-      makeThread(makeComment("l", "low one", { line: 2, matchedLineNumber: 2, severity: "low" })),
-    ]);
-
-    render(<CommentsPanel filePath={FILE} />);
-    const highChip = screen.getByRole("button", { name: /severity high/i });
-
-    fireEvent.click(highChip);
-    expect(screen.queryByText("low one")).not.toBeInTheDocument();
-
-    fireEvent.click(highChip);
-    expect(screen.getByText("high one")).toBeInTheDocument();
-    expect(screen.getByText("low one")).toBeInTheDocument();
-  });
-
-  // B1.3 — cross-file click navigation. Iter 10 Group B replaced the rAF
-  // hack with a `pendingScrollTarget` store field consumed by the destination
-  // viewer's `useScrollToLine` on mount. The panel now queues the target
-  // and opens the file; `setActiveTab` is no longer called explicitly
-  // (`openFile` already activates the tab); `requestAnimationFrame` is no
-  // longer used as a delivery vehicle.
-  it("clicking a cross-file row queues pendingScrollTarget + calls openFile + setFocusedThread (no rAF)", () => {
-    const openFile = vi.fn();
-    const setFocusedThread = vi.fn();
-    const setPendingScrollTarget = vi.fn();
-    const rafSpy = vi.spyOn(window, "requestAnimationFrame");
-    useStore.setState({
-      openFile,
-      setFocusedThread,
-      setPendingScrollTarget,
-      root: "/docs",
-    } as Partial<ReturnType<typeof useStore.getState>>);
-
-    setMockComments([]);
-    mockUseWorkspaceComments.mockReturnValue({
-      "/docs/other.md": [
-        makeThread(makeComment("ext", "external note", { line: 7, matchedLineNumber: 7 })),
-      ],
-    });
-
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByLabelText("Show all files"));
-
-    fireEvent.click(screen.getByText("external note").closest(".comment-panel-item")!);
-
-    expect(setPendingScrollTarget).toHaveBeenCalledWith({
-      filePath: "/docs/other.md",
-      line: 7,
-      commentId: "ext",
-    });
-    expect(openFile).toHaveBeenCalledWith("/docs/other.md");
-    expect(setFocusedThread).toHaveBeenCalledWith("ext");
-    expect(rafSpy).not.toHaveBeenCalled();
-    rafSpy.mockRestore();
   });
 });

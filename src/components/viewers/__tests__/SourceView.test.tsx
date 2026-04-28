@@ -29,7 +29,6 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
     deleteComment: vi.fn(),
     resolveComment: vi.fn(),
     unresolveComment: vi.fn(),
-    commitMoveAnchor: vi.fn(),
   })),
 }));
 

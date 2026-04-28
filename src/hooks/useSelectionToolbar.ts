@@ -1,7 +1,6 @@
 import { useState, useCallback } from "react";
 import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
-import { useStore } from "@/store";
 
 interface SelectionState {
   position: { top: number; left: number };
@@ -27,13 +26,6 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
   const [highlightedSelectionLines, setHighlightedSelectionLines] = useState<Set<number>>(new Set());
 
   const handleMouseUp = () => {
-    // Move-anchor mode short-circuits the selection composer. The
-    // MarkdownViewer / SourceView click handlers commit the move; we must
-    // not pop the selection toolbar in this mode.
-    if (useStore.getState().moveAnchorTarget !== null) {
-      setSelectionToolbar(null);
-      return;
-    }
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) { setSelectionToolbar(null); return; }
     const range = sel.getRangeAt(0);

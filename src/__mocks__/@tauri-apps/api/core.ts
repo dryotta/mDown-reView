@@ -105,7 +105,6 @@ async function defaultInvoke(
   if (cmd === "get_file_comments")
     return { threads: [], sidecar_mtime_ms: null } satisfies GetFileCommentsResult;
   if (cmd === "tokenize_words") return [] as WordSpan[];
-  if (cmd === "export_review_summary") return "";
   if (cmd === "update_comment") return undefined;
   if (cmd === "set_author") return "";
   if (cmd === "get_author") return "Test User";

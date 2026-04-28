@@ -732,7 +732,7 @@ fn stat_file_rejects_path_outside_workspace() {
 mod f0_iter1 {
     use super::{make_mrsf_comment, watcher_state_allowing};
     use mdown_review_lib::commands::{
-        check_workspace_for, export_review_summary_inner, get_file_badges_inner, set_author_at,
+        check_workspace_for, get_file_badges_inner, set_author_at,
         update_comment_apply, validate_author, CommentPatch, ConfigError,
     };
     use mdown_review_lib::core::severity::Severity;
@@ -969,86 +969,6 @@ mod f0_iter1 {
     }
 
     #[test]
-    fn export_review_summary_emits_thread_under_workspace() {
-        let dir = tempfile::tempdir().unwrap();
-        let canonical = std::fs::canonicalize(dir.path()).unwrap();
-        let file = canonical.join("doc.md");
-        std::fs::write(&file, "alpha\n").unwrap();
-        save_sidecar(file.to_str().unwrap(), "doc.md", &[make_mrsf_comment("c1")]).unwrap();
-
-        let out = export_review_summary_inner(canonical.to_str().unwrap());
-        assert!(out.contains("# Review summary"));
-        assert!(out.contains("c1"));
-        assert!(out.contains("```mdr-thread-"));
-    }
-
-    #[test]
-    fn export_review_summary_single_file_fallback_returns_only_that_file() {
-        // Iter 6 forward-fix B7 — single-file launch (no workspace root)
-        // passes the source file path as `workspace`. Exporter must
-        // detect that, scan the parent dir, and filter to that one file.
-        let dir = tempfile::tempdir().unwrap();
-        let canonical = std::fs::canonicalize(dir.path()).unwrap();
-        let target = canonical.join("target.md");
-        let other = canonical.join("other.md");
-        std::fs::write(&target, "alpha\n").unwrap();
-        std::fs::write(&other, "beta\n").unwrap();
-        save_sidecar(target.to_str().unwrap(), "target.md", &[make_mrsf_comment("t1")]).unwrap();
-        save_sidecar(other.to_str().unwrap(), "other.md", &[make_mrsf_comment("o1")]).unwrap();
-
-        let out = export_review_summary_inner(target.to_str().unwrap());
-        assert!(out.contains("# Review summary"));
-        assert!(out.contains("**t1**"), "expected target's comment in output: {out}");
-        // Match the bullet form `- **o1** by ...` rather than the raw substring
-        // `o1`, because the random tempdir suffix can incidentally contain those
-        // characters (e.g. `/tmp/.tmpD6U6o1`) and produce a false positive.
-        assert!(
-            !out.contains("**o1**") && !out.contains("## other.md"),
-            "single-file export must not include sibling file's comments: {out}"
-        );
-    }
-
-    #[test]
-    fn export_review_summary_single_file_canonicalizes_target_path() {
-        // A5 (iter 7) — `workspace` may differ in representation from
-        // the path the scanner emits (e.g. drive-letter casing on
-        // Windows, presence/absence of UNC prefix, or `.`/`..` segments).
-        // The export filter must canonicalize both sides so the target's
-        // comments still surface.
-        let dir = tempfile::tempdir().unwrap();
-        let canonical = std::fs::canonicalize(dir.path()).unwrap();
-        let target = canonical.join("target.md");
-        std::fs::write(&target, "alpha\n").unwrap();
-        save_sidecar(target.to_str().unwrap(), "target.md", &[make_mrsf_comment("t1")]).unwrap();
-
-        // Build a non-canonical-but-equivalent input path. We use the
-        // tempdir's *original* (non-canonicalized) form joined with the
-        // file name, plus a redundant `.` segment, so the raw string
-        // equality with the scanner-derived (canonical) path will fail —
-        // forcing the canonicalize fallback to do the work.
-        let mangled = dir.path().join(".").join("target.md");
-        let mangled_str = mangled.to_string_lossy().to_string();
-        // Sanity: make sure the test exercises the new code path. If the
-        // mangled string already equals the canonical scanner path, the
-        // raw-equality fast path would mask the canonicalize logic.
-        assert_ne!(
-            mangled_str,
-            target.to_string_lossy(),
-            "test setup must produce a path that differs from the canonical form",
-        );
-
-        let out = export_review_summary_inner(&mangled_str);
-        assert!(
-            out.contains("# Review summary"),
-            "expected a summary heading: {out}"
-        );
-        assert!(
-            out.contains("t1"),
-            "expected target's comment to survive path canonicalization: {out}"
-        );
-    }
-
-    #[test]
     fn set_author_validation_matrix() {
         // Happy path
         let dir = tempfile::tempdir().unwrap();
@@ -1114,7 +1034,6 @@ mod f0_iter1 {
             "edit_comment",
             "delete_comment",
             "update_comment",
-            "export_review_summary",
             "get_file_badges",
         ] {
             let err = check_workspace_for(cmd, &state, outside_str).unwrap_err();
