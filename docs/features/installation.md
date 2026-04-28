@@ -64,10 +64,10 @@ The `.dmg` ships with a custom layout (`tauri.conf.json` `bundle.macOS.dmg`): 66
 
 `tauri.conf.json` `bundle.windows.nsis.installerHooks` points at `src-tauri/installer/installer-hooks.nsh`. Two macros, **HKCU only — no UAC**:
 
-- `NSIS_HOOK_POSTINSTALL` — uses stock NSIS (`ReadRegStr` / `WriteRegExpandStr` on `HKCU\Environment`, with a `WM_SETTINGCHANGE` broadcast) to add `$INSTDIR` to per-user `PATH`. A small private macro `MdrFilterPath` walks the `;`-separated tokens and drops any case-insensitive match of `$INSTDIR` before the new entry is appended, so re-installing on top of an existing install does not duplicate the entry. Then writes folder context-menu keys under `HKCU\Software\Classes\Directory\shell` and `Directory\Background\shell`. No NSIS plugins required (the Tauri-bundled `makensis` does not ship `EnVar`).
+- `NSIS_HOOK_POSTINSTALL` — uses stock NSIS (`ReadRegStr` / `WriteRegExpandStr` on `HKCU\Environment`, with a `WM_SETTINGCHANGE` broadcast) to add `$INSTDIR` to per-user `PATH`. A small private macro `MdrFilterPath` walks the `;`-separated tokens and drops any case-insensitive match of `$INSTDIR` before the new entry is appended, so re-installing on top of an existing install does not duplicate the entry. No NSIS plugins required (the Tauri-bundled `makensis` does not ship `EnVar`).
 - `NSIS_HOOK_PREUNINSTALL` — reverses both: re-uses `MdrFilterPath` to strip `$INSTDIR` from PATH (collapses runs of `;`; `DeleteRegValue` if the result would be empty rather than writing `""`), broadcasts `WM_SETTINGCHANGE`, and `DeleteRegKey` on the two context-menu trees.
 
-The folder context menu is *also* exposed via the `register_folder_context` IPC command (below) so the UI can offer it as an opt-in toggle independent of the installer; the two writers target identical registry paths so they're idempotent.
+The installer writes PATH only; other platform integrations are managed at runtime via IPC commands (below).
 
 ## Onboarding state model
 
@@ -86,14 +86,13 @@ The frontend reads via the `OnboardingSlice` in the Zustand store (`src/store/in
 
 ## Platform integration commands
 
-9 IPC commands expose the iter-2 onboarding/integration surface (registered in `src-tauri/src/lib.rs` `shared_commands!` block, typed wrappers in `src/lib/tauri-commands.ts`). All status enums are `lowercase`-serialized to keep the TS union minimal.
+6 IPC commands expose the onboarding/integration surface (registered in `src-tauri/src/lib.rs` `shared_commands!` block, typed wrappers in `src/lib/tauri-commands.ts`). All status enums are `lowercase`-serialized to keep the TS union minimal.
 
 | Group | Commands | Behavior |
 |---|---|---|
 | **Onboarding** (`commands/onboarding.rs`) | `onboarding_state` | Loads the schema-versioned state above. (The legacy `onboarding_mark_welcomed` / `onboarding_should_welcome` IPCs were removed in #79 along with the welcome/setup modal flow.) |
 | **CLI shim** (`commands/cli_shim.rs`) | `cli_shim_status` → `Done \| Missing \| Broken \| Unsupported`, `install_cli_shim`, `remove_cli_shim` | macOS: manages `/usr/local/bin/mdownreview` symlink into the `.app` bundle; **destructive ops refuse unless the symlink's canonical target is inside the canonical app-bundle root** (`commands/cli_shim/macos.rs::remove_at`). Windows: status detects `mdownreview-cli.exe` next to the app exe and the install dir on `HKCU\Environment\Path` via `winreg`. Iter-4 onwards, `install_cli_shim` and `remove_cli_shim` mutate the same `HKCU\Environment\Path` value (dedup-aware add / case-insensitive filter), preserve REG_EXPAND_SZ vs REG_SZ value type, and broadcast `WM_SETTINGCHANGE` for `"Environment"`. This is complementary to the NSIS install-time hook (`installer-hooks.nsh`) — both writers target the same registry key with the same dedupe contract, so reinstalling and toggling in-app never double up. **HKCU only — never HKLM, no admin elevation.** |
 | **Default handler** (`commands/default_handler.rs`) | `default_handler_status` → `Done \| Other \| Unknown \| Unsupported`, `set_default_handler` | Windows: reads `HKCU\…\FileExts\.md\UserChoice\ProgId` via `winreg` and matches `mdownreview`. macOS: returns `Unknown` (programmatic `LSCopyDefaultRoleHandlerForContentType` requires `core-foundation` FFI; deferred). `set_*` always punts to the OS UI (`ms-settings:defaultapps` / `x-apple.systempreferences:com.apple.preference.general`) via `tauri-plugin-opener` — UserChoice is hash-protected since Win10 and cannot be set programmatically. |
-| **Folder context** (`commands/folder_context.rs`) | `folder_context_status` → `Done \| Missing \| Unsupported`, `register_folder_context`, `unregister_folder_context` | Windows-only. Writes `HKCU\Software\Classes\Directory\shell\Open with mdownreview` (and the `Directory\Background\shell` twin) with the running exe path; `unregister` deletes both subtrees. Other platforms report `Unsupported`. |
 
 Each command file with OS divergence follows the **platform sub-module pattern** (rule 26 in [`docs/architecture.md`](../architecture.md)): a thin parent file dispatches to `commands/<feature>/{macos,windows,unsupported}.rs`. The `Unsupported` variant on every status enum lets the UI render a neutral state on platforms where the feature doesn't apply, without `cfg!` checks in TypeScript.
 
@@ -106,10 +105,10 @@ Each command file with OS divergence follows the **platform sub-module pattern**
 - `site/install.sh` — macOS install script
 - `site/install.ps1` — Windows install script
 - `src-tauri/tauri.conf.json` — bundle config (`signingIdentity`, `externalBin`, `bundle.targets`, `bundle.macOS.dmg` layout, `bundle.windows.nsis.installerHooks`)
-- `src-tauri/installer/installer-hooks.nsh` — NSIS POST/PREINSTALL macros (HKCU PATH + folder context menu)
+- `src-tauri/installer/installer-hooks.nsh` — NSIS POST/PREINSTALL macros (HKCU PATH)
 - `src-tauri/dmg/` — DMG layout assets (background image placeholder, `README.txt` shipped at DMG root via `bundle.resources`)
 - `src-tauri/src/core/onboarding.rs` — schema-versioned onboarding state (load/save on injectable path)
-- `src-tauri/src/commands/{onboarding,cli_shim,default_handler,folder_context}.rs` — 9 platform-integration IPC commands
+- `src-tauri/src/commands/{onboarding,cli_shim,default_handler}.rs` — 6 platform-integration IPC commands
 - `src/store/index.ts` — `OnboardingSlice` (state + actions) consumed by SettingsView and WelcomeView
 - `scripts/stage-cli.mjs` — places the CLI at `src-tauri/binaries/mdownreview-cli-<triple>` so Tauri's `externalBin` build-time check passes
 - `.github/workflows/release.yml` — build pipeline + codesign verification + DMG layout verification

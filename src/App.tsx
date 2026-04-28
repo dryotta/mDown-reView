@@ -19,14 +19,13 @@ import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
-import { SettingsDialog } from "@/components/SettingsDialog";
 import { SettingsView } from "@/components/SettingsView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { getFileCategory } from "@/lib/file-types";
 import { basename } from "@/lib/path-utils";
-import { IconFile, IconFolder, IconComment, IconSettings } from "@/components/Icons";
+import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
 
@@ -62,16 +61,8 @@ export default function App() {
   }, [activeTabPath]);
 
   const [aboutOpen, setAboutOpen] = useState(false);
-  // Settings surface (issue #116): the inline page (`<SettingsView/>`) is
-  // gated by a discriminated-union `settingsSurface` ('closed' | 'inline'),
-  // while the author/preferences dialog launched FROM INSIDE that page is a
-  // separate boolean (`authorDialogOpen`). They are intentionally
-  // independent — the dialog layers OVER the inline page, so opening it
-  // must not unmount SettingsView. Each mount site has its own gate
-  // identifier, satisfying lint rule `local/no-shared-boolean-mount`.
-  // See docs/architecture.md rules 16 & 28.
-  const settingsSurface = useStore((s) => s.settingsSurface);
-  const authorDialogOpen = useStore((s) => s.authorDialogOpen);
+  const settingsDialogOpen = useStore((s) => s.settingsDialogOpen);
+  const closeSettings = useStore((s) => s.closeSettings);
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
@@ -218,14 +209,6 @@ export default function App() {
           >
             <IconComment /> Comments
           </button>
-          <button
-            className="toolbar-btn"
-            onClick={() => useStore.getState().openSettings()}
-            title="Settings"
-            aria-label="Settings"
-          >
-            <IconSettings /> Settings
-          </button>
         </div>
         <ErrorBoundary>
           <TabBar />
@@ -252,9 +235,7 @@ export default function App() {
 
         <div className="viewer-area">
           <ErrorBoundary>
-            {settingsSurface === "inline" ? (
-              <SettingsView />
-            ) : activeTabPath ? (
+            {activeTabPath ? (
               <ViewerRouter path={activeTabPath} />
             ) : (
               <WelcomeView onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
@@ -274,10 +255,7 @@ export default function App() {
       </ErrorBoundary>
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
-      {/* Author/preferences dialog. Reachable from the SettingsView footer
-          link; layers OVER the inline page (rule 28: each mount site has
-          its own gate identifier). */}
-      {authorDialogOpen && <SettingsDialog onClose={() => useStore.getState().closeAuthorDialog()} />}
+      {settingsDialogOpen && <SettingsView onClose={closeSettings} />}
     </div>
   );
 }

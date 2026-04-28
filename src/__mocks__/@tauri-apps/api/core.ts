@@ -131,8 +131,7 @@ async function defaultInvoke(
   }
   if (
     cmd === "cli_shim_status" ||
-    cmd === "default_handler_status" ||
-    cmd === "folder_context_status"
+    cmd === "default_handler_status"
   ) {
     return "missing";
   }
@@ -145,9 +144,7 @@ async function defaultInvoke(
   if (
     cmd === "install_cli_shim" ||
     cmd === "remove_cli_shim" ||
-    cmd === "set_default_handler" ||
-    cmd === "register_folder_context" ||
-    cmd === "unregister_folder_context"
+    cmd === "set_default_handler"
   ) {
     return undefined;
   }

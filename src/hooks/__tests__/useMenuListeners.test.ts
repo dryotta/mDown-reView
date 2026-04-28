@@ -32,9 +32,9 @@ describe("useMenuListeners", () => {
     checkForUpdate: vi.fn(),
   };
 
-  it("subscribes to all 15 menu events", () => {
+  it("subscribes to all 14 menu events", () => {
     renderHook(() => useMenuListeners(callbacks));
-    expect(listeners.size).toBe(15);
+    expect(listeners.size).toBe(14);
     expect(listeners.has("menu-open-file")).toBe(true);
     expect(listeners.has("menu-open-folder")).toBe(true);
     expect(listeners.has("menu-close-folder")).toBe(true);
@@ -47,12 +47,13 @@ describe("useMenuListeners", () => {
     expect(listeners.has("menu-theme-light")).toBe(true);
     expect(listeners.has("menu-theme-dark")).toBe(true);
     expect(listeners.has("menu-about")).toBe(true);
-    expect(listeners.has("menu-open-settings")).toBe(true);
     expect(listeners.has("menu-check-updates")).toBe(true);
     expect(listeners.has("menu-help-settings")).toBe(true);
     // Removed in #79: legacy onboarding entries no longer wired to the menu.
     expect(listeners.has("menu-help-setup")).toBe(false);
     expect(listeners.has("menu-help-welcome")).toBe(false);
+    // Removed in #160: open-settings File menu item dropped; help-settings is the sole entry.
+    expect(listeners.has("menu-open-settings")).toBe(false);
   });
 
   it("calls handleOpenFile on menu-open-file event", () => {
@@ -89,14 +90,6 @@ describe("useMenuListeners", () => {
     expect(callbacks.setAboutOpen).toHaveBeenCalledWith(true);
   });
 
-  it("dispatches openSettings on menu-open-settings event", () => {
-    const openSettings = vi.fn();
-    useStore.setState({ openSettings } as Partial<ReturnType<typeof useStore.getState>>);
-    renderHook(() => useMenuListeners(callbacks));
-    listeners.get("menu-open-settings")?.();
-    expect(openSettings).toHaveBeenCalledOnce();
-  });
-
   it("calls checkForUpdate on menu-check-updates event", () => {
     renderHook(() => useMenuListeners(callbacks));
     listeners.get("menu-check-updates")?.();
@@ -120,7 +113,7 @@ describe("useMenuListeners", () => {
     const { unmount } = renderHook(() => useMenuListeners(callbacks));
     unmount();
     await vi.waitFor(() => {
-      expect(mockUnlisten).toHaveBeenCalledTimes(15);
+      expect(mockUnlisten).toHaveBeenCalledTimes(14);
     });
   });
 });

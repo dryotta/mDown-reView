@@ -1,18 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import { useStore } from "@/store";
-import type { SettingsSurface } from "@/store";
 
 /**
- * Issue #116 — Settings surface mount-gating regression test.
+ * Issue #160 — Settings dialog mount-gating regression test.
  *
- * Architecture (post-forward-fix): `<SettingsView/>` is the page-level
- * surface, gated by `settingsSurface === 'inline'`. `<SettingsDialog/>`
- * is a CHILD MODAL launched from the SettingsView footer link, gated by
- * a separate `authorDialogOpen` boolean. The two surfaces are
- * INTENTIONALLY independent and DO co-mount (page underneath, modal on
- * top) — opening the dialog must not unmount SettingsView, otherwise
- * dismissing the dialog would drop the user back to Welcome/Viewer.
+ * Architecture (post-#160): `<SettingsView/>` is a `<dialog>` gated by
+ * `settingsDialogOpen`. The old `settingsSurface` discriminated union,
+ * the separate `authorDialogOpen` boolean, and the standalone
+ * `<SettingsDialog/>` component are all removed — author editing is now
+ * inline in SettingsView.
  *
  * Lint-rule oracle: the synthetic-regression coverage (a fixture asserting
  * that the pre-fix `{settingsOpen && <SettingsView/>}{settingsOpen &&
@@ -49,13 +46,10 @@ vi.mock("@/lib/tauri-commands", () => ({
   showOpenDialog: vi.fn().mockResolvedValue(null),
   cliShimStatus: vi.fn().mockResolvedValue("missing"),
   defaultHandlerStatus: vi.fn().mockResolvedValue("unknown"),
-  folderContextStatus: vi.fn().mockResolvedValue("missing"),
   onboardingState: vi.fn().mockResolvedValue({ schema_version: 1, last_seen_sections: [] }),
   installCliShim: vi.fn().mockResolvedValue(undefined),
   removeCliShim: vi.fn().mockResolvedValue(undefined),
   setDefaultHandler: vi.fn().mockResolvedValue(undefined),
-  registerFolderContext: vi.fn().mockResolvedValue(undefined),
-  unregisterFolderContext: vi.fn().mockResolvedValue(undefined),
   getAppVersion: vi.fn().mockResolvedValue("0.0.0-test"),
   getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
   getAuthor: vi.fn().mockResolvedValue("Test User"),
@@ -88,11 +82,8 @@ vi.mock("@/components/WelcomeView", () => ({
   WelcomeView: () => <div data-testid="welcome-view" />,
 }));
 vi.mock("@/components/SettingsView", () => ({
-  SettingsView: () => <div data-testid="settings-view" />,
-}));
-vi.mock("@/components/SettingsDialog", () => ({
-  SettingsDialog: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="settings-dialog">
+  SettingsView: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="settings-view">
       <button onClick={onClose}>close</button>
     </div>
   ),
@@ -101,7 +92,6 @@ vi.mock("@/components/Icons", () => ({
   IconFile: () => <span />,
   IconFolder: () => <span />,
   IconComment: () => <span />,
-  IconSettings: () => <span />,
 }));
 
 import App from "@/App";
@@ -119,59 +109,20 @@ async function renderApp() {
   });
 }
 
-describe("settings surface mount gating (issue #116)", () => {
-  // SettingsView gating depends only on settingsSurface.
-  const viewCases: { surface: SettingsSurface; view: boolean }[] = [
-    { surface: "closed", view: false },
-    { surface: "inline", view: true },
+describe("settings dialog mount gating (issue #160)", () => {
+  // SettingsView gating depends on settingsDialogOpen.
+  const viewCases = [
+    { open: false, view: false },
+    { open: true, view: true },
   ];
 
-  for (const { surface, view } of viewCases) {
-    it(`settingsSurface='${surface}' mounts SettingsView=${view}`, async () => {
-      useStore.setState({ settingsSurface: surface, authorDialogOpen: false });
+  for (const { open, view } of viewCases) {
+    it(`settingsDialogOpen=${open} mounts SettingsView=${view}`, async () => {
+      useStore.setState({ settingsDialogOpen: open });
       await renderApp();
       expect(Boolean(screen.queryByTestId("settings-view"))).toBe(view);
     });
   }
-
-  // SettingsDialog gating depends only on authorDialogOpen.
-  it("SettingsDialog mounts iff authorDialogOpen === true", async () => {
-    useStore.setState({ settingsSurface: "closed", authorDialogOpen: false });
-    await renderApp();
-    expect(screen.queryByTestId("settings-dialog")).toBeNull();
-  });
-
-  it("SettingsDialog mounts when authorDialogOpen === true", async () => {
-    useStore.setState({ settingsSurface: "closed", authorDialogOpen: true });
-    await renderApp();
-    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
-  });
-
-  // The architect-flagged regression: the dialog is a CHILD MODAL launched
-  // from inside SettingsView. Flipping authorDialogOpen must NOT unmount
-  // SettingsView — otherwise dismissing the dialog drops the user back to
-  // Welcome/Viewer. Both surfaces SHOULD render together (page + modal).
-  it("SettingsView REMAINS MOUNTED when authorDialogOpen flips to true (page + modal co-render)", async () => {
-    useStore.setState({ settingsSurface: "inline", authorDialogOpen: true });
-    await renderApp();
-    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
-    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
-  });
-
-  // Architect-suggested supplementary regression: open then close the modal
-  // must leave SettingsView mounted (the original UX the forward-fix preserved).
-  it("closing authorDialog returns to inline SettingsView, not to Welcome (rule 28 child-modal exception)", async () => {
-    useStore.setState({ settingsSurface: "inline", authorDialogOpen: true });
-    await renderApp();
-    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
-    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
-    await act(async () => {
-      useStore.getState().closeAuthorDialog();
-    });
-    expect(screen.getByTestId("settings-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("settings-dialog")).not.toBeInTheDocument();
-    expect(useStore.getState().settingsSurface).toBe("inline");
-  });
 
   // AC6 synthetic-regression mirror: the spec asks for a test that fails when
   // a shared boolean is re-introduced. The runtime can no longer express the

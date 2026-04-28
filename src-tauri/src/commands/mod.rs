@@ -8,7 +8,6 @@ pub mod cli_shim;
 pub mod comments;
 pub mod config;
 pub mod default_handler;
-pub mod folder_context;
 pub mod fs;
 pub mod html;
 pub mod launch;

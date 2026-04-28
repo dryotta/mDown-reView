@@ -3,9 +3,10 @@ import { test, expect } from "./fixtures";
 const FIXTURES_DIR = "/e2e/fixtures";
 
 /**
- * AC #71/F7 — Author identity end-to-end.
+ * AC #71/F7 — Author identity end-to-end (post-#160 Settings overhaul).
  *
- * Open Settings → set display name → Save. We assert two contracts:
+ * Open Settings dialog → set display name inline → Save on blur.
+ * We assert two contracts:
  *  1. The `set_author` IPC chokepoint received the trimmed value the
  *     user typed (this is the boundary that connects the UI to the
  *     persisted `OnboardingState.author`).
@@ -14,9 +15,8 @@ const FIXTURES_DIR = "/e2e/fixtures";
  *     return — the same cache `useCommentActions` reads synchronously
  *     when stamping new comments.
  *
- * The end-to-end "author flows into add_comment payload" link is
- * covered by the `useCommentActions` unit test, which mocks the same
- * `useStore` selector this dialog writes to.
+ * Post-#160 the display name input is INLINE in the Settings dialog
+ * (no separate SettingsDialog, no footer link, no child modal).
  */
 test("author identity round-trips through set_author / get_author", async ({ page }) => {
   await page.addInitScript(({ dir }: { dir: string }) => {
@@ -46,7 +46,6 @@ test("author identity round-trips through set_author / get_author", async ({ pag
       // SettingsView mounts and refreshes onboarding statuses (B7).
       if (cmd === "cli_shim_status") return "missing";
       if (cmd === "default_handler_status") return "missing";
-      if (cmd === "folder_context_status") return "missing";
       if (cmd === "onboarding_state")
         return { schema_version: 1, last_seen_sections: [] };
       return null;
@@ -56,38 +55,40 @@ test("author identity round-trips through set_author / get_author", async ({ pag
   await page.goto("/");
   await expect(page.locator(".app-layout")).toBeVisible();
 
-  // Open Settings via the native menu event (`menu-open-settings`), then
-  // click the SettingsView footer link to mount the legacy author dialog —
-  // post-#79 the dialog has its own `authorDialogOpen` flag (B1 forward-fix)
-  // and is no longer auto-opened by `openSettings`.
-  const openAuthorDialog = async () => {
+  // Open Settings dialog via the Help → Settings menu event.
+  const openSettingsDialog = async () => {
     await page.evaluate(() => {
       (window as unknown as {
         __DISPATCH_TAURI_EVENT__?: (event: string, payload: unknown) => void;
-      }).__DISPATCH_TAURI_EVENT__?.("menu-open-settings", null);
+      }).__DISPATCH_TAURI_EVENT__?.("menu-help-settings", null);
     });
-    await page.getByRole("button", { name: /Author & preferences/i }).click();
   };
-  await openAuthorDialog();
+
+  await openSettingsDialog();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog).toBeVisible();
+
+  // Display name input is inline in the dialog — no footer link, no child modal.
   const input = page.getByLabel("Display name");
   await expect(input).toBeVisible();
   await expect(input).toHaveValue("OS-Default-User");
 
-  // Edit + Save.
+  // Edit + blur to save.
   await input.fill("Reviewer-2");
-  await page.getByRole("button", { name: "Save" }).click();
-
-  // Dialog closes on success.
-  await expect(input).not.toBeVisible();
+  await input.blur();
 
   // The IPC chokepoint received the trimmed value.
   await expect.poll(async () =>
     page.evaluate(() => (window as Record<string, unknown>).__SET_AUTHOR_CALLS__),
   ).toEqual([{ name: "Reviewer-2" }]);
 
-  // Re-open the author dialog via the same path — the input now reflects
+  // Close and re-open the Settings dialog — the input now reflects
   // the persisted value via `useAuthor` reading the Zustand cache.
-  await openAuthorDialog();
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+
+  await openSettingsDialog();
+  await expect(dialog).toBeVisible();
   await expect(page.getByLabel("Display name")).toHaveValue("Reviewer-2");
 });
 

@@ -36,7 +36,6 @@ vi.mock("@/lib/tauri-commands", () => ({
   showOpenDialog: vi.fn().mockResolvedValue(null),
   cliShimStatus: vi.fn().mockResolvedValue("missing"),
   defaultHandlerStatus: vi.fn().mockResolvedValue("unknown"),
-  folderContextStatus: vi.fn().mockResolvedValue("missing"),
   onboardingState: vi.fn().mockResolvedValue({
     schema_version: 1,
     last_seen_sections: [],
@@ -44,8 +43,6 @@ vi.mock("@/lib/tauri-commands", () => ({
   installCliShim: vi.fn().mockResolvedValue(undefined),
   removeCliShim: vi.fn().mockResolvedValue(undefined),
   setDefaultHandler: vi.fn().mockResolvedValue(undefined),
-  registerFolderContext: vi.fn().mockResolvedValue(undefined),
-  unregisterFolderContext: vi.fn().mockResolvedValue(undefined),
   getAppVersion: vi.fn().mockResolvedValue("0.0.0-test"),
   getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
   getAuthor: vi.fn().mockResolvedValue("Test User"),
@@ -88,12 +85,9 @@ vi.mock("@/components/WelcomeView", () => ({
   WelcomeView: () => <div data-testid="welcome-view" />,
 }));
 vi.mock("@/components/SettingsView", () => ({
-  SettingsView: () => <div data-testid="settings-view" />,
-}));
-vi.mock("@/components/SettingsDialog", () => ({
-  SettingsDialog: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="settings-dialog">
-      <button onClick={onClose}>close-settings-dialog</button>
+  SettingsView: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="settings-view">
+      <button onClick={onClose}>close-settings</button>
     </div>
   ),
 }));
@@ -101,7 +95,6 @@ vi.mock("@/components/Icons", () => ({
   IconFile: () => <span data-testid="icon-file" />,
   IconFolder: () => <span data-testid="icon-folder" />,
   IconComment: () => <span data-testid="icon-comment" />,
-  IconSettings: () => <span data-testid="icon-settings" />,
 }));
 
 import { showOpenDialog } from "@/lib/tauri-commands";
@@ -147,13 +140,14 @@ function pressKey(opts: {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("App – toolbar rendering", () => {
-  it("renders Open File, Open Folder, Comments, and Settings buttons; Theme/About buttons removed", async () => {
+  it("renders Open File, Open Folder, and Comments buttons; Settings/Theme/About buttons removed from toolbar", async () => {
     await renderApp();
 
     expect(screen.getByText("Open File")).toBeInTheDocument();
     expect(screen.getByText("Open Folder")).toBeInTheDocument();
     expect(screen.getByText("Comments")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    // Gear icon removed from toolbar in #160.
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByText("System")).not.toBeInTheDocument();
     expect(screen.queryByText("About")).not.toBeInTheDocument();
   });
@@ -163,29 +157,28 @@ describe("App – toolbar rendering", () => {
     expect(screen.getByTestId("welcome-view")).toBeInTheDocument();
   });
 
-  it("renders SettingsView (not WelcomeView) when no active tab and settingsSurface='inline'", async () => {
-    useStore.setState({ settingsSurface: "inline" });
+  it("renders SettingsView (as dialog overlay) when settingsDialogOpen=true", async () => {
+    useStore.setState({ settingsDialogOpen: true });
     await renderApp();
     expect(screen.getByTestId("settings-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("welcome-view")).not.toBeInTheDocument();
   });
 
-  it("renders WelcomeView (no SettingsView) when no active tab and settingsSurface='closed'", async () => {
-    useStore.setState({ settingsSurface: "closed" });
+  it("does not render SettingsView when settingsDialogOpen=false", async () => {
+    useStore.setState({ settingsDialogOpen: false });
     await renderApp();
-    expect(screen.getByTestId("welcome-view")).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
   });
 
-  it("renders SettingsView even when an active tab is open (settingsSurface='inline' wins over the viewer — B2)", async () => {
+  it("renders SettingsView as dialog overlay even when an active tab is open (settingsDialogOpen=true — #160)", async () => {
     useStore.setState({
-      settingsSurface: "inline",
+      settingsDialogOpen: true,
       tabs: [{ path: "/foo.md", scrollTop: 0 }],
       activeTabPath: "/foo.md",
     });
     await renderApp();
     expect(screen.getByTestId("settings-view")).toBeInTheDocument();
-    expect(screen.queryByTestId("viewer-router")).not.toBeInTheDocument();
+    // Viewer still renders underneath the dialog overlay.
+    expect(screen.getByTestId("viewer-router")).toBeInTheDocument();
   });
 });
 
