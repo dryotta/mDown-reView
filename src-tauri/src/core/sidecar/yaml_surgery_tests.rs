@@ -229,3 +229,112 @@ fn quote_if_needed_quotes_special_chars() {
     assert_eq!(quote_if_needed("hello: world"), "\"hello: world\"");
     assert_eq!(quote_if_needed("a # b"), "\"a # b\"");
 }
+
+// ── Edge-case tests (AC18) ───────────────────────────────────────────────────
+
+#[test]
+fn surgery_on_empty_comments_list() {
+    let yaml = "mrsf_version: '1.0'\ndocument: test.md\ncomments: []\n";
+    assert!(
+        try_patch(yaml, "c1", &[CommentMutation::SetResolved(true)]).is_none(),
+        "patch on empty comments list should return None"
+    );
+}
+
+#[test]
+fn surgery_on_single_comment() {
+    let yaml = "\
+mrsf_version: '1.0'
+document: test.md
+comments:
+  - id: only
+    text: solo
+    resolved: false
+";
+    let result = try_patch(yaml, "only", &[CommentMutation::SetResolved(true)]).unwrap();
+    assert!(result.contains("resolved: true"), "result:\n{result}");
+    assert!(result.contains("id: only"), "result:\n{result}");
+    assert!(result.contains("text: solo"), "result:\n{result}");
+}
+
+#[test]
+fn surgery_on_unicode_text() {
+    let yaml = "\
+mrsf_version: '1.0'
+document: test.md
+comments:
+  - id: uni
+    text: 'こんにちは世界 🌍'
+    resolved: false
+";
+    let result = try_patch(yaml, "uni", &[CommentMutation::SetResolved(true)]).unwrap();
+    assert!(
+        result.contains("こんにちは世界 🌍"),
+        "unicode text must survive surgery; result:\n{result}"
+    );
+    assert!(result.contains("resolved: true"), "result:\n{result}");
+}
+
+#[test]
+fn surgery_on_multiline_text() {
+    let yaml = "\
+mrsf_version: '1.0'
+document: test.md
+comments:
+  - id: ml
+    text: |
+      First line
+      Second line
+      Third line
+    resolved: false
+";
+    let result = try_patch(yaml, "ml", &[CommentMutation::SetResolved(true)]).unwrap();
+    assert!(
+        result.contains("First line"),
+        "multiline text must survive; result:\n{result}"
+    );
+    assert!(
+        result.contains("Second line"),
+        "multiline text must survive; result:\n{result}"
+    );
+    assert!(result.contains("resolved: true"), "result:\n{result}");
+}
+
+#[test]
+fn surgery_on_100_comments() {
+    let mut yaml = String::from("mrsf_version: '1.0'\ndocument: test.md\ncomments:\n");
+    for i in 0..100 {
+        yaml.push_str(&format!(
+            "  - id: c{i}\n    text: Comment {i}\n    resolved: false\n"
+        ));
+    }
+    let result = try_patch(&yaml, "c50", &[CommentMutation::SetResolved(true)]).unwrap();
+    // c50 should be resolved
+    assert!(
+        result.contains("id: c50\n    text: Comment 50\n    resolved: true"),
+        "c50 must be resolved; result:\n{result}"
+    );
+    // c49 should still be unresolved
+    assert!(
+        result.contains("id: c49\n    text: Comment 49\n    resolved: false"),
+        "c49 must remain unresolved; result:\n{result}"
+    );
+    // c99 (last) should still be unresolved
+    assert!(
+        result.contains("id: c99\n    text: Comment 99\n    resolved: false"),
+        "c99 must remain unresolved; result:\n{result}"
+    );
+}
+
+#[test]
+fn surgery_on_100_comments_produces_valid_yaml() {
+    let mut yaml = String::from("mrsf_version: '1.0'\ndocument: test.md\ncomments:\n");
+    for i in 0..100 {
+        yaml.push_str(&format!(
+            "  - id: c{i}\n    text: Comment {i}\n    resolved: false\n"
+        ));
+    }
+    let result = try_patch(&yaml, "c50", &[CommentMutation::SetResolved(true)]).unwrap();
+    let parsed: Result<serde_json::Value, _> = serde_saphyr::from_str(&result);
+    assert!(parsed.is_ok(), "100-comment result must be valid YAML:\n{result}");
+}

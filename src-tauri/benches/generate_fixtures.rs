@@ -317,9 +317,24 @@ pub fn generate_fixtures(output_dir: &Path) -> std::io::Result<()> {
     fs::create_dir_all(output_dir)?;
     fs::write(&file_100_path, lines_100.join("\n"))?;
 
-    // comments_50.review.yaml
+    // file_100_lines.md.review.yaml — 50-comment sidecar (existing bench baseline)
     let sidecar_50 = generate_sidecar_yaml(&mut rng, "file_100_lines.md", 50, &lines_100);
-    fs::write(output_dir.join("comments_50.review.yaml"), &sidecar_50)?;
+    fs::write(
+        output_dir.join("file_100_lines.md.review.yaml"),
+        &sidecar_50,
+    )?;
+
+    // file_100_comments.md — source file for 100-comment bench (AC14)
+    let lines_100c = generate_markdown_file(&mut rng, 200);
+    let file_100c_path = output_dir.join("file_100_comments.md");
+    fs::write(&file_100c_path, lines_100c.join("\n"))?;
+
+    // file_100_comments.md.review.yaml — 100-comment sidecar
+    let sidecar_100 = generate_sidecar_yaml(&mut rng, "file_100_comments.md", 100, &lines_100c);
+    fs::write(
+        output_dir.join("file_100_comments.md.review.yaml"),
+        &sidecar_100,
+    )?;
 
     // file_1000_lines.md
     let lines_1000 = generate_markdown_file(&mut rng, 1000);
