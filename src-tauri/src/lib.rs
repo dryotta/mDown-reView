@@ -70,9 +70,10 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
         handle, &id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
     let file_menu = SubmenuBuilder::new(handle, "File")
+        .item(&new_window)
+        .separator()
         .item(&open_file)
         .item(&open_folder)
-        .item(&new_window)
         .item(&close_folder)
         .separator()
         .item(&close_tab)

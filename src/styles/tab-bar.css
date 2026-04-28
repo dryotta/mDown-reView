@@ -130,7 +130,7 @@
   flex-shrink: 0;
 }
 
-.tab-badge.badge-capped { font-size: 8px; }
+.tab-badge.badge-capped { font-size: 7px; }
 
 /* Hide badge on hover — close button takes its place */
 .tab:hover .tab-badge,
