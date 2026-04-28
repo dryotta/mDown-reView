@@ -35,6 +35,22 @@ describe("useCrossWindowPrefsSync", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not sync per-window layout state (folderPaneWidth, commentsPaneVisible)", () => {
+    useStore.setState({ folderPaneWidth: 240, commentsPaneVisible: true });
+    renderHook(() => useCrossWindowPrefsSync());
+
+    act(() => {
+      fireStorageEvent(
+        "mdownreview-ui",
+        payload({ folderPaneWidth: 400, commentsPaneVisible: false }),
+      );
+    });
+
+    // Per-window layout state must NOT be synced (issue #248)
+    expect(useStore.getState().folderPaneWidth).toBe(240);
+    expect(useStore.getState().commentsPaneVisible).toBe(true);
+  });
+
   it("updates global prefs when a storage event fires with the persist key", () => {
     renderHook(() => useCrossWindowPrefsSync());
 

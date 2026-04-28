@@ -139,10 +139,24 @@ fn register_window_folder(
     let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&folder))
         .map_err(|e| format!("invalid folder: {}", e))?;
     let display = folder_display_name(&canonical);
-    registry.update_kind(window.label(), registry::WindowKind::Folder(canonical));
-    let _ = window.set_title(&format!("mdownreview — {display}"));
-    log::info!("[window] {} registered folder: {display}", window.label());
-    Ok(())
+    match registry.try_claim_folder(window.label(), canonical.clone()) {
+        Ok(()) => {
+            let _ = window.set_title(&format!("mdownreview — {display}"));
+            log::info!("[window] {} registered folder: {display}", window.label());
+            Ok(())
+        }
+        Err(existing_label) => {
+            // Focus the window that already owns this folder
+            if let Some(existing_win) = window.app_handle().get_webview_window(&existing_label) {
+                focus_window(&existing_win);
+            }
+            log::info!(
+                "[window] {} tried to claim folder {display} already owned by {existing_label}",
+                window.label()
+            );
+            Err(format!("folder already open in window '{existing_label}'"))
+        }
+    }
 }
 
 #[tauri::command]
@@ -168,7 +182,7 @@ fn route_args_through_registry(
         return;
     };
     for folder in &args.folders {
-        let canonical = std::fs::canonicalize(folder)
+        let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(folder))
             .unwrap_or_else(|_| std::path::PathBuf::from(folder));
         match reg.route_folder(&canonical) {
             registry::RouteDecision::FocusExisting(label) => {
@@ -198,7 +212,7 @@ fn route_args_through_registry(
         }
     }
     for file in &args.files {
-        let canonical = std::fs::canonicalize(file)
+        let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(file))
             .unwrap_or_else(|_| std::path::PathBuf::from(file));
         match reg.route_file(&canonical) {
             registry::RouteDecision::AddToWindow { label, files } => {
@@ -309,29 +323,43 @@ pub fn run() {
             let cwd = std::env::current_dir().unwrap_or_default();
             let launch_args = parse_launch_args(&raw_args, &cwd);
 
-            // Register the default "main" window in the registry
+            // Register the default "main" window in the registry.
+            // Use canonicalize_no_verbatim consistently (not std::fs::canonicalize)
+            // to avoid \\?\ mismatches on Windows (issue #248).
             let reg = app.state::<registry::WindowRegistry>();
-            if let Some(first_folder) = launch_args.folders.first() {
-                let canonical = std::fs::canonicalize(first_folder)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(first_folder));
-                reg.register("main".to_string(), registry::WindowKind::Folder(canonical));
+            let first_canonical = launch_args.folders.first().and_then(|f| {
+                crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(f)).ok()
+            });
+            if let Some(ref canonical) = first_canonical {
+                reg.register("main".to_string(), registry::WindowKind::Folder(canonical.clone()));
             } else {
                 reg.register("main".to_string(), registry::WindowKind::FileOnly);
             }
 
-            // Create additional windows for extra folders (beyond the first)
+            // Create additional windows for extra folders (beyond the first),
+            // deduplicating via route_folder() to enforce one-folder-one-window.
             let app_handle = app.handle().clone();
             for folder in launch_args.folders.iter().skip(1) {
-                let canonical = std::fs::canonicalize(folder)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(folder));
-                let label = reg.next_label();
-                let display = folder_display_name(&canonical);
-                match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
-                    Ok(_) => {
-                        reg.register(label.clone(), registry::WindowKind::Folder(canonical.clone()));
-                        log::info!("[window] setup: created {label} for {}", canonical.display());
+                let canonical = match crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(folder)) {
+                    Ok(c) => c,
+                    Err(_) => std::path::PathBuf::from(folder),
+                };
+                match reg.route_folder(&canonical) {
+                    registry::RouteDecision::FocusExisting(label) => {
+                        log::info!("[window] setup: folder {} already open in {label}, skipping", canonical.display());
                     }
-                    Err(e) => log::error!("[window] setup: window for {} failed: {e}", canonical.display()),
+                    registry::RouteDecision::CreateFolder { path } => {
+                        let label = reg.next_label();
+                        let display = folder_display_name(&path);
+                        match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
+                            Ok(_) => {
+                                reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
+                                log::info!("[window] setup: created {label} for {}", path.display());
+                            }
+                            Err(e) => log::error!("[window] setup: window for {} failed: {e}", path.display()),
+                        }
+                    }
+                    _ => {}
                 }
             }
 
