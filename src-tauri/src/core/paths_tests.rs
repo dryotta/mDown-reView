@@ -479,14 +479,15 @@ fn resolve_sidecar_for_file_rejects_file_outside_workspace() {
 #[test]
 fn resolve_sidecar_for_file_canonicalizes_existing_path() {
     let dir = tempdir().unwrap();
-    let workspace = dir.path();
+    // workspace_root must be canonical (matches the function's contract).
+    let workspace = canonicalize_no_verbatim(dir.path()).unwrap();
     let reviews_dir = workspace.join(".reviews").join("docs");
     fs::create_dir_all(&reviews_dir).unwrap();
     let sidecar = reviews_dir.join("readme.md.review.yaml");
     fs::write(&sidecar, "test").unwrap();
     let file = workspace.join("docs").join("readme.md");
     let config = Some(PathBuf::from(".reviews"));
-    let result = resolve_sidecar_for_file(workspace, &file, &config).unwrap();
+    let result = resolve_sidecar_for_file(&workspace, &file, &config).unwrap();
     // Result should be canonical (no verbatim prefix on Windows)
     let canonical = canonicalize_no_verbatim(&sidecar).unwrap();
     assert_eq!(result, canonical);
