@@ -1,3 +1,4 @@
+// Release gate validation trigger — this comment will be reverted.
 pub mod commands;
 pub mod core;
 pub mod instance_scope;
