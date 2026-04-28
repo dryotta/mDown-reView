@@ -201,7 +201,7 @@ pub fn start_watcher(app: &AppHandle) {
                             classify_event(&event.path, &current_watched, &current_tree);
                         if let Some(ev) = file_event {
                             tracing::debug!("[watcher] file change: {} ({})", ev.path, ev.kind);
-                            let _ = app_handle.emit_to("main", "file-changed", ev);
+                            let _ = app_handle.emit("file-changed", ev);
                         }
                         if let Some(d) = folder_dir {
                             folder_dirs.insert(d);
@@ -210,8 +210,7 @@ pub fn start_watcher(app: &AppHandle) {
                     for dir in folder_dirs {
                         let path_str = dir.to_string_lossy().into_owned();
                         tracing::debug!("[watcher] folder change: {}", path_str);
-                        let _ = app_handle.emit_to(
-                            "main",
+                        let _ = app_handle.emit(
                             "folder-changed",
                             FolderChangeEvent { path: path_str },
                         );

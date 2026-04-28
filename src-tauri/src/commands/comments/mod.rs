@@ -51,9 +51,9 @@ pub(crate) fn enforce_workspace_path(state: &WatcherState, file_path: &str) -> R
 }
 
 /// Test seam over the renderer-event channel. Production calls go through
-/// `Emitter::emit_to(self, "main", …)` per `docs/design-patterns.md` rule 4
-/// (Rust emits window-scoped events, never app-wide broadcasts). The trait
-/// exists *only* so integration tests can substitute a counter-backed mock —
+/// `Emitter::emit(self, …)` — app-wide emit so all windows receive comment
+/// updates. The trait exists *only* so integration tests can substitute a
+/// counter-backed mock —
 /// `tauri::test::mock_app()` cannot run on the Windows dev host (the test
 /// feature pulls webview2/wry GUI DLLs that fail with
 /// STATUS_ENTRYPOINT_NOT_FOUND), so a real-runtime emit is not reachable
@@ -64,12 +64,9 @@ pub trait CommentsEmitter {
 
 impl<R: Runtime> CommentsEmitter for AppHandle<R> {
     fn emit_comments_changed(&self, file_path: &str) {
-        // Window-scoped emit per docs/design-patterns.md rule 4. The renderer
-        // subscribes via `listen("comments-changed", …)` on the "main" window,
-        // which receives both window-scoped and app-wide events.
-        if let Err(e) = Emitter::emit_to(
+        // App-wide emit so all windows receive comment updates.
+        if let Err(e) = Emitter::emit(
             self,
-            "main",
             "comments-changed",
             CommentsChangedEvent {
                 file_path: file_path.to_string(),
