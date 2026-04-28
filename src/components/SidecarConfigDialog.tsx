@@ -46,11 +46,13 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
 
   // Load config on mount
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     getSidecarConfig(root)
-      .then(setConfig)
+      .then((result) => { if (!cancelled) setConfig(result); })
       .catch((err) => warn(`[SidecarConfigDialog] load failed: ${err}`))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [root]);
 
   // Toggle .reviews/ folder

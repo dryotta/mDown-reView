@@ -72,8 +72,15 @@ export function useFileWatcher() {
       }
     });
 
+    // Re-scan ghosts when sidecar config changes (toggle or migration)
+    const unlistenConfig = listenEvent("sidecar-config-changed", () => {
+      debug("[useFileWatcher] sidecar config changed, re-scanning ghosts");
+      debouncedScan();
+    });
+
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});
+      unlistenConfig.then((fn) => fn()).catch(() => {});
       if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
     };
   }, [debouncedScan]);
