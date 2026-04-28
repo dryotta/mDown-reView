@@ -231,6 +231,17 @@ export function ViewerRouter({ path }: Props) {
             onViewChange={() => {}}
             hidden
             onCommentOnFile={handleCommentOnFile}
+            trailing={
+              <button
+                type="button"
+                className="viewer-toolbar-btn"
+                onClick={() => useStore.getState().toggleCommentsPane()}
+                aria-label="Show comments"
+                title="Show comments panel"
+              >
+                Show comments
+              </button>
+            }
           />
           <DeletedFileViewer key={path} filePath={path} />
         </div>
