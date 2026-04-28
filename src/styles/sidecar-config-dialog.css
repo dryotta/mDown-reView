@@ -10,6 +10,7 @@
   background: transparent;
   max-width: 100vw;
   max-height: 100vh;
+  margin: auto;
 }
 
 .sidecar-config-dialog::backdrop {

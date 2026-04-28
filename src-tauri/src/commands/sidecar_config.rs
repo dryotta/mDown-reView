@@ -7,6 +7,7 @@ use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::sidecar::config::{load_mrsf_config, SidecarConfigState};
 use crate::core::sidecar::migration::{self, MigrateDirection, SidecarCounts};
 use std::path::PathBuf;
+use tauri::{Emitter, Manager};
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -52,6 +53,17 @@ fn build_result(root: &PathBuf, sidecar_root: &Option<PathBuf>) -> SidecarConfig
     }
 }
 
+/// Emit `folder-changed` to ALL windows so every folder pane refreshes.
+/// Also emit `sidecar-config-changed` so the watcher hook rescans ghosts.
+fn emit_config_changed(app: &tauri::AppHandle, root: &std::path::Path) {
+    let path_str = root.to_string_lossy().into_owned();
+    let event = crate::watcher::FolderChangeEvent { path: path_str };
+    for win in app.webview_windows().values() {
+        let _ = win.emit("folder-changed", event.clone());
+        let _ = win.emit("sidecar-config-changed", ());
+    }
+}
+
 // ── Commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -71,6 +83,7 @@ pub fn get_sidecar_config(
 
 #[tauri::command]
 pub fn set_sidecar_config(
+    window: tauri::Window,
     root: String,
     enabled: bool,
     config_state: tauri::State<'_, SidecarConfigState>,
@@ -96,11 +109,14 @@ pub fn set_sidecar_config(
     };
 
     config_state.set_config(root.clone(), sidecar_root.clone());
+    emit_config_changed(&window.app_handle(), &root);
+
     Ok(build_result(&root, &sidecar_root))
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn migrate_sidecars_cmd(
+    window: tauri::Window,
     root: String,
     direction: MigrateDirection,
     config_state: tauri::State<'_, SidecarConfigState>,
@@ -120,6 +136,7 @@ pub fn migrate_sidecars_cmd(
 
     // Re-count after migration
     let config = build_result(&root, &sidecar_root);
+    emit_config_changed(&window.app_handle(), &root);
 
     Ok(MigrateSidecarsResult {
         moved: result.moved,

@@ -8,8 +8,19 @@ use crate::core::atomic::write_atomic;
 use crate::core::sidecar::read_capped;
 use std::path::{Path, PathBuf};
 
-/// Hard ceiling on files visited during a walk (performance.md rule 1).
+/// Hard ceiling on sidecar files matched during a walk (performance.md rule 1).
 const MAX_FILES_SCANNED: usize = 10_000;
+
+/// Create a gitignore-aware walker for sidecar scanning.
+/// Respects `.gitignore` so `node_modules/`, `.git/`, `target/`, etc. are
+/// skipped automatically without a hardcoded list.
+fn sidecar_walker(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
+    ignore::WalkBuilder::new(root)
+        .max_depth(Some(50))
+        .hidden(false) // don't skip dotfiles — .reviews/ is a dotdir
+        .build()
+        .filter_map(|e| e.ok())
+}
 
 // ── Counting ────────────────────────────────────────────────────────────
 
@@ -29,19 +40,27 @@ pub struct SidecarCounts {
 /// *co-located*. When `None`, every sidecar is co-located.
 pub fn count_sidecars(root: &Path, sidecar_root: Option<&Path>) -> SidecarCounts {
     let folder_prefix: Option<PathBuf> = sidecar_root.map(|sr| root.join(sr));
+    // When disabled, still detect files in the default .reviews/ dir so users
+    // can see stranded sidecars and re-enable to migrate them back.
+    let fallback_prefix: Option<PathBuf> = if folder_prefix.is_none() {
+        let p = root.join(".reviews");
+        if p.is_dir() { Some(p) } else { None }
+    } else {
+        None
+    };
+    let effective_prefix = folder_prefix.as_ref().or(fallback_prefix.as_ref());
     let mut counts = SidecarCounts::default();
+    let mut visited: usize = 0;
 
-    let walker = walkdir::WalkDir::new(root)
-        .max_depth(50)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .take(MAX_FILES_SCANNED);
-
-    for entry in walker {
+    for entry in sidecar_walker(root) {
         if !is_sidecar(entry.path()) {
             continue;
         }
-        if let Some(ref prefix) = folder_prefix {
+        visited += 1;
+        if visited > MAX_FILES_SCANNED {
+            break;
+        }
+        if let Some(prefix) = effective_prefix {
             if entry.path().starts_with(prefix) {
                 counts.count_in_folder += 1;
             } else {
@@ -92,17 +111,16 @@ pub fn migrate_sidecars(
 ) -> MigrationResult {
     let folder_abs = root.join(sidecar_root);
     let mut result = MigrationResult::default();
+    let mut visited: usize = 0;
 
-    let walker = walkdir::WalkDir::new(root)
-        .max_depth(50)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .take(MAX_FILES_SCANNED);
-
-    for entry in walker {
+    for entry in sidecar_walker(root) {
         let src = entry.path();
         if !is_sidecar(src) {
             continue;
+        }
+        visited += 1;
+        if visited > MAX_FILES_SCANNED {
+            break;
         }
 
         let is_in_folder = src.starts_with(&folder_abs);
@@ -229,10 +247,11 @@ mod tests {
         write_sidecar(&root.join(".reviews/a.rs.review.yaml"));
         write_sidecar(&root.join("b.rs.review.yaml"));
 
-        // Without a sidecar_root, everything is colocated
+        // Without a sidecar_root, files in .reviews/ are still detected as
+        // in-folder so users can see stranded sidecars and migrate them back.
         let counts = count_sidecars(root, None);
-        assert_eq!(counts.count_colocated, 2);
-        assert_eq!(counts.count_in_folder, 0);
+        assert_eq!(counts.count_colocated, 1);
+        assert_eq!(counts.count_in_folder, 1);
     }
 
     #[test]

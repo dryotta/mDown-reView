@@ -34,6 +34,9 @@ export interface EventPayloads {
   // this window (AddToWindow / CreateFileOnly). Payload is `Vec<PathBuf>`
   // serialized as `string[]`.
   "open-file-tab": string[];
+  // Emitted by sidecar config commands after toggle/migration so the
+  // watcher hook rescans ghost entries.
+  "sidecar-config-changed": void;
   // Menu events — emitted from on_menu_event with `()` payload.
   "menu-open-file": void;
   "menu-open-folder": void;
