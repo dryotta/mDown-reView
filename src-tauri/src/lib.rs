@@ -383,6 +383,10 @@ pub fn run() {
                         "[window] Destroyed: {label} — unregistered from WindowRegistry"
                     );
                 }
+                if let Some(ws) = window.try_state::<watcher::WatcherState>() {
+                    ws.remove_window(&label);
+                    log::info!("[window] Destroyed: {label} — removed from WatcherState");
+                }
             }
         });
 

@@ -134,6 +134,7 @@ mod tests {
         let state = crate::watcher::WatcherState::new(tx);
         state
             .set_tree_watched_dirs(
+                "test",
                 workspace_canonical.to_string_lossy().into_owned(),
                 vec![workspace_canonical.to_string_lossy().into_owned()],
             )
@@ -159,6 +160,7 @@ mod tests {
         let state = crate::watcher::WatcherState::new(tx);
         state
             .set_tree_watched_dirs(
+                "test",
                 workspace_canonical.to_string_lossy().into_owned(),
                 vec![workspace_canonical.to_string_lossy().into_owned()],
             )

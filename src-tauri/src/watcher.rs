@@ -1,19 +1,19 @@
 use crate::core::paths::canonicalize_no_verbatim;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Maximum number of tree-watched dirs accepted in a single `update_tree_watched_dirs` call.
+/// Maximum number of tree-watched dirs across ALL windows (merged union).
 pub const MAX_TREE_WATCHED_DIRS: usize = 1024;
 
 pub struct WatcherState {
-    watched_paths: Arc<Mutex<HashSet<PathBuf>>>,
-    /// Canonical directories whose direct children should produce `folder-changed`
-    /// events (the open root + currently-expanded folders in the tree pane).
-    tree_watched_dirs: Arc<Mutex<HashSet<PathBuf>>>,
+    /// Per-window watched file paths (keyed by window label).
+    watched_paths: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
+    /// Per-window tree-watched dirs (keyed by window label).
+    tree_watched_dirs: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     /// Sending on this channel wakes the watcher thread to sync dirs immediately.
     sync_tx: std::sync::mpsc::SyncSender<()>,
 }
@@ -21,10 +21,21 @@ pub struct WatcherState {
 impl WatcherState {
     pub fn new(sync_tx: std::sync::mpsc::SyncSender<()>) -> Self {
         Self {
-            watched_paths: Arc::new(Mutex::new(HashSet::new())),
-            tree_watched_dirs: Arc::new(Mutex::new(HashSet::new())),
+            watched_paths: Arc::new(Mutex::new(HashMap::new())),
+            tree_watched_dirs: Arc::new(Mutex::new(HashMap::new())),
             sync_tx,
         }
+    }
+
+    /// Remove all watcher entries for a destroyed window.
+    pub fn remove_window(&self, window_label: &str) {
+        if let Ok(mut guard) = self.tree_watched_dirs.lock() {
+            guard.remove(window_label);
+        }
+        if let Ok(mut guard) = self.watched_paths.lock() {
+            guard.remove(window_label);
+        }
+        let _ = self.sync_tx.try_send(());
     }
 
     /// Defense-in-depth allowlist for system-level commands (open / reveal):
@@ -41,14 +52,18 @@ impl WatcherState {
             Err(_) => return false,
         };
         if let Ok(watched) = self.watched_paths.lock() {
-            if watched.contains(&canonical) {
-                return true;
+            for set in watched.values() {
+                if set.contains(&canonical) {
+                    return true;
+                }
             }
         }
         if let Ok(dirs) = self.tree_watched_dirs.lock() {
-            for dir in dirs.iter() {
-                if canonical.starts_with(dir) {
-                    return true;
+            for set in dirs.values() {
+                for dir in set.iter() {
+                    if canonical.starts_with(dir) {
+                        return true;
+                    }
                 }
             }
         }
@@ -80,9 +95,11 @@ impl WatcherState {
             Err(_) => return false,
         };
         if let Ok(dirs) = self.tree_watched_dirs.lock() {
-            for dir in dirs.iter() {
-                if canonical_parent.starts_with(dir) {
-                    return true;
+            for set in dirs.values() {
+                for dir in set.iter() {
+                    if canonical_parent.starts_with(dir) {
+                        return true;
+                    }
                 }
             }
         }
@@ -93,7 +110,7 @@ impl WatcherState {
     /// Inputs are canonicalized internally — frontend may pass any absolute
     /// form (Windows `C:\...` or Unix `/...`); we normalize to the OS canonical
     /// form (e.g. `\\?\C:\...` on Windows) before storing.
-    pub fn set_tree_watched_dirs(&self, root: String, dirs: Vec<String>) -> Result<(), String> {
+    pub fn set_tree_watched_dirs(&self, window_label: &str, root: String, dirs: Vec<String>) -> Result<(), String> {
         if dirs.len() > MAX_TREE_WATCHED_DIRS {
             return Err(format!(
                 "too many dirs: {} (max {})",
@@ -124,7 +141,20 @@ impl WatcherState {
             .tree_watched_dirs
             .lock()
             .map_err(|e| format!("tree_watched_dirs lock poisoned: {}", e))?;
-        *guard = new_set;
+        let others_count: usize = guard
+            .iter()
+            .filter(|(k, _)| k.as_str() != window_label)
+            .map(|(_, v)| v.len())
+            .sum();
+        if others_count + new_set.len() > MAX_TREE_WATCHED_DIRS {
+            return Err(format!(
+                "too many dirs across all windows: {} + {} (max {})",
+                others_count,
+                new_set.len(),
+                MAX_TREE_WATCHED_DIRS
+            ));
+        }
+        guard.insert(window_label.to_string(), new_set);
         drop(guard);
 
         // Wake watcher thread to (un)register dirs immediately.
@@ -189,8 +219,8 @@ pub fn start_watcher(app: &AppHandle) {
             // Process debounced file-change events (200ms timeout for responsiveness).
             match rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(Ok(events)) => {
-                    let current_watched = lock_watched(&watched);
-                    let current_tree = lock_watched(&tree_watched);
+                    let current_watched = lock_watched_union(&watched);
+                    let current_tree = lock_watched_union(&tree_watched);
                     // De-dup folder-changed emissions per debounced batch.
                     let mut folder_dirs: HashSet<PathBuf> = HashSet::new();
                     for event in events {
@@ -240,24 +270,27 @@ pub fn start_watcher(app: &AppHandle) {
     });
 }
 
-fn lock_watched(watched: &Arc<Mutex<HashSet<PathBuf>>>) -> HashSet<PathBuf> {
+fn lock_watched_union(watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>) -> HashSet<PathBuf> {
     match watched.lock() {
-        Ok(g) => g.clone(),
+        Ok(g) => g.values().flat_map(|s| s.iter().cloned()).collect(),
         Err(p) => {
             tracing::warn!("[watcher] mutex poisoned, recovering");
-            p.into_inner().clone()
+            p.into_inner()
+                .values()
+                .flat_map(|s| s.iter().cloned())
+                .collect()
         }
     }
 }
 
 fn sync_dirs(
-    watched: &Arc<Mutex<HashSet<PathBuf>>>,
-    tree_watched: &Arc<Mutex<HashSet<PathBuf>>>,
+    watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
+    tree_watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     watched_dirs: &mut HashSet<PathBuf>,
     debouncer: &mut notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
 ) {
-    let current_watched = lock_watched(watched);
-    let current_tree = lock_watched(tree_watched);
+    let current_watched = lock_watched_union(watched);
+    let current_tree = lock_watched_union(tree_watched);
     let mut needed: HashSet<PathBuf> = current_watched
         .iter()
         .filter_map(|p| p.parent().map(|d| d.to_path_buf()))
@@ -292,31 +325,34 @@ fn sync_dirs(
 /// The frontend calls this whenever the set of open tabs changes.
 #[tauri::command]
 pub fn update_watched_files(
+    window: tauri::Window,
     paths: Vec<String>,
     state: tauri::State<'_, WatcherState>,
 ) -> Result<(), String> {
+    let window_label = window.label().to_string();
     let mut watched = state.watched_paths.lock().map_err(|e| e.to_string())?;
-    watched.clear();
+    let set = watched.entry(window_label).or_default();
+    set.clear();
 
     for path_str in &paths {
         let path = PathBuf::from(path_str);
         if let Ok(canonical) = canonicalize_no_verbatim(&path) {
-            watched.insert(canonical);
+            set.insert(canonical);
         }
         // Always store the raw path too — on deletion, canonicalize fails
         // and the notify crate may report the non-canonical form.
-        watched.insert(path.clone());
+        set.insert(path.clone());
         // Also watch sidecars
         for ext in &[".review.yaml", ".review.json"] {
             let sidecar = PathBuf::from(format!("{}{}", path_str, ext));
             if let Ok(canonical) = canonicalize_no_verbatim(&sidecar) {
-                watched.insert(canonical);
+                set.insert(canonical);
             }
-            watched.insert(sidecar);
+            set.insert(sidecar);
         }
     }
 
-    tracing::debug!("[watcher] updated watched files: {} paths", watched.len());
+    tracing::debug!("[watcher] updated watched files: {} paths", set.len());
     // Signal the watcher thread to sync dirs immediately (non-blocking: drop if full).
     let _ = state.sync_tx.try_send(());
     Ok(())

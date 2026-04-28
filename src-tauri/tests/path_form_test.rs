@@ -140,6 +140,7 @@ fn is_path_or_parent_allowed_accepts_8dot3_short_name_input() {
     let state = WatcherState::new(tx);
     state
         .set_tree_watched_dirs(
+            "test",
             workspace.to_string_lossy().into_owned(),
             vec![workspace.to_string_lossy().into_owned()],
         )
