@@ -117,4 +117,13 @@ describe("DeletedFileViewer", () => {
     render(<DeletedFileViewer filePath={FILE_PATH} />);
     expect(screen.getByText(/1 comment/)).toBeInTheDocument();
   });
+
+  it("does not render any action buttons — actions surface through ViewerRouter toolbar", () => {
+    const threads = [makeThread(makeComment("1", "Review comment"))];
+    const allComments = threads.flatMap(t => [t.root, ...t.replies]);
+    mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
+
+    render(<DeletedFileViewer filePath={FILE_PATH} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
 });

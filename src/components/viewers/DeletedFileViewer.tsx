@@ -5,6 +5,11 @@ interface Props {
   filePath: string;
 }
 
+/**
+ * Content body for deleted/moved files. Shows metadata about the file's
+ * orphaned comments. All actions (show comments) surface through the
+ * ViewerToolbar mounted by ViewerRouter — the body is metadata only.
+ */
 export function DeletedFileViewer({ filePath }: Props) {
   const { comments } = useComments(filePath);
 
@@ -30,7 +35,7 @@ export function DeletedFileViewer({ filePath }: Props) {
       <p style={{ fontSize: 13, color: "var(--color-muted)", marginBottom: 16 }}>
         {comments.length === 0
           ? "No comments found in the review sidecar."
-          : `${comments.length} comment${comments.length > 1 ? "s" : ""} — open the comments panel to view.`}
+          : `${comments.length} comment${comments.length > 1 ? "s" : ""} in the review sidecar — use the toolbar to show comments.`}
       </p>
     </div>
   );

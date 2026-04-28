@@ -21,6 +21,7 @@ import {
   buildGroupedFilterResult,
 } from "@/lib/folder-tree";
 import { IconFolder } from "@/components/Icons";
+import { SidecarConfigDialog } from "@/components/SidecarConfigDialog";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -47,6 +48,9 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
       folderPaneWidth: s.folderPaneWidth,
     }))
   );
+  const sidecarConfigDialogOpen = useStore((s) => s.sidecarConfigDialogOpen);
+  const openSidecarConfig = useStore((s) => s.openSidecarConfig);
+  const closeSidecarConfig = useStore((s) => s.closeSidecarConfig);
   const { childrenCache, loadChildren } = useFolderChildren(root);
   useTreeWatcher(root, expandedFolders);
   const [filter, setFilter] = useState("");
@@ -296,6 +300,13 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
         </span>
         <span className="folder-tree-header-actions">
           <button
+            className="folder-tree-btn"
+            onClick={openSidecarConfig}
+            title="Sidecar config"
+          >
+            ⚙
+          </button>
+          <button
             className="folder-tree-btn folder-tree-close-btn"
             onClick={onCloseFolder}
             title="Close folder"
@@ -420,6 +431,9 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
           })()
         )}
       </div>
+      {sidecarConfigDialogOpen && root && (
+        <SidecarConfigDialog root={root} onClose={closeSidecarConfig} />
+      )}
     </div>
   );
 }

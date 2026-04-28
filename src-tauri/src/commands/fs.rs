@@ -51,9 +51,10 @@ pub struct ReadDirResult {
 pub fn read_dir(
     path: String,
     limit: Option<usize>,
+    show_sidecars: Option<bool>,
     config_state: tauri::State<'_, crate::watcher::SidecarConfigState>,
 ) -> Result<ReadDirResult, String> {
-    read_dir_inner(path, limit, &config_state)
+    read_dir_inner(path, limit, show_sidecars, &config_state)
 }
 
 /// Inner implementation, decoupled from `tauri::State` so unit/integration
@@ -62,6 +63,7 @@ pub fn read_dir(
 pub fn read_dir_inner(
     path: String,
     limit: Option<usize>,
+    show_sidecars: Option<bool>,
     config_state: &crate::watcher::SidecarConfigState,
 ) -> Result<ReadDirResult, String> {
     // Canonicalize to resolve symlinks and reject traversal
@@ -101,6 +103,7 @@ pub fn read_dir_inner(
     })?;
 
     let mut result = Vec::new();
+    let show = show_sidecars.unwrap_or(false);
     for entry in entries {
         let entry = entry.map_err(|e| {
             tracing::error!("[rust] command error: {}", e);
@@ -111,13 +114,15 @@ pub fn read_dir_inner(
             e.to_string()
         })?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if is_sidecar_file(&name) {
+        if !show && is_sidecar_file(&name) {
             continue;
         }
         // Hide the sidecar_root directory when it overlaps the workspace tree
-        if let Some(ref hide) = hide_dir_name {
-            if name == *hide && meta.is_dir() {
-                continue;
+        if !show {
+            if let Some(ref hide) = hide_dir_name {
+                if name == *hide && meta.is_dir() {
+                    continue;
+                }
             }
         }
 

@@ -1,10 +1,18 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId, forwardRef, useImperativeHandle } from "react";
 import "@/styles/mermaid-view.css";
 
 interface Props {
   content: string;
   /** Optional file path. When provided, a file-level comment badge is shown. */
   path?: string;
+  /** Zoom level from the shared useZoom hook, driven by EnhancedViewer. */
+  zoom?: number;
+}
+
+/** Handle exposed to EnhancedViewer for toolbar export buttons. */
+export interface MermaidViewHandle {
+  exportPng: () => void;
+  exportSvg: () => void;
 }
 
 function escapeRegExp(s: string): string {
@@ -49,10 +57,9 @@ function mapNodeToSourceLine(node: SVGGElement, lines: string[]): number | null 
   return null;
 }
 
-export function MermaidView({ content, path }: Props) {
+export const MermaidView = forwardRef<MermaidViewHandle, Props>(function MermaidView({ content, path, zoom = 1 }, ref) {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
-  const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const reactId = useId();
   const mermaidId = `mermaid-${reactId.replace(/:/g, "")}`;
@@ -118,7 +125,7 @@ export function MermaidView({ content, path }: Props) {
       const line = mapNodeToSourceLine(n, lines);
       if (line !== null) n.setAttribute("data-source-line", String(line));
     }
-  }, [svg, content, scale, filePath]);
+  }, [svg, content, zoom, filePath]);
 
   const handleExportSvg = useCallback(() => {
     if (!svg) return;
@@ -151,27 +158,23 @@ export function MermaidView({ content, path }: Props) {
     img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
   }, [svg]);
 
+  useImperativeHandle(ref, () => ({
+    exportPng: handleExportPng,
+    exportSvg: handleExportSvg,
+  }), [handleExportPng, handleExportSvg]);
+
   return (
     <div className="mermaid-view" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div className="mermaid-toolbar" style={{ display: "flex", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--color-border, #d0d7de)", alignItems: "center" }}>
-        <button onClick={() => setScale(s => Math.max(0.25, s - 0.25))} aria-label="Zoom out">−</button>
-        <span style={{ fontSize: 12, minWidth: 48, textAlign: "center" }}>{Math.round(scale * 100)}%</span>
-        <button onClick={() => setScale(s => Math.min(4, s + 0.25))} aria-label="Zoom in">+</button>
-        <button onClick={() => setScale(1)} aria-label="Reset zoom">Reset</button>
-        <div style={{ flex: 1 }} />
-        <button onClick={handleExportPng} aria-label="Export PNG">PNG</button>
-        <button onClick={handleExportSvg} aria-label="Export SVG">SVG</button>
-      </div>
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
         {error && <div className="mermaid-error" style={{ color: "var(--color-danger, #cf222e)", padding: 16 }}>{error}</div>}
         {svg && (
           <div
             ref={containerRef}
             title="Mermaid diagram"
-            style={{ transform: `scale(${scale})`, transformOrigin: "top left" }}
+            style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
           />
         )}
       </div>
     </div>
   );
-}
+});

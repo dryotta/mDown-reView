@@ -43,7 +43,7 @@ beforeEach(() => {
 
 describe("ImageViewer (existing behaviour)", () => {
   it("renders image with data URL after loading", async () => {
-    render(<ImageViewer path="/photos/test.png" />);
+    render(<ImageViewer path="/photos/test.png" zoom={1} fit={true} />);
     await waitFor(() => {
       const img = screen.getByRole("img");
       expect(img.getAttribute("src")).toContain("data:image/png;base64,");
@@ -51,24 +51,16 @@ describe("ImageViewer (existing behaviour)", () => {
     expect(readBinaryFile).toHaveBeenCalledWith("/photos/test.png");
   });
 
-  it("shows filename in header", async () => {
-    render(<ImageViewer path="/photos/test.png" />);
-    expect(screen.getByText("test.png")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByRole("img")).toBeInTheDocument();
-    });
-  });
-
   it("shows loading state initially", async () => {
     vi.mocked(readBinaryFile).mockReturnValue(new Promise(() => {}));
-    render(<ImageViewer path="/photos/test.png" />);
+    render(<ImageViewer path="/photos/test.png" zoom={1} fit={true} />);
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     cleanup();
   });
 
   it("shows error for failed load", async () => {
     vi.mocked(readBinaryFile).mockRejectedValue(new Error("file_too_large"));
-    render(<ImageViewer path="/photos/huge.png" />);
+    render(<ImageViewer path="/photos/huge.png" zoom={1} fit={true} />);
     await waitFor(() => {
       expect(screen.getByText(/error/i)).toBeInTheDocument();
     });
@@ -76,13 +68,9 @@ describe("ImageViewer (existing behaviour)", () => {
 });
 
 describe("ImageViewer (R1)pointer capture, no window listeners", () => {
-  beforeEach(() => {
-    useStore.setState({ zoomByFiletype: { ".png": 2.0, ".image": 2.0 } });
-  });
-
   it("does NOT register window mouse/pointer move/up listeners on drag start", async () => {
     const winAdd = vi.spyOn(window, "addEventListener");
-    const { container } = render(<ImageViewer path="/photos/test.png" />);
+    const { container } = render(<ImageViewer path="/photos/test.png" zoom={2} fit={true} />);
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     const canvas = container.querySelector(".image-viewer-canvas") as HTMLDivElement;
     canvas.setPointerCapture = vi.fn();
@@ -98,7 +86,7 @@ describe("ImageViewer (R1)pointer capture, no window listeners", () => {
   });
 
   it("calls setPointerCapture on pointerdown when zoomed > 1", async () => {
-    const { container } = render(<ImageViewer path="/photos/test.png" />);
+    const { container } = render(<ImageViewer path="/photos/test.png" zoom={2} fit={true} />);
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     const canvas = container.querySelector(".image-viewer-canvas") as HTMLDivElement;
     const captureSpy = vi.fn();
@@ -111,7 +99,7 @@ describe("ImageViewer (R1)pointer capture, no window listeners", () => {
   });
 
   it("does not throw if unmounted mid-drag (no dangling window listeners)", async () => {
-    const { container, unmount } = render(<ImageViewer path="/photos/test.png" />);
+    const { container, unmount } = render(<ImageViewer path="/photos/test.png" zoom={2} fit={true} />);
     await waitFor(() => expect(screen.getByRole("img")).toBeInTheDocument());
     const canvas = container.querySelector(".image-viewer-canvas") as HTMLDivElement;
     canvas.setPointerCapture = vi.fn();

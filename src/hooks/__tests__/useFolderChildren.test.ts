@@ -46,7 +46,7 @@ describe("useFolderChildren", () => {
 
     await act(async () => {});
 
-    expect(commands.readDir).toHaveBeenCalledWith("/root", undefined);
+    expect(commands.readDir).toHaveBeenCalledWith("/root", undefined, undefined);
     expect(result.current.childrenCache["/root"]?.entries).toEqual(entries);
   });
 
@@ -153,7 +153,7 @@ describe("useFolderChildren", () => {
       await result.current.loadChildren("/root", 10000);
     });
     expect(commands.readDir).toHaveBeenCalledTimes(2);
-    expect(commands.readDir).toHaveBeenLastCalledWith("/root", 10000);
+    expect(commands.readDir).toHaveBeenLastCalledWith("/root", 10000, undefined);
     expect(result.current.childrenCache["/root"]?.hasMore).toBe(false);
     expect(result.current.childrenCache["/root"]?.entries).toEqual(full);
   });
@@ -181,7 +181,7 @@ describe("useFolderChildren folder-changed listener", () => {
     });
 
     expect(commands.readDir).toHaveBeenCalledTimes(2);
-    expect(commands.readDir).toHaveBeenLastCalledWith("/root");
+    expect(commands.readDir).toHaveBeenLastCalledWith("/root", undefined, undefined);
     expect(result.current.childrenCache["/root"]?.entries).toEqual(refreshed);
   });
 
