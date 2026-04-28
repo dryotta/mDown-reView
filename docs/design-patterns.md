@@ -35,7 +35,7 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 
 ### Per-block identity (markdown)
 13. Per-block identity derives from `node.position.start.line` supplied by react-markdown. (`MarkdownViewer.tsx:106,123`.)
-14. `MarkdownViewer` does not pass `className` via `components.p/li/hN` — the commentable wrappers (`makeCommentableBlock`, `CommentableLi`) own the class. (`MarkdownViewer.tsx:104-137`.)
+14. `MarkdownViewer` does not pass `className` via `components.p/li` — the commentable wrappers (`makeCommentableBlock`, `CommentableLi`) own the class. Headings (`h1`–`h6`) render as plain HTML elements (not wrapped). (`MarkdownComponentsMap.tsx:203-209`.)
 
 ### Cross-hook communication
 15. Cross-hook communication uses `window` `CustomEvent` with the `mdownreview:*` namespace. (`useFileWatcher.ts:62-66` dispatch; `useFileContent.ts:26` listen.)

@@ -108,4 +108,27 @@ describe("useFilteredComments", () => {
     expect(result.current[0].thread.root.id).toBe("a");
     expect(result.current[1].thread.root.id).toBe("b");
   });
+
+  it("excludes threads whose root anchor kind is 'unknown'", () => {
+    setActiveThreads([
+      makeThread(makeComment("ok", "visible", { anchor: { kind: "line", line: 1 } })),
+      makeThread(makeComment("hidden", "ghost", { anchor: { kind: "unknown" } })),
+    ]);
+    const { result } = renderHook(() =>
+      useFilteredComments("/x.md", makeFilters()),
+    );
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].thread.root.id).toBe("ok");
+  });
+
+  it("keeps threads with anchor kind 'file'", () => {
+    setActiveThreads([
+      makeThread(makeComment("f", "file-level", { anchor: { kind: "file" }, line: 0 })),
+    ]);
+    const { result } = renderHook(() =>
+      useFilteredComments("/x.md", makeFilters()),
+    );
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].thread.root.id).toBe("f");
+  });
 });
