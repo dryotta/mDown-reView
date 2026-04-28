@@ -317,9 +317,24 @@ pub fn generate_fixtures(output_dir: &Path) -> std::io::Result<()> {
     fs::create_dir_all(output_dir)?;
     fs::write(&file_100_path, lines_100.join("\n"))?;
 
-    // comments_50.review.yaml
+    // file_100_lines.md.review.yaml — 50-comment sidecar (existing bench baseline)
     let sidecar_50 = generate_sidecar_yaml(&mut rng, "file_100_lines.md", 50, &lines_100);
-    fs::write(output_dir.join("comments_50.review.yaml"), &sidecar_50)?;
+    fs::write(
+        output_dir.join("file_100_lines.md.review.yaml"),
+        &sidecar_50,
+    )?;
+
+    // file_100_comments.md — source file for 100-comment bench (AC14)
+    let lines_100c = generate_markdown_file(&mut rng, 200);
+    let file_100c_path = output_dir.join("file_100_comments.md");
+    fs::write(&file_100c_path, lines_100c.join("\n"))?;
+
+    // file_100_comments.md.review.yaml — 100-comment sidecar
+    let sidecar_100 = generate_sidecar_yaml(&mut rng, "file_100_comments.md", 100, &lines_100c);
+    fs::write(
+        output_dir.join("file_100_comments.md.review.yaml"),
+        &sidecar_100,
+    )?;
 
     // file_1000_lines.md
     let lines_1000 = generate_markdown_file(&mut rng, 1000);
@@ -496,7 +511,7 @@ mod tests {
 
     fn count_sidecar_comments(path: &Path) -> usize {
         let content = fs::read_to_string(path).expect("read sidecar");
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).expect("parse sidecar");
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content).expect("parse sidecar");
         sidecar.comments.len()
     }
 
@@ -561,7 +576,7 @@ mod tests {
 
         let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
         let sidecar: TestMrsfSidecar =
-            serde_yaml_ng::from_str(&content).expect("sidecar must parse as valid YAML");
+            serde_saphyr::from_str(&content).expect("sidecar must parse as valid YAML");
 
         assert_eq!(sidecar.mrsf_version, "1.0");
         assert_eq!(sidecar.document, "file_100_lines.md");
@@ -574,7 +589,7 @@ mod tests {
         generate_fixtures(tmp.path()).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content).unwrap();
 
         let resolved_count = sidecar.comments.iter().filter(|c| c.resolved).count();
         // 20% resolved = ~10 of 50, allow some variance from RNG
@@ -592,7 +607,7 @@ mod tests {
         generate_fixtures(tmp.path()).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content).unwrap();
 
         let reply_count = sidecar
             .comments
@@ -737,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn all_sidecars_parseable_by_serde_yaml_ng() {
+    fn all_sidecars_parseable_by_serde_saphyr() {
         let tmp = tempfile::tempdir().unwrap();
         generate_fixtures(tmp.path()).unwrap();
 
@@ -753,7 +768,7 @@ mod tests {
                 } else if path.to_str().map_or(false, |s| s.ends_with(".review.yaml")) {
                     let content = fs::read_to_string(&path)
                         .unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
-                    let _sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content)
+                    let _sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content)
                         .unwrap_or_else(|e| panic!("parse {:?}: {}", path, e));
                 }
             }
@@ -770,7 +785,7 @@ mod tests {
 
         let sidecar_content =
             fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&sidecar_content).unwrap();
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&sidecar_content).unwrap();
 
         for comment in &sidecar.comments {
             let line_idx = (comment.line as usize).saturating_sub(1);

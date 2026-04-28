@@ -231,10 +231,10 @@ fn push_anchor_history_clamps_at_three_with_five_pushes() {
 fn v1_0_byte_identity_fixture() {
     let raw = include_str!("../../../tests/fixtures/mrsf/v1.0/byte_identity.yaml");
     // Normalise CRLF in the on-disk fixture (Windows checkout) before
-    // comparison — serde_yaml_ng emits LF unconditionally.
+    // comparison — serde_saphyr emits LF unconditionally.
     let input = raw.replace("\r\n", "\n");
-    let sidecar: MrsfSidecar = serde_yaml_ng::from_str(&input).unwrap();
-    let re = serde_yaml_ng::to_string(&sidecar).unwrap();
+    let sidecar: MrsfSidecar = serde_saphyr::from_str(&input).unwrap();
+    let re = serde_saphyr::to_string(&sidecar).unwrap();
     assert_eq!(input, re, "v1.0 fixture must round-trip byte-identically");
 }
 
@@ -488,7 +488,7 @@ fn try_from_anchor_repr_html_element_clamps_text_preview() {
 fn fixture_html_anchors_deserializes() {
     let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/html_anchors.review.yaml");
     let input = raw.replace("\r\n", "\n");
-    let sidecar: MrsfSidecar = serde_yaml_ng::from_str(&input).unwrap();
+    let sidecar: MrsfSidecar = serde_saphyr::from_str(&input).unwrap();
     assert_eq!(sidecar.mrsf_version, "1.1");
     assert_eq!(sidecar.comments.len(), 2);
     match &sidecar.comments[0].anchor {
@@ -514,7 +514,7 @@ fn fixture_html_anchors_deserializes() {
 fn fixture_reactions_deserializes() {
     let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/reactions.review.yaml");
     let input = raw.replace("\r\n", "\n");
-    let sidecar: MrsfSidecar = serde_yaml_ng::from_str(&input).unwrap();
+    let sidecar: MrsfSidecar = serde_saphyr::from_str(&input).unwrap();
     assert_eq!(sidecar.mrsf_version, "1.1");
     assert_eq!(sidecar.comments.len(), 2);
     let c1 = &sidecar.comments[0];

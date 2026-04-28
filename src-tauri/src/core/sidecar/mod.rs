@@ -9,6 +9,7 @@
 //! are a YAML-only construct).
 
 mod io_guards;
+mod yaml_surgery;
 
 use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
@@ -20,7 +21,7 @@ use std::path::Path;
 #[derive(Debug)]
 pub enum SidecarError {
     Io(std::io::Error),
-    YamlParse(serde_yaml_ng::Error),
+    YamlParse(String),
     JsonParse(serde_json::Error),
     NotFound,
     CommentNotFound(String),
@@ -31,7 +32,7 @@ impl fmt::Display for SidecarError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SidecarError::Io(e) => write!(f, "IO error: {}", e),
-            SidecarError::YamlParse(e) => write!(f, "YAML parse error: {}", e),
+            SidecarError::YamlParse(msg) => write!(f, "YAML parse error: {}", msg),
             SidecarError::JsonParse(e) => write!(f, "JSON parse error: {}", e),
             SidecarError::NotFound => write!(f, "sidecar not found"),
             SidecarError::CommentNotFound(id) => write!(f, "comment not found: {}", id),
@@ -128,7 +129,7 @@ pub fn load_sidecar(file_path: &str) -> Result<Option<MrsfSidecar>, SidecarError
         Ok(content) => {
             reject_yaml_anchors(&content)?;
             let sidecar: MrsfSidecar =
-                serde_yaml_ng::from_str(&content).map_err(SidecarError::YamlParse)?;
+                serde_saphyr::from_str(&content).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
             reject_unsupported_version(&sidecar)?;
             validate_sidecar_warnings(&sidecar);
             return Ok(Some(sidecar));
@@ -173,15 +174,17 @@ pub fn save_sidecar(
         document: document.to_string(),
         comments: comments.to_vec(),
     };
-    let yaml = serde_yaml_ng::to_string(&payload).map_err(SidecarError::YamlParse)?;
+    let yaml = serde_saphyr::to_string(&payload).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
 
     crate::core::atomic::write_atomic(&sidecar_path, yaml.as_bytes())?;
     Ok(())
 }
 
 /// Surgically modify a comment in a sidecar file.
-/// Loads as serde_yaml_ng::Value, finds comment by ID, applies mutations,
-/// writes back preserving all unknown fields and structure.
+///
+/// Attempts format-preserving YAML surgery first (preserves comments,
+/// key ordering, scalar styles). Falls back to the lossy
+/// parse→mutate→serialize path if surgery cannot handle the input.
 pub fn patch_comment(
     file_path: &str,
     comment_id: &str,
@@ -190,7 +193,21 @@ pub fn patch_comment(
     let yaml_path = format!("{}.review.yaml", file_path);
     let json_path = format!("{}.review.json", file_path);
 
-    // Determine which file exists and load as Value
+    // ── Fast path: format-preserving surgery on YAML ──────────────
+    if let Ok(original) = read_capped(&yaml_path) {
+        if reject_yaml_anchors(&original).is_ok() {
+            if let Some(patched) = yaml_surgery::try_patch(&original, comment_id, mutations) {
+                // Validate: the result must still parse as valid YAML.
+                let _: serde_json::Value = serde_saphyr::from_str(&patched)
+                    .map_err(|e| SidecarError::YamlParse(e.to_string()))?;
+                crate::core::atomic::write_atomic(Path::new(&yaml_path), patched.as_bytes())?;
+                return Ok(());
+            }
+        }
+        // Surgery returned None — fall through to lossy path.
+    }
+
+    // ── Fallback: parse → mutate → serialize (lossy) ──────────────
     let (content, _source_path) = match read_capped(&yaml_path) {
         Ok(c) => {
             reject_yaml_anchors(&c)?;
@@ -203,7 +220,7 @@ pub fn patch_comment(
                     let json_val: serde_json::Value =
                         serde_json::from_str(&c).map_err(SidecarError::JsonParse)?;
                     let yaml_str =
-                        serde_yaml_ng::to_string(&json_val).map_err(SidecarError::YamlParse)?;
+                        serde_saphyr::to_string(&json_val).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
                     (yaml_str, yaml_path.clone()) // Write as YAML
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -215,12 +232,12 @@ pub fn patch_comment(
         Err(e) => return Err(SidecarError::Io(e)),
     };
 
-    let mut doc: serde_yaml_ng::Value =
-        serde_yaml_ng::from_str(&content).map_err(SidecarError::YamlParse)?;
+    let mut doc: serde_json::Value =
+        serde_saphyr::from_str(&content).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
 
     let comments = doc
         .get_mut("comments")
-        .and_then(|v| v.as_sequence_mut())
+        .and_then(|v| v.as_array_mut())
         .ok_or_else(|| SidecarError::CommentNotFound(comment_id.to_string()))?;
 
     let comment = comments
@@ -236,7 +253,7 @@ pub fn patch_comment(
     for mutation in mutations {
         match mutation {
             CommentMutation::SetResolved(resolved) => {
-                comment["resolved"] = serde_yaml_ng::Value::Bool(*resolved);
+                comment["resolved"] = serde_json::Value::Bool(*resolved);
             }
             CommentMutation::AddResponse {
                 author,
@@ -245,34 +262,23 @@ pub fn patch_comment(
             } => {
                 let responses = comment
                     .get_mut("responses")
-                    .and_then(|v| v.as_sequence_mut());
-                let new_response = serde_yaml_ng::Value::Mapping({
-                    let mut m = serde_yaml_ng::Mapping::new();
-                    m.insert(
-                        serde_yaml_ng::Value::String("author".to_string()),
-                        serde_yaml_ng::Value::String(author.clone()),
-                    );
-                    m.insert(
-                        serde_yaml_ng::Value::String("text".to_string()),
-                        serde_yaml_ng::Value::String(text.clone()),
-                    );
-                    m.insert(
-                        serde_yaml_ng::Value::String("timestamp".to_string()),
-                        serde_yaml_ng::Value::String(timestamp.clone()),
-                    );
-                    m
+                    .and_then(|v| v.as_array_mut());
+                let new_response = serde_json::json!({
+                    "author": author,
+                    "text": text,
+                    "timestamp": timestamp,
                 });
                 match responses {
                     Some(seq) => seq.push(new_response),
                     None => {
-                        comment["responses"] = serde_yaml_ng::Value::Sequence(vec![new_response]);
+                        comment["responses"] = serde_json::Value::Array(vec![new_response]);
                     }
                 }
             }
         }
     }
 
-    let yaml_out = serde_yaml_ng::to_string(&doc).map_err(SidecarError::YamlParse)?;
+    let yaml_out = serde_saphyr::to_string(&doc).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
 
     // Atomic write — always re-target YAML regardless of the original format.
     crate::core::atomic::write_atomic(Path::new(&yaml_path), yaml_out.as_bytes())?;
