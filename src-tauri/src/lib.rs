@@ -148,13 +148,12 @@ fn unregister_window_folder(
     registry: tauri::State<'_, registry::WindowRegistry>,
 ) -> Result<(), String> {
     registry.update_kind(window.label(), registry::WindowKind::FileOnly);
-    // TODO: call watcher_state.remove_window once fix/per-window-watcher-state merges
     let _ = window.set_title("mdownreview");
     log::info!("[window] {} unregistered folder", window.label());
     Ok(())
 }
 
-/// Route incoming `LaunchArgs`through the `WindowRegistry`, creating new
+/// Route incoming `LaunchArgs` through the `WindowRegistry`, creating new
 /// windows for unknown folders and focusing existing ones.  Shared by the
 /// single-instance callback, `setup()`, and `RunEvent::Opened`.
 fn route_args_through_registry(
