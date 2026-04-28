@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, waitFor, fireEvent } from "@testing-library/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { buildMarkdownComponents } from "../MarkdownComponentsMap";
@@ -13,6 +13,14 @@ vi.mock("@/lib/tauri-commands", async () => ({
 }));
 
 vi.mock("@/logger");
+
+import { openExternalUrl } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
+
+beforeEach(() => {
+  vi.mocked(openExternalUrl).mockClear();
+  vi.mocked(warn).mockClear();
+});
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
@@ -139,6 +147,33 @@ describe("buildMarkdownComponents — block wrappings carry data-source-line", (
     await waitFor(() => {
       expect(mockHl.loadLanguage).toHaveBeenCalled();
       expect(mockHl.codeToHtml).toHaveBeenCalled();
+    });
+  });
+});
+
+describe("buildMarkdownComponents — anchor link handling", () => {
+  it("external link click calls openExternalUrl", async () => {
+    const { container } = renderMd("[link](https://example.com)\n");
+    await waitFor(() => {
+      const a = container.querySelector("a");
+      expect(a).not.toBeNull();
+    });
+    const a = container.querySelector("a")!;
+    fireEvent.click(a);
+    expect(openExternalUrl).toHaveBeenCalledWith("https://example.com");
+  });
+
+  it("openExternalUrl failure produces a warn() call", async () => {
+    vi.mocked(openExternalUrl).mockRejectedValueOnce(new Error("plugin unavailable"));
+    const { container } = renderMd("[link](https://example.com)\n");
+    await waitFor(() => {
+      expect(container.querySelector("a")).not.toBeNull();
+    });
+    fireEvent.click(container.querySelector("a")!);
+    await waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("[MarkdownViewer] link open failed:"),
+      );
     });
   });
 });

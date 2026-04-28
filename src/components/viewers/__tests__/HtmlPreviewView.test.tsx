@@ -16,6 +16,7 @@ vi.mock("@/lib/tauri-commands", () => ({
 
 import { HtmlPreviewView } from "../HtmlPreviewView";
 import { openExternalUrl, fetchRemoteAsset, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
 import { useStore } from "@/store";
 
 beforeEach(() => {
@@ -23,6 +24,7 @@ beforeEach(() => {
   (fetchRemoteAsset as unknown as { mockClear: () => void }).mockClear();
   (getFileViewerPref as unknown as { mockClear: () => void }).mockClear();
   (setFileViewerPref as unknown as { mockClear: () => void }).mockClear();
+  vi.mocked(warn).mockClear();
 });
 
 describe("HtmlPreviewView — sandbox toggles (H1)", () => {
@@ -238,6 +240,52 @@ describe("HtmlPreviewView — link bridge in scripts mode (H2)", () => {
       source: "mdr-html-bridge", nonce: "WRONG", type: "link", href: "https://evil.example",
     });
     expect(openExternalUrl).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("openExternalUrl failure logs via warn()", async () => {
+    vi.mocked(openExternalUrl).mockRejectedValueOnce(new Error("plugin unavailable"));
+    const { container } = render(<HtmlPreviewView content="<p>x</p>" filePath="/wk/page.html" />);
+    enableScripts();
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const nonce = nonceOf(iframe);
+    dispatchBridgeMsg(iframe, {
+      source: "mdr-html-bridge", nonce, type: "link", href: "https://example.com",
+    });
+    await waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("[HtmlPreviewView] link open failed:"),
+      );
+    });
+    cleanup();
+  });
+});
+
+describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
+  it("safe-mode iframe click on anchor calls openExternalUrl", () => {
+    const { container } = render(
+      <HtmlPreviewView content='<a href="https://example.com">link</a>' filePath="/wk/page.html" />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    // In safe mode (allow-same-origin), the onLoad handler installs a
+    // click listener on contentDocument. jsdom exposes contentDocument
+    // directly, so we simulate a click there.
+    const doc = iframe.contentDocument;
+    if (!doc) {
+      // jsdom should provide contentDocument for srcdoc iframes
+      throw new Error("contentDocument is null — jsdom limitation");
+    }
+    // Fire the iframe load event to trigger handler installation.
+    fireEvent.load(iframe);
+    // Now simulate a click on the anchor within the contentDocument.
+    // jsdom doesn't parse srcdoc into the contentDocument, so we need to
+    // create a synthetic anchor inside it.
+    const anchor = doc.createElement("a");
+    anchor.setAttribute("href", "https://example.com");
+    anchor.textContent = "link";
+    doc.body.appendChild(anchor);
+    fireEvent.click(anchor);
+    expect(openExternalUrl).toHaveBeenCalledWith("https://example.com");
     cleanup();
   });
 });

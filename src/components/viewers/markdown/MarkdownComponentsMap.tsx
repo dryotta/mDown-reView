@@ -104,7 +104,7 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
           return;
         case "external":
           e.preventDefault();
-          openExternalUrl(route.href).catch(() => {});
+          openExternalUrl(route.href).catch((e) => warn(`[MarkdownViewer] link open failed: ${e}`));
           return;
         case "workspace":
           e.preventDefault();
