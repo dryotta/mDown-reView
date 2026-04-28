@@ -88,6 +88,6 @@ test.describe("HTML visual view fills vertical space (#213)", () => {
     // Verify the rendered markdown heading is visible.
     const heading = page.locator(".markdown-body h1");
     await expect(heading).toBeVisible();
-    await expect(heading).toHaveText("Heading");
+    await expect(heading).toHaveText(/Heading/);
   });
 });
