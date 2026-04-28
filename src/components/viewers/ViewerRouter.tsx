@@ -5,7 +5,6 @@ import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewerShell } from "./ImageViewerShell";
 import { AudioViewer, getAudioMime } from "./AudioViewer";
-import { VideoViewer, getVideoMime } from "./VideoViewer";
 import { PdfViewer } from "./PdfViewer";
 import { BinaryViewerShell } from "./BinaryViewerShell";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
@@ -148,7 +147,7 @@ export function ViewerRouter({ path }: Props) {
 
   // R1+R2+R3 — every routed viewer is keyed on `path`. A path change forces
   // unmount+remount, which: (a) drops PdfViewer's stale `loadError`, (b) stops
-  // audio/video playback that would otherwise continue after a tab switch,
+  // audio playback that would otherwise continue after a tab switch,
   // (c) resets HexView byte state without an explicit `setBytes(null)` effect.
   //
   // Iter 5 Group B — media/binary viewers have no `EnhancedViewer` host, so we
@@ -169,21 +168,6 @@ export function ViewerRouter({ path }: Props) {
           trailing={<FileActionsBar path={path} mime={getAudioMime(path)} />}
         />
         <AudioViewer key={path} path={path} />
-      </div>
-    );
-  }
-
-  if (status === "video") {
-    return (
-      <div className="viewer-media-container">
-        <ViewerToolbar
-          activeView="visual"
-          onViewChange={() => {}}
-          hidden
-          onCommentOnFile={handleCommentOnFile}
-          trailing={<FileActionsBar path={path} mime={getVideoMime(path)} />}
-        />
-        <VideoViewer key={path} path={path} />
       </div>
     );
   }

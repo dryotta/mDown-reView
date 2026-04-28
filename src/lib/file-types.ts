@@ -9,7 +9,6 @@ export type FileCategory =
   | "kql"
   | "image"
   | "audio"
-  | "video"
   | "pdf"
   | "text";
 
@@ -41,17 +40,13 @@ const CATEGORY_MAP: Record<string, FileCategory> = {
   ".flac": "audio",
   ".m4a": "audio",
   ".aac": "audio",
-  ".mp4": "video",
-  ".webm": "video",
-  ".mov": "video",
-  ".mkv": "video",
 };
 
-// Audio and video are handled by their own dedicated viewers (AudioViewer /
-// VideoViewer) — they don't share the source/visual toggle, but are listed as
-// "visualizable" so that filetype-keyed UI behaviour (toolbar, zoom store) is
-// consistent with the other media-only category, image. Zoom is not actually
-// applied to audio/video controls.
+// Audio is handled by its own dedicated viewer (AudioViewer) — it doesn't
+// share the source/visual toggle, but is listed as "visualizable" so that
+// filetype-keyed UI behaviour (toolbar, zoom store) is consistent with
+// the other media-only category, image. Zoom is not actually applied to
+// audio controls.
 const VISUALIZABLE: Set<FileCategory> = new Set([
   "markdown",
   "json",
@@ -61,7 +56,6 @@ const VISUALIZABLE: Set<FileCategory> = new Set([
   "kql",
   "pdf",
   "audio",
-  "video",
 ]);
 
 const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
@@ -74,7 +68,6 @@ const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
   image: "visual",
   pdf: "visual",
   audio: "visual",
-  video: "visual",
   text: "source",
 };
 
@@ -94,7 +87,6 @@ export function getFiletypeKey(path: string, viewMode?: "source" | "visual"): st
   const cat = getFileCategory(path);
   if (cat === "image") return ".image";
   if (cat === "audio") return ".audio";
-  if (cat === "video") return ".video";
   if (cat === "pdf") return ".pdf";
   const view = viewMode ?? getDefaultView(cat);
   if (view === "source") return ".source";
@@ -117,32 +109,160 @@ export function getDefaultView(category: FileCategory): "source" | "visual" {
   return DEFAULT_VIEW[category];
 }
 
-// Map file extension → Shiki language id. The same ids are also accepted by
-// the Rust fold-region detector (`src-tauri/src/core/fold_regions.rs`), which
-// recognises both `python`/`py` and `yaml`/`yml` for its indent-language hint,
-// so this single table serves both syntax highlighting and folding.
+// Map file extension → Shiki language id. Covers every language bundled with
+// Shiki that has a conventional file extension. The same ids are also accepted
+// by the Rust fold-region detector (`src-tauri/src/core/fold_regions.rs`),
+// which recognises both `python`/`py` and `yaml`/`yml` for its indent-language
+// hint, so this single table serves both syntax highlighting and folding.
 export const SHIKI_LANGUAGE_MAP: Record<string, string> = {
-  // Existing entries
-  ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-  py: "python", rs: "rust", go: "go", java: "java",
-  c: "c", cpp: "cpp", h: "c", css: "css", html: "html",
-  json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
-  sh: "bash", bash: "bash", md: "markdown", sql: "sql",
-  rb: "ruby", php: "php", swift: "swift", kt: "kotlin", cs: "csharp",
-  xml: "xml", kql: "kql", csl: "kql",
-  // New — languages
-  lua: "lua", dart: "dart", scala: "scala", zig: "zig",
-  groovy: "groovy", r: "r", ps1: "powershell",
-  // New — web/app frameworks
-  svelte: "svelte", vue: "vue", astro: "astro",
-  graphql: "graphql", gql: "graphql", prisma: "prisma", jsonc: "jsonc",
-  // New — infra/config
-  tf: "terraform", tfvars: "terraform", hcl: "hcl",
-  proto: "protobuf", gradle: "groovy", cmake: "cmake", bicep: "bicep",
-  ini: "ini", conf: "ini", env: "ini",
-  diff: "diff", patch: "diff",
-  // New — Objective-C++; .m deliberately omitted — ambiguous (Objective-C vs MATLAB vs Mathematica)
+  // ── Web / JavaScript ────────────────────────────────────────────────
+  ts: "typescript", mts: "typescript", cts: "typescript",
+  js: "javascript", mjs: "javascript", cjs: "javascript",
+  tsx: "tsx", jsx: "jsx",
+  css: "css", scss: "scss", sass: "sass", less: "less", styl: "stylus",
+  postcss: "postcss",
+  html: "html", htm: "html",
+  vue: "vue", svelte: "svelte", astro: "astro",
+  pug: "pug", jade: "pug",
+  hbs: "handlebars", handlebars: "handlebars",
+  erb: "erb", haml: "haml", blade: "blade",
+  liquid: "liquid", twig: "twig", edge: "edge",
+  mdx: "mdx",
+  coffee: "coffee",
+
+  // ── Data / Config ───────────────────────────────────────────────────
+  json: "json", jsonc: "jsonc", json5: "json5", jsonl: "jsonl",
+  jsonnet: "jsonnet",
+  yaml: "yaml", yml: "yaml",
+  toml: "toml", ini: "ini", conf: "ini", env: "dotenv",
+  xml: "xml", xsl: "xsl", svg: "xml",
+  csv: "csv", tsv: "tsv",
+  graphql: "graphql", gql: "graphql",
+  prisma: "prisma",
+  kdl: "kdl", ron: "ron", hjson: "hjson",
+  dotenv: "dotenv",
+
+  // ── Systems ─────────────────────────────────────────────────────────
+  c: "c", h: "c",
+  cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp", hxx: "cpp", hh: "cpp",
+  rs: "rust",
+  go: "go",
+  zig: "zig",
+  nim: "nim",
+  v: "v",
+  d: "d",
+  odin: "odin",
+
+  // ── JVM ─────────────────────────────────────────────────────────────
+  java: "java",
+  kt: "kotlin", kts: "kotlin",
+  scala: "scala",
+  groovy: "groovy", gradle: "groovy",
+  clj: "clojure", cljs: "clojure", cljc: "clojure", edn: "clojure",
+
+  // ── .NET ────────────────────────────────────────────────────────────
+  cs: "csharp",
+  fs: "fsharp", fsx: "fsharp", fsi: "fsharp",
+  vb: "vb",
+  razor: "razor",
+
+  // ── Scripting ───────────────────────────────────────────────────────
+  py: "python",
+  rb: "ruby",
+  php: "php",
+  lua: "lua", luau: "luau",
+  r: "r",
+  jl: "julia",
+  pl: "perl", pm: "perl",
+  raku: "raku",
+  tcl: "tcl",
+  awk: "awk",
+
+  // ── Functional ──────────────────────────────────────────────────────
+  hs: "haskell",
+  ml: "ocaml", mli: "ocaml",
+  ex: "elixir", exs: "elixir",
+  erl: "erlang", hrl: "erlang",
+  elm: "elm",
+  gleam: "gleam",
+  purescript: "purescript", purs: "purescript",
+  rkt: "racket",
+  scm: "scheme",
+
+  // ── Mobile / Apple ──────────────────────────────────────────────────
+  swift: "swift",
+  dart: "dart",
+  m: "objective-c",
   mm: "objective-cpp",
+
+  // ── Shell ───────────────────────────────────────────────────────────
+  sh: "shellscript", bash: "shellscript", zsh: "shellscript",
+  fish: "fish",
+  ps1: "powershell",
+  bat: "bat", cmd: "bat",
+  nu: "nushell",
+
+  // ── Database / Query ────────────────────────────────────────────────
+  sql: "sql", plsql: "plsql",
+  kql: "kusto", csl: "kusto",
+
+  // ── Infra / DevOps ──────────────────────────────────────────────────
+  tf: "terraform", tfvars: "terraform",
+  hcl: "hcl",
+  proto: "proto",
+  cmake: "cmake",
+  bicep: "bicep",
+  nix: "nix",
+  pkl: "pkl",
+
+  // ── Documentation / Markup ──────────────────────────────────────────
+  md: "markdown",
+  tex: "tex", latex: "latex",
+  rst: "rst",
+  adoc: "asciidoc",
+  typ: "typst",
+  wiki: "wikitext",
+
+  // ── Diff / VCS ──────────────────────────────────────────────────────
+  diff: "diff", patch: "diff",
+
+  // ── GPU / Shaders ───────────────────────────────────────────────────
+  glsl: "glsl", hlsl: "hlsl", wgsl: "wgsl",
+  shader: "shaderlab",
+
+  // ── Assembly ────────────────────────────────────────────────────────
+  asm: "asm", s: "asm",
+
+  // ── Blockchain / Smart Contracts ────────────────────────────────────
+  sol: "solidity",
+  vy: "vyper",
+  move: "move",
+
+  // ── Game Dev ────────────────────────────────────────────────────────
+  gd: "gdscript",
+  tscn: "gdresource", tres: "gdresource",
+
+  // ── Other languages ─────────────────────────────────────────────────
+  pascal: "pascal", pas: "pascal",
+  cobol: "cobol", cob: "cobol",
+  fortran: "fortran-free-form", f90: "fortran-free-form", f95: "fortran-free-form",
+  f: "fortran-fixed-form", f77: "fortran-fixed-form",
+  ada: "ada", adb: "ada", ads: "ada",
+  prolog: "prolog",
+  hx: "haxe",
+  mojo: "mojo",
+  wl: "wolfram",
+  lean: "lean",
+  coq: "coq",
+  puppet: "puppet", pp: "puppet",
+  sas: "sas",
+  stata: "stata", do: "stata",
+  sparql: "sparql",
+  wasm: "wasm", wat: "wasm",
+  reg: "reg",
+  log: "log",
+  http: "http",
+  nginx: "nginx",
 };
 
 /** Basename → Shiki language for files without a meaningful extension. */
@@ -151,8 +271,19 @@ export const BASENAME_MAP: Record<string, string> = {
   dockerfile: "docker",
   Containerfile: "docker",
   Makefile: "make",
+  makefile: "make",
   GNUmakefile: "make",
   "CMakeLists.txt": "cmake",
+  Justfile: "just",
+  justfile: "just",
+  ".gitignore": "ini",
+  ".gitattributes": "ini",
+  ".editorconfig": "ini",
+  ".env": "dotenv",
+  ".env.local": "dotenv",
+  ".env.development": "dotenv",
+  ".env.production": "dotenv",
+  CODEOWNERS: "codeowners",
 };
 
 export function getShikiLanguage(path: string): string {
