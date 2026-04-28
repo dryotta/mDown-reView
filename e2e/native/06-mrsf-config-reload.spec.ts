@@ -60,9 +60,6 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
       // Verify: sidecar landed in .reviews/ directory
       expect(found).toBe(true);
       expect(fs.existsSync(reviewsDir)).toBe(true);
-
-      // Find the sidecar file under .reviews/
-      const sidecarPath = path.join(reviewsDir, "readme.md.review.yaml");
       expect(fs.existsSync(sidecarPath)).toBe(true);
 
       // Verify co-located sidecar was NOT created
