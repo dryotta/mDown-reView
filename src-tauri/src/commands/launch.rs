@@ -5,59 +5,7 @@ use super::is_sidecar_file;
 use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::LaunchArgs;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use tauri::{Manager, State};
-
-/// FIFO queue of launch arg batches that arrived before the frontend asked for them.
-///
-/// Each `RunEvent::Opened` (macOS), single-instance callback, and the initial
-/// `setup()` call pushes one batch. `get_launch_args` drains and merges them.
-/// A queue (rather than `Option<LaunchArgs>`) prevents fast successive opens
-/// from clobbering each other before the frontend has polled.
-pub type PendingArgsState = Arc<Mutex<Vec<LaunchArgs>>>;
-
-/// Append a batch of launch args to the pending queue.
-pub fn push_pending(state: &PendingArgsState, args: LaunchArgs) {
-    if let Ok(mut guard) = state.lock() {
-        guard.push(args);
-    } else {
-        log::error!("[rust] push_pending: PendingArgsState lock poisoned");
-    }
-}
-
-/// Drain the pending queue, returning a single merged `LaunchArgs`.
-///
-/// Concatenates `files` and `folders` from every queued batch in FIFO order,
-/// deduplicating by string identity while preserving first-seen order. An
-/// empty queue yields `LaunchArgs { files: vec![], folders: vec![] }`.
-pub fn drain_pending(state: &PendingArgsState) -> LaunchArgs {
-    let batches: Vec<LaunchArgs> = match state.lock() {
-        Ok(mut guard) => std::mem::take(&mut *guard),
-        Err(e) => {
-            log::error!(
-                "[rust] drain_pending: PendingArgsState lock poisoned: {}",
-                e
-            );
-            return LaunchArgs::default();
-        }
-    };
-
-    let mut files: Vec<String> = Vec::new();
-    let mut folders: Vec<String> = Vec::new();
-    for batch in batches {
-        for f in batch.files {
-            if !files.iter().any(|x| x == &f) {
-                files.push(f);
-            }
-        }
-        for d in batch.folders {
-            if !folders.iter().any(|x| x == &d) {
-                folders.push(d);
-            }
-        }
-    }
-    LaunchArgs { files, folders }
-}
+use tauri::Manager;
 
 /// Parse CLI-style launch arguments into a `LaunchArgs` struct.
 ///
@@ -125,10 +73,13 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
     LaunchArgs { files, folders }
 }
 
-/// Get (and drain) launch args queued since the last call.
+/// Get (and drain) launch args queued for the calling window.
 #[tauri::command]
-pub async fn get_launch_args(state: State<'_, PendingArgsState>) -> Result<LaunchArgs, String> {
-    Ok(drain_pending(&state))
+pub async fn get_launch_args(
+    window: tauri::Window,
+    registry: tauri::State<'_, crate::registry::WindowRegistry>,
+) -> Result<LaunchArgs, String> {
+    Ok(registry.drain_args(window.label()))
 }
 
 /// Get the log file path for display in the About dialog.
@@ -151,7 +102,7 @@ pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> 
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Emitter;
+    use tauri::{Emitter, Manager};
 
     let folder = std::path::Path::new(&path);
     let mut files: Vec<String> = Vec::new();
@@ -183,8 +134,8 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
         folders: vec![path],
     };
 
-    let pending = app.state::<PendingArgsState>();
-    push_pending(&pending, launch_args);
+    let reg = app.state::<crate::registry::WindowRegistry>();
+    reg.push_args("main", launch_args);
 
     if let Some(window) = app.get_webview_window("main") {
         window
@@ -310,83 +261,6 @@ mod tests {
         let out = parse_launch_args(&[s("does-not-exist.md")], cwd.path());
         assert!(out.files.is_empty());
         assert!(out.folders.is_empty());
-    }
-
-    #[test]
-    fn queue_merges_and_dedupes_preserving_order() {
-        let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
-        push_pending(
-            &state,
-            LaunchArgs {
-                files: vec![s("/a"), s("/b")],
-                folders: vec![s("/x")],
-            },
-        );
-        push_pending(
-            &state,
-            LaunchArgs {
-                files: vec![s("/b"), s("/c")],
-                folders: vec![s("/x"), s("/y")],
-            },
-        );
-        push_pending(
-            &state,
-            LaunchArgs {
-                files: vec![s("/d")],
-                folders: vec![],
-            },
-        );
-
-        let merged = drain_pending(&state);
-        assert_eq!(merged.files, vec![s("/a"), s("/b"), s("/c"), s("/d")]);
-        assert_eq!(merged.folders, vec![s("/x"), s("/y")]);
-
-        // Queue is empty after drain.
-        let empty = drain_pending(&state);
-        assert!(empty.files.is_empty() && empty.folders.is_empty());
-    }
-
-    #[test]
-    fn drain_empty_queue_returns_empty_launch_args() {
-        let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
-        let out = drain_pending(&state);
-        assert!(out.files.is_empty());
-        assert!(out.folders.is_empty());
-    }
-
-    /// Regression for lib.rs:310 clobber bug: two consecutive pushes must
-    /// retain BOTH batches' files. Before the fix `RunEvent::Opened` did
-    /// `*guard = Some(...)`, which dropped the prior pending batch.
-    #[test]
-    fn regression_two_pushes_both_retained() {
-        let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
-        push_pending(
-            &state,
-            LaunchArgs {
-                files: vec![s("/first.md")],
-                folders: vec![],
-            },
-        );
-        push_pending(
-            &state,
-            LaunchArgs {
-                files: vec![s("/second.md")],
-                folders: vec![],
-            },
-        );
-
-        let merged = drain_pending(&state);
-        assert!(
-            merged.files.contains(&s("/first.md")),
-            "first batch lost (clobber regression): {:?}",
-            merged.files
-        );
-        assert!(
-            merged.files.contains(&s("/second.md")),
-            "second batch missing: {:?}",
-            merged.files
-        );
-        assert_eq!(merged.files.len(), 2);
     }
 
     /// Verifies parse_launch_args delegates to core::paths::resolve_path for
