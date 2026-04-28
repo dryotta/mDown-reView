@@ -34,10 +34,10 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
       await nativePage.waitForTimeout(3000);
 
       // Add a comment via IPC — should land in .reviews/ not co-located
-      await nativePage.evaluate(() => {
+      await nativePage.evaluate((fp: string) => {
         // @ts-ignore — Tauri internals
         return window.__TAURI_INTERNALS__.invoke("add_comment", {
-          filePath: document.querySelector("[data-file-path]")?.getAttribute("data-file-path"),
+          filePath: fp,
           author: "e2e-test",
           text: "Comment under sidecar_root",
           anchor: null,
@@ -45,7 +45,7 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
           severity: null,
           document: null,
         });
-      });
+      }, docFile);
 
       // Wait briefly for the sidecar write
       await nativePage.waitForTimeout(1000);
