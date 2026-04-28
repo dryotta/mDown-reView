@@ -39,7 +39,7 @@ pub fn filter_unresolved(comments: &[MrsfComment]) -> Vec<&MrsfComment> {
 /// `[RESOLVED] ` is only emitted when the comment is resolved AND the caller
 /// passed `include_resolved = true` (so unresolved-only output stays clean).
 pub fn format_comment_text_verbose(
-    comment: &serde_yaml_ng::Value,
+    comment: &serde_json::Value,
     include_resolved: bool,
 ) -> String {
     let id = comment.get("id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -95,7 +95,7 @@ pub fn format_comment_text_verbose(
             out.push_str(&format!("    quoted: \"{}\"\n", truncated));
         }
     }
-    if let Some(responses) = comment.get("responses").and_then(|v| v.as_sequence()) {
+    if let Some(responses) = comment.get("responses").and_then(|v| v.as_array()) {
         for r in responses {
             let r_author = r.get("author").and_then(|v| v.as_str()).unwrap_or("?");
             let r_ts = r.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
@@ -310,7 +310,7 @@ type: issue
 severity: high
 selected_text: "fn main() { foo(); }"
 "#;
-        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let v: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
         let out = format_comment_text_verbose(&v, false);
         assert!(out.contains("[c1] line 7  [issue] (high)  alice · 2025-01-02T03:04:05Z"));
         assert!(out.contains("    > first line"));
@@ -328,7 +328,7 @@ timestamp: t
 text: hi
 resolved: true
 "#;
-        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let v: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
         assert!(format_comment_text_verbose(&v, true).contains("[RESOLVED] "));
         assert!(!format_comment_text_verbose(&v, false).contains("[RESOLVED]"));
     }
@@ -346,7 +346,7 @@ responses:
     timestamp: t2
     text: "ack"
 "#;
-        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let v: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
         let out = format_comment_text_verbose(&v, false);
         assert!(out.contains("    bot (t2): ack"));
     }
@@ -358,7 +358,7 @@ responses:
             "id: c1\nauthor: a\ntimestamp: t\ntext: hi\nresolved: false\nselected_text: \"{}\"\n",
             long
         );
-        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        let v: serde_json::Value = serde_saphyr::from_str(&yaml).unwrap();
         let out = format_comment_text_verbose(&v, false);
         // 77 x's + "..." inside quotes
         assert!(out.contains(&format!("\"{}...\"", "x".repeat(77))));

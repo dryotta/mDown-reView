@@ -496,7 +496,7 @@ mod tests {
 
     fn count_sidecar_comments(path: &Path) -> usize {
         let content = fs::read_to_string(path).expect("read sidecar");
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).expect("parse sidecar");
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content).expect("parse sidecar");
         sidecar.comments.len()
     }
 
@@ -561,7 +561,7 @@ mod tests {
 
         let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
         let sidecar: TestMrsfSidecar =
-            serde_yaml_ng::from_str(&content).expect("sidecar must parse as valid YAML");
+            serde_saphyr::from_str(&content).expect("sidecar must parse as valid YAML");
 
         assert_eq!(sidecar.mrsf_version, "1.0");
         assert_eq!(sidecar.document, "file_100_lines.md");
@@ -574,7 +574,7 @@ mod tests {
         generate_fixtures(tmp.path()).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content).unwrap();
 
         let resolved_count = sidecar.comments.iter().filter(|c| c.resolved).count();
         // 20% resolved = ~10 of 50, allow some variance from RNG
@@ -592,7 +592,7 @@ mod tests {
         generate_fixtures(tmp.path()).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content).unwrap();
 
         let reply_count = sidecar
             .comments
@@ -737,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn all_sidecars_parseable_by_serde_yaml_ng() {
+    fn all_sidecars_parseable_by_serde_saphyr() {
         let tmp = tempfile::tempdir().unwrap();
         generate_fixtures(tmp.path()).unwrap();
 
@@ -753,7 +753,7 @@ mod tests {
                 } else if path.to_str().map_or(false, |s| s.ends_with(".review.yaml")) {
                     let content = fs::read_to_string(&path)
                         .unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
-                    let _sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&content)
+                    let _sidecar: TestMrsfSidecar = serde_saphyr::from_str(&content)
                         .unwrap_or_else(|e| panic!("parse {:?}: {}", path, e));
                 }
             }
@@ -770,7 +770,7 @@ mod tests {
 
         let sidecar_content =
             fs::read_to_string(tmp.path().join("comments_50.review.yaml")).unwrap();
-        let sidecar: TestMrsfSidecar = serde_yaml_ng::from_str(&sidecar_content).unwrap();
+        let sidecar: TestMrsfSidecar = serde_saphyr::from_str(&sidecar_content).unwrap();
 
         for comment in &sidecar.comments {
             let line_idx = (comment.line as usize).saturating_sub(1);

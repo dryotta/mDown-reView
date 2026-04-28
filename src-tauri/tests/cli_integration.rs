@@ -268,8 +268,8 @@ fn respond_resolve_only_marks_comment_resolved() {
     assert!(stdout.contains("resolved m1"));
 
     let content = std::fs::read_to_string(&sidecar).unwrap();
-    let data: serde_yaml_ng::Value = serde_yaml_ng::from_str(&content).unwrap();
-    let comments = data["comments"].as_sequence().unwrap();
+    let data: serde_json::Value = serde_saphyr::from_str(&content).unwrap();
+    let comments = data["comments"].as_array().unwrap();
     let m1 = comments
         .iter()
         .find(|c| c["id"].as_str() == Some("m1"))
@@ -294,9 +294,9 @@ fn respond_response_only_adds_response() {
     let content = std::fs::read_to_string(&sidecar).unwrap();
     assert!(content.contains("Working on it"));
     assert!(content.contains("responses"));
-    let data: serde_yaml_ng::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let data: serde_json::Value = serde_saphyr::from_str(&content).unwrap();
     let m1 = data["comments"]
-        .as_sequence()
+        .as_array()
         .unwrap()
         .iter()
         .find(|c| c["id"].as_str() == Some("m1"))

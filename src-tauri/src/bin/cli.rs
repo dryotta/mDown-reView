@@ -153,7 +153,7 @@ fn build_entry(
     sidecar_path: &Path,
     source_path: &Path,
     root: &Path,
-    filtered_comments: &[serde_yaml_ng::Value],
+    filtered_comments: &[serde_json::Value],
 ) -> serde_json::Value {
     let comments_json: Vec<serde_json::Value> =
         filtered_comments.iter().map(yaml_to_json).collect();
@@ -170,30 +170,28 @@ fn build_entry(
     })
 }
 
-fn yaml_to_json(v: &serde_yaml_ng::Value) -> serde_json::Value {
-    serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
+fn yaml_to_json(v: &serde_json::Value) -> serde_json::Value {
+    v.clone()
 }
 
 /// Load raw YAML so we can preserve `responses` and other unknown fields
 /// when rendering text output and emitting JSON.
-fn load_raw_sidecar(sidecar_path: &Path) -> Result<serde_yaml_ng::Value, String> {
+fn load_raw_sidecar(sidecar_path: &Path) -> Result<serde_json::Value, String> {
     let content = std::fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
     let s = sidecar_path.to_string_lossy();
     if s.ends_with(".review.json") {
-        let json_val: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| e.to_string())?;
-        serde_json::from_value::<serde_yaml_ng::Value>(json_val).map_err(|e| e.to_string())
+        serde_json::from_str(&content).map_err(|e| e.to_string())
     } else {
-        serde_yaml_ng::from_str(&content).map_err(|e| e.to_string())
+        serde_saphyr::from_str(&content).map_err(|e| e.to_string())
     }
 }
 
 fn filter_raw_comments(
-    raw: &serde_yaml_ng::Value,
+    raw: &serde_json::Value,
     include_resolved: bool,
-) -> Vec<serde_yaml_ng::Value> {
+) -> Vec<serde_json::Value> {
     raw.get("comments")
-        .and_then(|v| v.as_sequence())
+        .and_then(|v| v.as_array())
         .map(|seq| {
             seq.iter()
                 .filter(|c| {
@@ -242,7 +240,7 @@ fn cmd_read(
     // Folder scan mode.
     let root_str = root.to_string_lossy().to_string();
     let files = scanner::find_review_files(&root_str, 10_000);
-    let mut entries: Vec<(serde_json::Value, Vec<serde_yaml_ng::Value>)> = Vec::new();
+    let mut entries: Vec<(serde_json::Value, Vec<serde_json::Value>)> = Vec::new();
 
     for (sidecar_str, _src_str) in &files {
         let sidecar_path = PathBuf::from(sidecar_str);
@@ -279,7 +277,7 @@ fn cmd_read(
 
 fn print_text_entry(
     entry: &serde_json::Value,
-    filtered: &[serde_yaml_ng::Value],
+    filtered: &[serde_json::Value],
     include_resolved: bool,
 ) {
     let source_rel = entry["sourceFile"]["relative"].as_str().unwrap_or("?");

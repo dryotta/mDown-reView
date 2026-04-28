@@ -40,7 +40,8 @@ base64 = "0.22"
 notify = "7"
 notify-debouncer-mini = "0.5"
 walkdir = "2"
-serde_yaml_ng = "0.10"
+serde-saphyr = "=0.0.25"
+saphyr = "=0.0.6"
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -63,7 +64,7 @@ windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "W
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
 tempfile = "3"
-serde_yaml_ng = "0.10"
+serde-saphyr = "=0.0.25"
 serde_json = "1"
 rand = "0.8"
 wiremock = "0.6"

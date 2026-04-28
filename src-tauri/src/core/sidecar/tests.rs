@@ -106,7 +106,7 @@ fn save_sidecar_emits_v1_0_for_legacy_comments() {
 
     let sidecar_path = tmp.path().join("test.md.review.yaml");
     let content = std::fs::read_to_string(&sidecar_path).unwrap();
-    let reloaded: crate::core::types::MrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
+    let reloaded: crate::core::types::MrsfSidecar = serde_saphyr::from_str(&content).unwrap();
     // Pure-legacy comment ⇒ writer must NOT emit "1.1" (advisory #5).
     assert_eq!(reloaded.mrsf_version, "1.0");
 }
@@ -127,7 +127,7 @@ fn save_sidecar_emits_v1_1_when_v1_1_field_present() {
 
     let sidecar_path = tmp.path().join("test.md.review.yaml");
     let content = std::fs::read_to_string(&sidecar_path).unwrap();
-    let reloaded: crate::core::types::MrsfSidecar = serde_yaml_ng::from_str(&content).unwrap();
+    let reloaded: crate::core::types::MrsfSidecar = serde_saphyr::from_str(&content).unwrap();
     assert_eq!(reloaded.mrsf_version, "1.1");
 }
 

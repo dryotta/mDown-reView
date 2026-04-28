@@ -1,4 +1,4 @@
-mrsf_version: '1.0'
+mrsf_version: "1.0"
 document: basic.md
 comments:
 - id: c1
