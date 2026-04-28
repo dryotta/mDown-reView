@@ -1,11 +1,11 @@
 use mdown_review_lib::commands::{
-    drain_pending, push_pending, read_binary_file, read_dir, read_text_file, search_in_document,
-    stat_file_inner, CommentsChangedEvent, LaunchArgs, MrsfComment, MrsfSidecar, PendingArgsState,
+    read_binary_file, read_dir, read_text_file, search_in_document,
+    stat_file_inner, CommentsChangedEvent, LaunchArgs, MrsfComment, MrsfSidecar,
 };
 use mdown_review_lib::core::sidecar::{load_sidecar, save_sidecar};
+use mdown_review_lib::registry::WindowRegistry;
 use mdown_review_lib::watcher::FileChangeEvent;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 
 // ── read_text_file ─────────────────────────────────────────────────────────
 
@@ -319,19 +319,19 @@ fn yaml_preferred_over_json() {
 
 #[test]
 fn get_launch_args_returns_and_clears() {
+    let reg = WindowRegistry::default();
     let args = LaunchArgs {
         files: vec!["file.md".to_string()],
         folders: vec![],
     };
-    let state: PendingArgsState = Arc::new(Mutex::new(Vec::new()));
-    push_pending(&state, args);
+    reg.push_args("main", args);
 
     // First drain returns the queued args.
-    let result = drain_pending(&state);
+    let result = reg.drain_args("main");
     assert_eq!(result.files, vec!["file.md"]);
 
     // Second drain returns empty (queue cleared).
-    let result2 = drain_pending(&state);
+    let result2 = reg.drain_args("main");
     assert!(result2.files.is_empty());
     assert!(result2.folders.is_empty());
 }

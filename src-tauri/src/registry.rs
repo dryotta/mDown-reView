@@ -4,9 +4,12 @@
 //! provides routing decisions for incoming open requests so the app can reuse
 //! or focus existing windows instead of spawning duplicates.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+
+use crate::core::types::LaunchArgs;
 
 // ---------------------------------------------------------------------------
 // Path comparison helpers
@@ -102,6 +105,7 @@ pub enum RouteDecision {
 #[derive(Debug)]
 pub struct WindowRegistry {
     entries: Mutex<Vec<WindowEntry>>,
+    pending_args: Mutex<HashMap<String, Vec<LaunchArgs>>>,
     counter: AtomicU64,
 }
 
@@ -116,6 +120,7 @@ impl WindowRegistry {
     pub fn new() -> Self {
         Self {
             entries: Mutex::new(Vec::new()),
+            pending_args: Mutex::new(HashMap::new()),
             counter: AtomicU64::new(1),
         }
     }
@@ -138,6 +143,37 @@ impl WindowRegistry {
     pub fn unregister(&self, label: &str) {
         let mut entries = self.entries.lock().expect("registry lock poisoned");
         entries.retain(|e| e.label != label);
+        // Clean up any pending args for this window
+        if let Ok(mut pending) = self.pending_args.lock() {
+            pending.remove(label);
+        }
+    }
+
+    /// Queue launch args for a window that hasn't loaded React yet.
+    pub fn push_args(&self, label: &str, args: LaunchArgs) {
+        let mut pending = self.pending_args.lock().expect("pending_args lock poisoned");
+        pending.entry(label.to_string()).or_default().push(args);
+    }
+
+    /// Drain all queued launch args for a window, merging batches with dedup.
+    pub fn drain_args(&self, label: &str) -> LaunchArgs {
+        let mut pending = self.pending_args.lock().expect("pending_args lock poisoned");
+        let batches = pending.remove(label).unwrap_or_default();
+        let mut files = Vec::new();
+        let mut folders = Vec::new();
+        for batch in batches {
+            for f in batch.files {
+                if !files.contains(&f) {
+                    files.push(f);
+                }
+            }
+            for d in batch.folders {
+                if !folders.contains(&d) {
+                    folders.push(d);
+                }
+            }
+        }
+        LaunchArgs { files, folders }
     }
 
     /// Find the label of the `Folder` window whose path matches `path`.
@@ -456,5 +492,111 @@ mod tests {
         reg.unregister("w1");
         assert_eq!(reg.find_by_folder(Path::new("/a")), None);
         assert_eq!(reg.find_by_folder(Path::new("/b")), None);
+    }
+
+    // ── Per-window pending args tests ─────────────────────────────────────
+
+    #[test]
+    fn push_and_drain_args_single_batch() {
+        let reg = WindowRegistry::new();
+        reg.push_args(
+            "w1",
+            LaunchArgs {
+                files: vec!["/a.md".into()],
+                folders: vec!["/proj".into()],
+            },
+        );
+        let result = reg.drain_args("w1");
+        assert_eq!(result.files, vec!["/a.md".to_string()]);
+        assert_eq!(result.folders, vec!["/proj".to_string()]);
+    }
+
+    #[test]
+    fn drain_args_merges_and_dedupes_multiple_batches() {
+        let reg = WindowRegistry::new();
+        reg.push_args(
+            "w1",
+            LaunchArgs {
+                files: vec!["/a.md".into(), "/b.md".into()],
+                folders: vec!["/x".into()],
+            },
+        );
+        reg.push_args(
+            "w1",
+            LaunchArgs {
+                files: vec!["/b.md".into(), "/c.md".into()],
+                folders: vec!["/x".into(), "/y".into()],
+            },
+        );
+        let result = reg.drain_args("w1");
+        assert_eq!(
+            result.files,
+            vec!["/a.md".to_string(), "/b.md".to_string(), "/c.md".to_string()]
+        );
+        assert_eq!(result.folders, vec!["/x".to_string(), "/y".to_string()]);
+    }
+
+    #[test]
+    fn drain_args_returns_empty_when_nothing_queued() {
+        let reg = WindowRegistry::new();
+        let result = reg.drain_args("nonexistent");
+        assert!(result.files.is_empty());
+        assert!(result.folders.is_empty());
+    }
+
+    #[test]
+    fn drain_args_clears_queue() {
+        let reg = WindowRegistry::new();
+        reg.push_args(
+            "w1",
+            LaunchArgs {
+                files: vec!["/a.md".into()],
+                folders: vec![],
+            },
+        );
+        let first = reg.drain_args("w1");
+        assert_eq!(first.files.len(), 1);
+
+        let second = reg.drain_args("w1");
+        assert!(second.files.is_empty());
+    }
+
+    #[test]
+    fn unregister_cleans_up_pending_args() {
+        let reg = WindowRegistry::new();
+        reg.register("w1".into(), WindowKind::FileOnly);
+        reg.push_args(
+            "w1",
+            LaunchArgs {
+                files: vec!["/a.md".into()],
+                folders: vec![],
+            },
+        );
+        reg.unregister("w1");
+        let result = reg.drain_args("w1");
+        assert!(result.files.is_empty());
+    }
+
+    #[test]
+    fn push_args_isolates_windows() {
+        let reg = WindowRegistry::new();
+        reg.push_args(
+            "w1",
+            LaunchArgs {
+                files: vec!["/a.md".into()],
+                folders: vec![],
+            },
+        );
+        reg.push_args(
+            "w2",
+            LaunchArgs {
+                files: vec!["/b.md".into()],
+                folders: vec![],
+            },
+        );
+        let r1 = reg.drain_args("w1");
+        let r2 = reg.drain_args("w2");
+        assert_eq!(r1.files, vec!["/a.md".to_string()]);
+        assert_eq!(r2.files, vec!["/b.md".to_string()]);
     }
 }

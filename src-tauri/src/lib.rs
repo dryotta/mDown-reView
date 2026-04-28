@@ -5,7 +5,7 @@ pub mod registry;
 pub mod update;
 pub mod watcher;
 
-use commands::{parse_launch_args, push_pending, LaunchArgs, PendingArgsState};
+use commands::{parse_launch_args, LaunchArgs};
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
@@ -95,7 +95,11 @@ fn route_args_through_registry(
                 .min_inner_size(600.0, 400.0);
                 match builder.build() {
                     Ok(_) => {
-                        reg.register(label.clone(), registry::WindowKind::Folder(path));
+                        reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
+                        reg.push_args(&label, LaunchArgs {
+                            folders: vec![path.to_string_lossy().into_owned()],
+                            files: vec![],
+                        });
                         log::info!("[window] {ctx}: created {label}");
                     }
                     Err(e) => log::error!("[window] {ctx}: folder window failed: {e}"),
@@ -123,10 +127,11 @@ fn route_args_through_registry(
                 .inner_size(1100.0, 750.0)
                 .min_inner_size(600.0, 400.0);
                 match builder.build() {
-                    Ok(win) => {
+                    Ok(_) => {
                         reg.register(label.clone(), registry::WindowKind::FileOnly);
+                        let file_strs: Vec<String> = files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
+                        reg.push_args(&label, LaunchArgs { files: file_strs, folders: vec![] });
                         log::info!("[window] {ctx}: created file-only window {label}");
-                        let _ = win.emit("open-file-tab", &files);
                     }
                     Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),
                 }
@@ -189,14 +194,6 @@ pub fn run() {
                 let args = parse_launch_args(&argv[1..], &cwd_path);
 
                 route_args_through_registry(app, &args, "single-instance");
-
-                // Queue args and notify all windows
-                if let Some(state) = app.try_state::<PendingArgsState>() {
-                    push_pending(&state, args);
-                }
-                for (_label, win) in app.webview_windows() {
-                    let _ = win.emit("args-received", ());
-                }
             },
         ));
     }
@@ -258,14 +255,12 @@ pub fn run() {
             }
 
             // Push args for the main window (first folder + all files);
-            // per-window args routing is a future iteration.
+            // the window's React will drain via get_launch_args on boot.
             let main_args = LaunchArgs {
                 files: launch_args.files,
                 folders: launch_args.folders.into_iter().take(1).collect(),
             };
-            let state: PendingArgsState = PendingArgsState::default();
-            push_pending(&state, main_args);
-            app.manage(state);
+            reg.push_args("main", main_args);
 
             // ── Build application menu ────────────────────────────────────────
 
@@ -526,13 +521,6 @@ pub fn run() {
             if !files.is_empty() || !folders.is_empty() {
                 let args = LaunchArgs { files, folders };
                 route_args_through_registry(app_handle, &args, "macOS-open");
-
-                // Queue args and notify all windows
-                let state = app_handle.state::<PendingArgsState>();
-                push_pending(&state, args);
-                for (_label, win) in app_handle.webview_windows() {
-                    let _ = win.emit("args-received", ());
-                }
             }
         }
         let _ = (app_handle, event);
