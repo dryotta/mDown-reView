@@ -429,3 +429,13 @@ export const getFileViewerPref = (path: string): Promise<FileViewerPref | null> 
 export const setFileViewerPref = (path: string, allowImages: boolean): Promise<void> =>
   invoke<void>("set_file_viewer_pref", { path, allowImages });
 
+// ── Window registry sync ─────────────────────────────────────────────────
+
+/** Update the WindowRegistry to record this window as owning `folder`. */
+export const registerWindowFolder = (folder: string): Promise<void> =>
+  invoke<void>("register_window_folder", { folder });
+
+/** Reset this window's registry entry to FileOnly and clear the title. */
+export const unregisterWindowFolder = (): Promise<void> =>
+  invoke<void>("unregister_window_folder");
+

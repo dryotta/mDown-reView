@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { listenEvent } from "@/lib/tauri-events";
+import { unregisterWindowFolder } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
 
 interface MenuListenerCallbacks {
@@ -30,7 +31,10 @@ export function useMenuListeners({
     const pending = [
       listenEvent("menu-open-file", () => handleOpenFile()),
       listenEvent("menu-open-folder", () => handleOpenFolder()),
-      listenEvent("menu-close-folder", () => useStore.getState().closeFolder()),
+      listenEvent("menu-close-folder", () => {
+        useStore.getState().closeFolder();
+        unregisterWindowFolder().catch(() => {});
+      }),
       listenEvent("menu-toggle-comments-pane", () => toggleCommentsPane()),
       listenEvent("menu-close-tab", () => {
         const { activeTabPath, closeTab } = useStore.getState();

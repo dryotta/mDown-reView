@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useDialogActions } from "../useDialogActions";
-import { showOpenDialog } from "@/lib/tauri-commands";
+import { showOpenDialog, registerWindowFolder } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
 
 vi.mock("@/lib/tauri-commands", () => ({
   showOpenDialog: vi.fn(),
+  registerWindowFolder: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/logger", () => ({
@@ -59,6 +60,13 @@ describe("useDialogActions", () => {
         expect.objectContaining({ path: "/test/folder", type: "folder" }),
       ])
     );
+  });
+
+  it("handleOpenFolder calls registerWindowFolder", async () => {
+    vi.mocked(showOpenDialog).mockResolvedValue("/test/folder");
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => { await result.current.handleOpenFolder(); });
+    expect(registerWindowFolder).toHaveBeenCalledWith("/test/folder");
   });
 
   it("cancelled dialog (null) is no-op", async () => {

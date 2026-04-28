@@ -158,6 +158,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
               }
               if (cmd === "get_file_viewer_pref") return null;
               if (cmd === "set_file_viewer_pref") return undefined;
+              if (cmd === "register_window_folder") return undefined;
+              if (cmd === "unregister_window_folder") return undefined;
             }
             return result;
           }
@@ -194,6 +196,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           }
           if (cmd === "get_file_viewer_pref") return null;
           if (cmd === "set_file_viewer_pref") return undefined;
+          if (cmd === "register_window_folder") return undefined;
+          if (cmd === "unregister_window_folder") return undefined;
           // ── Two-layer mock parity (issue #135) ─────────────────────────
           // Mirroring the Vitest mock defaults so unit-tests and browser
           // e2e tests observe the same baseline shape. Locked in by

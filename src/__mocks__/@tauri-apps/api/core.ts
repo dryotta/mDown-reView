@@ -160,6 +160,8 @@ async function defaultInvoke(
   if (cmd === "get_file_viewer_pref") return null;
   if (cmd === "set_file_viewer_pref") return undefined;
   if (cmd === "read_dir") return { entries: [], total: 0, has_more: false } satisfies ReadDirResult;
+  if (cmd === "register_window_folder") return undefined;
+  if (cmd === "unregister_window_folder") return undefined;
   return undefined;
 }
 
