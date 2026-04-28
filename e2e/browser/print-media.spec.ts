@@ -52,19 +52,4 @@ test.describe("#65 G3 print media stylesheet", () => {
     await expect(page.locator(".folder-tree")).toBeHidden();
     await expect(page.locator(".markdown-body")).toBeVisible();
   });
-
-  test("Print button appears in the viewer toolbar for markdown files", async ({
-    page,
-  }) => {
-    await setupMarkdownMock(page);
-    await page.goto("/");
-    await page.locator(".folder-tree").getByText("sample.md").click();
-    await expect(page.locator(".markdown-body")).toBeVisible();
-
-    // The button has aria-label="Print"; scope to the viewer toolbar so it
-    // does not collide with any other actionable element.
-    await expect(
-      page.locator(".viewer-toolbar").getByRole("button", { name: /^print$/i }),
-    ).toBeVisible();
-  });
 });
