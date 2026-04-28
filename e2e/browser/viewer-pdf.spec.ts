@@ -12,9 +12,13 @@ async function setupPdfMocks(page: Page) {
     window.__TAURI_IPC_MOCK__ = async (cmd: string, _args: Record<string, unknown>) => {
       if (cmd === "get_launch_args") return { files: [], folders: [dir] };
       if (cmd === "read_dir") {
-        return [
-          { name: "spec.pdf", path: `${dir}/spec.pdf`, is_dir: false },
-        ];
+        return {
+          entries: [
+            { name: "spec.pdf", path: `${dir}/spec.pdf`, is_dir: false },
+          ],
+          total: 1,
+          has_more: false,
+        };
       }
       if (cmd === "load_review_comments") return null;
       if (cmd === "check_path_exists") return "file";
