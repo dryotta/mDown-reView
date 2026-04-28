@@ -131,7 +131,7 @@ test.describe("Iter 5 Group B — file-level comment entry points", () => {
 
     await page.locator(".folder-tree").getByText("blob.bin").click();
     // The binary placeholder is the only viewer surface for this file.
-    await expect(page.locator(".binary-placeholder")).toBeVisible();
+    await expect(page.locator(".viewer-placeholder")).toBeVisible();
 
     const toolbarBtn = page.locator(".viewer-toolbar").getByRole("button", { name: /comment on file/i });
     await expect(toolbarBtn).toBeVisible();
