@@ -554,11 +554,7 @@ describe("getFileComments — Anchor discriminated union", () => {
     expect(threads).toHaveLength(1);
     const root = threads[0].root;
     const a = deriveAnchor(root);
-    expect(a.kind).toBe("image_rect");
-    if (a.kind === "image_rect") {
-      expect(a.x_pct).toBeCloseTo(0.25);
-      expect(a.y_pct).toBeCloseTo(0.5);
-    }
+    expect(a.kind).toBe("unknown");
   });
 
   it("does not log to console.error during the dispatch happy path", async () => {

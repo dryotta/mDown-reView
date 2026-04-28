@@ -7,10 +7,6 @@ use sha2::{Digest, Sha256};
 
 use crate::core::types::Anchor;
 
-mod csv_cell;
-mod html;
-mod image_rect;
-mod json_path;
 mod word_range;
 
 #[cfg(test)]
@@ -33,9 +29,6 @@ thread_local! {
 pub struct LazyParsedDoc {
     bytes: Vec<u8>,
     line_cache: OnceCell<Vec<String>>,
-    csv_cache: OnceCell<Option<csv_cell::CsvDoc>>,
-    json_cache: OnceCell<Option<serde_json::Value>>,
-    html_cache: OnceCell<Vec<html::HtmlTag>>,
 }
 
 impl LazyParsedDoc {
@@ -43,9 +36,6 @@ impl LazyParsedDoc {
         Self {
             bytes,
             line_cache: OnceCell::new(),
-            csv_cache: OnceCell::new(),
-            json_cache: OnceCell::new(),
-            html_cache: OnceCell::new(),
         }
     }
 
@@ -59,39 +49,14 @@ impl LazyParsedDoc {
                 .collect()
         })
     }
-
-    pub(crate) fn csv(&self) -> Option<&csv_cell::CsvDoc> {
-        self.csv_cache
-            .get_or_init(|| csv_cell::parse_csv(&self.bytes).ok())
-            .as_ref()
-    }
-
-    pub(crate) fn json(&self) -> Option<&serde_json::Value> {
-        self.json_cache
-            .get_or_init(|| serde_json::from_slice(&self.bytes).ok())
-            .as_ref()
-    }
-
-    pub(crate) fn html_tags(&self) -> &[html::HtmlTag] {
-        self.html_cache
-            .get_or_init(|| html::extract_tags(&self.bytes))
-    }
 }
 
-/// Dispatcher for typed anchors. Line/File arms are kept for completeness,
-/// but the production hot-path (`get_file_comments`) routes those two
-/// variants through the existing `match_comments` batch algorithm and only
-/// calls this dispatcher for the typed anchor variants.
 pub fn resolve_anchor(anchor: &Anchor, doc: &LazyParsedDoc) -> MatchOutcome {
     match anchor {
         Anchor::Line { .. } => resolve_line(anchor, doc.lines()),
         Anchor::File => MatchOutcome::Exact,
-        Anchor::ImageRect(p) => image_rect::resolve(p),
-        Anchor::CsvCell(p) => csv_cell::resolve(p, doc.csv()),
-        Anchor::JsonPath(p) => json_path::resolve(p, doc.json()),
-        Anchor::HtmlRange(p) => html::resolve_range(p, doc.html_tags()),
-        Anchor::HtmlElement(p) => html::resolve_element(p, doc.html_tags()),
         Anchor::WordRange(p) => word_range::resolve(p, doc.lines()),
+        Anchor::Unknown { .. } => MatchOutcome::FileLevel,
     }
 }
 
@@ -293,79 +258,63 @@ mod tests {
 #[cfg(test)]
 mod dispatch_tests {
     use super::*;
-    use crate::core::types::{
-        CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor, JsonPathAnchor,
-        WordRangePayload,
-    };
+    use crate::core::types::WordRangePayload;
 
     #[test]
     fn dispatch_image_rect() {
-        let anchor = Anchor::ImageRect(ImageRectAnchor {
-            x_pct: 0.25,
-            y_pct: 0.5,
-            w_pct: Some(0.1),
-            h_pct: Some(0.1),
-        });
+        let anchor = Anchor::Unknown {
+            kind: "image_rect".into(),
+            data: serde_json::json!({"x_pct":0.25,"y_pct":0.5,"w_pct":0.1,"h_pct":0.1}),
+        };
         let doc = LazyParsedDoc::new(Vec::new());
-        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::FileLevel);
     }
 
     #[test]
     fn dispatch_csv_cell_no_doc() {
-        // Non-CSV bytes (parse_csv only fails on non-UTF8; an HTML blob is
-        // technically valid UTF-8 and parses as a single 1-row CSV with a
-        // huge first cell, so the cell at (5,5) does NOT exist → Orphan).
-        let anchor = Anchor::CsvCell(CsvCellAnchor {
-            row_idx: 5,
-            col_idx: 5,
-            col_header: "name".into(),
-            primary_key_col: None,
-            primary_key_value: None,
-        });
+        let anchor = Anchor::Unknown {
+            kind: "csv_cell".into(),
+            data: serde_json::json!({"row_idx":5,"col_idx":5,"col_header":"name"}),
+        };
         let doc = LazyParsedDoc::new(b"<html><body>not csv</body></html>".to_vec());
-        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Orphan);
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::FileLevel);
     }
 
     #[test]
     fn dispatch_json_path_with_doc() {
-        // CSV-formatted bytes are not valid JSON → Orphan.
         let csv_bytes = b"id,name\n1,Alice\n".to_vec();
         let csv_doc = LazyParsedDoc::new(csv_bytes);
-        let anchor = Anchor::JsonPath(JsonPathAnchor {
-            json_path: "$.user.name".into(),
-            scalar_text: None,
-        });
-        assert_eq!(resolve_anchor(&anchor, &csv_doc), MatchOutcome::Orphan);
+        let anchor = Anchor::Unknown {
+            kind: "json_path".into(),
+            data: serde_json::json!({"json_path":"$.user.name"}),
+        };
+        assert_eq!(resolve_anchor(&anchor, &csv_doc), MatchOutcome::FileLevel);
 
-        // Real JSON with a matching path → Exact.
         let json_bytes = br#"{"user":{"name":"Alice"}}"#.to_vec();
         let json_doc = LazyParsedDoc::new(json_bytes);
-        assert_eq!(resolve_anchor(&anchor, &json_doc), MatchOutcome::Exact);
+        assert_eq!(resolve_anchor(&anchor, &json_doc), MatchOutcome::FileLevel);
     }
 
     #[test]
     fn dispatch_html_range_with_text() {
         let bytes = b"<html><body><p>Hello world</p></body></html>".to_vec();
         let doc = LazyParsedDoc::new(bytes);
-        let anchor = Anchor::HtmlRange(HtmlRangeAnchor {
-            selector_path: String::new(),
-            start_offset: 0,
-            end_offset: 0,
-            selected_text: "Hello world".into(),
-        });
-        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+        let anchor = Anchor::Unknown {
+            kind: "html_range".into(),
+            data: serde_json::json!({"selector_path":"","start_offset":0,"end_offset":0,"selected_text":"Hello world"}),
+        };
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::FileLevel);
     }
 
     #[test]
     fn dispatch_html_element_tag_match() {
         let bytes = b"<html><body><p>Hello world</p></body></html>".to_vec();
         let doc = LazyParsedDoc::new(bytes);
-        let anchor = Anchor::HtmlElement(HtmlElementAnchor {
-            selector_path: String::new(),
-            tag: "p".into(),
-            text_preview: "Hello".into(),
-        });
-        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::Exact);
+        let anchor = Anchor::Unknown {
+            kind: "html_element".into(),
+            data: serde_json::json!({"selector_path":"","tag":"p","text_preview":"Hello"}),
+        };
+        assert_eq!(resolve_anchor(&anchor, &doc), MatchOutcome::FileLevel);
     }
 
     #[test]

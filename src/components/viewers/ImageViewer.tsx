@@ -95,8 +95,11 @@ export function ImageViewer({ path }: Props) {
     for (const t of threads) {
       if (t.root.resolved) continue;
       const a = deriveAnchor(t.root);
+      // @ts-expect-error — image_rect anchor kind removed from Anchor union; viewer rewrite in iter 2
       if (a.kind !== "image_rect") continue;
-      out.push({ thread: t, x_pct: a.x_pct, y_pct: a.y_pct, w_pct: a.w_pct, h_pct: a.h_pct });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
+      const ia = a as any;
+      out.push({ thread: t, x_pct: ia.x_pct, y_pct: ia.y_pct, w_pct: ia.w_pct, h_pct: ia.h_pct });
     }
     return out;
   }, [threads]);
@@ -188,9 +191,10 @@ export function ImageViewer({ path }: Props) {
   const handleSaveComment = useCallback(
     (text: string) => {
       if (!composer) return;
-      const anchor: Anchor = composer.w_pct !== undefined && composer.h_pct !== undefined
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
+      const anchor: Anchor = (composer.w_pct !== undefined && composer.h_pct !== undefined
         ? { kind: "image_rect", x_pct: composer.x_pct, y_pct: composer.y_pct, w_pct: composer.w_pct, h_pct: composer.h_pct }
-        : { kind: "image_rect", x_pct: composer.x_pct, y_pct: composer.y_pct };
+        : { kind: "image_rect", x_pct: composer.x_pct, y_pct: composer.y_pct }) as any;
       addComment(path, text, anchor).catch(() => {});
       setComposer(null);
     },

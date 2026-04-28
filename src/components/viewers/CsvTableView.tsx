@@ -120,8 +120,11 @@ export function CsvTableView({ content, path }: CsvTableViewProps) {
     for (const t of threads) {
       if (t.root.resolved) continue;
       const a = deriveAnchor(t.root);
+      // @ts-expect-error — csv_cell anchor kind removed from Anchor union; viewer rewrite in iter 2
       if (a.kind !== "csv_cell") continue;
-      const key = `${a.row_idx}:${a.col_idx}`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
+      const ca = a as any;
+      const key = `${ca.row_idx}:${ca.col_idx}`;
       const arr = m.get(key) ?? [];
       arr.push(t);
       m.set(key, arr);
@@ -167,6 +170,7 @@ export function CsvTableView({ content, path }: CsvTableViewProps) {
     if (!composerCell) return;
     const { rowIdx, colIdx, header, pkCol, pkVal } = composerCell;
     const anchor: Anchor = {
+      // @ts-expect-error — csv_cell anchor kind removed from Anchor union; viewer rewrite in iter 2
       kind: "csv_cell",
       row_idx: rowIdx,
       col_idx: colIdx,

@@ -271,10 +271,13 @@ export function JsonTreeView({ content, path }: JsonTreeViewProps) {
     for (const t of threads) {
       if (t.root.resolved) continue;
       const a = deriveAnchor(t.root);
+      // @ts-expect-error — json_path anchor kind removed from Anchor union; viewer rewrite in iter 2
       if (a.kind !== "json_path") continue;
-      const arr = byPath.get(a.json_path) ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
+      const ja = a as any;
+      const arr = byPath.get(ja.json_path) ?? [];
       arr.push({ id: t.root.id, severity: t.root.severity ?? null });
-      byPath.set(a.json_path, arr);
+      byPath.set(ja.json_path, arr);
     }
     return { byPath };
   }, [threads]);
@@ -313,11 +316,12 @@ export function JsonTreeView({ content, path }: JsonTreeViewProps) {
 
   const handleSave = (text: string) => {
     if (!filePath || composerPath === null) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deleted anchor kind; viewer rewrite in iter 2
     const anchor: Anchor = {
       kind: "json_path",
       json_path: composerPath,
       ...(composerScalar !== undefined ? { scalar_text: composerScalar } : {}),
-    };
+    } as any;
     addComment(filePath, text, anchor).catch(() => {});
     setComposerPath(null);
     setComposerScalar(undefined);

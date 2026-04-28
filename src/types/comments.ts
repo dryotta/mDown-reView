@@ -69,12 +69,8 @@ export type Anchor =
       selected_text_hash?: string;
     }
   | { kind: "file" }
-  | ({ kind: "image_rect" } & ImageRectAnchor)
-  | ({ kind: "csv_cell" } & CsvCellAnchor)
-  | ({ kind: "json_path" } & JsonPathAnchor)
-  | ({ kind: "html_range" } & HtmlRangeAnchor)
-  | ({ kind: "html_element" } & HtmlElementAnchor)
-  | ({ kind: "word_range" } & WordRangeAnchor);
+  | ({ kind: "word_range" } & WordRangeAnchor)
+  | { kind: "unknown" };
 
 export interface Reaction {
   user: string;
@@ -144,29 +140,22 @@ export function deriveAnchor(c: MrsfComment): Anchor {
   switch (c.anchor_kind) {
     case "file":
       return { kind: "file" };
-    case "image_rect":
-      if (c.image_rect) return { kind: "image_rect", ...c.image_rect };
-      break;
-    case "csv_cell":
-      if (c.csv_cell) return { kind: "csv_cell", ...c.csv_cell };
-      break;
-    case "json_path":
-      if (c.json_path) return { kind: "json_path", ...c.json_path };
-      break;
-    case "html_range":
-      if (c.html_range) return { kind: "html_range", ...c.html_range };
-      break;
-    case "html_element":
-      if (c.html_element) return { kind: "html_element", ...c.html_element };
-      break;
     case "word_range":
       if (c.word_range) return { kind: "word_range", ...c.word_range };
-      break;
+      // word_range without payload → treat as unknown
+      return { kind: "unknown" };
+    case "image_rect":
+    case "csv_cell":
+    case "json_path":
+    case "html_range":
+    case "html_element":
+      // Known-but-deleted anchor types → unknown
+      return { kind: "unknown" };
     case "line":
     case undefined:
       break;
   }
-  // Default / `anchor_kind: "line"` / missing payload → derive a Line anchor
+  // Default / `anchor_kind: "line"` / missing → derive a Line anchor
   // from the flat sibling fields. `line` defaults to 0 (matches Rust).
   return {
     kind: "line",
@@ -177,6 +166,14 @@ export function deriveAnchor(c: MrsfComment): Anchor {
     selected_text: c.selected_text,
     selected_text_hash: c.selected_text_hash,
   };
+}
+
+/**
+ * Exhaustive-switch guard for the `Anchor.kind` discriminator.
+ * Usage: `default: assertNeverAnchorKind(anchor)` in switch blocks.
+ */
+export function assertNeverAnchorKind(a: never): never {
+  throw new Error(`Unhandled anchor kind: ${(a as Anchor).kind}`);
 }
 
 export interface MrsfSidecar {

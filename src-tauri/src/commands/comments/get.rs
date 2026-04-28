@@ -182,7 +182,7 @@ mod tests {
     use super::get_file_comments_inner;
     use crate::core::anchors::LINES_INIT_COUNT;
     use crate::core::sidecar::save_sidecar;
-    use crate::core::types::{Anchor, HtmlElementAnchor, ImageRectAnchor, MrsfComment};
+    use crate::core::types::{Anchor, MrsfComment};
 
     fn typed_comment(id: &str, anchor: Anchor) -> MrsfComment {
         MrsfComment {
@@ -210,20 +210,17 @@ mod tests {
 
         let html_c = typed_comment(
             "c-html",
-            Anchor::HtmlElement(HtmlElementAnchor {
-                selector_path: "html > body".into(),
-                tag: "body".into(),
-                text_preview: "x".into(),
-            }),
+            Anchor::Unknown {
+                kind: "html_element".into(),
+                data: serde_json::json!({"selector_path":"html > body","tag":"body","text_preview":"x"}),
+            },
         );
         let img_c = typed_comment(
             "c-img",
-            Anchor::ImageRect(ImageRectAnchor {
-                x_pct: 10.0,
-                y_pct: 10.0,
-                w_pct: Some(20.0),
-                h_pct: Some(20.0),
-            }),
+            Anchor::Unknown {
+                kind: "image_rect".into(),
+                data: serde_json::json!({"x_pct":10.0,"y_pct":10.0,"w_pct":20.0,"h_pct":20.0}),
+            },
         );
         save_sidecar(&file_path, "doc.html", &[html_c, img_c]).unwrap();
 

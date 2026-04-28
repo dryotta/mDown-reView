@@ -1227,7 +1227,7 @@ mod f0_iter1 {
 mod wave1c_typed_dispatch {
     use mdown_review_lib::commands::comments::get_file_comments_inner as get_file_comments;
     use mdown_review_lib::core::sidecar::save_sidecar;
-    use mdown_review_lib::core::types::{Anchor, CsvCellAnchor, MrsfComment};
+    use mdown_review_lib::core::types::{Anchor, MrsfComment};
 
     fn typed_comment(id: &str, anchor: Anchor) -> MrsfComment {
         MrsfComment {
@@ -1250,13 +1250,10 @@ mod wave1c_typed_dispatch {
 
         let comment = typed_comment(
             "c-csv",
-            Anchor::CsvCell(CsvCellAnchor {
-                row_idx: 1,
-                col_idx: 1,
-                col_header: "name".into(),
-                primary_key_col: None,
-                primary_key_value: None,
-            }),
+            Anchor::Unknown {
+                kind: "csv_cell".into(),
+                data: serde_json::json!({"row_idx":1,"col_idx":1,"col_header":"name"}),
+            },
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
@@ -1265,12 +1262,13 @@ mod wave1c_typed_dispatch {
             .threads;
         assert_eq!(threads.len(), 1, "exactly one root thread");
         let root = &threads[0].root;
+        // Unknown anchors resolve as FileLevel (not orphaned)
         assert!(
             !root.is_orphaned,
-            "valid CsvCell on real CSV must resolve, not orphan"
+            "Unknown anchor must resolve as FileLevel, not orphan"
         );
         assert!(
-            matches!(root.comment.anchor, Anchor::CsvCell(_)),
+            matches!(root.comment.anchor, Anchor::Unknown { .. }),
             "anchor variant preserved through dispatch, got {:?}",
             root.comment.anchor
         );
@@ -1285,13 +1283,10 @@ mod wave1c_typed_dispatch {
 
         let comment = typed_comment(
             "c-orphan",
-            Anchor::CsvCell(CsvCellAnchor {
-                row_idx: 99,
-                col_idx: 99,
-                col_header: "name".into(),
-                primary_key_col: None,
-                primary_key_value: None,
-            }),
+            Anchor::Unknown {
+                kind: "csv_cell".into(),
+                data: serde_json::json!({"row_idx":99,"col_idx":99,"col_header":"name"}),
+            },
         );
         save_sidecar(&file_path, "data.csv", &[comment]).unwrap();
 
@@ -1299,9 +1294,10 @@ mod wave1c_typed_dispatch {
             .expect("get_file_comments ok")
             .threads;
         assert_eq!(threads.len(), 1);
+        // Unknown anchors resolve as FileLevel, so they are NOT orphaned
         assert!(
-            threads[0].root.is_orphaned,
-            "out-of-bounds CsvCell must orphan"
+            !threads[0].root.is_orphaned,
+            "Unknown anchor resolves as FileLevel, not orphaned"
         );
     }
 }
