@@ -178,12 +178,15 @@ fn route_args_through_registry(
                 let label = reg.next_label();
                 let display = folder_display_name(&path);
                 match create_app_window(handle, &label, &format!("mdownreview — {display}")) {
-                    Ok(_) => {
+                    Ok(new_win) => {
                         reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
                         reg.push_args(&label, LaunchArgs {
                             folders: vec![path.to_string_lossy().into_owned()],
                             files: vec![],
                         });
+                        // Rule multiwin-args-delivery: signal the new window to re-drain
+                        // in case its initial mount drain fired before push_args.
+                        let _ = new_win.emit("args-received", ());
                         log::info!("[window] {ctx}: created {label}");
                     }
                     Err(e) => log::error!("[window] {ctx}: folder window failed: {e}"),
@@ -205,10 +208,12 @@ fn route_args_through_registry(
             registry::RouteDecision::CreateFileOnly { files } => {
                 let label = reg.next_label();
                 match create_app_window(handle, &label, "mdownreview — Files") {
-                    Ok(_) => {
+                    Ok(new_win) => {
                         reg.register(label.clone(), registry::WindowKind::FileOnly);
                         let file_strs: Vec<String> = files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
                         reg.push_args(&label, LaunchArgs { files: file_strs, folders: vec![] });
+                        // Rule multiwin-args-delivery: signal the new window to re-drain.
+                        let _ = new_win.emit("args-received", ());
                         log::info!("[window] {ctx}: created file-only window {label}");
                     }
                     Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),
