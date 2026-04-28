@@ -22,7 +22,6 @@ import { SettingsView } from "@/components/SettingsView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
-import { getFileCategory } from "@/lib/file-types";
 import { basename } from "@/lib/path-utils";
 import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
@@ -222,7 +221,7 @@ export default function App() {
           </ErrorBoundary>
         </div>
 
-        {commentsPaneVisible && activeTabPath && getFileCategory(activeTabPath) !== "image" && (
+        {commentsPaneVisible && activeTabPath && (
           <ErrorBoundary>
             <CommentsPanel filePath={activeTabPath} />
           </ErrorBoundary>
