@@ -1,0 +1,8 @@
+# Clippy configuration for mdownreview
+# See: https://doc.rust-lang.org/clippy/configuration.html
+
+# Maximum cognitive complexity before triggering a warning
+cognitive-complexity-threshold = 30
+
+# Maximum size (bytes) for types passed by value before warning
+too-large-for-stack = 128

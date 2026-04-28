@@ -30,8 +30,33 @@ export default [
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "local/no-shared-boolean-mount": "error",
+
+      // Core ESLint rules
+      "no-console": "error",
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      eqeqeq: ["error", "always", { null: "ignore" }],
+      "no-var": "error",
+      "prefer-const": "error",
+
+      // React quality rules
+      "react/no-array-index-key": "warn",
+      "react/self-closing-comp": "warn",
+      "react/jsx-boolean-value": ["warn", "never"],
     },
     settings: { react: { version: "detect" } },
+  },
+  {
+    files: [
+      "src/**/*.test.{ts,tsx}",
+      "src/**/*.spec.{ts,tsx}",
+      "src/__mocks__/**/*.{ts,tsx}",
+      "src/__tests__/**/*.{ts,tsx}",
+      "src/test-setup.ts",
+    ],
+    rules: {
+      "no-console": "off",
+    },
   },
   prettier,
 ];
