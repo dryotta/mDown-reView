@@ -8,8 +8,19 @@ use crate::core::atomic::write_atomic;
 use crate::core::sidecar::read_capped;
 use std::path::{Path, PathBuf};
 
-/// Hard ceiling on files visited during a walk (performance.md rule 1).
+/// Hard ceiling on sidecar files matched during a walk (performance.md rule 1).
 const MAX_FILES_SCANNED: usize = 10_000;
+
+/// Create a gitignore-aware walker for sidecar scanning.
+/// Respects `.gitignore` so `node_modules/`, `.git/`, `target/`, etc. are
+/// skipped automatically without a hardcoded list.
+fn sidecar_walker(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
+    ignore::WalkBuilder::new(root)
+        .max_depth(Some(50))
+        .hidden(false) // don't skip dotfiles — .reviews/ is a dotdir
+        .build()
+        .filter_map(|e| e.ok())
+}
 
 // ── Counting ────────────────────────────────────────────────────────────
 
@@ -41,12 +52,7 @@ pub fn count_sidecars(root: &Path, sidecar_root: Option<&Path>) -> SidecarCounts
     let mut counts = SidecarCounts::default();
     let mut visited: usize = 0;
 
-    let walker = walkdir::WalkDir::new(root)
-        .max_depth(50)
-        .into_iter()
-        .filter_map(|e| e.ok());
-
-    for entry in walker {
+    for entry in sidecar_walker(root) {
         if !is_sidecar(entry.path()) {
             continue;
         }
@@ -107,12 +113,7 @@ pub fn migrate_sidecars(
     let mut result = MigrationResult::default();
     let mut visited: usize = 0;
 
-    let walker = walkdir::WalkDir::new(root)
-        .max_depth(50)
-        .into_iter()
-        .filter_map(|e| e.ok());
-
-    for entry in walker {
+    for entry in sidecar_walker(root) {
         let src = entry.path();
         if !is_sidecar(src) {
             continue;

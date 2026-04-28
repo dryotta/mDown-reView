@@ -21,9 +21,10 @@ pub fn delete_resolved_sidecars(
 ) -> std::io::Result<CleanupReport> {
     let mut report = CleanupReport::default();
 
-    let walker = walkdir::WalkDir::new(root)
-        .max_depth(50)
-        .into_iter()
+    let walker = ignore::WalkBuilder::new(root)
+        .max_depth(Some(50))
+        .hidden(false)
+        .build()
         .filter_map(|e| e.ok());
 
     for entry in walker {
@@ -94,9 +95,10 @@ pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
     let root_owned: PathBuf = canonicalize_no_verbatim(Path::new(root))
         .unwrap_or_else(|_| PathBuf::from(root));
 
-    let walker = walkdir::WalkDir::new(&root_owned)
-        .max_depth(50)
-        .into_iter()
+    let walker = ignore::WalkBuilder::new(&root_owned)
+        .max_depth(Some(50))
+        .hidden(false)
+        .build()
         .filter_map(|e| e.ok());
 
     // First pass: collect all YAML sidecars (they have priority)
