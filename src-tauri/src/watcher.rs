@@ -226,10 +226,13 @@ pub fn start_watcher(app: &AppHandle) {
             // Process debounced file-change events (200ms timeout for responsiveness).
             match rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(Ok(events)) => {
-                    let current_watched = lock_watched_union(&watched);
-                    let current_tree = lock_watched_union(&tree_watched);
-                    // De-dup folder-changed emissions per debounced batch.
-                    let mut folder_dirs: HashSet<PathBuf> = HashSet::new();
+                    // Snapshot per-window maps for targeted emission (rule `multiwin-window-scoped-events`).
+                    let per_window_watched = lock_per_window(&watched);
+                    let per_window_tree = lock_per_window(&tree_watched);
+                    let all_watched: HashSet<PathBuf> = per_window_watched.values().flat_map(|s| s.iter().cloned()).collect();
+                    let all_tree: HashSet<PathBuf> = per_window_tree.values().flat_map(|s| s.iter().cloned()).collect();
+
+                    let mut folder_dirs_per_window: HashMap<String, HashSet<PathBuf>> = HashMap::new();
                     let mut mrsf_changed = false;
                     for event in events {
                         if event.kind != DebouncedEventKind::Any {
@@ -258,26 +261,41 @@ pub fn start_watcher(app: &AppHandle) {
                         }
 
                         let (file_event, folder_dir) =
-                            classify_event(&event.path, &current_watched, &current_tree);
-                        if let Some(ev) = file_event {
+                            classify_event(&event.path, &all_watched, &all_tree);
+
+                        if let Some(ev) = &file_event {
                             tracing::debug!("[watcher] file change: {} ({})", ev.path, ev.kind);
-                            let _ = app_handle.emit("file-changed", ev);
+                            let canonical = canonicalize_no_verbatim(&event.path).ok();
+                            for (label, paths) in &per_window_watched {
+                                let matches = paths.contains(&event.path)
+                                    || canonical.as_ref().map_or(false, |c| paths.contains(c));
+                                if matches {
+                                    let _ = app_handle.emit_to(label.as_str(), "file-changed", ev.clone());
+                                }
+                            }
                         }
                         if let Some(d) = folder_dir {
-                            folder_dirs.insert(d);
+                            for (label, dirs) in &per_window_tree {
+                                if dirs.contains(&d) {
+                                    folder_dirs_per_window.entry(label.clone()).or_default().insert(d.clone());
+                                }
+                            }
                         }
                     }
                     // If sidecar_root changed, trigger a sync so new dirs are watched
                     if mrsf_changed {
                         needs_sync = true;
                     }
-                    for dir in folder_dirs {
-                        let path_str = dir.to_string_lossy().into_owned();
-                        tracing::debug!("[watcher] folder change: {}", path_str);
-                        let _ = app_handle.emit(
-                            "folder-changed",
-                            FolderChangeEvent { path: path_str },
-                        );
+                    for (label, dirs) in folder_dirs_per_window {
+                        for dir in dirs {
+                            let path_str = dir.to_string_lossy().into_owned();
+                            tracing::debug!("[watcher] folder change -> {label}: {path_str}");
+                            let _ = app_handle.emit_to(
+                                label.as_str(),
+                                "folder-changed",
+                                FolderChangeEvent { path: path_str },
+                            );
+                        }
                     }
                 }
                 Ok(Err(e)) => {
@@ -313,6 +331,17 @@ fn lock_watched_union(watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>) -
                 .values()
                 .flat_map(|s| s.iter().cloned())
                 .collect()
+        }
+    }
+}
+
+/// Snapshot the full per-window map for targeted event emission.
+fn lock_per_window(watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>) -> HashMap<String, HashSet<PathBuf>> {
+    match watched.lock() {
+        Ok(g) => g.clone(),
+        Err(p) => {
+            tracing::warn!("[watcher] mutex poisoned, recovering");
+            p.into_inner().clone()
         }
     }
 }

@@ -85,6 +85,15 @@ Every confirmed bug gets fixed. "Fixed" has three requirements:
 - **Clean design pattern.** The fix uses the idioms in `docs/design-patterns.md` (cancellation flags, `useShallow`, `emit_to("main", …)`, atomic sidecar writes). A patch that violates an established pattern is new debt, not a fix.
 - **Regression test.** Every fix ships with a test that reproduces the original failure mode. A race-condition fix needs a test that reproduces the race. Without the test, the fix is not done.
 
+### 4. Proper Fix Over Patch
+
+Every change uses the platform's intended architecture. Never hack around a limitation with a targeted workaround that papers over a structural problem.
+
+- **Fix the design, not the symptom.** When a bug reveals a structural mismatch — e.g. a global mechanism used where a per-instance one is needed — the fix replaces the mechanism, not adds a compensating shim. A focus-tracker bolted onto a global menu dispatcher is a patch; per-window menus with window-scoped handlers is a proper fix.
+- **Use the platform's grain, not against it.** Tauri, React, and the OS each have intended patterns for common problems (per-window menus, `emit_to` for targeted events, `useShallow` for selective re-render). When the codebase uses a weaker alternative (global broadcast + frontend filtering, `is_focused()` polling), the fix migrates to the intended pattern — even if the weaker alternative "works most of the time."
+- **Scope is not an excuse.** A proper fix may touch more files than a patch. That is expected. A three-file patch that leaves the wrong abstraction in place is more expensive long-term than a twenty-file refactor that installs the right one. When scoping a fix, optimize for the codebase after merge, not for the size of the diff.
+- **If the platform can't do it, redesign the approach.** When the framework genuinely lacks a needed capability, adapt the design to work within the framework's model. Don't bolt on a workaround that fights the framework and breaks on the next update.
+
 ## Deep-dive documents
 
 The rules that operationalize the pillars and meta-principles live in domain docs. Every rule is numbered and citable as "violates rule N in `docs/X.md`".
