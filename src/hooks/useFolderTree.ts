@@ -10,13 +10,19 @@ export type TreeNode = {
   isGhost?: boolean;
 };
 
+export interface FolderTreeResult {
+  nodes: TreeNode[];
+  /** Ghost source paths hidden under each collapsed ancestor folder. */
+  hiddenGhostsByFolder: Record<string, string[]>;
+}
+
 export function buildFolderTree(
   root: string | null,
   childrenCache: Record<string, DirEntry[]>,
   expandedFolders: Record<string, boolean>,
   filter: string,
   ghostEntries: GhostEntry[]
-): TreeNode[] {
+): FolderTreeResult {
   function hasMatch(folderPath: string): boolean {
     const entries = childrenCache[folderPath] ?? [];
     return entries.some(
@@ -46,12 +52,14 @@ export function buildFolderTree(
 
   const flatList = root ? buildFlatList(root, 0) : [];
   const merged: TreeNode[] = [...flatList];
+  const hiddenGhostsByFolder: Record<string, string[]> = {};
 
   if (root) {
     // Producer-side fix lives in `core::paths::canonicalize_no_verbatim` —
     // every Rust path crossing IPC is bare-form, so plain string equality
     // suffices here. See `docs/security.md` rules 11+ and issue #89.
     const flatPaths = new Set(flatList.map((n) => n.path));
+    const mergedDirSet = new Set(merged.filter((n) => n.isDir).map((n) => n.path));
     for (const ghost of ghostEntries) {
       if (flatPaths.has(ghost.sourcePath)) continue;
 
@@ -60,12 +68,49 @@ export function buildFolderTree(
       const parentPath = parts.slice(0, -1).join(sep);
       const fileName = parts[parts.length - 1];
 
+      // Root-level ghosts are always visible.
+      if (parentPath === root) {
+        const parentDepth = -1;
+        const ghostDepth = parentDepth + 1;
+        let insertIdx = 0;
+        while (insertIdx < merged.length && merged[insertIdx].depth >= ghostDepth) {
+          insertIdx++;
+        }
+        merged.splice(insertIdx, 0, {
+          path: ghost.sourcePath,
+          isDir: false,
+          depth: ghostDepth,
+          name: fileName,
+          isGhost: true,
+        });
+        continue;
+      }
+
+      // Parent must be in the merged list (ancestor chain expanded) AND expanded itself.
       const parentIdx = merged.findIndex(
         (n) => n.path === parentPath && n.isDir,
       );
-      if (parentIdx === -1 && parentPath !== root) continue;
 
-      const parentDepth = parentIdx >= 0 ? merged[parentIdx].depth : -1;
+      if (parentIdx === -1 || !expandedFolders[parentPath]) {
+        // Ghost is hidden — find nearest visible ancestor folder for badge aggregation.
+        const ancestorParts: string[] = parentPath.split(sep);
+        let nearestVisible: string | undefined;
+        // Walk from the parent upward (excluding root itself).
+        for (let i = ancestorParts.length; i > 0; i--) {
+          const candidate: string = ancestorParts.slice(0, i).join(sep);
+          if (candidate === root) break;
+          if (mergedDirSet.has(candidate)) {
+            nearestVisible = candidate;
+            break;
+          }
+        }
+        if (nearestVisible) {
+          (hiddenGhostsByFolder[nearestVisible] ??= []).push(ghost.sourcePath);
+        }
+        continue;
+      }
+
+      const parentDepth = merged[parentIdx].depth;
       const ghostDepth = parentDepth + 1;
 
       let insertIdx = parentIdx + 1;
@@ -83,7 +128,7 @@ export function buildFolderTree(
     }
   }
 
-  return merged;
+  return { nodes: merged, hiddenGhostsByFolder };
 }
 
 export function useFolderTree(
@@ -92,7 +137,7 @@ export function useFolderTree(
   expandedFolders: Record<string, boolean>,
   filter: string,
   ghostEntries: GhostEntry[]
-): TreeNode[] {
+): FolderTreeResult {
   return useMemo(
     () => buildFolderTree(root, childrenCache, expandedFolders, filter, ghostEntries),
     [root, childrenCache, expandedFolders, filter, ghostEntries]
