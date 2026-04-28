@@ -12,7 +12,6 @@ import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
 import { useAuthor } from "@/lib/vm/useAuthor";
-import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
@@ -66,16 +65,6 @@ export default function App() {
   const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
-
-  // F1 — register the VM resolveFocusedThread handler with the store so
-  // the `R` keyboard shortcut can route through `update_comment` (the
-  // single mutation chokepoint) without the slice importing IPC mutations.
-  const { resolveFocusedThread } = useCommentActions();
-  const setResolveFocusedThreadHandler = useStore((s) => s.setResolveFocusedThreadHandler);
-  useEffect(() => {
-    setResolveFocusedThreadHandler(resolveFocusedThread);
-    return () => setResolveFocusedThreadHandler(null);
-  }, [resolveFocusedThread, setResolveFocusedThreadHandler]);
 
   // F1 — Ctrl/Cmd+Shift+M: trigger the existing selection-toolbar add-
   // comment path. We dispatch a real bubbling `mouseup` from the end of

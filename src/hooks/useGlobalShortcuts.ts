@@ -122,33 +122,7 @@ export function useGlobalShortcuts({
       }
 
       const mod = e.ctrlKey || e.metaKey;
-      if (!mod) {
-        // F1 — single-key navigation shortcuts (no modifier).
-        // Only fire when no modifier; alt-only is already handled above.
-        if (!e.altKey && !e.shiftKey) {
-          if (e.key === "j" || e.key === "J") {
-            e.preventDefault();
-            void useStore.getState().nextUnresolvedInActiveFile();
-            return;
-          }
-          if (e.key === "k" || e.key === "K") {
-            e.preventDefault();
-            void useStore.getState().prevUnresolvedInActiveFile();
-            return;
-          }
-          if (e.key === "n" || e.key === "N") {
-            e.preventDefault();
-            void useStore.getState().nextUnresolvedAcrossFiles();
-            return;
-          }
-          if (e.key === "r" || e.key === "R") {
-            e.preventDefault();
-            void useStore.getState().resolveFocusedThread();
-            return;
-          }
-        }
-        return;
-      }
+      if (!mod) return;
 
       if (!e.shiftKey && e.key === "o") {
         e.preventDefault();
