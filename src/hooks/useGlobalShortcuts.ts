@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "@/store";
 import { getFiletypeKey, getFileCategory, getDefaultView } from "@/lib/file-types";
+import { createNewWindow } from "@/lib/tauri-commands";
 
 interface ShortcutCallbacks {
   handleOpenFile: () => void;
@@ -137,6 +138,13 @@ export function useGlobalShortcuts({
       if (e.shiftKey && e.key === "C") {
         e.preventDefault();
         toggleCommentsPane();
+        return;
+      }
+      // Ctrl/Cmd+Shift+N — new window. JS fallback because WebView2 on
+      // Windows swallows this accelerator before the native menu sees it.
+      if (e.shiftKey && e.key === "N") {
+        e.preventDefault();
+        createNewWindow();
         return;
       }
       // F1 — Ctrl/Cmd+Shift+M starts a comment on the current selection.

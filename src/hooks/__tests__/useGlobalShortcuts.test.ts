@@ -92,6 +92,16 @@ describe("useGlobalShortcuts", () => {
     expect(callbacks.toggleCommentsPane).toHaveBeenCalledOnce();
   });
 
+  it("Ctrl+Shift+N calls createNewWindow and prevents default", async () => {
+    const cmds = await import("@/lib/tauri-commands");
+    const spy = vi.spyOn(cmds, "createNewWindow").mockResolvedValue(undefined);
+    renderHook(() => useGlobalShortcuts(callbacks));
+    const ev = fire({ key: "N", shift: true });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(spy).toHaveBeenCalledOnce();
+    spy.mockRestore();
+  });
+
   it("Ctrl+W closes the active tab", () => {
     renderHook(() => useGlobalShortcuts(callbacks));
     fire({ key: "w" });

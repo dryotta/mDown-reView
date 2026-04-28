@@ -465,3 +465,7 @@ export const registerWindowFolder = (folder: string): Promise<void> =>
 export const unregisterWindowFolder = (): Promise<void> =>
   invoke<void>("unregister_window_folder");
 
+/** Create a new empty window (JS fallback for Ctrl+Shift+N). */
+export const createNewWindow = (): Promise<void> =>
+  invoke<void>("create_new_window");
+

@@ -130,6 +130,22 @@ fn create_app_window(
         .build()
 }
 
+/// IPC-callable new-window command — fallback for platforms where the native
+/// menu accelerator (Ctrl+Shift+N) is swallowed by the webview runtime.
+#[tauri::command]
+fn create_new_window(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, registry::WindowRegistry>,
+) -> Result<(), String> {
+    let new_label = registry.next_label();
+    create_app_window(&app, &new_label, "mdownreview")
+        .map(|_| {
+            registry.register(new_label.clone(), registry::WindowKind::FileOnly);
+            log::info!("[window] create_new_window: created {new_label}");
+        })
+        .map_err(|e| format!("failed to create window: {e}"))
+}
+
 #[tauri::command]
 fn register_window_folder(
     window: tauri::Window,
@@ -514,6 +530,7 @@ pub fn run() {
                 update::install_update,
                 register_window_folder,
                 unregister_window_folder,
+                create_new_window,
                 $($extra),*
             ]
         };
