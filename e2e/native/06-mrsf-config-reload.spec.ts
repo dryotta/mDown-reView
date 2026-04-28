@@ -7,8 +7,10 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
   test("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
     nativePage,
   }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-mrsf-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const rawTmpDir = path.join(os.tmpdir(), `mdownreview-mrsf-${Date.now()}`);
+    fs.mkdirSync(rawTmpDir, { recursive: true });
+    // Canonicalize to resolve 8.3 short names on Windows CI (RUNNER~1 vs runneradmin)
+    const tmpDir = fs.realpathSync(rawTmpDir);
     const docFile = path.join(tmpDir, "readme.md");
     fs.writeFileSync(docFile, "# Hello\n\nTest content for MRSF config reload.");
 
