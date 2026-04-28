@@ -14,6 +14,8 @@
  */
 import { useStore } from "./index";
 import { canonicalizeOrFallback } from "./canonicalize";
+import { registerWindowFolder } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
 
 export async function openFilesFromArgs(
   files: string[],
@@ -26,6 +28,9 @@ export async function openFilesFromArgs(
     const canonicalFolder = await canonicalizeOrFallback(lastFolder);
     await store.setRoot(canonicalFolder);
     store.addRecentItem(canonicalFolder, "folder");
+    registerWindowFolder(canonicalFolder).catch((err) =>
+      warn(`[launchArgs] register_window_folder failed: ${err}`)
+    );
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));
   // Deduplicate incoming files

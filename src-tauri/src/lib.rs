@@ -69,6 +69,7 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     let close_all_tabs = MenuItem::with_id(
         handle, &id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
+    let help_settings = MenuItem::with_id(handle, &id("help-settings"), "Settings…", true, Some("CmdOrCtrl+,"))?;
     let file_menu = SubmenuBuilder::new(handle, "File")
         .item(&new_window)
         .separator()
@@ -78,6 +79,8 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
         .separator()
         .item(&close_tab)
         .item(&close_all_tabs)
+        .separator()
+        .item(&help_settings)
         .separator()
         .quit()
         .build()?;
@@ -102,11 +105,10 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     let window_menu = SubmenuBuilder::new(handle, "Window")
         .item(&win_minimize).separator().item(&win_bring_all).build()?;
 
-    let help_settings = MenuItem::with_id(handle, &id("help-settings"), "Settings…", true, None::<&str>)?;
     let about_item = MenuItem::with_id(handle, &id("about"), "About mdownreview", true, None::<&str>)?;
     let check_updates = MenuItem::with_id(handle, &id("check-updates"), "Check for Updates…", true, None::<&str>)?;
     let help_menu = SubmenuBuilder::new(handle, "Help")
-        .item(&help_settings).separator().item(&about_item).separator().item(&check_updates).build()?;
+        .item(&check_updates).separator().item(&about_item).build()?;
 
     MenuBuilder::new(handle)
         .item(&file_menu).item(&view_menu).item(&window_menu).item(&help_menu)
