@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { DeletedFileViewer } from "../DeletedFileViewer";
 import { useComments } from "@/lib/vm/use-comments";
+import { useStore } from "@/store";
 import type { MatchedComment, CommentThread as CommentThreadType } from "@/lib/tauri-commands";
 
 vi.mock("@tauri-apps/api/core");
@@ -116,5 +117,31 @@ describe("DeletedFileViewer", () => {
 
     render(<DeletedFileViewer filePath={FILE_PATH} />);
     expect(screen.getByText(/1 comment/)).toBeInTheDocument();
+  });
+
+  it("renders a 'Show comments' button when comments exist", () => {
+    const threads = [makeThread(makeComment("1", "Review comment"))];
+    const allComments = threads.flatMap(t => [t.root, ...t.replies]);
+    mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
+
+    render(<DeletedFileViewer filePath={FILE_PATH} />);
+    expect(screen.getByRole("button", { name: /show comments/i })).toBeInTheDocument();
+  });
+
+  it("does not render 'Show comments' when there are no comments", () => {
+    render(<DeletedFileViewer filePath={FILE_PATH} />);
+    expect(screen.queryByRole("button", { name: /show comments/i })).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Show comments' toggles the comments pane", () => {
+    const threads = [makeThread(makeComment("1", "Review comment"))];
+    const allComments = threads.flatMap(t => [t.root, ...t.replies]);
+    mockUseComments.mockReturnValue({ threads, comments: allComments, loading: false, reload: vi.fn() });
+    const spy = vi.spyOn(useStore.getState(), "toggleCommentsPane");
+
+    render(<DeletedFileViewer filePath={FILE_PATH} />);
+    fireEvent.click(screen.getByRole("button", { name: /show comments/i }));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

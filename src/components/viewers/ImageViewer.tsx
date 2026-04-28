@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useImageData } from "@/hooks/useImageData";
 import { extname } from "@/lib/path-utils";
-import { useZoom } from "@/hooks/useZoom";
-import { ZoomControl } from "./ZoomControl";
 import "@/styles/image-viewer.css";
 
 interface Props {
   path: string;
+  /** Zoom level from the shared useZoom hook, driven by ImageViewerShell. */
+  zoom: number;
+  /** When true, the image scales to fit the container; when false, shows at natural size. */
+  fit: boolean;
 }
 
 const MIME_MAP: Record<string, string> = {
@@ -43,8 +45,7 @@ function clampPan(
   };
 }
 
-export function ImageViewer({ path }: Props) {
-  const [fit, setFit] = useState(true);
+export function ImageViewer({ path, zoom, fit }: Props) {
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
   // Drag-to-pan offset, only meaningful when zoom > 1.
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -57,7 +58,6 @@ export function ImageViewer({ path }: Props) {
   const filename = path.split(/[\\/]/).pop() || path;
   const mime = MIME_MAP[extname(path)] ?? "image/png";
   const { dataUrl, error } = useImageData(path, mime);
-  const { zoom, zoomIn, zoomOut, reset } = useZoom(".image");
   const canPan = zoom > 1;
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on prop change
@@ -121,22 +121,6 @@ export function ImageViewer({ path }: Props) {
 
   return (
     <div className="image-viewer" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div className="image-viewer-header" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderBottom: "1px solid var(--color-border, #d0d7de)", fontSize: 13 }}>
-        <span style={{ fontWeight: 600 }}>{filename}</span>
-        {dimensions && (
-          <span style={{ color: "var(--color-muted, #656d76)" }}>
-            {dimensions.w} × {dimensions.h}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={() => setFit(!fit)}
-          style={{ marginLeft: "auto", padding: "2px 8px", border: "1px solid var(--color-border, #d0d7de)", background: "var(--color-surface, #f6f8fa)", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
-        >
-          {fit ? "Original size" : "Fit to view"}
-        </button>
-        <ZoomControl zoom={zoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={reset} />
-      </div>
       <div
         ref={canvasRef}
         className="image-viewer-canvas"

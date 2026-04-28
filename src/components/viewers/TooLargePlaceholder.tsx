@@ -1,20 +1,18 @@
 import { basename } from "@/lib/path-utils";
 import { formatBytes } from "@/lib/file-types";
-import { revealInFolder } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
 
 interface Props {
   path: string;
   size?: number;
 }
 
+/**
+ * Pure metadata display for files that exceed the 10 MB read cap.
+ * All actions (reveal in folder) surface through the ViewerToolbar
+ * mounted by ViewerRouter — the body is content/metadata only.
+ */
 export function TooLargePlaceholder({ path, size }: Props) {
   const name = basename(path);
-  const handleReveal = () => {
-    void revealInFolder(path).catch((e) =>
-      warn(`revealInFolder failed: ${String(e)}`),
-    );
-  };
   return (
     <div className="too-large-placeholder">
       <p className="binary-filename">{name}</p>
@@ -22,14 +20,9 @@ export function TooLargePlaceholder({ path, size }: Props) {
         <p className="binary-size">{formatBytes(size)}</p>
       )}
       <p className="too-large-message">
-        File exceeds the 10 MB read cap. Reveal it in your file manager to open
-        it from there.
+        File exceeds the 10 MB read cap. Use the toolbar to reveal it in your
+        file manager.
       </p>
-      <div className="binary-actions">
-        <button type="button" onClick={handleReveal}>
-          Reveal in folder
-        </button>
-      </div>
     </div>
   );
 }

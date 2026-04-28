@@ -30,9 +30,14 @@ vi.mock("../EnhancedViewer", () => ({
   ),
 }));
 
-vi.mock("../ImageViewer", () => ({
-  ImageViewer: ({ path }: { path: string }) => (
-    <div data-testid="image-viewer" data-path={path}>ImageViewer</div>
+vi.mock("../ImageViewerShell", () => ({
+  ImageViewerShell: ({ path, onCommentOnFile }: { path: string; onCommentOnFile?: () => void }) => (
+    <div data-testid="image-viewer-shell" data-path={path} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
+      ImageViewerShell
+      {onCommentOnFile && (
+        <button data-testid="image-shell-comment-btn" onClick={onCommentOnFile}>cof</button>
+      )}
+    </div>
   ),
 }));
 
@@ -56,9 +61,14 @@ vi.mock("../PdfViewer", () => ({
   ),
 }));
 
-vi.mock("../BinaryPlaceholder", () => ({
-  BinaryPlaceholder: ({ path, size }: { path: string; size?: number }) => (
-    <div data-testid="binary-placeholder" data-path={path} data-size={size}>BinaryPlaceholder</div>
+vi.mock("../BinaryViewerShell", () => ({
+  BinaryViewerShell: ({ path, size, onCommentOnFile }: { path: string; size?: number; onCommentOnFile?: () => void }) => (
+    <div data-testid="binary-viewer-shell" data-path={path} data-size={size} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
+      BinaryViewerShell
+      {onCommentOnFile && (
+        <button data-testid="binary-shell-comment-btn" onClick={onCommentOnFile}>cof</button>
+      )}
+    </div>
   ),
 }));
 
@@ -113,11 +123,11 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("enhanced-viewer")).toBeInTheDocument();
   });
 
-  it("image status routes to ImageViewer", () => {
+  it("image status routes to ImageViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "image" });
     useStore.setState({ tabs: [{ path: "/photos/test.png", scrollTop: 0 }] });
     render(<ViewerRouter path="/photos/test.png" />);
-    expect(screen.getByTestId("image-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("image-viewer-shell")).toBeInTheDocument();
   });
 
   it("audio status routes to AudioViewer (#65 F1)", () => {
@@ -151,27 +161,27 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("skeleton-loader")).toBeInTheDocument();
   });
 
-  it("binary status shows BinaryPlaceholder", () => {
+  it("binary status shows BinaryViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "binary" });
     useStore.setState({ tabs: [{ path: "/docs/file.bin", scrollTop: 0 }] });
     render(<ViewerRouter path="/docs/file.bin" />);
-    expect(screen.getByTestId("binary-placeholder")).toBeInTheDocument();
+    expect(screen.getByTestId("binary-viewer-shell")).toBeInTheDocument();
   });
 
-  it("too_large status shows TooLargePlaceholder (not BinaryPlaceholder)", () => {
+  it("too_large status shows TooLargePlaceholder (not BinaryViewerShell)", () => {
     mockUseFileContent.mockReturnValue({ status: "too_large", sizeBytes: 11 * 1024 * 1024 });
     useStore.setState({ tabs: [{ path: "/data/huge.csv", scrollTop: 0 }] });
     render(<ViewerRouter path="/data/huge.csv" />);
     expect(screen.getByTestId("too-large-placeholder")).toBeInTheDocument();
-    expect(screen.queryByTestId("binary-placeholder")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("binary-viewer-shell")).not.toBeInTheDocument();
     expect(screen.getByTestId("too-large-placeholder").dataset.size).toBe(String(11 * 1024 * 1024));
   });
 
-  it("binary status forwards sizeBytes to BinaryPlaceholder", () => {
+  it("binary status forwards sizeBytes to BinaryViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "binary", sizeBytes: 1234 });
     useStore.setState({ tabs: [{ path: "/docs/file.bin", scrollTop: 0 }] });
     render(<ViewerRouter path="/docs/file.bin" />);
-    expect(screen.getByTestId("binary-placeholder").dataset.size).toBe("1234");
+    expect(screen.getByTestId("binary-viewer-shell").dataset.size).toBe("1234");
   });
 
   it("error status shows error message", () => {
@@ -218,11 +228,12 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/r.md");
   });
 
-  it("image viewer surfaces a Comment-on-file button", () => {
+  it("image viewer passes onCommentOnFile to ImageViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "image" });
     useStore.setState({ tabs: [{ path: "/x.png", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/x.png" />);
-    fireEvent.click(expectCommentOnFileButton());
+    expect(screen.getByTestId("image-viewer-shell").dataset.hasCommentOnFile).toBe("true");
+    fireEvent.click(screen.getByTestId("image-shell-comment-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/x.png");
   });
 
@@ -250,11 +261,12 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/d.pdf");
   });
 
-  it("binary placeholder surfaces a Comment-on-file button", () => {
+  it("binary viewer passes onCommentOnFile to BinaryViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "binary" });
     useStore.setState({ tabs: [{ path: "/b.bin", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/b.bin" />);
-    fireEvent.click(expectCommentOnFileButton());
+    expect(screen.getByTestId("binary-viewer-shell").dataset.hasCommentOnFile).toBe("true");
+    fireEvent.click(screen.getByTestId("binary-shell-comment-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/b.bin");
   });
 
@@ -266,11 +278,12 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/big.csv");
   });
 
-  it("error branch (non-ghost) does NOT render the toolbar (no live file to anchor against)", () => {
+  it("error branch (non-ghost) renders a toolbar with Comment-on-file and FileActionsBar", () => {
     mockUseFileContent.mockReturnValue({ status: "error", error: "boom" });
-    useStore.setState({ tabs: [{ path: "/missing.md", scrollTop: 0 }] });
+    useStore.setState({ tabs: [{ path: "/missing.md", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/missing.md" />);
-    expect(screen.queryByRole("button", { name: /comment on file/i })).toBeNull();
+    fireEvent.click(expectCommentOnFileButton());
+    expect(useStore.getState().pendingFileLevelInputFor).toBe("/missing.md");
   });
 });
 

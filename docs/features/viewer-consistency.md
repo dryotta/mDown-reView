@@ -128,16 +128,4 @@ When a new file type or viewer is added:
 
 ## Known gaps (current violations)
 
-Tracked here until fixed. Each is a candidate for a GitHub issue.
-
-1. **Error state (non-ghost) has no ViewerToolbar** — violates universal requirements 1, 2, 4. The `<div className="viewer-error">` renders with no toolbar, no "Comment on file", no FileActionsBar.
-
-2. **DeletedFileViewer has no ViewerToolbar** — violates universal requirements 1, 2. No toolbar, no "Comment on file" button. The sidecar still exists so file-level commenting should work. The "open the comments panel to view" text is passive — needs an actionable button.
-
-3. **TooLargePlaceholder: FileActionsBar in body instead of toolbar** — violates universal requirements 3, 4. "Reveal in folder" button is in the viewer body instead of the toolbar trailing slot.
-
-4. **BinaryPlaceholder: FileActionsBar in body, missing from toolbar** — violates universal requirements 3, 4. `<FileActionsBar>` is rendered inside the body (line 141); the ViewerRouter mounts no `trailing` on the toolbar. "Copy path" and "Show as hex" toggle are also in the body instead of the toolbar.
-
-5. **MermaidView: custom zoom + export buttons in body** — violates universal requirements 3, 7. Local `scale` state instead of `useZoom`. Export PNG/SVG buttons are in a custom toolbar div inside the component instead of the shared ViewerToolbar.
-
-6. **ImageViewer: fit/original-size toggle and ZoomControl in body** — violates universal requirement 3. The "Original size" / "Fit to view" button and `ZoomControl` are rendered in the ImageViewer header, not through the shared ViewerToolbar mounted in ViewerRouter. The ViewerRouter toolbar is `hidden` with no zoom props.
+No known gaps — all viewers comply with the universal requirements as of the toolbar consolidation in PR #246.

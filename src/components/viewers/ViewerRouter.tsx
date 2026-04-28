@@ -3,11 +3,11 @@ import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
-import { ImageViewer } from "./ImageViewer";
+import { ImageViewerShell } from "./ImageViewerShell";
 import { AudioViewer, getAudioMime } from "./AudioViewer";
 import { VideoViewer, getVideoMime } from "./VideoViewer";
 import { PdfViewer } from "./PdfViewer";
-import { BinaryPlaceholder } from "./BinaryPlaceholder";
+import { BinaryViewerShell } from "./BinaryViewerShell";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
 import { FileActionsBar } from "./FileActionsBar";
@@ -155,18 +155,7 @@ export function ViewerRouter({ path }: Props) {
   // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
   // to surface the file-anchored "Comment on file" entry point universally.
   if (status === "image") {
-    return (
-      <div className="viewer-media-container">
-        <ViewerToolbar
-          activeView="visual"
-          onViewChange={() => {}}
-          hidden
-          onCommentOnFile={handleCommentOnFile}
-          trailing={<FileActionsBar path={path} />}
-        />
-        <ImageViewer key={path} path={path} />
-      </div>
-    );
+    return <ImageViewerShell key={path} path={path} onCommentOnFile={handleCommentOnFile} />;
   }
 
   if (status === "audio") {
@@ -222,6 +211,7 @@ export function ViewerRouter({ path }: Props) {
           onViewChange={() => {}}
           hidden
           onCommentOnFile={handleCommentOnFile}
+          trailing={<FileActionsBar path={path} />}
         />
         <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
       </div>
@@ -229,6 +219,23 @@ export function ViewerRouter({ path }: Props) {
   }
 
   if (status === "binary") {
+    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} onCommentOnFile={handleCommentOnFile} />;
+  }
+
+  if (status === "error") {
+    if (isGhost) {
+      return (
+        <div className="viewer-media-container">
+          <ViewerToolbar
+            activeView="visual"
+            onViewChange={() => {}}
+            hidden
+            onCommentOnFile={handleCommentOnFile}
+          />
+          <DeletedFileViewer key={path} filePath={path} />
+        </div>
+      );
+    }
     return (
       <div className="viewer-media-container">
         <ViewerToolbar
@@ -236,19 +243,11 @@ export function ViewerRouter({ path }: Props) {
           onViewChange={() => {}}
           hidden
           onCommentOnFile={handleCommentOnFile}
+          trailing={<FileActionsBar path={path} />}
         />
-        <BinaryPlaceholder key={path} path={path} size={sizeBytes} mtime={mtimeMs} />
-      </div>
-    );
-  }
-
-  if (status === "error") {
-    if (isGhost) {
-      return <DeletedFileViewer key={path} filePath={path} />;
-    }
-    return (
-      <div className="viewer-error">
-        Error loading file: {error}
+        <div className="viewer-error">
+          Error loading file: {error}
+        </div>
       </div>
     );
   }

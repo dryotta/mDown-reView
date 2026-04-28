@@ -47,9 +47,19 @@ describe("MermaidView", () => {
     });
   });
 
-  it("provides export buttons", () => {
+  it("does not render custom toolbar — zoom and export surface through EnhancedViewer toolbar", () => {
     render(<MermaidView content="graph TD; A-->B;" />);
-    expect(screen.getByRole("button", { name: /png/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /svg/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /zoom out/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /zoom in/i })).not.toBeInTheDocument();
+    expect(document.querySelector(".mermaid-toolbar")).not.toBeInTheDocument();
+  });
+
+  it("accepts zoom prop and applies it to the diagram container", async () => {
+    const { container } = render(<MermaidView content="graph TD; A-->B;" zoom={1.5} />);
+    await waitFor(() => {
+      expect(screen.getByTitle("Mermaid diagram")).toBeInTheDocument();
+    });
+    const diagramDiv = container.querySelector("[title='Mermaid diagram']") as HTMLElement;
+    expect(diagramDiv.style.transform).toContain("scale(1.5)");
   });
 });

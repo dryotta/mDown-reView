@@ -1,4 +1,5 @@
 import { useComments } from "@/lib/vm/use-comments";
+import { useStore } from "@/store";
 import "@/styles/comments.css";
 
 interface Props {
@@ -9,6 +10,10 @@ export function DeletedFileViewer({ filePath }: Props) {
   const { comments } = useComments(filePath);
 
   const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
+
+  const handleShowComments = () => {
+    useStore.getState().toggleCommentsPane();
+  };
 
   return (
     <div className="deleted-file-viewer" style={{ padding: 24, maxWidth: 640, margin: "0 auto" }}>
@@ -27,11 +32,31 @@ export function DeletedFileViewer({ filePath }: Props) {
         </p>
       </div>
 
-      <p style={{ fontSize: 13, color: "var(--color-muted)", marginBottom: 16 }}>
-        {comments.length === 0
-          ? "No comments found in the review sidecar."
-          : `${comments.length} comment${comments.length > 1 ? "s" : ""} — open the comments panel to view.`}
-      </p>
+      {comments.length === 0 ? (
+        <p style={{ fontSize: 13, color: "var(--color-muted)", marginBottom: 16 }}>
+          No comments found in the review sidecar.
+        </p>
+      ) : (
+        <div style={{ fontSize: 13, color: "var(--color-muted)", marginBottom: 16 }}>
+          <p style={{ margin: "0 0 8px" }}>
+            {comments.length} comment{comments.length > 1 ? "s" : ""} in the review sidecar.
+          </p>
+          <button
+            type="button"
+            onClick={handleShowComments}
+            style={{
+              padding: "6px 16px",
+              border: "1px solid var(--color-border, #d0d7de)",
+              background: "var(--color-surface, #f6f8fa)",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            Show comments
+          </button>
+        </div>
+      )}
     </div>
   );
 }

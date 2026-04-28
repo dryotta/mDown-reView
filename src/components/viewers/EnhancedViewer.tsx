@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useState, useRef } from "react";
 import { useStore } from "@/store";
 import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey } from "@/lib/file-types";
 import { useZoom } from "@/hooks/useZoom";
@@ -10,6 +10,7 @@ import { JsonTreeView } from "./JsonTreeView";
 import { HtmlPreviewView } from "./HtmlPreviewView";
 import { KqlPlanView } from "./KqlPlanView";
 import { SkeletonLoader } from "./SkeletonLoader";
+import type { MermaidViewHandle } from "./MermaidView";
 
 // Lazy-load heavy visualization components
 const CsvTableView = lazy(() =>
@@ -33,6 +34,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
   const canVisualize = hasVisualization(category);
   const defaultView = getDefaultView(category);
   const [wordWrap, setWordWrap] = useState(false);
+  const mermaidRef = useRef<MermaidViewHandle>(null);
 
   const viewMode = useStore((s) => s.viewModeByTab[filePath]) ?? defaultView;
   const setViewMode = useStore((s) => s.setViewMode);
@@ -47,6 +49,8 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
   const filetypeKey = getFiletypeKey(path, showSource ? "source" : "visual");
   const { zoom, zoomIn, zoomOut, reset } = useZoom(filetypeKey);
 
+  const isMermaidVisual = category === "mermaid" && !showSource;
+
   return (
     <div className="enhanced-viewer">
       {/* L1 — file actions live in the toolbar's `trailing` slot so they
@@ -60,14 +64,40 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
         onToggleWrap={() => setWordWrap(!wordWrap)}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
         onCommentOnFile={onCommentOnFile}
-        trailing={<FileActionsBar path={filePath} />}
+        trailing={
+          <>
+            {isMermaidVisual && (
+              <>
+                <button
+                  type="button"
+                  className="viewer-toolbar-btn"
+                  onClick={() => mermaidRef.current?.exportPng()}
+                  aria-label="Export PNG"
+                  title="Export diagram as PNG"
+                >
+                  PNG
+                </button>
+                <button
+                  type="button"
+                  className="viewer-toolbar-btn"
+                  onClick={() => mermaidRef.current?.exportSvg()}
+                  aria-label="Export SVG"
+                  title="Export diagram as SVG"
+                >
+                  SVG
+                </button>
+              </>
+            )}
+            <FileActionsBar path={filePath} />
+          </>
+        }
       />
       {showSource ? (
         <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} zoom={zoom} />
       ) : (
         <div className="enhanced-viewer-content">
           <Suspense fallback={<SkeletonLoader />}>
-            {renderVisualView(category, content, path, filePath, fileSize)}
+            {renderVisualView(category, content, path, filePath, fileSize, zoom, mermaidRef)}
           </Suspense>
         </div>
       )}
@@ -80,7 +110,9 @@ function renderVisualView(
   content: string,
   path: string,
   filePath: string,
-  fileSize?: number
+  fileSize: number | undefined,
+  zoom: number,
+  mermaidRef: React.RefObject<MermaidViewHandle | null>,
 ) {
   switch (category) {
     case "markdown":
@@ -92,7 +124,7 @@ function renderVisualView(
     case "html":
       return <HtmlPreviewView content={content} filePath={filePath} />;
     case "mermaid":
-      return <MermaidView content={content} path={path} />;
+      return <MermaidView ref={mermaidRef} content={content} path={path} zoom={zoom} />;
     case "kql":
       return <KqlPlanView content={content} />;
     default:
