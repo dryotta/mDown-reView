@@ -107,12 +107,26 @@
   timestamp, and one response.
 - **When** `read` runs with the default text format.
 - **Then** the per-comment block contains:
-  - header `[<id>] line N [<type>] (<severity>) <author> · <ISO timestamp>`,
+  - header `[<id>] <position> [<type>] (<severity>) <author> · <ISO timestamp>`
+    where `<position>` is `line N` for line-anchored comments and
+    `file-level` for comments with `anchor_kind: "file"` (MRSF §6/§7),
   - the comment text,
   - a `quoted: "<selected_text>"` line (when `anchor.selected_text` is set),
   - each response indented one level under the original.
 - `[RESOLVED]` is prefixed only when `--include-resolved` is set AND
   `resolved=true`.
+
+### Scenario: file-level (`anchor_kind: "file"`) comments do not require the source file
+
+- **Given** a sidecar (`<source>.review.yaml`) whose comments all have
+  `anchor_kind: "file"`. The `<source>` file MAY be missing, binary
+  (e.g. `.png`, `.mp3`), or otherwise non-UTF-8.
+- **When** `read` runs against that folder or single file.
+- **Then** the CLI exits `0`, never opens `<source>`, and prints each
+  unresolved comment with `<position> = file-level` (text format) or with
+  the original `anchor_kind: "file"` field preserved (JSON format).
+- **And** unrelated comments in the same scan keep their existing `line N`
+  position.
 
 ### Scenario: `--include-resolved` toggles resolved entries
 

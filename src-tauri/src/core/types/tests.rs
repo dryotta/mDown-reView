@@ -576,3 +576,114 @@ fn truly_unknown_anchor_kind_succeeds() {
         other => panic!("expected Unknown, got {:?}", other),
     }
 }
+
+// ── File-level anchor: explicit, no-targeting-fields ────────────────────────
+
+/// Round-trip: a valid `anchor_kind: "file"` comment with no flat targeting
+/// fields parses to `Anchor::File` and serialises back without leaking any
+/// line/end_line/start_column/end_column/selected_text fields.
+#[test]
+fn file_anchor_round_trip_carries_no_targeting_fields() {
+    let body = r#"{"id":"f1","author":"a","timestamp":"2025-01-01T00:00:00Z","text":"high-level","resolved":false,"anchor_kind":"file"}"#;
+    let c = parse_one(&wrap_comment(body));
+    assert!(matches!(c.anchor, Anchor::File));
+    assert!(c.line.is_none());
+    assert!(c.end_line.is_none());
+    assert!(c.start_column.is_none());
+    assert!(c.end_column.is_none());
+    assert!(c.selected_text.is_none());
+    assert!(c.selected_text_hash.is_none());
+
+    let re = serde_json::to_string(&c).unwrap();
+    assert!(re.contains(r#""anchor_kind":"file""#));
+    for forbidden in ["\"line\"", "\"end_line\"", "\"start_column\"", "\"end_column\"", "\"selected_text\""] {
+        assert!(!re.contains(forbidden), "file-anchor wire leaked `{forbidden}`: {re}");
+    }
+}
+
+/// Reject: explicit `anchor_kind: "file"` carrying a flat `line` field is
+/// internally inconsistent (file scope ≠ line scope) and must fail to parse
+/// per MRSF §6/§7. Loose acceptance would let the matcher route the comment
+/// down the line-targeting path while the UI labels it file-level.
+#[test]
+fn file_anchor_with_flat_line_is_rejected() {
+    let body = r#"{"id":"f1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"file","line":5}"#;
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(body));
+    assert!(res.is_err(), "file anchor with flat line must be rejected");
+    let err = res.unwrap_err().to_string();
+    assert!(
+        err.contains("anchor_kind/payload mismatch") || err.contains("flat targeting fields"),
+        "expected mismatch error, got: {err}"
+    );
+}
+
+/// Same test for every other flat targeting field — exhaustive coverage so a
+/// future addition cannot silently accept one of them.
+#[test]
+fn file_anchor_with_any_flat_targeting_field_is_rejected() {
+    let cases: [(&str, &str); 5] = [
+        ("end_line", "7"),
+        ("start_column", "0"),
+        ("end_column", "5"),
+        ("selected_text", "\"abc\""),
+        ("selected_text_hash", "\"deadbeef\""),
+    ];
+    for (field, value) in cases {
+        let body = format!(
+            r#"{{"id":"f1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"file","{field}":{value}}}"#
+        );
+        let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(&body));
+        assert!(
+            res.is_err(),
+            "file anchor with `{field}` must be rejected; was: {body}"
+        );
+    }
+}
+
+/// Reject: payload sibling alongside `anchor_kind: "file"` (e.g. an image
+/// rect tacked onto a file anchor) — already covered by the existing
+/// `payload_count > 0` arm, but pinned here so a regression in the file
+/// branch is caught.
+#[test]
+fn file_anchor_with_payload_sibling_is_rejected() {
+    let body = r#"{"id":"f1","author":"a","timestamp":"t","text":"x","resolved":false,"anchor_kind":"file","image_rect":{"x_pct":1.0,"y_pct":2.0}}"#;
+    let res: Result<MrsfSidecar, _> = serde_json::from_str(&wrap_comment(body));
+    assert!(res.is_err(), "file anchor with payload sibling must be rejected");
+}
+
+/// Belt-and-braces: an in-memory `MrsfComment` whose `anchor` is `File` but
+/// whose flat fields somehow got populated (e.g. via the public
+/// `From<MrsfComment>` round-trip from a hand-built struct) is normalised
+/// back to no-targeting-fields on the next parse cycle. This is the
+/// chokepoint that protects every downstream consumer.
+#[test]
+fn file_anchor_in_memory_round_trip_strips_flat_fields() {
+    // Hand-build an inconsistent in-memory comment.
+    let original = MrsfComment {
+        id: "f1".into(),
+        author: "a".into(),
+        timestamp: "2025-01-01T00:00:00Z".into(),
+        text: "x".into(),
+        resolved: false,
+        line: Some(7),
+        end_line: Some(9),
+        start_column: Some(2),
+        end_column: Some(4),
+        selected_text: Some("smuggled".into()),
+        selected_text_hash: Some("abc".into()),
+        anchor: Anchor::File,
+        ..Default::default()
+    };
+    // `Into<MrsfCommentRepr>` → wire form. The serializer's File arm emits
+    // only the variant-agnostic base fields + `anchor_kind:"file"` — flat
+    // fields are dropped at serialisation time.
+    let json = serde_json::to_string(&original).unwrap();
+    for forbidden in ["\"line\"", "\"end_line\"", "\"start_column\"", "\"end_column\"", "\"selected_text\""] {
+        assert!(!json.contains(forbidden), "serialised form leaked `{forbidden}`: {json}");
+    }
+    // And re-parse must produce a fully-normalised comment.
+    let reparsed: MrsfComment = serde_json::from_str(&json).unwrap();
+    assert!(matches!(reparsed.anchor, Anchor::File));
+    assert!(reparsed.line.is_none());
+    assert!(reparsed.selected_text.is_none());
+}

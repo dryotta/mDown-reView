@@ -6,6 +6,7 @@ import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentThread } from "./CommentThread";
 import { CommentInput } from "./CommentInput";
 import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
+import { deriveAnchor } from "@/types/comments";
 import type { MatchedComment } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
@@ -127,7 +128,10 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         {displayed.length === 0 ? (
           <div className="comments-empty">No comments yet</div>
         ) : (
-          displayed.map(({ thread, filePath: tp }) => (
+          displayed.map(({ thread, filePath: tp }) => {
+            const anchor = deriveAnchor(thread.root);
+            const isFileLevel = anchor.kind === "file";
+            return (
             <div
               key={`${tp}::${thread.root.id}`}
               className="comment-panel-item"
@@ -137,12 +141,23 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
               onKeyDown={(e) => handleKeyDown(e, thread.root, tp)}
             >
               <div className="comment-panel-item-line">
-                Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}
+                {isFileLevel ? (
+                  <span
+                    className="comment-panel-file-pill"
+                    title="File-level comment (anchored to the whole file)"
+                    aria-label="File-level comment"
+                  >
+                    📄 File
+                  </span>
+                ) : (
+                  <>Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}</>
+                )}
                 {thread.root.isOrphaned && <span className="comment-orphaned-icon" title="Orphaned">⚠</span>}
               </div>
               <CommentThread rootComment={thread.root} replies={thread.replies} filePath={tp} />
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

@@ -605,3 +605,84 @@ fn respond_writes_to_redirected_sidecar() {
         "redirected sidecar was not updated: {updated}"
     );
 }
+
+// ── file-level (anchor_kind: file) — binary-source safety ─────────────────
+
+/// Stage the file-level fixture into a fresh temp dir. The source `.bin`
+/// file is intentionally NOT created — the CLI must read the sidecar and
+/// report file-level comments without ever opening the source file. This is
+/// the binary-source guarantee: `mdownreview-cli read` must work for sidecars
+/// pointing at PNG / MP3 / arbitrary-byte files (or files that no longer
+/// exist) without UTF-8 decoding their bytes.
+fn stage_file_level_binary() -> (tempfile::TempDir, std::path::PathBuf) {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let src = fixtures_dir().join("file-level").join("binary.bin.review.yaml");
+    let sidecar = tmp.path().join("binary.bin.review.yaml");
+    std::fs::copy(&src, &sidecar).unwrap();
+    // NB: do NOT write a `binary.bin` source file — proves the CLI does
+    // not depend on the source existing.
+    (tmp, sidecar)
+}
+
+#[test]
+fn read_text_file_level_anchor_prints_file_level_label() {
+    let (tmp, _sidecar) = stage_file_level_binary();
+    let (stdout, stderr, code) = run_cli(&["read", "--folder", tmp.path().to_str().unwrap()]);
+    assert_eq!(code, 0, "stderr={}", stderr);
+    assert!(
+        stdout.contains("[fb1] file-level"),
+        "expected `file-level` token for unresolved file-anchored comment; stdout was:\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("line ?"),
+        "file-level comments must NOT be labelled `line ?`; stdout was:\n{}",
+        stdout
+    );
+    // fb2 is resolved, so it should not appear in default unresolved-only output.
+    assert!(!stdout.contains("fb2"));
+}
+
+#[test]
+fn read_file_level_anchor_succeeds_when_binary_source_is_missing() {
+    // The binary source does not exist on disk. The CLI MUST exit 0 and
+    // emit the file-level comment — no `read_text_file` / open errors.
+    let (tmp, _sidecar) = stage_file_level_binary();
+    assert!(
+        !tmp.path().join("binary.bin").exists(),
+        "fixture invariant: source must be missing"
+    );
+    let (stdout, stderr, code) = run_cli(&[
+        "read",
+        "--folder",
+        tmp.path().to_str().unwrap(),
+        "--file",
+        "binary.bin",
+        "--json",
+    ]);
+    assert_eq!(code, 0, "stderr={}", stderr);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let comments = parsed["comments"].as_array().expect("comments array");
+    assert_eq!(comments.len(), 1, "expected one unresolved comment");
+    assert_eq!(comments[0]["id"], "fb1");
+    assert_eq!(comments[0]["anchor_kind"], "file");
+    assert!(
+        comments[0].get("line").map(|v| v.is_null()).unwrap_or(true),
+        "file-level comment must not have a flat `line` field on the wire"
+    );
+}
+
+#[test]
+fn read_file_level_with_include_resolved_shows_both_comments() {
+    let (tmp, _sidecar) = stage_file_level_binary();
+    let (stdout, stderr, code) = run_cli(&[
+        "read",
+        "--folder",
+        tmp.path().to_str().unwrap(),
+        "--include-resolved",
+    ]);
+    assert_eq!(code, 0, "stderr={}", stderr);
+    assert!(stdout.contains("[fb1] file-level"));
+    assert!(stdout.contains("[RESOLVED] [fb2] file-level"));
+    assert!(!stdout.contains("line ?"));
+}

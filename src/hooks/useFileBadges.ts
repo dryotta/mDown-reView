@@ -32,7 +32,8 @@ export function useFileBadges(filePaths: string[]): Record<string, FileBadge> {
             prevKeys.every(
               (k) =>
                 prev[k]?.count === next[k]?.count &&
-                prev[k]?.max_severity === next[k]?.max_severity,
+                prev[k]?.max_severity === next[k]?.max_severity &&
+                prev[k]?.file_level_count === next[k]?.file_level_count,
             )
           ) return prev;
           return next;

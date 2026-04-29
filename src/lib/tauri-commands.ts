@@ -200,10 +200,19 @@ export const computeAnchorHash = (text: string): Promise<string> =>
 /** Total order of comment severity. Mirrors `core::severity::Severity`. */
 export type Severity = "none" | "low" | "medium" | "high";
 
-/** Per-file badge payload returned by `get_file_badges` (count + worst severity). */
+/**
+ * Per-file badge payload returned by `get_file_badges`.
+ * - `count`: total unresolved threads for the file.
+ * - `max_severity`: worst severity across those threads.
+ * - `file_level_count`: subset of `count` whose root anchor is `Anchor::File`
+ *   (explicit MRSF `anchor_kind: "file"` — see [`docs/specs/MRSF-v1.0.md`]).
+ *   Surfaced separately so the viewer toolbar can render a dedicated
+ *   file-anchored thread badge alongside the per-line gutter indicators.
+ */
 export interface FileBadge {
   count: number;
   max_severity: Severity;
+  file_level_count: number;
 }
 
 /**

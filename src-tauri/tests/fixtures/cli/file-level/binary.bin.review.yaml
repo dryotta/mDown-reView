@@ -1,0 +1,17 @@
+mrsf_version: "1.0"
+document: "binary.bin"
+comments:
+  - id: "fb1"
+    author: "reviewer"
+    timestamp: "2025-01-01T00:00:00Z"
+    text: "This binary file needs review"
+    resolved: false
+    anchor_kind: "file"
+    type: "issue"
+    severity: "high"
+  - id: "fb2"
+    author: "reviewer"
+    timestamp: "2025-01-01T01:00:00Z"
+    text: "Already addressed"
+    resolved: true
+    anchor_kind: "file"

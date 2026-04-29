@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { isSidecarFile } from "@/lib/file-types";
+import { useFileBadges } from "@/hooks/useFileBadges";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewerShell } from "./ImageViewerShell";
@@ -63,6 +64,16 @@ export function ViewerRouter({ path }: Props) {
     useStore.getState().requestFileLevelInput(path);
   }, [path]);
   const commentOnFile = isSidecar ? undefined : handleCommentOnFile;
+
+  // File-level badge data: count of unresolved file-anchored threads + worst
+  // severity. Reuses `get_file_badges` (same IPC the tree/tabs use, so the
+  // sidecar load is amortised across surfaces; reloads on `comments-changed`
+  // are debounced inside the hook). Memoise the path array so the hook's
+  // pathsKey effect doesn't refire on every render.
+  const fileBadgePaths = useMemo(() => [path], [path]);
+  const fileBadges = useFileBadges(fileBadgePaths);
+  const fileCommentCount = fileBadges[path]?.file_level_count ?? 0;
+  const fileCommentSeverity = fileBadges[path]?.max_severity ?? null;
 
   // Guard flag: suppresses scroll-save during programmatic scroll restore
   const restoringRef = useRef(false);
@@ -159,7 +170,7 @@ export function ViewerRouter({ path }: Props) {
   // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
   // to surface the file-anchored "Comment on file" entry point universally.
   if (status === "image") {
-    return <ImageViewerShell key={path} path={path} onCommentOnFile={commentOnFile} />;
+    return <ImageViewerShell key={path} path={path} onCommentOnFile={commentOnFile} fileCommentCount={fileCommentCount} fileCommentSeverity={fileCommentSeverity} />;
   }
 
   if (status === "audio") {
@@ -170,6 +181,8 @@ export function ViewerRouter({ path }: Props) {
           onViewChange={() => {}}
           hidden
           onCommentOnFile={commentOnFile}
+          fileCommentCount={fileCommentCount}
+          fileCommentSeverity={fileCommentSeverity}
           trailing={<FileActionsBar path={path} />}
         />
         <AudioViewer key={path} path={path} />
@@ -185,6 +198,8 @@ export function ViewerRouter({ path }: Props) {
           onViewChange={() => {}}
           hidden
           onCommentOnFile={commentOnFile}
+          fileCommentCount={fileCommentCount}
+          fileCommentSeverity={fileCommentSeverity}
           trailing={<FileActionsBar path={path} />}
         />
         <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
@@ -193,7 +208,7 @@ export function ViewerRouter({ path }: Props) {
   }
 
   if (status === "binary") {
-    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} onCommentOnFile={commentOnFile} />;
+    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} onCommentOnFile={commentOnFile} fileCommentCount={fileCommentCount} fileCommentSeverity={fileCommentSeverity} />;
   }
 
   if (status === "error") {
@@ -205,6 +220,8 @@ export function ViewerRouter({ path }: Props) {
             onViewChange={() => {}}
             hidden
             onCommentOnFile={commentOnFile}
+            fileCommentCount={fileCommentCount}
+            fileCommentSeverity={fileCommentSeverity}
           />
           <DeletedFileViewer key={path} filePath={path} />
         </div>
@@ -217,6 +234,8 @@ export function ViewerRouter({ path }: Props) {
           onViewChange={() => {}}
           hidden
           onCommentOnFile={commentOnFile}
+          fileCommentCount={fileCommentCount}
+          fileCommentSeverity={fileCommentSeverity}
           trailing={<FileActionsBar path={path} />}
         />
         <div className="viewer-placeholder">
@@ -235,6 +254,8 @@ export function ViewerRouter({ path }: Props) {
         filePath={path}
         fileSize={fileSize}
         onCommentOnFile={commentOnFile}
+        fileCommentCount={fileCommentCount}
+        fileCommentSeverity={fileCommentSeverity}
       />
     </div>
   );

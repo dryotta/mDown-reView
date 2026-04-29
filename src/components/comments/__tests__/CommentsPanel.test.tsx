@@ -416,3 +416,45 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
     ).toBeUndefined();
   });
 });
+
+// ─── File-level threads render a "File" pill, not "Line ?" ───────────────────
+
+describe("CommentsPanel — file-level thread rendering", () => {
+  it('renders a "File" pill for threads whose root anchor.kind is "file"', () => {
+    setMockComments([
+      makeThread(
+        makeComment("file-1", "high-level note", {
+          line: 0,
+          matchedLineNumber: 1,
+          anchor: { kind: "file" },
+        }),
+      ),
+    ]);
+
+    render(<CommentsPanel filePath={FILE} />);
+
+    // The accessible / visible label uses the literal text "File" (the 📄
+    // glyph is decorative). We assert the label is in the document and that
+    // no "Line ?" or "Line N" label appears for this thread row.
+    expect(screen.getByLabelText(/file-level comment/i)).toBeInTheDocument();
+    expect(screen.getByText(/File/, { selector: ".comment-panel-file-pill" })).toBeInTheDocument();
+    // The thread item header must not say "Line".
+    expect(screen.queryByText(/^Line\s/)).not.toBeInTheDocument();
+  });
+
+  it('still renders "Line N" for a regular line-anchored thread', () => {
+    setMockComments([
+      makeThread(
+        makeComment("line-1", "line note", {
+          line: 7,
+          matchedLineNumber: 7,
+          anchor: { kind: "line", line: 7 },
+        }),
+      ),
+    ]);
+
+    render(<CommentsPanel filePath={FILE} />);
+    expect(screen.getByText(/Line 7/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/file-level comment/i)).not.toBeInTheDocument();
+  });
+});
