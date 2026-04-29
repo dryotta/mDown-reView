@@ -81,7 +81,32 @@ pub fn delete_resolved_sidecars(
 /// silently leaked the user-supplied form, so a workspace opened via a
 /// dialog (`C:\…`) and a workspace opened via an OS handler (`\\?\C:\…`)
 /// produced cross-form strings the renderer could not reconcile).
+///
+/// See [`find_review_files_with_config`] for the variant that respects a
+/// workspace's `sidecar_root` redirect (so sidecars stored under
+/// `<root>/<sidecar_root>/` are mapped back to their actual source file
+/// location). Without a config, sidecars under a redirect would all be
+/// flagged as ghosts because their derived source path
+/// (`<sidecar_root>/<rel>`) doesn't exist on disk — the real source
+/// lives at `<root>/<rel>`.
 pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
+    find_review_files_with_config(root, cap, None)
+}
+
+/// Walk `root` for sidecar files, optionally honouring a `sidecar_root`
+/// redirect so the returned `(sidecar, source)` pairs point at the real
+/// source path under `<root>` instead of a non-existent path under
+/// `<root>/<sidecar_root>`.
+///
+/// `sidecar_root` is the relative path read from `.mrsf.yaml` (e.g.
+/// `.reviews`). Pass `None` when no redirect is configured — behaviour
+/// then matches the simple form (trim `.review.{yaml,json}` from the
+/// sidecar path).
+pub fn find_review_files_with_config(
+    root: &str,
+    cap: usize,
+    sidecar_root: Option<&Path>,
+) -> Vec<(String, String)> {
     let mut results = Vec::new();
     let mut seen_sources = std::collections::HashSet::new();
 
@@ -102,7 +127,8 @@ pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name.ends_with(".review.yaml") {
                 let sidecar = path.to_string_lossy().to_string();
-                let source = sidecar.trim_end_matches(".review.yaml").to_string();
+                let source =
+                    derive_source_path(&root_owned, &sidecar, ".review.yaml", sidecar_root);
                 seen_sources.insert(source.clone());
                 results.push((sidecar, source));
                 if results.len() >= cap {
@@ -118,7 +144,8 @@ pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name.ends_with(".review.json") {
                 let sidecar = path.to_string_lossy().to_string();
-                let source = sidecar.trim_end_matches(".review.json").to_string();
+                let source =
+                    derive_source_path(&root_owned, &sidecar, ".review.json", sidecar_root);
                 if !seen_sources.contains(&source) {
                     seen_sources.insert(source.clone());
                     results.push((sidecar, source));
@@ -131,6 +158,30 @@ pub fn find_review_files(root: &str, cap: usize) -> Vec<(String, String)> {
     }
 
     results
+}
+
+/// Derive the source-file path for a sidecar.
+///
+/// The default rule is "trim the `.review.{yaml,json}` suffix" — which
+/// works for co-located sidecars (`foo.md.review.yaml` → `foo.md`).
+/// When a `sidecar_root` redirect is configured, sidecars stored under
+/// `<workspace>/<sidecar_root>/<rel>.review.{yaml,json}` are mapped to
+/// `<workspace>/<rel>` so the source resolves to the real file location
+/// rather than the non-existent path inside the redirect folder.
+fn derive_source_path(
+    workspace_root: &Path,
+    sidecar_path: &str,
+    suffix: &str,
+    sidecar_root: Option<&Path>,
+) -> String {
+    let trimmed = sidecar_path.trim_end_matches(suffix);
+    if let Some(sr) = sidecar_root {
+        let abs_sidecar_root = workspace_root.join(sr);
+        if let Ok(rel) = Path::new(trimmed).strip_prefix(&abs_sidecar_root) {
+            return workspace_root.join(rel).to_string_lossy().to_string();
+        }
+    }
+    trimmed.to_string()
 }
 
 /// Load a sidecar given the sidecar file path directly (not the source file path).
@@ -246,6 +297,85 @@ comments:
         let tmp = TempDir::new().unwrap();
         let results = find_review_files(tmp.path().to_str().unwrap(), 10000);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn redirect_maps_sidecar_to_real_source_path() {
+        // Sidecars stored under <root>/<sidecar_root>/ must resolve to
+        // the actual source location <root>/<rel> — not the non-existent
+        // <root>/<sidecar_root>/<rel> that a naive suffix-trim would
+        // produce. Exercises the .reviews/ ghost-misclassification fix.
+        let tmp = TempDir::new().unwrap();
+        let canonical_root = canonicalize_no_verbatim(tmp.path()).unwrap();
+
+        // Real source files at the workspace root + a subdirectory
+        std::fs::write(canonical_root.join("readme.md"), "# A").unwrap();
+        let docs = canonical_root.join("docs");
+        std::fs::create_dir(&docs).unwrap();
+        std::fs::write(docs.join("guide.md"), "# B").unwrap();
+
+        // Sidecars redirected under .reviews/ mirroring the source layout
+        let reviews = canonical_root.join(".reviews");
+        std::fs::create_dir(&reviews).unwrap();
+        write_yaml_sidecar(&reviews, "readme.md");
+        let reviews_docs = reviews.join("docs");
+        std::fs::create_dir(&reviews_docs).unwrap();
+        write_yaml_sidecar(&reviews_docs, "guide.md");
+
+        let sidecar_root = std::path::PathBuf::from(".reviews");
+        let results = find_review_files_with_config(
+            canonical_root.to_str().unwrap(),
+            10_000,
+            Some(&sidecar_root),
+        );
+
+        assert_eq!(results.len(), 2);
+
+        // Each (sidecar, source) pair: sidecar lives under .reviews,
+        // source lives at the workspace root (existing on disk).
+        for (sidecar, source) in &results {
+            assert!(
+                sidecar.contains(".reviews"),
+                "sidecar should live under .reviews: {sidecar}"
+            );
+            assert!(!source.contains(".reviews"), "source must NOT contain .reviews: {source}");
+            assert!(
+                std::path::Path::new(source).exists(),
+                "source must point at the real file on disk: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn redirect_only_rewrites_sidecars_under_sidecar_root() {
+        // Mixed workspace: one sidecar under .reviews/, another co-located
+        // at the workspace root. Only the redirected sidecar should be
+        // rewritten — the co-located one keeps the suffix-trim behaviour.
+        let tmp = TempDir::new().unwrap();
+        let canonical_root = canonicalize_no_verbatim(tmp.path()).unwrap();
+
+        std::fs::write(canonical_root.join("co.md"), "# co").unwrap();
+        std::fs::write(canonical_root.join("redir.md"), "# redir").unwrap();
+        write_yaml_sidecar(&canonical_root, "co.md"); // co-located
+
+        let reviews = canonical_root.join(".reviews");
+        std::fs::create_dir(&reviews).unwrap();
+        write_yaml_sidecar(&reviews, "redir.md"); // under .reviews/
+
+        let sidecar_root = std::path::PathBuf::from(".reviews");
+        let results = find_review_files_with_config(
+            canonical_root.to_str().unwrap(),
+            10_000,
+            Some(&sidecar_root),
+        );
+
+        assert_eq!(results.len(), 2);
+        for (_sidecar, source) in &results {
+            assert!(
+                std::path::Path::new(source).exists(),
+                "every source must exist on disk: {source}"
+            );
+        }
     }
 
     // ---- delete_resolved_sidecars tests ----

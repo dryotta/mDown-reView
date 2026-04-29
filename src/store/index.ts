@@ -342,6 +342,10 @@ export const useStore = create<Store>()(
       },
       // Only persist global prefs — per-window state (tabs, activeTabPath,
       // expandedFolders, root) starts fresh each window / app launch.
+      // `showSidecarFiles` is also intentionally NOT persisted — it's a
+      // per-window viewing toggle that must default to OFF on every fresh
+      // window so a user who flipped it on in one workspace doesn't have
+      // raw sidecars surfaced when they open another.
       partialize: (state) => ({
         theme: state.theme,
         folderPaneWidth: state.folderPaneWidth,
@@ -350,7 +354,6 @@ export const useStore = create<Store>()(
         readingWidth: state.readingWidth,
         recentItems: state.recentItems,
         updateChannel: state.updateChannel,
-        showSidecarFiles: state.showSidecarFiles,
       }),
     }
   )
