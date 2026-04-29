@@ -43,12 +43,30 @@ export function useFolderChildren(root: string | null) {
     [showSidecarFiles]
   );
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on prop change
-  useEffect(() => { setChildrenCache({}); }, [root, showSidecarFiles]);
-
+  // Reset cache and reload visible folders when root or the show-sidecars
+  // filter changes. The ref is updated synchronously so that loadChildren
+  // calls within this same effect (and any concurrent listener) see the
+  // cleared state and re-fetch with the new filter — without this, the
+  // load below would short-circuit on the stale cached entries and the
+  // tree would render empty until the next manual reload (issue: blank
+  // folder pane after toggling "Show sidecar files").
   useEffect(() => {
-    if (root) loadChildren(root);
-  }, [root, loadChildren]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on filter change
+    setChildrenCache({});
+    childrenCacheRef.current = {};
+    if (!root) return;
+    // Reload root + every currently-expanded folder so the user's view is
+    // preserved across the toggle. Snapshot via getState to avoid
+    // re-subscribing on every expand/collapse.
+    const expanded = useStore.getState().expandedFolders;
+    const paths = new Set<string>([root]);
+    for (const [p, isExpanded] of Object.entries(expanded)) {
+      if (isExpanded) paths.add(p);
+    }
+    for (const p of paths) {
+      void loadChildren(p);
+    }
+  }, [root, showSidecarFiles, loadChildren]);
 
   // Refresh cached entries when Rust reports a folder change. We only refresh
   // dirs we already have in the cache — unknown dirs would be loaded lazily
