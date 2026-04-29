@@ -10,7 +10,7 @@ const FIXTURES_DIR = "/e2e/fixtures";
 
 async function setupMediaMocks(page: Page) {
   await page.addInitScript((dir: string) => {
-    window.__TAURI_IPC_MOCK__ = async (cmd: string, _args: Record<string, unknown>) => {
+    window.__TAURI_IPC_MOCK__ = async (cmd: string, args: Record<string, unknown>) => {
       if (cmd === "get_launch_args") return { files: [], folders: [dir] };
       if (cmd === "read_dir") {
         return [
@@ -22,9 +22,17 @@ async function setupMediaMocks(page: Page) {
       if (cmd === "check_path_exists") return "file";
       if (cmd === "get_log_path") return "/mock/log.log";
       if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
-      // Audio/video viewers don't issue read_text_file or read_binary_file —
-      // they stream via the asset:// URL. This mock returns null for any
-      // unrelated command so accidental reads surface as test failures.
+      // Video files no longer have a dedicated viewer — they fall through to
+      // readTextFile which the real Rust backend rejects as binary_file.
+      if (cmd === "read_text_file") {
+        const p = String(args.path ?? "");
+        if (p.endsWith(".mp4")) throw new Error("binary_file");
+      }
+      // stat_file is called after a binary_file rejection to populate size/mtime.
+      if (cmd === "stat_file") return { size_bytes: 1024, mtime_ms: null };
+      // Audio viewers stream via the asset:// URL — no read_text_file needed.
+      // Return null for any unrelated command so accidental reads surface as
+      // test failures.
       return null;
     };
   }, FIXTURES_DIR);
@@ -45,24 +53,20 @@ test.describe("Media viewers (#65 F1/F2)", () => {
     expect(src).not.toBeNull();
     expect((src ?? "").length).toBeGreaterThan(0);
 
-    // L4 — filename + MIME live in the FileActionsBar above the player.
-    await expect(page.locator(".file-actions-bar__mime")).toContainText("audio/mpeg");
+    // FileActionsBar now renders a reveal-in-folder button only (no MIME label);
+    // verify the bar itself is present above the player.
+    await expect(page.locator(".file-actions-bar")).toBeVisible();
   });
 
-  test("opens .mp4 in VideoViewer with native <video> controls", async ({ page }) => {
+  test("opens .mp4 in binary placeholder (no dedicated video viewer)", async ({ page }) => {
     await setupMediaMocks(page);
     await page.goto("/");
     await page.locator(".folder-tree").getByText("clip.mp4").click();
 
-    const video = page.locator(".video-viewer video");
-    await expect(video).toBeVisible();
-    await expect(video).toHaveAttribute("controls", "");
-    await expect(video).toHaveAttribute("preload", "metadata");
-
-    const src = await video.getAttribute("src");
-    expect(src).not.toBeNull();
-    expect((src ?? "").length).toBeGreaterThan(0);
-
-    await expect(page.locator(".file-actions-bar__mime")).toContainText("video/mp4");
+    // Video files route through the binary viewer shell after the toolbar
+    // UX cleanup removed the dedicated VideoViewer. Verify the placeholder
+    // and toolbar are visible.
+    await expect(page.locator(".viewer-placeholder")).toBeVisible();
+    await expect(page.locator(".viewer-toolbar")).toBeVisible();
   });
 });

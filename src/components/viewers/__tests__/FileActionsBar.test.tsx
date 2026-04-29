@@ -26,16 +26,6 @@ describe("FileActionsBar (L1)", () => {
     expect(revealMock).toHaveBeenCalledWith("/ws/doc.md");
   });
 
-  it("renders the optional MIME hint before the buttons", () => {
-    render(<FileActionsBar path="/m/song.mp3" mime="audio/mpeg" />);
-    expect(screen.getByText("audio/mpeg")).toBeInTheDocument();
-  });
-
-  it("omits the MIME hint when not provided", () => {
-    const { container } = render(<FileActionsBar path="/x" />);
-    expect(container.querySelector(".file-actions-bar__mime")).toBeNull();
-  });
-
   it("exposes title attribute for hover tooltip", () => {
     render(<FileActionsBar path="/ws/doc.md" />);
     expect(screen.getByRole("button", { name: /reveal in folder/i })).toHaveAttribute("title", "Reveal in folder");

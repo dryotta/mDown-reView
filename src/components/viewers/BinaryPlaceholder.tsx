@@ -101,7 +101,7 @@ export function BinaryPlaceholder({ path, size, mtime }: Props) {
   const mime = getMimeHint(path);
 
   return (
-    <div className="binary-placeholder">
+    <div className="viewer-placeholder">
       <FileIcon category={category} />
       <p className="binary-filename">{name}</p>
       <p className="binary-mime">{mime}</p>

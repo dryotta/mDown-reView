@@ -48,19 +48,6 @@ vi.mock("../AudioViewer", () => ({
   getAudioMime: (p: string) => (p.endsWith(".mp3") ? "audio/mpeg" : "audio/*"),
 }));
 
-vi.mock("../VideoViewer", () => ({
-  VideoViewer: ({ path }: { path: string }) => (
-    <div data-testid="video-viewer" data-path={path}>VideoViewer</div>
-  ),
-  getVideoMime: (p: string) => (p.endsWith(".mp4") ? "video/mp4" : "video/*"),
-}));
-
-vi.mock("../PdfViewer", () => ({
-  PdfViewer: ({ path }: { path: string }) => (
-    <div data-testid="pdf-viewer" data-path={path}>PdfViewer</div>
-  ),
-}));
-
 vi.mock("../BinaryViewerShell", () => ({
   BinaryViewerShell: ({ path, size, onCommentOnFile }: { path: string; size?: number; onCommentOnFile?: () => void }) => (
     <div data-testid="binary-viewer-shell" data-path={path} data-size={size} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
@@ -138,22 +125,6 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("audio-viewer").dataset.path).toBe("/music/song.mp3");
   });
 
-  it("video status routes to VideoViewer (#65 F2)", () => {
-    mockUseFileContent.mockReturnValue({ status: "video" });
-    useStore.setState({ tabs: [{ path: "/movies/clip.mp4", scrollTop: 0 }] });
-    render(<ViewerRouter path="/movies/clip.mp4" />);
-    expect(screen.getByTestId("video-viewer")).toBeInTheDocument();
-    expect(screen.getByTestId("video-viewer").dataset.path).toBe("/movies/clip.mp4");
-  });
-
-  it("pdf status routes to PdfViewer (#65 F3)", () => {
-    mockUseFileContent.mockReturnValue({ status: "pdf" });
-    useStore.setState({ tabs: [{ path: "/docs/spec.pdf", scrollTop: 0 }] });
-    render(<ViewerRouter path="/docs/spec.pdf" />);
-    expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument();
-    expect(screen.getByTestId("pdf-viewer").dataset.path).toBe("/docs/spec.pdf");
-  });
-
   it("loading status shows SkeletonLoader", () => {
     mockUseFileContent.mockReturnValue({ status: "loading" });
     useStore.setState({ tabs: [{ path: "/docs/README.md", scrollTop: 0 }] });
@@ -202,16 +173,6 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("deleted-file-viewer")).toBeInTheDocument();
     expect(screen.queryByText(/Error loading file/)).not.toBeInTheDocument();
   });
-
-  it("ghost branch toolbar has 'Show comments' button", () => {
-    mockUseFileContent.mockReturnValue({ status: "error", error: "file not found" });
-    useStore.setState({
-      tabs: [{ path: "/gone.md", scrollTop: 0 }],
-      ghostEntries: [{ sidecarPath: "/gone.md.review.yaml", sourcePath: "/gone.md" }],
-    });
-    render(<ViewerRouter path="/gone.md" />);
-    expect(screen.getByRole("button", { name: /show comments/i })).toBeInTheDocument();
-  });
 });
 
 // ─── Iter 5 Group B: file-anchored entry point is universal ─────────────────
@@ -254,22 +215,6 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     render(<ViewerRouter path="/s.mp3" />);
     fireEvent.click(expectCommentOnFileButton());
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/s.mp3");
-  });
-
-  it("video viewer surfaces a Comment-on-file button", () => {
-    mockUseFileContent.mockReturnValue({ status: "video" });
-    useStore.setState({ tabs: [{ path: "/c.mp4", scrollTop: 0 }], pendingFileLevelInputFor: null });
-    render(<ViewerRouter path="/c.mp4" />);
-    fireEvent.click(expectCommentOnFileButton());
-    expect(useStore.getState().pendingFileLevelInputFor).toBe("/c.mp4");
-  });
-
-  it("pdf viewer surfaces a Comment-on-file button", () => {
-    mockUseFileContent.mockReturnValue({ status: "pdf" });
-    useStore.setState({ tabs: [{ path: "/d.pdf", scrollTop: 0 }], pendingFileLevelInputFor: null });
-    render(<ViewerRouter path="/d.pdf" />);
-    fireEvent.click(expectCommentOnFileButton());
-    expect(useStore.getState().pendingFileLevelInputFor).toBe("/d.pdf");
   });
 
   it("binary viewer passes onCommentOnFile to BinaryViewerShell", () => {

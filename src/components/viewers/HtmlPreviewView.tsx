@@ -3,7 +3,6 @@ import { resolveHtmlAssets, openExternalUrl, getFileViewerPref, setFileViewerPre
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
-import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { warn } from "@/logger";
@@ -24,7 +23,6 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const revokeImagesRef = useRef<(() => void) | null>(null);
-  const readingWidth = useStore((s) => s.readingWidth);
   const workspaceRoot = useStore((s) => s.root) ?? "";
   const { zoom } = useZoom(".html");
   const baseDir = filePath ? dirname(filePath) : undefined;
@@ -131,13 +129,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
           {allowImages ? "Disallow external images" : "Allow external images"}
         </button>
       </div>
-      <div
-        className="reading-width html-preview-reading"
-        ref={readingContainerRef}
-        style={{
-          ["--reading-width" as string]: `${readingWidth}px`,
-        }}
-      >
+      <div className="html-preview-body" ref={readingContainerRef}>
         <div ref={wrapperRef} className="html-preview-wrapper">
           <iframe
             ref={iframeRef}
@@ -192,8 +184,6 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             }}
           />
         </div>
-        <ReadingWidthHandle containerRef={readingContainerRef} side="left" />
-        <ReadingWidthHandle containerRef={readingContainerRef} side="right" />
       </div>
     </div>
   );

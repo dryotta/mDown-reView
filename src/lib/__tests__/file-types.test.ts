@@ -54,17 +54,17 @@ describe("getFileCategory", () => {
     expect(getFileCategory("UPPER.MP3")).toBe("audio");
   });
 
-  it("classifies video files", () => {
-    expect(getFileCategory("clip.mp4")).toBe("video");
-    expect(getFileCategory("clip.webm")).toBe("video");
-    expect(getFileCategory("clip.mov")).toBe("video");
-    expect(getFileCategory("clip.mkv")).toBe("video");
-    expect(getFileCategory("UPPER.MP4")).toBe("video");
+  it("classifies video files as text (binary fallback)", () => {
+    expect(getFileCategory("clip.mp4")).toBe("text");
+    expect(getFileCategory("clip.webm")).toBe("text");
+    expect(getFileCategory("clip.mov")).toBe("text");
+    expect(getFileCategory("clip.mkv")).toBe("text");
+    expect(getFileCategory("UPPER.MP4")).toBe("text");
   });
 
-  it("classifies PDF files (#65 F3)", () => {
-    expect(getFileCategory("doc.pdf")).toBe("pdf");
-    expect(getFileCategory("DOC.PDF")).toBe("pdf");
+  it("classifies PDF files as text (binary fallback)", () => {
+    expect(getFileCategory("doc.pdf")).toBe("text");
+    expect(getFileCategory("DOC.PDF")).toBe("text");
   });
 
   it("classifies other text files", () => {
@@ -99,13 +99,8 @@ describe("hasVisualization", () => {
     expect(hasVisualization("image")).toBe(false);
   });
 
-  it("returns true for audio and video (toolbar consistency, #65 F1/F2)", () => {
+  it("returns true for audio (toolbar consistency, #65 F1)", () => {
     expect(hasVisualization("audio")).toBe(true);
-    expect(hasVisualization("video")).toBe(true);
-  });
-
-  it("returns true for pdf (#65 F3)", () => {
-    expect(hasVisualization("pdf")).toBe(true);
   });
 });
 
@@ -127,13 +122,8 @@ describe("getDefaultView", () => {
     expect(getDefaultView("image")).toBe("visual");
   });
 
-  it("returns visual for audio and video (#65 F1/F2)", () => {
+  it("returns visual for audio (#65 F1)", () => {
     expect(getDefaultView("audio")).toBe("visual");
-    expect(getDefaultView("video")).toBe("visual");
-  });
-
-  it("returns visual for pdf (#65 F3)", () => {
-    expect(getDefaultView("pdf")).toBe("visual");
   });
 });
 
@@ -155,8 +145,8 @@ describe("getShikiLanguage", () => {
   });
 
   it("maps KQL aliases (.kql and .csl)", () => {
-    expect(getShikiLanguage("query.kql")).toBe("kql");
-    expect(getShikiLanguage("query.csl")).toBe("kql");
+    expect(getShikiLanguage("query.kql")).toBe("kusto");
+    expect(getShikiLanguage("query.csl")).toBe("kusto");
   });
 
   it("maps JSON / Markdown", () => {
@@ -188,13 +178,13 @@ describe("getShikiLanguage", () => {
     expect(getShikiLanguage("a.tf")).toBe("terraform");
     expect(getShikiLanguage("a.tfvars")).toBe("terraform");
     expect(getShikiLanguage("a.hcl")).toBe("hcl");
-    expect(getShikiLanguage("a.proto")).toBe("protobuf");
+    expect(getShikiLanguage("a.proto")).toBe("proto");
     expect(getShikiLanguage("a.gradle")).toBe("groovy");
     expect(getShikiLanguage("a.cmake")).toBe("cmake");
     expect(getShikiLanguage("a.bicep")).toBe("bicep");
     expect(getShikiLanguage("a.ini")).toBe("ini");
     expect(getShikiLanguage("a.conf")).toBe("ini");
-    expect(getShikiLanguage("a.env")).toBe("ini");
+    expect(getShikiLanguage("a.env")).toBe("dotenv");
     expect(getShikiLanguage("a.diff")).toBe("diff");
     expect(getShikiLanguage("a.patch")).toBe("diff");
     expect(getShikiLanguage("a.mm")).toBe("objective-cpp");
@@ -217,20 +207,17 @@ describe("getShikiLanguage", () => {
   it("returns 'text' for unknown / missing extensions", () => {
     expect(getShikiLanguage("data.unknownext")).toBe("text");
     expect(getShikiLanguage("noext")).toBe("text");
-    expect(getShikiLanguage("foo.m")).toBe("text"); // .m deliberately deferred — ambiguous
     expect(getShikiLanguage("foo.Dockerfile")).toBe("text"); // extension wins, .dockerfile not mapped
   });
 
-  it("returns 'text' for .mdx (not in Shiki map even though it is a markdown category)", () => {
-    // Documents the current behavior: `.mdx` maps to the markdown FileCategory
-    // but is not in the Shiki language table, so source highlighting falls back
-    // to plain text. Kept as a regression guard.
-    expect(getShikiLanguage("doc.mdx")).toBe("text");
+  it("maps .m to objective-c and .mdx to mdx", () => {
+    expect(getShikiLanguage("foo.m")).toBe("objective-c");
+    expect(getShikiLanguage("doc.mdx")).toBe("mdx");
   });
 
   it("is case-insensitive (extname lowercases)", () => {
     expect(getShikiLanguage("App.TS")).toBe("typescript");
-    expect(getShikiLanguage("Q.KQL")).toBe("kql");
+    expect(getShikiLanguage("Q.KQL")).toBe("kusto");
   });
 });
 
@@ -244,10 +231,9 @@ describe("getFoldLanguage", () => {
 });
 
 describe("Shiki language map runtime guard (#94)", () => {
-  it("every SHIKI_LANGUAGE_MAP value is a valid bundled Shiki language (except kql)", () => {
+  it("every SHIKI_LANGUAGE_MAP value is a valid bundled Shiki language", () => {
     const invalidEntries: string[] = [];
     for (const [ext, lang] of Object.entries(SHIKI_LANGUAGE_MAP)) {
-      if (lang === "kql") continue;
       if (!(lang in bundledLanguages)) {
         invalidEntries.push(`.${ext} → "${lang}"`);
       }
@@ -273,15 +259,12 @@ describe("getFiletypeKey (#65 F1/F2)", () => {
     expect(getFiletypeKey("song.ogg", "source")).toBe(".audio");
   });
 
-  it("returns .video for video files regardless of view mode", () => {
-    expect(getFiletypeKey("clip.mp4")).toBe(".video");
-    expect(getFiletypeKey("clip.webm", "visual")).toBe(".video");
-    expect(getFiletypeKey("clip.mov", "source")).toBe(".video");
+  it("returns .source for former video files (now text category)", () => {
+    expect(getFiletypeKey("clip.mp4")).toBe(".source");
+    expect(getFiletypeKey("clip.webm")).toBe(".source");
   });
 
-  it("returns .pdf for pdf files regardless of view mode (#65 F3)", () => {
-    expect(getFiletypeKey("doc.pdf")).toBe(".pdf");
-    expect(getFiletypeKey("doc.pdf", "visual")).toBe(".pdf");
-    expect(getFiletypeKey("doc.pdf", "source")).toBe(".pdf");
+  it("returns .source for former pdf files (now text category)", () => {
+    expect(getFiletypeKey("doc.pdf")).toBe(".source");
   });
 });

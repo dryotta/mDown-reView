@@ -7,7 +7,26 @@
   flex-shrink: 0;
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 10;
+}
+
+/* Three-section layout: left / center / right.  Each section is flex:1
+   so the center content is truly centered regardless of left/right width. */
+.viewer-toolbar-left,
+.viewer-toolbar-center,
+.viewer-toolbar-right {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 4px;
+}
+
+.viewer-toolbar-center {
+  justify-content: center;
+}
+
+.viewer-toolbar-right {
+  justify-content: flex-end;
 }
 
 .viewer-toolbar-toggle {
@@ -55,25 +74,17 @@
 }
 
 .viewer-toolbar-wrap {
-  margin-left: auto;
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
 
 .viewer-toolbar-zoom {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 4px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
-}
-
-/* When wrap toggle is also present, the wrap button claims margin-left: auto;
-   the zoom group then sits flush after it. */
-.viewer-toolbar-wrap ~ .viewer-toolbar-zoom {
-  margin-left: 4px;
 }
 
 .viewer-toolbar-zoom-btn {
@@ -90,26 +101,16 @@
 }
 
 /* G4 / L1 — reveal/open file actions, pinned to the right edge of the
-   toolbar. When no other right-aligned group (wrap, zoom) precedes it,
-   claims the margin-left:auto itself; otherwise sits flush after them.
-   Used both inside the `.viewer-toolbar` row and as the standalone
-   `FileActionsBar` above headerless media viewers (audio, video, pdf). */
+   toolbar. Lives inside the .viewer-toolbar-right section. */
 .file-actions-bar {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
   padding: 4px 8px;
   flex-shrink: 0;
 }
 
-.file-actions-bar__mime {
-  font-size: 12px;
-  color: var(--color-muted);
-  margin-right: 4px;
-}
-
-/* When rendered as the only row above a viewer (audio/video/pdf), pad +
+/* When rendered as the only row above a viewer (audio), pad +
    border match the toolbar. */
 .viewer-actions-row {
   display: flex;
@@ -155,31 +156,6 @@
   max-height: 100%;
 }
 
-.pdf-viewer {
-  width: 100%;
-  height: 100%;
-  border: none;
-}
-
-.pdf-viewer-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 24px;
-  color: var(--color-muted);
-  gap: 8px;
-}
-
-.pdf-viewer-error__title {
-  font-weight: 600;
-}
-
-.pdf-viewer-error__filename {
-  font-size: 13px;
-}
-
 .viewer-toolbar-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -208,11 +184,23 @@
   min-height: 100%;
 }
 
+/* Viewport-fill mode for viewers that should not scroll (e.g. Mermaid
+   visual). Adds `height: 100%` so `.enhanced-viewer-content` children
+   can resolve `height: 100%` against a definite container. Scrollable
+   viewers (markdown, source) must NOT use this — they need the parent
+   to grow beyond the viewport via `min-height` only. */
+.enhanced-viewer--fill {
+  height: 100%;
+}
+
 /* L1 — flex child that fills all space below the sticky toolbar.
    Used by visual-view wrappers so the viewer component can expand
-   to the bottom of the scroll region (#213). */
+   to the bottom of the scroll region (#213).
+   `height: 0` gives the flex item a definite height so children
+   (e.g. MermaidView) can resolve `height: 100%` against it. */
 .enhanced-viewer-content {
   flex: 1;
+  height: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -224,10 +212,7 @@
   overflow: auto;
 }
 
-.viewer-error {
-  padding: 20px;
-  color: var(--color-badge);
-}
+/* viewer-error uses the shared .viewer-placeholder class in ViewerRouter */
 
 /* ── Responsive toolbar labels ─────────────────────────────────────── */
 
