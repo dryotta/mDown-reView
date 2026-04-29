@@ -4,6 +4,7 @@ use super::{enforce_workspace_path, CommentsEmitter};
 use crate::core::types::{Anchor, Reaction};
 use crate::watcher::{SidecarConfigState, WatcherState};
 use tauri::{AppHandle, Runtime, State};
+use crate::mdr_command;
 
 /// Patch payloads for `update_comment`. Discriminated enum (serde adjacent
 /// `kind`/`data` tags) so the TS side can branch cleanly. Every per-comment
@@ -39,8 +40,7 @@ pub enum CommentPatch {
 }
 
 /// Apply a [`CommentPatch`] to a single comment.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn update_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,

@@ -11,6 +11,7 @@
 use crate::core::onboarding::{load_at, save_at};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+use crate::mdr_command;
 
 const AUTHOR_MAX_BYTES: usize = 128;
 
@@ -73,8 +74,7 @@ pub fn set_author_at(path: &Path, name: &str) -> Result<String, ConfigError> {
     Ok(cleaned)
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn set_author(app: AppHandle, name: String) -> Result<String, ConfigError> {
     let path = default_path(&app)?;
     set_author_at(&path, &name)
@@ -99,8 +99,7 @@ pub fn get_author_at_with<F: FnOnce() -> String>(path: &Path, fallback: F) -> St
     state.author.unwrap_or_else(fallback)
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn get_author(app: AppHandle) -> Result<String, ConfigError> {
     let path = default_path(&app)?;
     Ok(get_author_at_with(&path, default_author))

@@ -47,6 +47,10 @@ vi.mock("@/lib/tauri-commands", () => ({
   getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
   getAuthor: vi.fn().mockResolvedValue("Test User"),
   setAuthor: vi.fn().mockResolvedValue("Test User"),
+  // Issue #264 — runtime tracing fires from App.tsx's mount effect.
+  // Stub returns void; the real implementation logs to the rotating
+  // file via Rust's StartupRecorder.
+  recordStartupPhase: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({
@@ -122,12 +126,7 @@ async function renderApp() {
 
 // ── Helper: dispatch keyboard shortcut on window ───────────────────────────
 
-function pressKey(opts: {
-  key: string;
-  ctrlKey?: boolean;
-  shiftKey?: boolean;
-  metaKey?: boolean;
-}) {
+function pressKey(opts: { key: string; ctrlKey?: boolean; shiftKey?: boolean; metaKey?: boolean }) {
   fireEvent.keyDown(window, {
     key: opts.key,
     ctrlKey: opts.ctrlKey ?? false,
@@ -483,4 +482,3 @@ describe("App – menu event listeners", () => {
     expect(screen.getByTestId("about-dialog")).toBeInTheDocument();
   });
 });
-

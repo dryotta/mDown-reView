@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
+use crate::mdr_command;
 
 /// Maximum number of tree-watched dirs across ALL windows (merged union).
 pub const MAX_TREE_WATCHED_DIRS: usize = 1024;
@@ -428,8 +429,7 @@ fn sync_dirs(
 
 /// Tauri command: update the set of watched file paths.
 /// The frontend calls this whenever the set of open tabs changes.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn update_watched_files(
     window: tauri::Window,
     paths: Vec<String>,

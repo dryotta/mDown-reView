@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
+use crate::mdr_command;
 
 const STABLE_ENDPOINT: &str =
     "https://github.com/dryotta/mdownreview/releases/latest/download/latest.json";
@@ -51,8 +52,7 @@ fn installed_channel(app: &AppHandle) -> &'static str {
 /// Check for an update on the given channel.
 /// For cross-channel switches the version comparator is overridden
 /// to accept any different version (enabling "downgrades").
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<UpdateInfo>, String> {
     let endpoint = endpoint_for_channel(&channel);
     let cross_channel = installed_channel(&app) != channel.as_str();
@@ -88,8 +88,7 @@ pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<Upda
 
 /// Download and install the pending update. Emits "update-progress"
 /// events so the frontend can show a progress bar.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let update = {
         let state = app.state::<PendingUpdate>();

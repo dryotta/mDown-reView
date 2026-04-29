@@ -1,10 +1,27 @@
+// Self-alias so the `#[mdr_command]` proc-macro (in `mdr-macros/`) can
+// emit absolute paths like `::mdown_review_lib::startup_recorder::…`
+// uniformly — both INSIDE this crate's compile units AND in downstream
+// integration tests. Without this, a bare `::mdown_review_lib::…` path
+// inside `lib.rs` itself fails E0433 because the crate cannot
+// self-reference by name. This is the canonical Rust pattern for
+// proc-macros that need an absolute path back to the host crate.
+extern crate self as mdown_review_lib;
+
 pub mod commands;
 pub mod core;
 pub mod instance_scope;
+pub mod macros;
 pub mod registry;
+pub mod startup_recorder;
 pub mod tracing_log_bridge;
 pub mod update;
 pub mod watcher;
+
+// Re-export `#[mdr_command]` at the crate root so call sites read
+// `use crate::mdr_command;` (or `use mdown_review_lib::mdr_command;`
+// from tests) instead of the deeper `crate::macros::mdr_command`.
+// See `macros/mod.rs` for the indirection rationale.
+pub use macros::mdr_command;
 
 use commands::{parse_launch_args, LaunchArgs};
 #[cfg(all(debug_assertions, feature = "codegen"))]
@@ -168,8 +185,7 @@ fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("failed to create window: {e}"))
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 fn register_window_folder(
     window: tauri::Window,
     folder: String,
@@ -198,8 +214,7 @@ fn register_window_folder(
     }
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 fn unregister_window_folder(
     window: tauri::Window,
     registry: tauri::State<'_, registry::WindowRegistry>,
@@ -352,6 +367,7 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::sidecar_config::get_sidecar_config,
                 commands::sidecar_config::set_sidecar_config,
                 commands::sidecar_config::migrate_sidecars_cmd,
+                commands::startup::record_startup_phase,
                 update::check_update,
                 update::install_update,
                 register_window_folder,
@@ -374,6 +390,12 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Anchor the StartupRecorder timeline. Touching `record_phase` here
+    // also forces lazy `OnceLock` init so the `t_ms` baseline matches
+    // the user-visible "process start" rather than the first IPC call.
+    // See `startup_recorder` for the schema (`[startup] phase=app-init t_ms=…`).
+    startup_recorder::record_phase(startup_recorder::StartupPhase::AppInit);
+
     let log_plugin = {
         let mut builder = tauri_plugin_log::Builder::new()
             .max_file_size(5 * 1024 * 1024)
@@ -515,9 +537,15 @@ pub fn run() {
 
             // ── Per-window menu for main window ──────────────────────────────
             // Main window is created by tauri.conf.json; set its menu here.
+            // The presence of the main webview window at this point is the
+            // best in-process signal that the renderer is loadable, so we
+            // record `WebviewReady` here. Frontend-side phases
+            // (`ThemeApplied`, `FrontendMounted`, `FirstFileLoaded`) are
+            // reported via `record_startup_phase` once React mounts.
             if let Some(main_win) = app.get_webview_window("main") {
                 let main_menu = build_window_menu(app, "main")?;
                 main_win.set_menu(main_menu)?;
+                startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
             }
 
             // ── Menu event routing ───────────────────────────────────────────

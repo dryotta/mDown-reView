@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 use std::fmt;
+use crate::mdr_command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
@@ -53,20 +54,17 @@ mod unsupported;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use unsupported as imp;
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn cli_shim_status(app: tauri::AppHandle) -> CliShimStatus {
     imp::status(&app)
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn install_cli_shim(app: tauri::AppHandle) -> Result<(), CliShimError> {
     imp::install(&app)
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn remove_cli_shim(app: tauri::AppHandle) -> Result<(), CliShimError> {
     imp::remove(&app)
 }

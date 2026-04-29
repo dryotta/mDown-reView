@@ -41,6 +41,13 @@ tester.run("no-startup-side-effect-import", rule, {
       code: `import ReactDOM from "react-dom/client";`,
       filename: "src/main.tsx",
     },
+    // Issue #264 — runtime tracing fires `recordStartupPhase("theme-applied")`
+    // from main.tsx. The wrapper is a thin façade over auto-generated
+    // bindings; allowlist explicitly so the cold-start path can opt in.
+    {
+      code: `import { recordStartupPhase } from "@/lib/tauri-commands";`,
+      filename: "src/main.tsx",
+    },
 
     // ---- App.tsx broader allowlist ----
     {

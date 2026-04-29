@@ -15,6 +15,7 @@ pub mod launch;
 pub mod onboarding;
 pub mod remote_asset;
 pub mod search;
+pub mod startup;
 pub mod system;
 pub mod sidecar_config;
 pub mod word_tokens;
@@ -50,6 +51,7 @@ pub use remote_asset::fetch_remote_asset;
 pub use search::{
     parse_kql, search_in_document, strip_json_comments, KqlPipelineStep, SearchMatch,
 };
+pub use startup::record_startup_phase;
 pub use system::{reveal_in_folder, SystemError};
 pub use sidecar_config::{
     get_sidecar_config, migrate_sidecars_cmd, set_sidecar_config, MigrateSidecarsResult,

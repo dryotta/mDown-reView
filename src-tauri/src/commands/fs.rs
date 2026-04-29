@@ -3,6 +3,7 @@
 use super::is_sidecar_file;
 use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::DirEntry;
+use crate::mdr_command;
 
 /// Canonicalize an absolute path to the long form without the Windows `\\?\`
 /// verbatim prefix. Used by the renderer to normalize paths at workspace-open
@@ -10,8 +11,7 @@ use crate::core::types::DirEntry;
 /// scanner output (which itself canonicalizes via `dunce`) match. No
 /// workspace guard — this is the very command callers use to obtain the
 /// canonical form before they have a workspace to validate against.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn canonicalize_path(path: String) -> Result<String, String> {
     canonicalize_no_verbatim(std::path::Path::new(&path))
         .map(|p| p.to_string_lossy().into_owned())
@@ -35,8 +35,7 @@ pub enum PathKind {
 }
 
 /// Check if a path exists and whether it is a directory or file.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn check_path_exists(path: String) -> PathKind {
     match std::fs::metadata(&path) {
         Ok(meta) if meta.is_dir() => PathKind::Dir,
@@ -61,8 +60,7 @@ pub struct ReadDirResult {
 /// Hides `.review.yaml`/`.review.json` sidecar files, and also hides the
 /// `sidecar_root` directory when listing a workspace root with an active
 /// redirect (AC10: prevents users from seeing the internal sidecar store).
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn read_dir(
     path: String,
     limit: Option<usize>,
@@ -191,8 +189,7 @@ pub struct TextFileResult {
 /// platform/FS does not expose it). The file handle's metadata is read
 /// before the body so content + mtime come from the same `open()` and the
 /// caller cannot observe a torn (content_v1, mtime_v2) pair.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
     use std::io::Read;
 
@@ -243,8 +240,7 @@ pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
 }
 
 /// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn read_binary_file(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
@@ -278,8 +274,7 @@ pub struct FileStat {
     pub mtime_ms: Option<i64>,
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn stat_file(
     path: String,
     state: tauri::State<'_, crate::watcher::WatcherState>,
@@ -324,8 +319,7 @@ pub fn stat_file_inner(
 /// Also loads the `.mrsf.yaml` config for the workspace root and caches
 /// its `sidecar_root` value in [`SidecarConfigState`] so that subsequent
 /// sidecar reads/writes use the configured path.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn update_tree_watched_dirs(
     window: tauri::Window,
     root: String,

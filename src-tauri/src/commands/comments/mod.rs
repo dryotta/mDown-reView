@@ -14,6 +14,7 @@ use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::watcher::{SidecarConfigState, WatcherState};
+use crate::mdr_command;
 
 pub mod anchor_input;
 pub mod badge_cache;
@@ -245,8 +246,7 @@ fn with_sidecar_or_create<E: CommentsEmitter>(
 /// by `invoke("add_comment", { ... })` on the JS side. Grouping arguments
 /// into a struct would change the wire contract.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn add_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
@@ -380,8 +380,7 @@ pub fn check_workspace_for(
 }
 
 /// Create a reply to an existing comment, save to sidecar.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn add_reply<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
@@ -432,8 +431,7 @@ pub fn add_reply_inner<E: CommentsEmitter>(
 }
 
 /// Edit a comment's text, save to sidecar.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn edit_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
@@ -480,8 +478,7 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
 }
 
 /// Delete a comment (with reply reparenting per MRSF §9.1), save to sidecar.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn delete_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,
@@ -521,8 +518,7 @@ pub fn delete_comment_inner<E: CommentsEmitter>(
 }
 
 /// Compute SHA-256 hash for selected text anchor.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn compute_anchor_hash(text: String) -> String {
     crate::core::anchors::compute_selected_text_hash(&text)
 }

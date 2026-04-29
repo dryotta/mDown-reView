@@ -48,3 +48,10 @@ flowchart LR
 - Exception capture contract (Rust panic hook + React ErrorBoundary + `window.onerror` + `unhandledrejection`) — [`docs/security.md`](../security.md).
 - Console silence as a first-class assertion — principle 2 in [`docs/test-strategy.md`](../test-strategy.md).
 - No in-app log viewer; no log upload — [`docs/principles.md`](../principles.md) Non-Goals.
+
+## Runtime tracing schemas
+
+Two stable line schemas share this rotating file (issue #264 / PR3). The canonical home for the field reference, env-var gating, and the post-hoc `analyze-log` story is [`docs/observability.md`](../observability.md):
+
+* **`[ipc] cmd=<name> duration_us=<u> payload_bytes=<n> ok=<bool>`** — emitted by every `#[mdr_command]`-wrapped Tauri command, target `"ipc"`. Errors land at `warn` level with `err=<debug>`.
+* **`[startup] phase=<kebab-name> t_ms=<n>`** — emitted at most once per phase per process by `StartupRecorder`, target `"startup"`. Phases: `app-init`, `webview-ready`, `first-ipc`, `theme-applied`, `frontend-mounted`, `first-file-loaded`.

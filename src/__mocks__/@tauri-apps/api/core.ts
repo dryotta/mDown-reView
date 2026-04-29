@@ -86,13 +86,10 @@ export const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Pro
       }
     }
     return result;
-  },
+  }
 );
 
-async function defaultInvoke(
-  cmd: string,
-  _args?: Record<string, unknown>,
-): Promise<InvokeResult> {
+async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Promise<InvokeResult> {
   if (cmd === "get_launch_args") {
     return launchArgsQueue.length > 0 ? launchArgsQueue.shift()! : EMPTY_LAUNCH_ARGS;
   }
@@ -136,10 +133,7 @@ async function defaultInvoke(
   if (cmd === "read_text_file") {
     return { content: "", size_bytes: 0, line_count: 0 } as TextFileResult;
   }
-  if (
-    cmd === "cli_shim_status" ||
-    cmd === "default_handler_status"
-  ) {
+  if (cmd === "cli_shim_status" || cmd === "default_handler_status") {
     return "missing";
   }
   if (cmd === "onboarding_state") {
@@ -148,11 +142,7 @@ async function defaultInvoke(
     // Playwright fixture's default.
     return { schema_version: 1, last_seen_sections: [] } as unknown as InvokeResult;
   }
-  if (
-    cmd === "install_cli_shim" ||
-    cmd === "remove_cli_shim" ||
-    cmd === "set_default_handler"
-  ) {
+  if (cmd === "install_cli_shim" || cmd === "remove_cli_shim" || cmd === "set_default_handler") {
     return undefined;
   }
   if (cmd === "canonicalize_path") {
@@ -164,15 +154,35 @@ async function defaultInvoke(
   if (cmd === "get_file_viewer_pref") return null;
   if (cmd === "set_file_viewer_pref") return undefined;
   if (cmd === "get_sidecar_config")
-    return { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 } satisfies SidecarConfigResult;
+    return {
+      enabled: false,
+      sidecar_root: null,
+      count_in_folder: 0,
+      count_colocated: 0,
+    } satisfies SidecarConfigResult;
   if (cmd === "set_sidecar_config")
-    return { enabled: (_args?.enabled as boolean) ?? false, sidecar_root: _args?.enabled ? ".reviews" : null, count_in_folder: 0, count_colocated: 0 } satisfies SidecarConfigResult;
+    return {
+      enabled: (_args?.enabled as boolean) ?? false,
+      sidecar_root: _args?.enabled ? ".reviews" : null,
+      count_in_folder: 0,
+      count_colocated: 0,
+    } satisfies SidecarConfigResult;
   if (cmd === "migrate_sidecars_cmd")
-    return { moved: 0, failed: [], config: { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 } } satisfies MigrateSidecarsResult;
+    return {
+      moved: 0,
+      failed: [],
+      config: { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 },
+    } satisfies MigrateSidecarsResult;
   if (cmd === "read_dir") return { entries: [], total: 0, has_more: false } satisfies ReadDirResult;
   if (cmd === "register_window_folder") return undefined;
   if (cmd === "unregister_window_folder") return undefined;
+  // record_startup_phase is fire-and-forget telemetry (#264). Tests don't
+  // verify the side-effect; returning undefined matches the Rust
+  // `() -> ()` shape so the façade's bindings.recordStartupPhase resolves.
+  if (cmd === "record_startup_phase") return undefined;
   return undefined;
 }
 
-export const convertFileSrc = vi.fn((path: string) => "asset://localhost/" + encodeURIComponent(path));
+export const convertFileSrc = vi.fn(
+  (path: string) => "asset://localhost/" + encodeURIComponent(path)
+);

@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+use crate::mdr_command;
 
 const MAX_ENTRIES: usize = 500;
 
@@ -125,8 +126,7 @@ pub fn set_pref_at(
 
 // ── IPC commands ──────────────────────────────────────────────────────
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn get_file_viewer_pref(app: AppHandle, path: String) -> Option<FileViewerPref> {
     let canonical = match crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&path)) {
         Ok(c) => c,
@@ -140,8 +140,7 @@ pub fn get_file_viewer_pref(app: AppHandle, path: String) -> Option<FileViewerPr
         .map(|e| FileViewerPref { allow_images: e.allow_images })
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn set_file_viewer_pref(
     app: AppHandle,
     path: String,

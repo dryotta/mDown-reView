@@ -4,14 +4,14 @@
 use crate::core::onboarding::{load_at, OnboardingState};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+use crate::mdr_command;
 
 fn default_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     Ok(dir.join("onboarding.json"))
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn onboarding_state(app: AppHandle) -> Result<OnboardingState, String> {
     let path = default_path(&app)?;
     Ok(load_at(&path))

@@ -12,6 +12,7 @@
 
 use std::path::Path;
 use std::process::Command;
+use crate::mdr_command;
 
 /// Typed error surfaced to the renderer. Discriminated with an internal `kind`
 /// tag so the TS side can branch on it without parsing prose strings.
@@ -66,8 +67,7 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<Command, SystemError> 
 ///
 /// Workspace-allowlisted via `WatcherState::is_path_allowed`. On Linux there
 /// is no portable "select" — we open the parent directory instead.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn reveal_in_folder(
     path: String,
     state: tauri::State<'_, crate::watcher::WatcherState>,

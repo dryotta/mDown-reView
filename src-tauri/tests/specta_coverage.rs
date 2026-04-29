@@ -1,4 +1,4 @@
-//! Meta-test for the tauri-specta codegen pipeline (issue #263).
+//! Meta-test for the tauri-specta codegen pipeline (issue #263 / #264).
 //!
 //! Walks `src-tauri/src/`, parses every `.rs` file with `syn`, and
 //! asserts that every function carrying `#[tauri::command]` ALSO
@@ -9,6 +9,14 @@
 //! `tauri::ipc::Response` return). Adding a new exemption requires
 //! updating both this list AND `lib.rs::build_specta_builder` AND the
 //! dispatcher in `lib.rs::run`.
+//!
+//! Issue #264 introduced `#[mdr_command]` (in `mdr-macros/`) which
+//! expands to `#[tauri::command] + #[specta::specta] + tracing wrap`.
+//! That attribute IS the canonical IPC marker for everything except
+//! the documented `fetch_remote_asset` exemption — so this test
+//! treats `#[mdr_command]` as inherently specta-paired (the macro
+//! always emits the specta attr) and only enforces the pairing rule
+//! against bare `#[tauri::command]`.
 //!
 //! This file deliberately does NOT reference any `mdown_review_lib::*`
 //! symbol that pulls in `tauri::Wry` (and therefore `tauri-runtime-wry`
