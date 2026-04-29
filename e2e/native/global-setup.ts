@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import * as http from "http";
 
 
@@ -203,7 +204,8 @@ export async function spawnAppWithCdp(opts?: {
   binaryPath?: string;
   cdpPort?: number;
   timeoutMs?: number;
-}): Promise<{ appProc: ChildProcess; cdpPort: number }> {
+  userDataDir?: string;
+}): Promise<{ appProc: ChildProcess; cdpPort: number; userDataDir: string }> {
   if (process.platform !== "win32") {
     throw new Error("spawnAppWithCdp requires Windows (WebView2 + CDP)");
   }
@@ -212,18 +214,35 @@ export async function spawnAppWithCdp(opts?: {
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Binary not found at ${binaryPath}. Build first: 'cd src-tauri && cargo build'.`);
   }
+  // WebView2 reuses one host process across launches that share a user-data
+  // folder, so the second binary's --remote-debugging-port arg is ignored
+  // when the host is already running. Each spawn gets its own folder by
+  // default so a fresh WebView2 host binds the requested CDP port. Tests
+  // that need cross-launch localStorage (e.g. flicker FOUC) can pass an
+  // explicit `userDataDir` to share state across two sequential spawns.
+  const ownsDataDir = !opts?.userDataDir;
+  const userDataDir =
+    opts?.userDataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), `mdr-cdp-${cdpPort}-`));
+  const instanceId = `com.mdownreview.desktop.cdp-${cdpPort}`;
   const appProc = spawn(binaryPath, [], {
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
+      WEBVIEW2_USER_DATA_FOLDER: userDataDir,
+      MDR_INSTANCE_ID: instanceId,
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
   });
   let alive = true;
-  appProc.once("exit", () => { alive = false; });
+  appProc.once("exit", () => {
+    alive = false;
+    if (ownsDataDir) {
+      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
   await waitForCdp(cdpPort, opts?.timeoutMs ?? 30_000, () => alive);
-  return { appProc, cdpPort };
+  return { appProc, cdpPort, userDataDir };
 }
 
 export { waitForCdp };

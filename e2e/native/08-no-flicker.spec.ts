@@ -2,6 +2,9 @@ import { test, expect } from "@playwright/test";
 import { spawnAppWithCdp } from "./global-setup";
 import { chromium, type Page, type Browser } from "@playwright/test";
 import { spawnSync, type ChildProcess } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 /**
  * Flicker regression test (issue #265 / PR4).
@@ -140,67 +143,95 @@ test.describe("Flicker regression (issue #265)", () => {
   test.skip(process.platform !== "win32", "Native UI tests require Windows (WebView2 + CDP)");
 
   test("dark theme — no white frame in first 500ms", async () => {
-    const { appProc } = await spawnAppWithCdp({ cdpPort: 9230, timeoutMs: 30_000 });
+    // Both spawns share a user-data folder so localStorage written in
+    // launch #1 is visible to the FOUC script in launch #2.
+    const sharedDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mdr-flicker-dark-"));
     let browser: Browser | null = null;
     try {
-      // First launch: clear any persisted state so this run defaults
-      // to system / dark (CI hosts default to dark; dev machines
-      // may differ but we explicitly set dark below for stability).
-      const { browser: b1, page } = await attachToPage(9230, Date.now() + 15_000);
-      browser = b1;
-      await page.evaluate(() => window.localStorage.removeItem("mdownreview-ui"));
-      await setPersistedTheme(page, "dark");
-    } finally {
-      if (browser) await browser.close();
-      await killProcess(appProc);
-    }
+      const { appProc } = await spawnAppWithCdp({
+        cdpPort: 9230,
+        timeoutMs: 30_000,
+        userDataDir: sharedDataDir,
+      });
+      try {
+        // First launch: clear any persisted state so this run defaults
+        // to system / dark (CI hosts default to dark; dev machines
+        // may differ but we explicitly set dark below for stability).
+        const { browser: b1, page } = await attachToPage(9230, Date.now() + 15_000);
+        browser = b1;
+        await page.evaluate(() => window.localStorage.removeItem("mdownreview-ui"));
+        await setPersistedTheme(page, "dark");
+      } finally {
+        if (browser) await browser.close();
+        await killProcess(appProc);
+      }
 
-    // Re-launch — the FOUC script reads the just-persisted theme.
-    const { appProc: appProc2 } = await spawnAppWithCdp({ cdpPort: 9231, timeoutMs: 30_000 });
-    try {
-      const { browser: b2, page } = await attachToPage(9231, Date.now() + 15_000);
-      browser = b2;
-      const samples = await captureFrameSamples(page);
-      console.log(`[no-flicker] dark samples: ${JSON.stringify(samples)}`);
+      // Re-launch — the FOUC script reads the just-persisted theme.
+      const { appProc: appProc2 } = await spawnAppWithCdp({
+        cdpPort: 9231,
+        timeoutMs: 30_000,
+        userDataDir: sharedDataDir,
+      });
+      try {
+        const { browser: b2, page } = await attachToPage(9231, Date.now() + 15_000);
+        browser = b2;
+        const samples = await captureFrameSamples(page);
+        console.log(`[no-flicker] dark samples: ${JSON.stringify(samples)}`);
 
-      // First sample must already have data-theme set (FOUC script ran).
-      expect(samples[0].dataTheme).toBe("dark");
-      // No white frame in any sample.
-      for (const s of samples) {
-        expect(s.bgColor, `sample at t=${s.tMs}ms had white background`).not.toBe(LIGHT_BG_RGB);
+        // First sample must already have data-theme set (FOUC script ran).
+        expect(samples[0].dataTheme).toBe("dark");
+        // No white frame in any sample.
+        for (const s of samples) {
+          expect(s.bgColor, `sample at t=${s.tMs}ms had white background`).not.toBe(LIGHT_BG_RGB);
+        }
+      } finally {
+        if (browser) await browser.close();
+        await killProcess(appProc2);
       }
     } finally {
-      if (browser) await browser.close();
-      await killProcess(appProc2);
+      try { fs.rmSync(sharedDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   });
 
   test("light theme — no dark frame in first 500ms", async () => {
-    const { appProc } = await spawnAppWithCdp({ cdpPort: 9232, timeoutMs: 30_000 });
+    const sharedDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mdr-flicker-light-"));
     let browser: Browser | null = null;
     try {
-      const { browser: b1, page } = await attachToPage(9232, Date.now() + 15_000);
-      browser = b1;
-      await setPersistedTheme(page, "light");
-    } finally {
-      if (browser) await browser.close();
-      await killProcess(appProc);
-    }
+      const { appProc } = await spawnAppWithCdp({
+        cdpPort: 9232,
+        timeoutMs: 30_000,
+        userDataDir: sharedDataDir,
+      });
+      try {
+        const { browser: b1, page } = await attachToPage(9232, Date.now() + 15_000);
+        browser = b1;
+        await setPersistedTheme(page, "light");
+      } finally {
+        if (browser) await browser.close();
+        await killProcess(appProc);
+      }
 
-    const { appProc: appProc2 } = await spawnAppWithCdp({ cdpPort: 9233, timeoutMs: 30_000 });
-    try {
-      const { browser: b2, page } = await attachToPage(9233, Date.now() + 15_000);
-      browser = b2;
-      const samples = await captureFrameSamples(page);
-      console.log(`[no-flicker] light samples: ${JSON.stringify(samples)}`);
+      const { appProc: appProc2 } = await spawnAppWithCdp({
+        cdpPort: 9233,
+        timeoutMs: 30_000,
+        userDataDir: sharedDataDir,
+      });
+      try {
+        const { browser: b2, page } = await attachToPage(9233, Date.now() + 15_000);
+        browser = b2;
+        const samples = await captureFrameSamples(page);
+        console.log(`[no-flicker] light samples: ${JSON.stringify(samples)}`);
 
-      expect(samples[0].dataTheme).toBe("light");
-      for (const s of samples) {
-        expect(s.bgColor, `sample at t=${s.tMs}ms had dark background`).not.toBe(DARK_BG_RGB);
+        expect(samples[0].dataTheme).toBe("light");
+        for (const s of samples) {
+          expect(s.bgColor, `sample at t=${s.tMs}ms had dark background`).not.toBe(DARK_BG_RGB);
+        }
+      } finally {
+        if (browser) await browser.close();
+        await killProcess(appProc2);
       }
     } finally {
-      if (browser) await browser.close();
-      await killProcess(appProc2);
+      try { fs.rmSync(sharedDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   });
 });
