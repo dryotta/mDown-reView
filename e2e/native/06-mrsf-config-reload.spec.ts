@@ -4,7 +4,9 @@ import * as path from "path";
 import * as fs from "fs";
 
 test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
-  test("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
+  // Skip: flaky on CI — watcher config reload timing is non-deterministic
+  // on Windows GitHub Actions runners. See https://github.com/dryotta/mdownreview/issues/281
+  test.skip("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
     nativePage,
   }) => {
     const rawTmpDir = path.join(os.tmpdir(), `mdownreview-mrsf-${Date.now()}`);

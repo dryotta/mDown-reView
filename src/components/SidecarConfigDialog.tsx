@@ -60,13 +60,13 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect -- initial async load
-    getSidecarConfig(root)
+    void getSidecarConfig(root)
       .then((result) => {
         if (!cancelled) setConfig(result);
       })
       .catch((err) => {
         const msg = formatErr(err);
-        warn(`[SidecarConfigDialog] load failed: ${msg}`);
+        void warn(`[SidecarConfigDialog] load failed: ${msg}`);
         if (!cancelled) setError(`Failed to load sidecar config: ${msg}`);
       })
       .finally(() => {
