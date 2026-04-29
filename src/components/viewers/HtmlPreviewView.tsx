@@ -177,7 +177,13 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                   const route = routeLinkClick(href, { baseDir, workspaceRoot });
                   switch (route.kind) {
                     case "fragment":
-                      return; // let the browser scroll natively
+                      // Native fragment scroll inside `srcdoc` iframes is
+                      // unreliable in WebView2 (the synthetic `about:srcdoc`
+                      // URL doesn't update its hash, so the browser skips
+                      // the scroll). Always scroll explicitly.
+                      event.preventDefault();
+                      scrollIframeToFragment(doc, route.fragment);
+                      return;
                     case "blocked":
                       event.preventDefault();
                       void warn(

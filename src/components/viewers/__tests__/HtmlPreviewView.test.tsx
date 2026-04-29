@@ -220,6 +220,40 @@ describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
     expect(useStore.getState().openFile).toHaveBeenCalledWith("/wk/other.html");
     cleanup();
   });
+
+  // Regression: fragment-only links (`<a href="#section">`) inside the
+  // sandboxed `srcdoc` iframe must scroll explicitly. WebView2 does not
+  // perform native fragment navigation against `about:srcdoc`, so the
+  // browser-default code path silently skipped the scroll. Issue
+  // surfaced manually with site/index.html in dev.
+  it("fragment-only link scrolls inside iframe (no native default)", async () => {
+    const { container } = render(
+      <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const doc = iframe.contentDocument!;
+    fireEvent.load(iframe);
+
+    const target = doc.createElement("section");
+    target.id = "how-it-works";
+    const scrollSpy = vi.fn();
+    target.scrollIntoView = scrollSpy;
+    doc.body.appendChild(target);
+
+    const anchor = doc.createElement("a");
+    anchor.setAttribute("href", "#how-it-works");
+    anchor.textContent = "jump";
+    doc.body.appendChild(anchor);
+    const event = new doc.defaultView!.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    anchor.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    cleanup();
+  });
 });
 
 describe("HtmlPreviewView — anchor title injection", () => {
