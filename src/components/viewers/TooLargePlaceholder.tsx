@@ -14,7 +14,7 @@ interface Props {
 export function TooLargePlaceholder({ path, size }: Props) {
   const name = basename(path);
   return (
-    <div className="too-large-placeholder">
+    <div className="viewer-placeholder">
       <p className="binary-filename">{name}</p>
       {size !== undefined && (
         <p className="binary-size">{formatBytes(size)}</p>

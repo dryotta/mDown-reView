@@ -3,7 +3,7 @@ import { readTextFile, statFile } from "@/lib/tauri-commands";
 import { getFileCategory } from "@/lib/file-types";
 import { useStore } from "@/store/index";
 
-export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "audio" | "video" | "pdf" | "error";
+export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "audio" | "error";
 
 export interface FileContent {
   status: FileStatus;
@@ -49,14 +49,6 @@ export function useFileContent(path: string): FileContent {
     }
     if (getFileCategory(path) === "audio") {
       setState({ status: "audio" });
-      return;
-    }
-    if (getFileCategory(path) === "video") {
-      setState({ status: "video" });
-      return;
-    }
-    if (getFileCategory(path) === "pdf") {
-      setState({ status: "pdf" });
       return;
     }
 

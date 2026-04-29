@@ -59,6 +59,10 @@ jobs:
       - name: Stage CLI binary (needed by integration tests + Tauri externalBin)
         run: npm run stage:cli
 
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D clippy::dbg_macro -D clippy::todo
+
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
@@ -80,6 +84,9 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      - name: ESLint
+        run: npm run lint
 
       - name: Vitest unit tests
         run: npm test

@@ -290,7 +290,7 @@ test.describe("UX overhaul (#41) — sticky viewer toolbar", () => {
     await expect(toolbar).toBeInViewport();
 
     // The Group E contract: viewer-toolbar.css declares position: sticky,
-    // top: 0, z-index: 2 so the toolbar pins to the top of its scroll
+    // top: 0, z-index: 10 so the toolbar pins to the top of its scroll
     // container. Verify the computed style — this is what guarantees the
     // toolbar stays in viewport when the markdown content scrolls.
     const computed = await toolbar.evaluate((el) => {
@@ -299,7 +299,7 @@ test.describe("UX overhaul (#41) — sticky viewer toolbar", () => {
     });
     expect(computed.position).toBe("sticky");
     expect(computed.top).toBe("0px");
-    expect(computed.zIndex).toBe("2");
+    expect(computed.zIndex).toBe("10");
 
     // Note: a full sticky behavior assertion (scroll the container, confirm
     // toolbar still in viewport) is intentionally NOT included — the
