@@ -8,6 +8,48 @@ use crate::core::types::LaunchArgs;
 use std::path::Path;
 use tauri::Manager;
 
+/// Parse the process-global `--trace` flag out of the raw argv.
+///
+/// Recognized forms (the **only** flag this function inspects — every other
+/// argument is ignored, since they are owned by the per-window
+/// [`parse_launch_args`] parser):
+///
+/// * `--trace`        → `Some(true)` (presence implies on)
+/// * `--trace=on`     → `Some(true)`   |  `--trace=off`   → `Some(false)`
+/// * `--trace=true`   → `Some(true)`   |  `--trace=false` → `Some(false)`
+/// * `--trace=1`      → `Some(true)`   |  `--trace=0`     → `Some(false)`
+///
+/// Returns `None` when the flag is absent. Caller applies the precedence
+/// chain (CLI > env > cfg) — see `lib.rs::run`.
+///
+/// Per-launch only: a second-instance forward does **not** call this — the
+/// running process keeps the gate state set at its own boot. This matches
+/// the user mental model that `--trace` configures *how this launch boots*,
+/// not "switch the running app's tracing." If live toggling is ever needed,
+/// add a setter IPC backed by [`crate::startup_recorder::set_ipc_trace_enabled`].
+///
+/// Trace is process-global, so it intentionally does **not** live on
+/// [`LaunchArgs`] (which is per-window).
+pub fn parse_trace_flag(args: &[String]) -> Option<bool> {
+    for arg in args {
+        if arg == "--trace" {
+            return Some(true);
+        }
+        if let Some(value) = arg.strip_prefix("--trace=") {
+            return match value.to_ascii_lowercase().as_str() {
+                "on" | "true" | "1" | "yes" => Some(true),
+                "off" | "false" | "0" | "no" => Some(false),
+                // Unknown value: treat as if the flag were absent so we
+                // fall through to the env / cfg precedence rather than
+                // silently picking the wrong default. A warning would
+                // be ideal but we have no logger yet at this call site.
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
 /// Parse CLI-style launch arguments into a `LaunchArgs` struct.
 ///
 /// Supports `--folder <path>`, `--file <path>`, and positional auto-detect
@@ -18,7 +60,9 @@ use tauri::Manager;
 ///      base and are canonicalized as-is.
 ///
 /// Non-existent paths are silently dropped (canonicalize fails). Unknown flags
-/// (anything starting with `-` other than `--folder`/`--file`) are ignored.
+/// (anything starting with `-` other than `--folder`/`--file`) are ignored —
+/// in particular, the process-global `--trace[=…]` flag (parsed by
+/// [`parse_trace_flag`]) is silently skipped here.
 pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
     let mut folders: Vec<String> = Vec::new();
     let mut files: Vec<String> = Vec::new();
@@ -298,6 +342,81 @@ mod tests {
             .into_owned();
 
         assert_eq!(out.files, vec![expected_canon]);
+    }
+
+    // ── parse_trace_flag tests ────────────────────────────────────────────
+
+    #[test]
+    fn trace_flag_absent_returns_none() {
+        assert_eq!(parse_trace_flag(&[]), None);
+        assert_eq!(parse_trace_flag(&[s("--folder"), s("/tmp")]), None);
+        assert_eq!(parse_trace_flag(&[s("foo.md"), s("bar.md")]), None);
+    }
+
+    #[test]
+    fn trace_flag_bare_implies_on() {
+        assert_eq!(parse_trace_flag(&[s("--trace")]), Some(true));
+        // Mixed with file / folder args, regardless of order.
+        assert_eq!(
+            parse_trace_flag(&[s("--folder"), s("/tmp"), s("--trace"), s("a.md")]),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn trace_flag_kv_on_variants_are_true() {
+        for v in ["on", "true", "1", "yes", "ON", "True", "YES"] {
+            let arg = format!("--trace={v}");
+            assert_eq!(parse_trace_flag(&[arg.clone()]), Some(true), "arg={arg}");
+        }
+    }
+
+    #[test]
+    fn trace_flag_kv_off_variants_are_false() {
+        for v in ["off", "false", "0", "no", "OFF", "False", "NO"] {
+            let arg = format!("--trace={v}");
+            assert_eq!(parse_trace_flag(&[arg.clone()]), Some(false), "arg={arg}");
+        }
+    }
+
+    /// An unrecognized value falls back to `None` so the caller's
+    /// precedence chain (env / cfg) kicks in — better than guessing.
+    #[test]
+    fn trace_flag_unknown_value_returns_none() {
+        assert_eq!(parse_trace_flag(&[s("--trace=maybe")]), None);
+        assert_eq!(parse_trace_flag(&[s("--trace=")]), None);
+    }
+
+    /// First `--trace` wins. Catches accidental duplication in a wrapper
+    /// script; the user's first-stated intent is kept.
+    #[test]
+    fn trace_flag_first_match_wins() {
+        assert_eq!(
+            parse_trace_flag(&[s("--trace=on"), s("--trace=off")]),
+            Some(true)
+        );
+        assert_eq!(
+            parse_trace_flag(&[s("--trace=off"), s("--trace=on")]),
+            Some(false)
+        );
+    }
+
+    /// `parse_launch_args` must continue to treat `--trace[=...]` as an
+    /// unknown flag (silently skipped). Regression guard for the
+    /// "trace flag pollutes file/folder parsing" failure mode.
+    #[test]
+    fn launch_args_ignore_trace_flag() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("foo.md"), "x").unwrap();
+
+        let with_trace = parse_launch_args(
+            &[s("--trace=on"), s("foo.md"), s("--trace")],
+            cwd.path(),
+        );
+        let without_trace = parse_launch_args(&[s("foo.md")], cwd.path());
+
+        assert_eq!(with_trace.files, without_trace.files);
+        assert_eq!(with_trace.folders, without_trace.folders);
     }
 
     #[test]

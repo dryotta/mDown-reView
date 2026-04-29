@@ -44,7 +44,7 @@ pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
 #[cfg(debug_assertions)]
 pub use launch::set_root_via_test;
 pub use launch::{
-    get_launch_args, get_log_path, parse_launch_args,
+    get_launch_args, get_log_path, parse_launch_args, parse_trace_flag,
     scan_review_files,
 };
 pub use remote_asset::fetch_remote_asset;

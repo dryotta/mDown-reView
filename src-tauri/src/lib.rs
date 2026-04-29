@@ -396,6 +396,23 @@ pub fn run() {
     // See `startup_recorder` for the schema (`[startup] phase=app-init t_ms=…`).
     startup_recorder::record_phase(startup_recorder::StartupPhase::AppInit);
 
+    // Apply the IPC trace gate precedence chain BEFORE the Tauri builder
+    // spins up the runtime (no IPC dispatches before `Builder::build()`
+    // returns, so the gate is set before any `#[mdr_command]` call reads
+    // it via `ipc_trace_enabled()`):
+    //
+    //   1. `--trace[=on|off]` launch flag  (highest)
+    //   2. `MDR_IPC_TRACE` env var         (existing escape hatch)
+    //   3. `cfg!(debug_assertions)`        (debug-on by default)
+    //
+    // See `docs/observability.md` for the user-facing description and
+    // `commands::launch::parse_trace_flag` for accepted flag forms.
+    let early_argv: Vec<String> = std::env::args().skip(1).collect();
+    let trace_enabled = commands::launch::parse_trace_flag(&early_argv)
+        .or_else(|| std::env::var("MDR_IPC_TRACE").ok().map(|_| true))
+        .unwrap_or(cfg!(debug_assertions));
+    startup_recorder::set_ipc_trace_enabled(trace_enabled);
+
     let log_plugin = {
         let mut builder = tauri_plugin_log::Builder::new()
             .max_file_size(5 * 1024 * 1024)

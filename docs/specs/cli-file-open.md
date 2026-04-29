@@ -19,7 +19,7 @@
 The parser accepts (case-insensitive on Windows path comparisons):
 
 ```
-mdownreview [--folder <dir>]... [--file <path>]... [<positional>...]
+mdownreview [--trace[=on|off]] [--folder <dir>]... [--file <path>]... [<positional>...]
 ```
 
 - `--folder` and `--file` may appear in any order, before or after positional
@@ -28,6 +28,10 @@ mdownreview [--folder <dir>]... [--file <path>]... [<positional>...]
   list.
 - A positional that resolves to a directory becomes a folder; one that
   resolves to a file becomes a file.
+- `--trace[=…]` is a **process-global** flag parsed by `parse_trace_flag`
+  (separate from `parse_launch_args`). It is silently ignored by the
+  file/folder parser and never appears in the resulting `LaunchArgs`.
+  See [Process-global flags](#process-global-flags) below.
 
 ## Path-resolution rules
 
@@ -76,6 +80,84 @@ The GUI calls into `core::paths::resolve_path` exactly as the CLI does:
 - **Given** `core::paths::resolve_path` is the canonical resolver.
 - **Then** `parse_launch_args` calls it for every path it produces — no
   ad-hoc joining elsewhere in `lib.rs` or the `launch` commands.
+
+## Process-global flags
+
+These flags configure the **whole process** at boot, not a particular
+window. They are parsed by `commands::launch::parse_trace_flag` (and
+peers, if added) before the Tauri builder spins up. They never appear
+in `LaunchArgs` and are silently ignored by `parse_launch_args`.
+
+### `--trace` — verbose IPC tracing
+
+Controls whether the per-call `[ipc] cmd=… ok=true` info-level lines
+are emitted by `#[mdr_command]` (see
+[`docs/observability.md`](../observability.md)). Always-on warn-level
+err lines and `[startup]` events are unaffected — those fire
+regardless of this flag.
+
+Accepted forms (first match wins):
+
+| Form | Result |
+|---|---|
+| `--trace` | `Some(true)` (presence implies on) |
+| `--trace=on`, `--trace=true`, `--trace=1`, `--trace=yes` | `Some(true)` |
+| `--trace=off`, `--trace=false`, `--trace=0`, `--trace=no` | `Some(false)` |
+| `--trace=<unrecognised>` | `None` (fall through to env / cfg) |
+| (flag absent) | `None` (fall through to env / cfg) |
+
+Boot-time precedence (highest wins):
+
+1. `--trace[=…]` flag — explicit user intent for *this* launch.
+2. `MDR_IPC_TRACE` env var (any value) — preserves the existing
+   escape hatch for shell aliases / launcher scripts.
+3. `cfg!(debug_assertions)` — debug builds default ON, release
+   builds default OFF.
+
+The resolved value is stored in
+`startup_recorder::IPC_TRACE_ENABLED` (a static `AtomicBool`) and
+read by `ipc_trace_enabled()` on every IPC call.
+
+### Scenario: `--trace` enables verbose IPC info lines for this launch
+
+- **Given** a release build with no `MDR_IPC_TRACE` env var set.
+- **When** `mdownreview --trace` is launched.
+- **Then** `startup_recorder::ipc_trace_enabled()` returns `true` and
+  every `#[mdr_command]` success arm emits `[ipc] … ok=true` to the
+  rotating log file.
+- **Coverage:** `commands/launch.rs` `parse_trace_flag` tests +
+  `tests/observability.rs` integration.
+
+### Scenario: `--trace=off` force-disables tracing in a debug build
+
+- **Given** a debug build (which would default to `on` via
+  `cfg!(debug_assertions)`).
+- **When** `mdownreview --trace=off` is launched.
+- **Then** the gate is `false`; no `[ipc] … ok=true` info lines fire.
+
+### Scenario: `--trace` is silently ignored by `parse_launch_args`
+
+- **Given** `mdownreview --trace=on foo.md`.
+- **When** the parser splits responsibilities (`parse_trace_flag` for
+  the flag; `parse_launch_args` for the paths).
+- **Then** `LaunchArgs.files == [foo.md]`, `LaunchArgs.folders == []`,
+  and the trace gate is set to `true`. The flag never reaches the
+  per-window IPC payload.
+- **Coverage:** `commands/launch.rs` `launch_args_ignore_trace_flag`.
+
+### Scenario: second-instance `--trace` is **not** applied to the running app
+
+- **Given** a running instance launched without `--trace`.
+- **When** the user double-clicks a `.md` file via a launcher that
+  passes `--trace=on`, and the OS routes it through the
+  `tauri-plugin-single-instance` forwarder.
+- **Then** the file is forwarded and opened in a new tab; the running
+  process's trace gate is **not** modified. Per-launch semantics: the
+  flag describes how the *first* launch boots, not "switch the
+  running app." If a user wants verbose tracing, they quit and
+  relaunch with `--trace`.
+- **Coverage:** `lib.rs::run` single-instance handler does not call
+  `parse_trace_flag`.
 
 ## Multi-file launches & single-instance forwarding
 

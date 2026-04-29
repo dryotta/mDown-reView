@@ -140,20 +140,47 @@ pub fn record_first_ipc() {
     }
 }
 
-/// Cached gate for the per-call `[ipc]` log line emitted by `#[mdr_command]`.
-/// Returns `true` in any debug build, or whenever `MDR_IPC_TRACE` is set in
-/// the process environment. The result is memoized in a `OnceLock<bool>`
-/// so the steady-state per-IPC cost is one relaxed atomic load + one
-/// branch — matches the hot-path budget in `docs/performance.md`.
+/// Process-global gate for the per-call `[ipc]` info line emitted by
+/// `#[mdr_command]`. Read by every IPC call (success arm); set once at
+/// boot from the precedence chain (`--trace` flag > `MDR_IPC_TRACE` env
+/// var > `cfg!(debug_assertions)`) — see `lib.rs::run`.
 ///
-/// Why cache: `std::env::var` is a syscall (or TLS lookup with a Mutex on
-/// Windows). Calling it on every IPC dispatch breaches the budget for
-/// hot commands like `search_in_document` and the watcher's `notify`
-/// callbacks. The env var is read at most once per process; live toggling
-/// is intentionally unsupported.
+/// Initial value is `cfg!(debug_assertions)` so that:
+///   * debug builds (incl. `cargo test`) light up tracing without
+///     explicit setup — the macro's behavior is identical to a
+///     production build that passed `--trace` on the command line;
+///   * release builds default OFF and only flip ON if `lib.rs::run`'s
+///     precedence chain says so. There is a brief window between
+///     `static` init and the first `set_ipc_trace_enabled` call when
+///     this default is observable, but no IPC fires before
+///     `tauri::Builder::build()` returns, and the boot sets the gate
+///     before the runtime starts dispatching commands.
+///
+/// The hot-path read is one `Ordering::Relaxed` atomic load — well under
+/// the budget in `docs/performance.md` for keystroke-rate commands.
+static IPC_TRACE_ENABLED: AtomicBool = AtomicBool::new(cfg!(debug_assertions));
+
+/// Returns whether the per-call `[ipc] … ok=true` info line should be
+/// emitted on this IPC dispatch. Always-on warn-level err lines and
+/// `[startup]` events are unaffected.
+///
+/// The flag is set once at boot via [`set_ipc_trace_enabled`]; subsequent
+/// calls just observe the atomic. If you want to live-toggle from a
+/// running app (e.g. via a Settings IPC), call [`set_ipc_trace_enabled`]
+/// from that command — every IPC dispatched after the store sees the new
+/// value via the relaxed-acquire ordering used here, which is sufficient
+/// because the gate is purely advisory (incorrect for at most a handful
+/// of in-flight IPCs while the store propagates).
 pub fn ipc_trace_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| cfg!(debug_assertions) || std::env::var("MDR_IPC_TRACE").is_ok())
+    IPC_TRACE_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Set the [`ipc_trace_enabled`] gate. Called from `lib.rs::run` after
+/// applying the `--trace` / `MDR_IPC_TRACE` / `cfg!(debug_assertions)`
+/// precedence chain. Safe to call from any thread; uses relaxed ordering
+/// (the gate is advisory — see [`ipc_trace_enabled`]).
+pub fn set_ipc_trace_enabled(on: bool) {
+    IPC_TRACE_ENABLED.store(on, Ordering::Relaxed);
 }
 
 /// Maximum length of a sanitized err string in an `[ipc]` log line. Keeps
