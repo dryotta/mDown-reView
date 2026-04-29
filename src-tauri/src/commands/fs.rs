@@ -114,15 +114,20 @@ pub fn read_dir_inner(
             e.to_string()
         })?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !show && is_sidecar_file(&name) {
+        // Sidecar file filter — gate on is_file so a directory whose name
+        // ends in `.review.yaml` (legal on every FS) is never mistaken
+        // for a sidecar file.
+        if !show && !meta.is_dir() && is_sidecar_file(&name) {
             continue;
         }
-        // Hide the sidecar_root directory when it overlaps the workspace tree
-        if !show {
-            if let Some(ref hide) = hide_dir_name {
-                if name == *hide && meta.is_dir() {
-                    continue;
-                }
+        // AC10: hide the sidecar_root directory whenever a redirect is
+        // configured. The "Show sidecar files in folder pane" toggle
+        // surfaces sibling .review.{yaml,json} files in their natural
+        // location — it must NOT also expose the internal sidecar storage
+        // tree. Keep these contracts decoupled.
+        if let Some(ref hide) = hide_dir_name {
+            if name == *hide && meta.is_dir() {
+                continue;
             }
         }
 

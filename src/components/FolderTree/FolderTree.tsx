@@ -232,11 +232,17 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   ) => {
     const isActive = activeTabPath === path;
     const expanded = opts.isDir ? expandedFolders[path] : undefined;
+    const isSidecar =
+      !opts.isDir && (name.endsWith(".review.yaml") || name.endsWith(".review.json"));
     return (
       <div
         key={path}
         data-path={path}
-        className={`tree-entry${isActive ? " active" : ""}${opts.isGhost ? " tree-entry--ghost" : ""}`}
+        className={
+          `tree-entry${isActive ? " active" : ""}` +
+          `${opts.isGhost ? " tree-entry--ghost" : ""}` +
+          `${isSidecar ? " tree-entry--sidecar" : ""}`
+        }
         tabIndex={0}
         role={opts.isDir ? "treeitem" : "option"}
         aria-selected={isActive}

@@ -124,6 +124,15 @@
   opacity: 0.4;
 }
 
+/* Sidecar entry (.review.yaml/.review.json sibling visible via the
+   "Show sidecar files in folder pane" setting). Dimmed + italic to
+   signal it is metadata, not a primary source file. */
+.tree-entry--sidecar .tree-name,
+.tree-entry--sidecar .tree-icon {
+  opacity: 0.6;
+  font-style: italic;
+}
+
 /* Comment count badge */
 .tree-comment-badge {
   font-size: 10px;
