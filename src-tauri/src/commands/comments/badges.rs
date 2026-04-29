@@ -354,4 +354,60 @@ mod tests {
         assert_eq!(badge.file_level_count, 2);
         assert_eq!(badge.max_severity, Severity::High);
     }
+
+    /// Reproduces the open-workspace TOCTOU race: when the front-end fires
+    /// `getFileBadges` BEFORE `updateTreeWatchedDirs` lands (the latter is
+    /// debounced 100 ms in `useTreeWatcher`, the former runs immediately
+    /// after `read_dir` resolves), the `is_path_or_parent_allowed` gate
+    /// rejects every path and the IPC returns `{}`. The frontend has no
+    /// event to wake the hook back up, so badges stay invisible until the
+    /// user expands a folder (which mutates `pathsKey` and re-fires the
+    /// hook). This test pins the gate behaviour deterministically — a
+    /// proper fix should make this assertion impossible to satisfy without
+    /// changing the test (e.g. drop the gate, or block the IPC until
+    /// allowlisted, or grant a workspace-root implicit allow).
+    #[test]
+    fn race_with_unset_tree_watched_dirs_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical = canonicalize_no_verbatim(dir.path()).unwrap();
+        let file = canonical.join("doc.md");
+        std::fs::write(&file, "alpha\n").unwrap();
+        let file_path = file.to_string_lossy().into_owned();
+
+        save_sidecar(
+            &file_path,
+            "doc.md",
+            &[line_comment("c1", 1, false, Some("high"))],
+        )
+        .unwrap();
+
+        // Phase 1 — race scenario: tree_watched_dirs is empty (the
+        // `updateTreeWatchedDirs` IPC hasn't landed yet).
+        let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+        let state = WatcherState::new(tx);
+        let config = SidecarConfigState::new();
+        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
+        assert!(
+            badges.is_empty(),
+            "TOCTOU race confirmed: gate rejects every path when tree_watched_dirs is empty, got {badges:?}",
+        );
+
+        // Phase 2 — after `updateTreeWatchedDirs` lands, the same call
+        // returns the expected badge. (No frontend event re-triggers the
+        // hook, which is why the user must expand a folder for badges
+        // to appear after a workspace open.)
+        state
+            .set_tree_watched_dirs(
+                "test",
+                canonical.to_string_lossy().into_owned(),
+                vec![canonical.to_string_lossy().into_owned()],
+            )
+            .unwrap();
+        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
+        let badge = badges
+            .get(&file_path)
+            .expect("badge must surface once tree_watched_dirs is populated");
+        assert_eq!(badge.count, 1);
+        assert_eq!(badge.max_severity, Severity::High);
+    }
 }
