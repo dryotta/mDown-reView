@@ -23,6 +23,19 @@ path = "benches/generate_fixtures.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = []
+# Enables tauri-specta TS bindings emission via lib.rs::run debug-mode export
+# and tests/specta_codegen.rs. Off by default — production builds skip
+# specta-typescript entirely. Enable with `cargo run --features codegen`
+# (Windows codegen) or rely on `cargo test` which pulls specta-typescript
+# via [dev-dependencies] for `tests/specta_codegen.rs`.
+#
+# `tauri-specta/typescript` is gated behind this feature too — without it,
+# tauri-specta's `typescript` feature is OFF and specta-typescript is
+# excluded from the production dep tree (verified with `cargo tree`).
+codegen = ["dep:specta-typescript", "tauri-specta/typescript"]
+
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-opener = "2"
@@ -65,8 +78,15 @@ dunce = "1"
 # fails to resolve. All three deps stay locked with `=` so future passive
 # updates to peer-deps can't break the codegen pipeline silently.
 specta = { version = "=2.0.0-rc.22", features = ["serde_json"] }
-specta-typescript = "=0.0.9"
-tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+# `specta-typescript` is gated behind the `codegen` cargo feature (off by
+# default). Production builds (`cargo build --release`) do NOT compile it,
+# satisfying the Lean pillar (no unused production deps). It is exercised by
+# `cargo run --features codegen` and by `cargo test` (via [dev-dependencies]).
+specta-typescript = { version = "=0.0.9", optional = true }
+# `typescript` feature is OFF in default deps; the `codegen` cargo feature
+# (above) re-enables it via `tauri-specta/typescript`. This keeps
+# specta-typescript out of the production dep tree.
+tauri-specta = { version = "=2.0.0-rc.21", default-features = false, features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
@@ -83,6 +103,11 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 # Used by `tests/specta_coverage.rs` to walk the source tree and meta-test
 # that every `#[tauri::command]` carries a paired `#[specta::specta]`.
 syn = { version = "2", features = ["full", "extra-traits", "visit"] }
+# `specta-typescript` is feature-gated in [dependencies] (codegen feature, off
+# by default). Mirroring it here in [dev-dependencies] makes `cargo test`
+# work without `--features codegen` and without changing CI command-lines.
+# `tests/specta_codegen.rs` uses it for the export call.
+specta-typescript = "=0.0.9"
 
 [lints.clippy]
 # Deny — CI-blocking, never allow in production
