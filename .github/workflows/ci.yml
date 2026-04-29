@@ -100,7 +100,7 @@ jobs:
       - name: Build frontend bundle
         run: npm run build
 
-      - name: Check JS bundle size (gzipped, ≤ 2 MB)
+      - name: Check JS bundle size (gzipped, 3 MB starter / 2 MB target)
         run: node scripts/check-bundle-size.mjs
 
   # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
