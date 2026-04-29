@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
 import { checkPathExists } from "@/lib/tauri-commands";
+import type { PathKind } from "@/lib/bindings";
 import type { RecentItem } from "@/store";
 
 export function useRecentItemStatus(recentItems: RecentItem[]) {
-  const [pathStatus, setPathStatus] = useState<Record<string, "file" | "dir" | "missing">>({});
+  const [pathStatus, setPathStatus] = useState<Record<string, PathKind>>({});
 
   useEffect(() => {
     let cancelled = false;
     async function checkAll() {
-      const results: Record<string, "file" | "dir" | "missing"> = {};
+      const results: Record<string, PathKind> = {};
       await Promise.all(
         recentItems.map(async (item) => {
           try {

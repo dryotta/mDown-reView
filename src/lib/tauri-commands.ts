@@ -122,6 +122,7 @@ import type {
   MigrateSidecarsResult,
   NewCommentAnchor,
   OnboardingState,
+  PathKind,
   ReadDirResult,
   SearchMatch,
   SidecarConfigResult,
@@ -149,10 +150,7 @@ export const readDir = (
   showSidecars?: boolean
 ): Promise<ReadDirResult> => unwrap(bindings.readDir(path, limit ?? null, showSidecars ?? null));
 
-export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
-  // bindings declares the return as `Promise<string>` (Rust returns `&'static
-  // str`); narrow to the literal union the JS callers expect.
-  bindings.checkPathExists(path) as Promise<"file" | "dir" | "missing">;
+export const checkPathExists = (path: string): Promise<PathKind> => bindings.checkPathExists(path);
 
 export const canonicalizePath = (path: string): Promise<string> =>
   unwrap(bindings.canonicalizePath(path));

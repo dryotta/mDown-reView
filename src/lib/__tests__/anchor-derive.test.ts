@@ -85,6 +85,17 @@ describe("deriveAnchor", () => {
     });
     expect(deriveAnchor(c)).toEqual({ kind: "unknown" });
   });
+
+  // Forward-compat: an unknown future discriminator (e.g. a renderer running
+  // against a sidecar emitted by a newer Rust core) must NOT silently
+  // collapse to a fabricated `Line 0` anchor — that would render as a
+  // normal line badge in the UI. Rust's `TryFrom<&MrsfCommentRepr> for
+  // Anchor` (`src-tauri/src/core/types/wire.rs`) maps any unrecognised
+  // kind to `Anchor::Unknown`; the JS adapter must do the same.
+  it('returns { kind: "unknown" } for an unknown future anchor_kind', () => {
+    const c = stub({ anchor_kind: "image_v2" });
+    expect(deriveAnchor(c)).toEqual({ kind: "unknown" });
+  });
 });
 
 describe("assertNeverAnchorKind", () => {

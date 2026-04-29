@@ -21,15 +21,27 @@ pub fn canonicalize_path(path: String) -> Result<String, String> {
         })
 }
 
+/// Outcome of a `check_path_exists` probe. Serialized as a bare lowercase
+/// string ("file" / "dir" / "missing") so the wire shape matches the prior
+/// hand-mirrored TS literal union — but the enum forces specta to emit the
+/// union in `bindings.ts` so the façade can drop its `as` cast and a future
+/// variant addition fails the codegen drift gate.
+#[derive(serde::Serialize, Debug, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum PathKind {
+    File,
+    Dir,
+    Missing,
+}
+
 /// Check if a path exists and whether it is a directory or file.
-/// Returns "file", "dir", or "missing".
 #[tauri::command]
 #[specta::specta]
-pub fn check_path_exists(path: String) -> String {
+pub fn check_path_exists(path: String) -> PathKind {
     match std::fs::metadata(&path) {
-        Ok(meta) if meta.is_dir() => "dir".to_string(),
-        Ok(_) => "file".to_string(),
-        Err(_) => "missing".to_string(),
+        Ok(meta) if meta.is_dir() => PathKind::Dir,
+        Ok(_) => PathKind::File,
+        Err(_) => PathKind::Missing,
     }
 }
 

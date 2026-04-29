@@ -227,23 +227,24 @@ export function deriveAnchor(c: MrsfComment): Anchor {
     case "line":
     case null:
     case undefined:
-      break;
+      // v1.0 implicit line / explicit line tag → derive from flat siblings.
+      return {
+        kind: "line",
+        line: c.line ?? 0,
+        end_line: c.end_line,
+        start_column: c.start_column,
+        end_column: c.end_column,
+        selected_text: c.selected_text,
+        selected_text_hash: c.selected_text_hash,
+      };
     default:
-      // Unknown future discriminator → fall through to line derivation
-      // (matches the v1.0 default behaviour for missing `anchor_kind`).
-      break;
+      // Unknown future discriminator → unknown. Mirrors the Rust
+      // `TryFrom<&MrsfCommentRepr> for Anchor` fallback (wire.rs) which
+      // maps any unrecognised kind to `Anchor::Unknown`. Fabricating
+      // `{kind: "line", line: 0}` here would silently mis-classify a
+      // future `image_v2` (etc.) as Line in the renderer.
+      return { kind: "unknown" };
   }
-  // Default / `anchor_kind: "line"` / missing → derive a Line anchor
-  // from the flat sibling fields. `line` defaults to 0 (matches Rust).
-  return {
-    kind: "line",
-    line: c.line ?? 0,
-    end_line: c.end_line,
-    start_column: c.start_column,
-    end_column: c.end_column,
-    selected_text: c.selected_text,
-    selected_text_hash: c.selected_text_hash,
-  };
 }
 
 /**
