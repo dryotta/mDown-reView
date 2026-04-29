@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import { useStore, openFilesFromArgs } from "@/store/index";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core");
 
 const initialState = useStore.getState();
-const invokeMock = invoke as unknown as ReturnType<typeof vi.fn>;
+const invokeMock = invoke as MockedFunction<typeof invoke>;
 
 beforeEach(() => {
   useStore.setState(initialState, true);
@@ -16,9 +17,9 @@ describe("setRoot canonicalisation (#89 iter 3)", () => {
   it("stores the canonical long-form path returned by the IPC", async () => {
     const shortName = "C:\\Users\\RUNNER~1\\Temp\\X";
     const longName = "C:\\Users\\runneradmin\\Temp\\X";
-    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+    invokeMock.mockImplementation(async (cmd, args) => {
       if (cmd === "canonicalize_path") {
-        expect(args?.path).toBe(shortName);
+        expect((args as { path?: string })?.path).toBe(shortName);
         return longName;
       }
       return undefined;
@@ -64,9 +65,9 @@ describe("openFilesFromArgs canonicalisation (#89 iter 3)", () => {
       [folderShort]: folderLong,
       [fileShort]: fileLong,
     };
-    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+    invokeMock.mockImplementation(async (cmd, args) => {
       if (cmd === "canonicalize_path") {
-        const p = args?.path as string;
+        const p = (args as { path?: string })?.path ?? "";
         return map[p] ?? p;
       }
       return undefined;

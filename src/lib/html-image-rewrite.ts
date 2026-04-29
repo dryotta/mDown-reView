@@ -60,9 +60,9 @@ export async function rewriteRemoteImages(html: string): Promise<RewriteResult> 
 
   // Cap the number of remote images we'll process for a single document.
   if (matches.length > MAX_REMOTE_IMAGES) {
-    info(
-      `rewriteRemoteImages: capped at ${MAX_REMOTE_IMAGES} of ${matches.length} remote <img> srcs`,
-    );
+    void info(
+      `rewriteRemoteImages: capped at ${MAX_REMOTE_IMAGES} of ${matches.length} remote <img> srcs`
+    ); // fire-and-forget log
     matches.length = MAX_REMOTE_IMAGES;
   }
 
@@ -87,7 +87,7 @@ export async function rewriteRemoteImages(html: string): Promise<RewriteResult> 
         created.push(blobUrl);
         resolved[i] = blobUrl;
       } catch (e) {
-        warn(`rewriteRemoteImages: failed to fetch ${m.url}: ${String(e)}`);
+        void warn(`rewriteRemoteImages: failed to fetch ${m.url}: ${String(e)}`); // fire-and-forget log
       }
     }
   };
@@ -117,7 +117,11 @@ export async function rewriteRemoteImages(html: string): Promise<RewriteResult> 
     html: out,
     revoke: () => {
       for (const u of created) {
-        try { URL.revokeObjectURL(u); } catch { /* noop */ }
+        try {
+          URL.revokeObjectURL(u);
+        } catch {
+          /* noop */
+        }
       }
       created.length = 0;
     },

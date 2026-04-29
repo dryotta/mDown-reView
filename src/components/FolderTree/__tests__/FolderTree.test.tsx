@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FolderTree } from "../FolderTree";
 import { useStore } from "@/store";
@@ -22,7 +23,7 @@ vi.mock("@/lib/tauri-commands", () => ({
 }));
 
 import { readDir } from "@/lib/tauri-commands";
-const mockReadDir = readDir as ReturnType<typeof vi.fn>;
+const mockReadDir = readDir as MockedFunction<typeof readDir>;
 
 /** Wrap DirEntry[] in the ReadDirResult shape returned by the Rust command. */
 function wrapEntries(entries: DirEntry[]): ReadDirResult {
@@ -374,13 +375,17 @@ describe("6.11 – grouped flat filter view", () => {
     // only in README.md. Use a filter that finds 3 files in 2 folders.
     mockReadDir.mockImplementation((path: string) => {
       if (path === FOLDER)
-        return Promise.resolve(wrapEntries([
-          { name: "subdir", path: SUBFOLDER, is_dir: true },
-          { name: "alpha.md", path: "/test/alpha.md", is_dir: false },
-          { name: "beta.md", path: "/test/beta.md", is_dir: false },
-        ]));
+        return Promise.resolve(
+          wrapEntries([
+            { name: "subdir", path: SUBFOLDER, is_dir: true },
+            { name: "alpha.md", path: "/test/alpha.md", is_dir: false },
+            { name: "beta.md", path: "/test/beta.md", is_dir: false },
+          ])
+        );
       if (path === SUBFOLDER)
-        return Promise.resolve(wrapEntries([{ name: "gamma.md", path: "/test/subdir/gamma.md", is_dir: false }]));
+        return Promise.resolve(
+          wrapEntries([{ name: "gamma.md", path: "/test/subdir/gamma.md", is_dir: false }])
+        );
       return Promise.resolve(wrapEntries([]));
     });
 
@@ -597,7 +602,10 @@ describe("#216 – ghost badge on collapsed folders", () => {
       activeTabPath: null,
       folderPaneWidth: 240,
       ghostEntries: [
-        { sourcePath: "/test/subdir/deleted.md", sidecarPath: "/test/subdir/deleted.md.review.json" },
+        {
+          sourcePath: "/test/subdir/deleted.md",
+          sidecarPath: "/test/subdir/deleted.md.review.json",
+        },
       ],
     });
     mockUseFileBadges.mockReturnValue({
@@ -622,7 +630,10 @@ describe("#216 – ghost badge on collapsed folders", () => {
       activeTabPath: null,
       folderPaneWidth: 240,
       ghostEntries: [
-        { sourcePath: "/test/subdir/deleted.md", sidecarPath: "/test/subdir/deleted.md.review.json" },
+        {
+          sourcePath: "/test/subdir/deleted.md",
+          sidecarPath: "/test/subdir/deleted.md.review.json",
+        },
       ],
     });
     mockUseFileBadges.mockReturnValue({

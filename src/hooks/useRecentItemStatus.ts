@@ -16,11 +16,11 @@ export function useRecentItemStatus(recentItems: RecentItem[]) {
           } catch {
             results[item.path] = "missing";
           }
-        }),
+        })
       );
       if (!cancelled) setPathStatus(results);
     }
-    if (recentItems.length > 0) checkAll();
+    if (recentItems.length > 0) void checkAll(); // fire-and-forget effect — cancellation handled via `cancelled` flag
     return () => {
       cancelled = true;
     };

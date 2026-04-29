@@ -22,12 +22,14 @@ export async function canonicalizeOrFallback(path: string): Promise<string> {
     // empty strings — fall back to the original path so downstream consumers
     // (basename/dirname/setRoot) never see null.
     if (typeof result !== "string" || result.length === 0) {
-      warn(`[store] canonicalizePath returned non-string (${String(result)}); using original path: ${path}`);
+      void warn(
+        `[store] canonicalizePath returned non-string (${String(result)}); using original path: ${path}`
+      ); // fire-and-forget log
       return path;
     }
     return result;
   } catch (err) {
-    warn(`[store] canonicalizePath failed; using original path: ${path} (${String(err)})`);
+    void warn(`[store] canonicalizePath failed; using original path: ${path} (${String(err)})`); // fire-and-forget log
     return path;
   }
 }

@@ -100,7 +100,7 @@ export function useCommentActions(): UseCommentActionsResult {
           document
         );
       } catch (e) {
-        error(`[vm] Failed to add comment: ${e}`);
+        void error(`[vm] Failed to add comment: ${e}`); // fire-and-forget log before re-throw
         throw e;
       }
     },
@@ -112,7 +112,7 @@ export function useCommentActions(): UseCommentActionsResult {
       try {
         await addReplyCmd(filePath, parentId, authorName || "Anonymous", text);
       } catch (e) {
-        error(`[vm] Failed to add reply: ${e}`);
+        void error(`[vm] Failed to add reply: ${e}`); // fire-and-forget log before re-throw
         throw e;
       }
     },
@@ -123,7 +123,7 @@ export function useCommentActions(): UseCommentActionsResult {
     try {
       await editCommentCmd(filePath, commentId, text);
     } catch (e) {
-      error(`[vm] Failed to edit comment: ${e}`);
+      void error(`[vm] Failed to edit comment: ${e}`); // fire-and-forget log before re-throw
       throw e;
     }
   }, []);
@@ -132,7 +132,7 @@ export function useCommentActions(): UseCommentActionsResult {
     try {
       await deleteCommentCmd(filePath, commentId);
     } catch (e) {
-      error(`[vm] Failed to delete comment: ${e}`);
+      void error(`[vm] Failed to delete comment: ${e}`); // fire-and-forget log before re-throw
       throw e;
     }
   }, []);
@@ -144,7 +144,7 @@ export function useCommentActions(): UseCommentActionsResult {
         data: { resolved: true },
       });
     } catch (e) {
-      error(`[vm] Failed to resolve comment: ${e}`);
+      void error(`[vm] Failed to resolve comment: ${e}`); // fire-and-forget log before re-throw
       throw e;
     }
   }, []);
@@ -156,7 +156,7 @@ export function useCommentActions(): UseCommentActionsResult {
         data: { resolved: false },
       });
     } catch (e) {
-      error(`[vm] Failed to unresolve comment: ${e}`);
+      void error(`[vm] Failed to unresolve comment: ${e}`); // fire-and-forget log before re-throw
       throw e;
     }
   }, []);
@@ -170,7 +170,7 @@ export function useCommentActions(): UseCommentActionsResult {
         data: { resolved: true },
       });
     } catch (e) {
-      error(`[vm] Failed to resolve focused thread: ${e}`);
+      void error(`[vm] Failed to resolve focused thread: ${e}`); // fire-and-forget log before re-throw
       throw e;
     }
   }, []);

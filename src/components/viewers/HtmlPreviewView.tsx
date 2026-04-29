@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { resolveHtmlAssets, openExternalUrl, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
+import {
+  resolveHtmlAssets,
+  openExternalUrl,
+  getFileViewerPref,
+  setFileViewerPref,
+} from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
@@ -42,7 +47,9 @@ export function HtmlPreviewView({ content, filePath }: Props) {
         }
       })
       .catch(() => {}); // safe default (false) on any error
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [filePath]);
 
   // Persist callback — fire-and-forget alongside state update.
@@ -76,7 +83,9 @@ export function HtmlPreviewView({ content, filePath }: Props) {
       .finally(() => {
         if (!cancelled) setResolving(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [content, filePath]);
 
   // Effect 2 — remote-image rewrite over the cached resolved-base HTML.
@@ -87,7 +96,10 @@ export function HtmlPreviewView({ content, filePath }: Props) {
     if (allowImages) {
       rewriteRemoteImages(resolvedBase)
         .then(({ html, revoke }) => {
-          if (cancelled) { revoke(); return; }
+          if (cancelled) {
+            revoke();
+            return;
+          }
           revokeImagesRef.current = revoke;
           setResolvedContent(html);
         })
@@ -101,7 +113,9 @@ export function HtmlPreviewView({ content, filePath }: Props) {
       setResolvedContent(resolvedBase); // eslint-disable-line react-hooks/set-state-in-effect
       if (revokePrior) revokePrior();
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [resolvedBase, allowImages]);
 
   // Cleanup blob URLs on unmount.
@@ -112,7 +126,6 @@ export function HtmlPreviewView({ content, filePath }: Props) {
       revokeImagesRef.current = null;
     };
   }, []);
-
 
   return (
     <div className="html-preview" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
@@ -152,11 +165,15 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                       return; // let the browser scroll natively
                     case "blocked":
                       event.preventDefault();
-                      warn(`HtmlPreviewView: blocked iframe link (${route.reason}): ${route.href}`);
+                      void warn(
+                        `HtmlPreviewView: blocked iframe link (${route.reason}): ${route.href}`
+                      );
                       return;
                     case "external":
                       event.preventDefault();
-                      openExternalUrl(route.href).catch((e) => warn(`[HtmlPreviewView] link open failed: ${e}`));
+                      openExternalUrl(route.href).catch((e) =>
+                        warn(`[HtmlPreviewView] link open failed: ${e}`)
+                      );
                       return;
                     case "workspace":
                       event.preventDefault();
@@ -178,7 +195,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                 if (retryDoc) {
                   installClickHandler(retryDoc);
                 } else {
-                  warn("[HtmlPreviewView] contentDocument unavailable after rAF retry");
+                  void warn("[HtmlPreviewView] contentDocument unavailable after rAF retry");
                 }
               });
             }}

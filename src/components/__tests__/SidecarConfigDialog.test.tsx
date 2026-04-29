@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { SidecarConfigDialog } from "../SidecarConfigDialog";
 import { useStore } from "@/store";
@@ -7,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
-const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
+const mockedInvoke = invoke as MockedFunction<typeof invoke>;
 
 const DEFAULT_CONFIG = {
   enabled: false,
@@ -88,10 +89,10 @@ describe("SidecarConfigDialog", () => {
   });
 
   it("calls set_sidecar_config when toggle is clicked", async () => {
-    mockedInvoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+    mockedInvoke.mockImplementation(async (cmd, args) => {
       if (cmd === "get_sidecar_config") return DEFAULT_CONFIG;
       if (cmd === "set_sidecar_config") {
-        return { ...DEFAULT_CONFIG, enabled: args?.enabled as boolean };
+        return { ...DEFAULT_CONFIG, enabled: (args as { enabled?: boolean })?.enabled };
       }
       return undefined;
     });
