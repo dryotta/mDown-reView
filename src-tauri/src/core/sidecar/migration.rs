@@ -11,13 +11,21 @@ use std::path::{Path, PathBuf};
 /// Hard ceiling on sidecar files matched during a walk (performance.md rule 1).
 const MAX_FILES_SCANNED: usize = 10_000;
 
-/// Create a gitignore-aware walker for sidecar scanning.
-/// Respects `.gitignore` so `node_modules/`, `.git/`, `target/`, etc. are
-/// skipped automatically without a hardcoded list.
-fn sidecar_walker(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
+/// Create a walker for sidecar scanning. Respects `.gitignore` so heavy
+/// directories (`node_modules/`, `target/`, etc.) are skipped — but uses
+/// override whitelists so `.review.yaml` and `.review.json` files are
+/// ALWAYS visible, even when gitignored. Sidecars are app-managed metadata,
+/// not source code, and must not be hidden by project ignore rules.
+pub fn sidecar_walker(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
+    let mut ob = ignore::overrides::OverrideBuilder::new(root);
+    ob.add("*.review.yaml").expect("static glob");
+    ob.add("*.review.json").expect("static glob");
+    let overrides = ob.build().expect("static glob");
+
     ignore::WalkBuilder::new(root)
         .max_depth(Some(50))
-        .hidden(false) // don't skip dotfiles — .reviews/ is a dotdir
+        .hidden(false) // don't skip dotdirs — .reviews/ is a dotdir
+        .overrides(overrides)
         .build()
         .filter_map(|e| e.ok())
 }
@@ -252,6 +260,24 @@ mod tests {
         let counts = count_sidecars(root, None);
         assert_eq!(counts.count_colocated, 1);
         assert_eq!(counts.count_in_folder, 1);
+    }
+
+    /// Regression: gitignored sidecar files must still be counted.
+    /// Sidecars are app-managed metadata, not source code — `.gitignore`
+    /// must not hide them from the counter, scanner, or migration. See
+    /// commit history around the `ignore::OverrideBuilder` whitelist.
+    #[test]
+    fn count_finds_gitignored_sidecars() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Write a .gitignore that ignores all *.review.yaml files
+        std::fs::write(root.join(".gitignore"), "*.review.yaml\n").unwrap();
+        write_sidecar(&root.join("src/foo.md.review.yaml"));
+        write_sidecar(&root.join("src/bar.md.review.json"));
+
+        let counts = count_sidecars(root, None);
+        assert_eq!(counts.count_colocated, 2, "gitignored sidecars must still be counted");
     }
 
     #[test]
