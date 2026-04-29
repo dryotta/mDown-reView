@@ -132,6 +132,101 @@ describe("SidecarConfigDialog", () => {
     expect(btn).not.toBeDisabled();
   });
 
+  /// Regression for the silent-failure bug: when toggle is OFF but the
+  /// `.reviews/` folder still has stranded sidecars (e.g., user disabled
+  /// the toggle without migrating first), the dialog must show an enabled
+  /// "Move N from .reviews/ → co-located" button and clicking it must
+  /// invoke `migrate_sidecars_cmd` with `direction: "to_colocated"`.
+  /// See `migrate_sidecars_inner` rescue path.
+  it("shows rescue button and triggers to_colocated migration when toggle is off but .reviews/ has files", async () => {
+    const STRANDED_CONFIG = {
+      enabled: false,
+      sidecar_root: null,
+      count_in_folder: 3, // stranded files
+      count_colocated: 0,
+    };
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_sidecar_config") return STRANDED_CONFIG;
+      if (cmd === "migrate_sidecars_cmd") {
+        return {
+          moved: 3,
+          failed: [],
+          config: { ...STRANDED_CONFIG, count_in_folder: 0, count_colocated: 3 },
+        };
+      }
+      return undefined;
+    });
+
+    await act(async () => {
+      render(<SidecarConfigDialog root="/workspace" onClose={onCloseMock} />);
+    });
+
+    const btn = screen.getByText(/Move 3 from \.reviews\/ → co-located/);
+    expect(btn).toBeInTheDocument();
+    expect(btn).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+
+    expect(mockedInvoke).toHaveBeenCalledWith("migrate_sidecars_cmd", {
+      root: "/workspace",
+      direction: "to_colocated",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Moved 3 files/)).toBeInTheDocument();
+    });
+  });
+
+  /// Regression: migrate failures used to be swallowed by `void warn(...)`,
+  /// leaving the user staring at an unchanged dialog. Ensure rejected IPC
+  /// surfaces via the dismissable `.sidecar-config-error` banner.
+  it("surfaces an error banner when migrate_sidecars_cmd rejects", async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_sidecar_config") return ENABLED_CONFIG;
+      if (cmd === "migrate_sidecars_cmd") {
+        throw "no sidecar_root configured — enable sidecar folder first";
+      }
+      return undefined;
+    });
+
+    await act(async () => {
+      render(<SidecarConfigDialog root="/workspace" onClose={onCloseMock} />);
+    });
+
+    const btn = screen.getByText(/Move 2 co-located → \.reviews\//);
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/Migration failed/);
+    expect(banner).toHaveTextContent(/no sidecar_root configured/);
+
+    // Dismiss removes the banner
+    const dismiss = screen.getByLabelText("Dismiss error");
+    await act(async () => {
+      fireEvent.click(dismiss);
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("surfaces an error banner when get_sidecar_config rejects", async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "get_sidecar_config") throw new Error("disk on fire");
+      return undefined;
+    });
+
+    await act(async () => {
+      render(<SidecarConfigDialog root="/workspace" onClose={onCloseMock} />);
+    });
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/Failed to load sidecar config/);
+    expect(banner).toHaveTextContent(/disk on fire/);
+  });
+
   it("disables migrate button when nothing to migrate", async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "get_sidecar_config") return { ...ENABLED_CONFIG, count_colocated: 0 };
