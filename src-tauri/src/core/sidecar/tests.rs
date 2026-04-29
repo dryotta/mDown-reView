@@ -295,6 +295,151 @@ fn load_sidecar_accepts_v1_minor_versions() {
     assert_eq!(result.unwrap().mrsf_version, "1.5");
 }
 
+// ── Save error semantics (regression: misleading "sidecar not found") ───────
+
+/// Reported (2026-04-28): user added a comment to an image inside a
+/// read-only directory (their case: `OneDrive\Pictures`, which OneDrive's
+/// Known Folder Move marks read-only and intercepts file creates) and
+/// got "sidecar not found" via the frontend banner. The actual cause
+/// was the read-only attribute blocking writes. The (now-removed)
+/// `From<io::Error>` impl was collapsing every `io::ErrorKind::NotFound`
+/// into `SidecarError::NotFound` whose Display is "sidecar not found".
+/// This test reproduces an io::Error::NotFound from a save path and
+/// proves the error now surfaces as `SidecarError::Io` (preserving the
+/// OS message) instead of the misleading `SidecarError::NotFound`.
+#[test]
+fn save_sidecar_at_io_notfound_does_not_collapse_to_notfound_variant() {
+    // `io::ErrorKind::NotFound` from `From<io::Error>` must NOT be
+    // collapsed into `SidecarError::NotFound`.
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "synthetic write failure");
+    let sc_err: SidecarError = io_err.into();
+    assert!(
+        matches!(sc_err, SidecarError::Io(ref e) if e.kind() == std::io::ErrorKind::NotFound),
+        "From<io::Error> must wrap as Io, not NotFound; got {:?}",
+        sc_err
+    );
+    let displayed = sc_err.to_string();
+    assert!(
+        !displayed.eq_ignore_ascii_case("sidecar not found"),
+        "Display must not be the misleading load-error message; got `{displayed}`"
+    );
+    assert!(
+        displayed.contains("synthetic write failure"),
+        "Display must surface the OS error detail; got `{displayed}`"
+    );
+}
+
+/// End-to-end: write to a path whose parent component is a file (Windows
+/// and Unix both reject this with NotFound). The error must propagate as
+/// `SidecarError::Io`, not `SidecarError::NotFound`. Mimics the same
+/// failure mode the user hit in their read-only-directory scenario.
+#[test]
+fn save_sidecar_at_to_invalid_ancestor_surfaces_real_io_error() {
+    let tmp = TempDir::new().unwrap();
+    let blocker = tmp.path().join("blocker.txt");
+    std::fs::write(&blocker, b"i am a file").unwrap();
+    let bogus = blocker.join("inner").join("foo.bin.review.yaml");
+
+    let c = MrsfComment::new_legacy_line(
+        "c1".into(),
+        "Tester".into(),
+        "2026-04-28T00:00:00Z".into(),
+        "x".into(),
+        false,
+        Some(1),
+        None, None, None, None, None,
+    );
+    let result = save_sidecar_at(&bogus, "foo.bin", std::slice::from_ref(&c));
+    let err = result.expect_err("write to invalid ancestor must fail");
+    assert!(
+        matches!(err, SidecarError::Io(_)),
+        "must surface as Io, not NotFound; got {:?}",
+        err
+    );
+    let msg = err.to_string();
+    assert!(
+        !msg.eq_ignore_ascii_case("sidecar not found"),
+        "error message must not be the misleading sidecar-not-found string; got `{msg}`"
+    );
+}
+
+/// Generic read-only directory regression — covers OneDrive's Known
+/// Folder Move (Pictures/Documents/Desktop), network shares with
+/// restricted permissions, system-protected folders (Program Files,
+/// Windows), and read-only mounts uniformly. When the parent directory
+/// is read-only the user must see a clear "directory is read-only"
+/// message that names the path and points at the documented workaround
+/// (`.mrsf.yaml` `sidecar_root`), not the OS's generic NotFound /
+/// PermissionDenied phrasing.
+#[test]
+fn save_sidecar_at_to_readonly_dir_surfaces_clear_message() {
+    let tmp = TempDir::new().unwrap();
+    let ro_dir = tmp.path().join("readonly");
+    std::fs::create_dir(&ro_dir).unwrap();
+    // Set the directory's read-only attribute. On Windows this maps to
+    // `FILE_ATTRIBUTE_READONLY` (which OneDrive Known Folders set on the
+    // Pictures/Documents/Desktop dirs, the user's repro case).
+    let mut perms = std::fs::metadata(&ro_dir).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&ro_dir, perms.clone()).unwrap();
+
+    // Best-effort restore so tempdir cleanup can drop the dir.
+    struct RestoreReadWrite<'a>(&'a std::path::Path);
+    impl Drop for RestoreReadWrite<'_> {
+        fn drop(&mut self) {
+            if let Ok(meta) = std::fs::metadata(self.0) {
+                let mut p = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                p.set_readonly(false);
+                let _ = std::fs::set_permissions(self.0, p);
+            }
+        }
+    }
+    let _restore = RestoreReadWrite(&ro_dir);
+
+    // Some Unix permissions models silently allow root or the file owner
+    // to bypass ReadOnly on dirs they own, in which case `write_atomic`
+    // succeeds and the test below is a no-op for that environment. Probe
+    // first; only run the assertion when the dir actually rejects writes.
+    let probe = ro_dir.join("__probe.tmp");
+    if std::fs::write(&probe, b"x").is_ok() {
+        let _ = std::fs::remove_file(&probe);
+        eprintln!("[skip] platform allowed write to a read-only dir; nothing to assert");
+        return;
+    }
+
+    let target = ro_dir.join("foo.png.review.yaml");
+    let c = MrsfComment::new_legacy_line(
+        "c1".into(),
+        "Tester".into(),
+        "2026-04-28T00:00:00Z".into(),
+        "x".into(),
+        false,
+        Some(1),
+        None, None, None, None, None,
+    );
+    let result = save_sidecar_at(&target, "foo.png", std::slice::from_ref(&c));
+    let err = result.expect_err("write to read-only dir must fail");
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("directory is read-only"),
+        "error must surface as a read-only directory message; got `{msg}`"
+    );
+    assert!(
+        msg.contains(&ro_dir.display().to_string()),
+        "error must name the offending directory path; got `{msg}`"
+    );
+    assert!(
+        msg.contains(".mrsf.yaml"),
+        "error must point at the sidecar_root workaround; got `{msg}`"
+    );
+    assert!(
+        !msg.eq_ignore_ascii_case("sidecar not found"),
+        "must not be the misleading load-error string; got `{msg}`"
+    );
+}
+
 /// Verify that `patch_comment` takes the surgery fast-path when the
 /// YAML file contains YAML comments, preserving them on disk.
 #[test]
