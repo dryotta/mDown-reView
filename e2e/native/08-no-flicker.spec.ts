@@ -77,21 +77,33 @@ async function attachToPage(
 ): Promise<{ browser: Browser; page: Page }> {
   const browser = await chromium.connectOverCDP(`http://localhost:${cdpPort}`);
   let page: Page | undefined;
+  // Find the app page (devUrl = http://localhost:1420). WebView2 may expose
+  // about:blank or transient pages first, which deny localStorage access.
   while (Date.now() < deadlineMs) {
-    const ctxs = browser.contexts();
-    if (ctxs.length > 0) {
-      const pages = ctxs[0].pages();
-      if (pages.length > 0) {
-        page = pages[0];
-        break;
+    for (const ctx of browser.contexts()) {
+      for (const candidate of ctx.pages()) {
+        const url = candidate.url();
+        if (url.startsWith("http://localhost:1420")) {
+          page = candidate;
+          break;
+        }
       }
+      if (page) break;
     }
+    if (page) break;
     await new Promise((r) => setTimeout(r, 100));
   }
   if (!page) {
     await browser.close();
-    throw new Error("No CDP page");
+    throw new Error("No CDP page on devUrl after timeout");
   }
+  // Wait for Tauri's JS bridge so localStorage / page.evaluate work
+  // against the live document, not a navigation-in-progress.
+  await page.waitForFunction(
+    () => !!(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__,
+    null,
+    { timeout: Math.max(1000, deadlineMs - Date.now()) }
+  );
   return { browser, page };
 }
 
@@ -189,7 +201,11 @@ test.describe("Flicker regression (issue #265)", () => {
         await killProcess(appProc2);
       }
     } finally {
-      try { fs.rmSync(sharedDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        fs.rmSync(sharedDataDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 
@@ -231,7 +247,11 @@ test.describe("Flicker regression (issue #265)", () => {
         await killProcess(appProc2);
       }
     } finally {
-      try { fs.rmSync(sharedDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        fs.rmSync(sharedDataDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 });
