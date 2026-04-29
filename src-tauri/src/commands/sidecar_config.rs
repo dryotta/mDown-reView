@@ -11,8 +11,12 @@ use tauri::{Emitter, Manager};
 
 // ── Result types ─────────────────────────────────────────────────────
 
+// Field names use snake_case to match the frontend's TS contract
+// (`SidecarConfigResult` in `src/lib/tauri-commands.ts`). Do NOT add
+// `#[serde(rename_all = "camelCase")]` here — that silently turns every
+// numeric field into `undefined` on the JS side and the dialog falls
+// back to 0/0 (issue #240 regression).
 #[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SidecarConfigResult {
     pub enabled: bool,
     pub sidecar_root: Option<String>,
@@ -21,7 +25,6 @@ pub struct SidecarConfigResult {
 }
 
 #[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MigrateSidecarsResult {
     pub moved: u32,
     pub failed: Vec<String>,
@@ -143,4 +146,49 @@ pub fn migrate_sidecars_cmd(
         failed: result.failed,
         config,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: SidecarConfigResult and MigrateSidecarsResult MUST
+    /// serialize using snake_case field names to match the TS contract
+    /// in `src/lib/tauri-commands.ts`. Adding `rename_all = "camelCase"`
+    /// would silently turn the numeric counts into `undefined` on the
+    /// JS side and the dialog would show 0/0.
+    #[test]
+    fn sidecar_config_result_uses_snake_case_keys() {
+        let r = SidecarConfigResult {
+            enabled: true,
+            sidecar_root: Some(".reviews".into()),
+            count_in_folder: 1,
+            count_colocated: 2,
+        };
+        let json = serde_json::to_value(&r).unwrap();
+        assert!(json.get("count_in_folder").is_some(), "missing snake_case count_in_folder");
+        assert!(json.get("count_colocated").is_some(), "missing snake_case count_colocated");
+        assert!(json.get("sidecar_root").is_some(), "missing snake_case sidecar_root");
+        assert!(json.get("countInFolder").is_none(), "camelCase leaked through");
+        assert!(json.get("countColocated").is_none(), "camelCase leaked through");
+        assert!(json.get("sidecarRoot").is_none(), "camelCase leaked through");
+    }
+
+    #[test]
+    fn migrate_sidecars_result_uses_snake_case_keys() {
+        let r = MigrateSidecarsResult {
+            moved: 1,
+            failed: vec![],
+            config: SidecarConfigResult {
+                enabled: false,
+                sidecar_root: None,
+                count_in_folder: 0,
+                count_colocated: 0,
+            },
+        };
+        let json = serde_json::to_value(&r).unwrap();
+        let cfg = json.get("config").unwrap();
+        assert!(cfg.get("count_in_folder").is_some());
+        assert!(cfg.get("count_colocated").is_some());
+    }
 }
