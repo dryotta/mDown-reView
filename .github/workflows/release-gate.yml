@@ -102,6 +102,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: ESLint
+        run: npm run lint
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -111,6 +114,10 @@ jobs:
 
       - name: Stage CLI binary (needed by Tauri externalBin during cargo test)
         run: npm run stage:cli
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D clippy::dbg_macro -D clippy::todo
 
       - name: Rust tests
         working-directory: src-tauri

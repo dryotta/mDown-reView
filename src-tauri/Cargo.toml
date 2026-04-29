@@ -71,6 +71,26 @@ rand = "0.8"
 wiremock = "0.6"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
+[lints.clippy]
+# Deny — CI-blocking, never allow in production
+dbg_macro = "deny"
+todo = "deny"
+
+# Warn — advisory, not CI-blocking (use #[allow] for legitimate exceptions)
+unwrap_used = "warn"
+expect_used = "warn"
+clone_on_ref_ptr = "warn"
+manual_string_new = "warn"
+needless_pass_by_value = "warn"
+unnecessary_wraps = "warn"
+unused_self = "warn"
+cast_lossless = "warn"
+redundant_closure_for_method_calls = "warn"
+implicit_clone = "warn"
+
+[lints.rust]
+unsafe_code = "warn"
+
 [[bench]]
 name = "sidecar_bench"
 harness = false
