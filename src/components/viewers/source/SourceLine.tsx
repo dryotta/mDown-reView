@@ -15,6 +15,13 @@ export interface SourceLineProps {
   lineThreads: CommentThread[];
   isCommenting: boolean;
   isExpanded: boolean;
+  /**
+   * When false, the per-line "+" add-comment button is hidden and the
+   * comment-input margin is suppressed. Used for sidecar files where
+   * the user cannot add comments. Defaults to true so callers that
+   * don't pass this prop keep the previous behaviour.
+   */
+  commentable?: boolean;
   onToggleFold: (lineNum: number) => void;
   onCommentButtonClick: (lineNum: number) => void;
   onCloseInput: () => void;
@@ -42,13 +49,14 @@ function SourceLineImpl({
   lineThreads,
   isCommenting,
   isExpanded,
+  commentable = true,
   onToggleFold,
   onCommentButtonClick,
   onCloseInput,
   onRequestInput,
   onSaveComment,
 }: SourceLineProps) {
-  const showMargin = isCommenting || isExpanded || lineThreads.length > 0;
+  const showMargin = commentable && (isCommenting || isExpanded || lineThreads.length > 0);
 
   return (
     <>
@@ -58,13 +66,15 @@ function SourceLineImpl({
       >
         <span className="source-line-gutter">
           <span className="source-line-comment-zone">
-            <button
-              className="comment-plus-btn"
-              aria-label="Add comment"
-              onClick={() => onCommentButtonClick(lineNum)}
-            >
-              +
-            </button>
+            {commentable && (
+              <button
+                className="comment-plus-btn"
+                aria-label="Add comment"
+                onClick={() => onCommentButtonClick(lineNum)}
+              >
+                +
+              </button>
+            )}
           </span>
           <span className="source-line-fold-zone">
             {foldRegion && (

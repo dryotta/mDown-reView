@@ -120,14 +120,16 @@ pub fn read_dir_inner(
         if !show && !meta.is_dir() && is_sidecar_file(&name) {
             continue;
         }
-        // AC10: hide the sidecar_root directory whenever a redirect is
-        // configured. The "Show sidecar files in folder pane" toggle
-        // surfaces sibling .review.{yaml,json} files in their natural
-        // location — it must NOT also expose the internal sidecar storage
-        // tree. Keep these contracts decoupled.
-        if let Some(ref hide) = hide_dir_name {
-            if name == *hide && meta.is_dir() {
-                continue;
+        // The "Show sidecar files in folder pane" toggle controls every
+        // sidecar artifact uniformly: when OFF (default) we hide both
+        // the inline `.review.{yaml,json}` files AND the `sidecar_root`
+        // directory configured by `.mrsf.yaml`. When ON, both surface so
+        // users can browse `.reviews/` and inspect the raw metadata.
+        if !show {
+            if let Some(ref hide) = hide_dir_name {
+                if name == *hide && meta.is_dir() {
+                    continue;
+                }
             }
         }
 

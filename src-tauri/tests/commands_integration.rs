@@ -487,11 +487,12 @@ fn read_dir_shows_review_sidecars_when_show_true() {
     );
 }
 
-/// AC10 contract is independent of the user-facing show-sidecars toggle:
-/// the internal `sidecar_root` directory must remain hidden even when
-/// the user opts to surface co-located sidecar files.
+/// The "Show sidecar files in folder pane" toggle is a single switch
+/// over every sidecar artifact: when ON, both inline `.review.{yaml,json}`
+/// files AND the configured `sidecar_root` directory are surfaced so the
+/// user can browse the raw metadata they just opted into.
 #[test]
-fn read_dir_hides_sidecar_root_dir_even_when_show_true() {
+fn read_dir_shows_sidecar_root_dir_when_show_true() {
     use mdown_review_lib::core::paths::canonicalize_no_verbatim;
 
     let dir = tempfile::tempdir().unwrap();
@@ -503,12 +504,22 @@ fn read_dir_hides_sidecar_root_dir_even_when_show_true() {
     let state = SidecarConfigState::new();
     state.set_config(canonical_ws, Some(std::path::PathBuf::from(".reviews")));
 
+    // show=false (default): .reviews must be hidden.
+    let result =
+        read_dir_inner(ws.to_str().unwrap().to_string(), None, Some(false), &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        !names.contains(&".reviews"),
+        "show=false: sidecar_root must be hidden"
+    );
+
+    // show=true: .reviews must be visible so users can browse the redirect target.
     let result =
         read_dir_inner(ws.to_str().unwrap().to_string(), None, Some(true), &state).unwrap();
     let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
-        !names.contains(&".reviews"),
-        "AC10: sidecar_root dir must remain hidden even when show_sidecars=true"
+        names.contains(&".reviews"),
+        "show=true: sidecar_root must be visible — toggle controls all sidecar artifacts"
     );
     assert!(names.contains(&"readme.md"));
 }

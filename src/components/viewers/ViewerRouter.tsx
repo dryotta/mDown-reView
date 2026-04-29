@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
+import { isSidecarFile } from "@/lib/file-types";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewerShell } from "./ImageViewerShell";
@@ -53,9 +54,15 @@ export function ViewerRouter({ path }: Props) {
   // point. Reading through `useStore.getState()` at click time (not via a
   // selector) keeps this off the render path; the action itself is a stable
   // store reference so callers don't need to re-render when it changes.
+  // Sidecar files (.review.yaml/.review.json) are app-managed metadata —
+  // omit the callback so every viewer's "Comment on file" button is
+  // suppressed at the toolbar level (ViewerToolbar already gates rendering
+  // on the callback being defined).
+  const isSidecar = isSidecarFile(path);
   const handleCommentOnFile = useCallback(() => {
     useStore.getState().requestFileLevelInput(path);
   }, [path]);
+  const commentOnFile = isSidecar ? undefined : handleCommentOnFile;
 
   // Guard flag: suppresses scroll-save during programmatic scroll restore
   const restoringRef = useRef(false);
@@ -152,7 +159,7 @@ export function ViewerRouter({ path }: Props) {
   // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
   // to surface the file-anchored "Comment on file" entry point universally.
   if (status === "image") {
-    return <ImageViewerShell key={path} path={path} onCommentOnFile={handleCommentOnFile} />;
+    return <ImageViewerShell key={path} path={path} onCommentOnFile={commentOnFile} />;
   }
 
   if (status === "audio") {
@@ -162,7 +169,7 @@ export function ViewerRouter({ path }: Props) {
           activeView="visual"
           onViewChange={() => {}}
           hidden
-          onCommentOnFile={handleCommentOnFile}
+          onCommentOnFile={commentOnFile}
           trailing={<FileActionsBar path={path} />}
         />
         <AudioViewer key={path} path={path} />
@@ -177,7 +184,7 @@ export function ViewerRouter({ path }: Props) {
           activeView="visual"
           onViewChange={() => {}}
           hidden
-          onCommentOnFile={handleCommentOnFile}
+          onCommentOnFile={commentOnFile}
           trailing={<FileActionsBar path={path} />}
         />
         <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
@@ -186,7 +193,7 @@ export function ViewerRouter({ path }: Props) {
   }
 
   if (status === "binary") {
-    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} onCommentOnFile={handleCommentOnFile} />;
+    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} onCommentOnFile={commentOnFile} />;
   }
 
   if (status === "error") {
@@ -197,7 +204,7 @@ export function ViewerRouter({ path }: Props) {
             activeView="visual"
             onViewChange={() => {}}
             hidden
-            onCommentOnFile={handleCommentOnFile}
+            onCommentOnFile={commentOnFile}
           />
           <DeletedFileViewer key={path} filePath={path} />
         </div>
@@ -209,7 +216,7 @@ export function ViewerRouter({ path }: Props) {
           activeView="visual"
           onViewChange={() => {}}
           hidden
-          onCommentOnFile={handleCommentOnFile}
+          onCommentOnFile={commentOnFile}
           trailing={<FileActionsBar path={path} />}
         />
         <div className="viewer-placeholder">
@@ -227,7 +234,7 @@ export function ViewerRouter({ path }: Props) {
         path={path}
         filePath={path}
         fileSize={fileSize}
-        onCommentOnFile={handleCommentOnFile}
+        onCommentOnFile={commentOnFile}
       />
     </div>
   );

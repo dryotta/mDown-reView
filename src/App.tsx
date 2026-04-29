@@ -23,6 +23,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { basename } from "@/lib/path-utils";
+import { isSidecarFile } from "@/lib/file-types";
 import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
@@ -50,6 +51,12 @@ export default function App() {
   const openFile = useStore((s) => s.openFile);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
+
+  // Sidecars (.review.yaml/.review.json) are app-managed metadata; the UI
+  // hides the comments pane and disables every "add comment" affordance
+  // while a sidecar is the active tab so users cannot create stray
+  // comment threads on a comment-storage file.
+  const activeIsSidecar = activeTabPath !== null && isSidecarFile(activeTabPath);
 
   // Update document.title to reflect the active file and root folder
   useEffect(() => {
@@ -86,9 +93,11 @@ export default function App() {
   // (registered via React event delegation) pops the SelectionToolbar
   // exactly as a mouse interaction would, then auto-click the toolbar's
   // "Comment" button on the next frame to open the CommentInput.
-  // No-op when there is no usable selection.
+  // No-op when there is no usable selection or the active file is a
+  // sidecar (sidecars are app-managed metadata — not commentable).
   const startCommentOnSelection = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (activeTabPath && isSidecarFile(activeTabPath)) return;
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const range = sel.getRangeAt(0);
@@ -105,7 +114,7 @@ export default function App() {
       ) as HTMLButtonElement | null;
       btn?.click();
     });
-  }, []);
+  }, [activeTabPath]);
 
   // F1 — Esc: handled per-input by CommentInput's own keydown handler;
   // no global plumb-through is needed.
@@ -181,9 +190,14 @@ export default function App() {
             <IconFolder /> Open Folder
           </button>
           <button
-            className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible ? " active" : ""}`}
+            className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible && !activeIsSidecar ? " active" : ""}`}
             onClick={toggleCommentsPane}
-            title="Toggle comments pane (Ctrl+Shift+C)"
+            disabled={activeIsSidecar}
+            title={
+              activeIsSidecar
+                ? "Comments are disabled on .review.yaml/.review.json sidecar files"
+                : "Toggle comments pane (Ctrl+Shift+C)"
+            }
           >
             <IconComment /> Comments
           </button>
@@ -221,7 +235,7 @@ export default function App() {
           </ErrorBoundary>
         </div>
 
-        {commentsPaneVisible && activeTabPath && (
+        {commentsPaneVisible && activeTabPath && !activeIsSidecar && (
           <ErrorBoundary>
             <CommentsPanel filePath={activeTabPath} />
           </ErrorBoundary>
