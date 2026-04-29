@@ -79,9 +79,11 @@ export function MermaidView({ content, path, zoom = 1 }: Props) {
       }
     }
     if (content.trim()) {
-      renderDiagram();
+      void renderDiagram();
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [content, mermaidId]);
 
   // Inject the rendered SVG via direct innerHTML rather than React's
@@ -122,9 +124,19 @@ export function MermaidView({ content, path, zoom = 1 }: Props) {
   }, [svg, content, filePath]);
 
   return (
-    <div className="mermaid-view" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      className="mermaid-view"
+      style={{ display: "flex", flexDirection: "column", height: "100%" }}
+    >
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
-        {error && <div className="mermaid-error" style={{ color: "var(--color-danger, #cf222e)", padding: 16 }}>{error}</div>}
+        {error && (
+          <div
+            className="mermaid-error"
+            style={{ color: "var(--color-danger, #cf222e)", padding: 16 }}
+          >
+            {error}
+          </div>
+        )}
         {svg && (
           <div
             ref={containerRef}

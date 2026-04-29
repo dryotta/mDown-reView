@@ -60,7 +60,9 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
         setHtml(result);
       })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [code, lang]);
 
   if (html) {
@@ -76,7 +78,7 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
 // Embedded ```mermaid fenced blocks render inline via the existing MermaidView
 // (lazy chunk shared with the .mmd file viewer route).
 const MermaidEmbed = lazyWithSuspense<{ content: string }>(() =>
-  import("../MermaidView").then((m) => ({ default: m.MermaidView })),
+  import("../MermaidView").then((m) => ({ default: m.MermaidView }))
 );
 
 // Anchor handler closes over filePath/workspaceRoot for relative-path
@@ -100,7 +102,7 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
           return;
         case "blocked":
           e.preventDefault();
-          warn(`MarkdownViewer: blocked link (${route.reason}): ${route.href}`);
+          void warn(`MarkdownViewer: blocked link (${route.reason}): ${route.href}`);
           return;
         case "external":
           e.preventDefault();
@@ -110,7 +112,7 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
           e.preventDefault();
           useStore.getState().openFile(route.path);
           if (route.fragment) {
-            info(`MarkdownViewer: link fragment "#${route.fragment}" not yet scrolled`);
+            void info(`MarkdownViewer: link fragment "#${route.fragment}" not yet scrolled`);
           }
           return;
       }
@@ -139,11 +141,7 @@ export function buildMarkdownComponents({
 }: BuildMarkdownComponentsOpts): Components {
   const a = makeAnchorComponent(filePath, workspaceRoot);
 
-  const pre = ({
-    children,
-    node,
-    ...props
-  }: ComponentPropsWithoutRef<"pre"> & ExtraProps) => {
+  const pre = ({ children, node, ...props }: ComponentPropsWithoutRef<"pre"> & ExtraProps) => {
     let inner: ReactNode;
     // #65 G2: every fenced code block (except mermaid) gets a hover-revealed
     // copy button. We capture the raw source string here so the button
@@ -174,11 +172,7 @@ export function buildMarkdownComponents({
       inner = <pre {...props}>{children}</pre>;
     }
     const wrapped =
-      copySource !== null ? (
-        <CodeBlockHost source={copySource}>{inner}</CodeBlockHost>
-      ) : (
-        inner
-      );
+      copySource !== null ? <CodeBlockHost source={copySource}>{inner}</CodeBlockHost> : inner;
     return <CommentableWrapper node={node}>{wrapped}</CommentableWrapper>;
   };
 
@@ -187,10 +181,7 @@ export function buildMarkdownComponents({
   // is responsible for asset:// / blob: / placeholder dispatch. Use a `span`
   // wrapper because images frequently render inside `<p>`, where a `<div>`
   // child would be invalid HTML and trigger hydration warnings.
-  const wrappedImg = ({
-    node,
-    ...props
-  }: ComponentPropsWithoutRef<"img"> & ExtraProps) => (
+  const wrappedImg = ({ node, ...props }: ComponentPropsWithoutRef<"img"> & ExtraProps) => (
     <CommentableWrapper node={node} as="span">
       {React.createElement(img, props)}
     </CommentableWrapper>

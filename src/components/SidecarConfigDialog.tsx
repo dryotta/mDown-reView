@@ -49,10 +49,16 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
     let cancelled = false;
     setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect -- initial async load
     getSidecarConfig(root)
-      .then((result) => { if (!cancelled) setConfig(result); })
+      .then((result) => {
+        if (!cancelled) setConfig(result);
+      })
       .catch((err) => warn(`[SidecarConfigDialog] load failed: ${err}`))
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [root]);
 
   // Toggle .reviews/ folder
@@ -64,7 +70,7 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
       setConfig(result);
       setMigrateResult(null);
     } catch (err) {
-      warn(`[SidecarConfigDialog] toggle failed: ${err}`);
+      void warn(`[SidecarConfigDialog] toggle failed: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -81,19 +87,15 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
       setConfig(result.config);
       setMigrateResult({ moved: result.moved, failed: result.failed });
     } catch (err) {
-      warn(`[SidecarConfigDialog] migrate failed: ${err}`);
+      void warn(`[SidecarConfigDialog] migrate failed: ${err}`);
     } finally {
       setMigrating(false);
     }
   };
 
   // Derive migration UI state
-  const fromCount = config?.enabled
-    ? config.count_colocated
-    : (config?.count_in_folder ?? 0);
-  const toCount = config?.enabled
-    ? config.count_in_folder
-    : (config?.count_colocated ?? 0);
+  const fromCount = config?.enabled ? config.count_colocated : (config?.count_in_folder ?? 0);
+  const toCount = config?.enabled ? config.count_in_folder : (config?.count_colocated ?? 0);
   const fromLabel = config?.enabled ? "Co-located" : ".reviews/";
   const toLabel = config?.enabled ? ".reviews/" : "Co-located";
   const canMigrate = fromCount > 0;
@@ -146,9 +148,7 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
               <div className="sidecar-config-section">
                 <div className="settings-row">
                   <div>
-                    <div className="settings-row-label">
-                      Use .reviews/ folder
-                    </div>
+                    <div className="settings-row-label">Use .reviews/ folder</div>
                     <div className="settings-row-description">
                       {config.enabled
                         ? "New review sidecars are stored under .reviews/"
@@ -175,19 +175,13 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
                 <div className="sidecar-config-migration">
                   <div className="sidecar-config-counts">
                     <div className="sidecar-config-count-box">
-                      <div className="sidecar-config-count-value">
-                        {fromCount}
-                      </div>
-                      <div className="sidecar-config-count-label">
-                        {fromLabel}
-                      </div>
+                      <div className="sidecar-config-count-value">{fromCount}</div>
+                      <div className="sidecar-config-count-label">{fromLabel}</div>
                     </div>
                     <span className="sidecar-config-arrow">→</span>
                     <div className="sidecar-config-count-box sidecar-config-count-active">
                       <div className="sidecar-config-count-value">{toCount}</div>
-                      <div className="sidecar-config-count-label">
-                        {toLabel} ✓
-                      </div>
+                      <div className="sidecar-config-count-label">{toLabel} ✓</div>
                     </div>
                   </div>
                   <button
@@ -222,12 +216,10 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
               <div className="sidecar-config-section">
                 <div className="settings-row">
                   <div>
-                    <div className="settings-row-label">
-                      Show sidecar files in folder pane
-                    </div>
+                    <div className="settings-row-label">Show sidecar files in folder pane</div>
                     <div className="settings-row-description">
-                      When enabled, .review.yaml/.review.json files appear in
-                      the folder tree (dimmed/italic).
+                      When enabled, .review.yaml/.review.json files appear in the folder tree
+                      (dimmed/italic).
                     </div>
                   </div>
                   <button

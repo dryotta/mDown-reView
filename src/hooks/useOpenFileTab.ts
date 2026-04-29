@@ -12,7 +12,7 @@ import { debug } from "@/logger";
 export function useOpenFileTab() {
   useEffect(() => {
     const unlisten = listenEvent("open-file-tab", (paths) => {
-      debug(`[useOpenFileTab] received ${paths.length} file(s)`);
+      void debug(`[useOpenFileTab] received ${paths.length} file(s)`); // fire-and-forget log
       const { openFile } = useStore.getState();
       for (const filePath of paths) {
         openFile(filePath);

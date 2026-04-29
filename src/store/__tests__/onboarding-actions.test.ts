@@ -13,12 +13,13 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import { useStore } from "@/store";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core");
 
-const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
+const mockedInvoke = invoke as MockedFunction<typeof invoke>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -37,8 +38,7 @@ describe("refreshOnboarding", () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "cli_shim_status") return "done";
       if (cmd === "default_handler_status") return "done";
-      if (cmd === "onboarding_state")
-        return { schema_version: 1, last_seen_sections: [] };
+      if (cmd === "onboarding_state") return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
 
@@ -60,8 +60,7 @@ describe("refreshOnboarding", () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "cli_shim_status") throw "permission denied: /usr/local/bin";
       if (cmd === "default_handler_status") return "done";
-      if (cmd === "onboarding_state")
-        return { schema_version: 1, last_seen_sections: [] };
+      if (cmd === "onboarding_state") return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
 
@@ -102,8 +101,7 @@ describe.each(cases)("action wrapper: $name", ({ name, ipcCmd, sectionKey }) => 
       if (cmd === ipcCmd) return undefined;
       // status reads (refresh chained from runOnboardingAction)
       if (cmd.endsWith("_status")) return "done";
-      if (cmd === "onboarding_state")
-        return { schema_version: 1, last_seen_sections: [] };
+      if (cmd === "onboarding_state") return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
 
@@ -119,16 +117,13 @@ describe.each(cases)("action wrapper: $name", ({ name, ipcCmd, sectionKey }) => 
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === ipcCmd) throw "boom: action failed";
       if (cmd.endsWith("_status")) return "missing";
-      if (cmd === "onboarding_state")
-        return { schema_version: 1, last_seen_sections: [] };
+      if (cmd === "onboarding_state") return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
 
     const action = useStore.getState()[name] as () => Promise<void>;
     await action();
 
-    expect(useStore.getState().onboardingErrors[sectionKey]).toBe(
-      "boom: action failed",
-    );
+    expect(useStore.getState().onboardingErrors[sectionKey]).toBe("boom: action failed");
   });
 });

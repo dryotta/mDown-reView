@@ -30,7 +30,7 @@ function makeOnerrorHandler(log: typeof logger) {
     error: Error | undefined
   ) => {
     const stack = error?.stack ?? "";
-    log.error(`Uncaught error: ${message} at ${source}:${lineno}:${colno}\n${stack}`);
+    void log.error(`Uncaught error: ${message} at ${source}:${lineno}:${colno}\n${stack}`);
   };
 }
 
@@ -40,7 +40,7 @@ function makeUnhandledRejectionHandler(log: typeof logger) {
       event.reason instanceof Error
         ? (event.reason.stack ?? event.reason.message)
         : String(event.reason);
-    log.error(`Unhandled promise rejection: ${reason}`);
+    void log.error(`Unhandled promise rejection: ${reason}`);
   };
 }
 

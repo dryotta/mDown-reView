@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
+import { useCallback, useDeferredValue, useEffect, useRef, useState, type RefObject } from "react";
 import { findRangesInContainer } from "@/lib/find-in-page";
 import { info } from "@/logger";
 
@@ -51,9 +44,7 @@ interface HighlightRegistry {
   readonly size?: number;
 }
 
-function getHighlightApi():
-  | { Ctor: HighlightCtor; registry: HighlightRegistry }
-  | null {
+function getHighlightApi(): { Ctor: HighlightCtor; registry: HighlightRegistry } | null {
   if (typeof CSS === "undefined") return null;
   const css = CSS as unknown as { highlights?: HighlightRegistry };
   const g = globalThis as unknown as { Highlight?: HighlightCtor };
@@ -70,7 +61,7 @@ function clearHighlights(): void {
 
 export function useFindInPage(
   containerRef: RefObject<HTMLElement | null>,
-  contentSignature: string | number,
+  contentSignature: string | number
 ): FindInPageState {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -117,9 +108,7 @@ export function useFindInPage(
 
     const found = findRangesInContainer(container, deferredQuery, MAX_FIND_MATCHES);
     if (found.length >= MAX_FIND_MATCHES) {
-      info(
-        `useFindInPage: match cap reached (${MAX_FIND_MATCHES}); refine your query`,
-      );
+      void info(`useFindInPage: match cap reached (${MAX_FIND_MATCHES}); refine your query`); // fire-and-forget log inside sync effect
     }
     rangesRef.current = found;
     setMatches(found.length);

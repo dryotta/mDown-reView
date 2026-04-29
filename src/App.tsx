@@ -30,13 +30,7 @@ import "@/styles/print.css";
 import { unregisterWindowFolder } from "@/lib/tauri-commands";
 
 export default function App() {
-  const {
-    theme,
-    root,
-    folderPaneWidth,
-    commentsPaneVisible,
-    activeTabPath,
-  } = useStore(
+  const { theme, root, folderPaneWidth, commentsPaneVisible, activeTabPath } = useStore(
     useShallow((s) => ({
       theme: s.theme,
       root: s.root,
@@ -67,16 +61,14 @@ export default function App() {
         ? `${fileName} — ${folderName} — mdownreview`
         : `${fileName} — mdownreview`;
     } else {
-      document.title = folderName
-        ? `${folderName} — mdownreview`
-        : "mdownreview";
+      document.title = folderName ? `${folderName} — mdownreview` : "mdownreview";
     }
   }, [activeTabPath, root]);
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const settingsDialogOpen = useStore((s) => s.settingsDialogOpen);
   const closeSettings = useStore((s) => s.closeSettings);
-  const dragRef= useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
 
@@ -105,13 +97,9 @@ export default function App() {
       (range.endContainer.nodeType === Node.ELEMENT_NODE
         ? (range.endContainer as Element)
         : range.endContainer.parentElement) ?? document.body;
-    target.dispatchEvent(
-      new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
-    );
+    target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
     requestAnimationFrame(() => {
-      const btn = document.querySelector(
-        ".selection-toolbar-btn",
-      ) as HTMLButtonElement | null;
+      const btn = document.querySelector(".selection-toolbar-btn") as HTMLButtonElement | null;
       btn?.click();
     });
   }, [activeTabPath]);
@@ -151,10 +139,11 @@ export default function App() {
 
   // Background update check — 5 s delay, non-blocking
   useEffect(() => {
-    const t = setTimeout(() => { checkForUpdate(); }, 5000);
+    const t = setTimeout(() => {
+      void checkForUpdate();
+    }, 5000);
     return () => clearTimeout(t);
   }, [checkForUpdate]);
-
 
   // Drag handle for resizing folder pane
   const onDragStart = useCallback(
@@ -164,7 +153,10 @@ export default function App() {
       const onMove = (e: MouseEvent) => {
         if (!dragRef.current) return;
         const delta = e.clientX - dragRef.current.startX;
-        const newWidth = Math.max(160, Math.min(window.innerWidth * 0.5, dragRef.current.startWidth + delta));
+        const newWidth = Math.max(
+          160,
+          Math.min(window.innerWidth * 0.5, dragRef.current.startWidth + delta)
+        );
         setFolderPaneWidth(newWidth);
       };
       const onUp = () => {
@@ -181,33 +173,33 @@ export default function App() {
   return (
     <div className="app-layout">
       <ErrorBoundary>
-      <div className="toolbar">
-        <div className="toolbar-btn-group">
-          <button className="toolbar-btn" onClick={handleOpenFile} title="Open file(s)">
-            <IconFile /> Open File
-          </button>
-          <button className="toolbar-btn" onClick={handleOpenFolder} title="Open folder">
-            <IconFolder /> Open Folder
-          </button>
-          <button
-            className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible && !activeIsSidecar ? " active" : ""}`}
-            onClick={toggleCommentsPane}
-            disabled={activeIsSidecar}
-            title={
-              activeIsSidecar
-                ? "Comments are disabled on .review.yaml/.review.json sidecar files"
-                : "Toggle comments pane (Ctrl+Shift+C)"
-            }
-          >
-            <IconComment /> Comments
-          </button>
+        <div className="toolbar">
+          <div className="toolbar-btn-group">
+            <button className="toolbar-btn" onClick={handleOpenFile} title="Open file(s)">
+              <IconFile /> Open File
+            </button>
+            <button className="toolbar-btn" onClick={handleOpenFolder} title="Open folder">
+              <IconFolder /> Open Folder
+            </button>
+            <button
+              className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible && !activeIsSidecar ? " active" : ""}`}
+              onClick={toggleCommentsPane}
+              disabled={activeIsSidecar}
+              title={
+                activeIsSidecar
+                  ? "Comments are disabled on .review.yaml/.review.json sidecar files"
+                  : "Toggle comments pane (Ctrl+Shift+C)"
+              }
+            >
+              <IconComment /> Comments
+            </button>
+          </div>
+          <ErrorBoundary>
+            <TabBar />
+          </ErrorBoundary>
         </div>
-        <ErrorBoundary>
-          <TabBar />
-        </ErrorBoundary>
-      </div>
 
-      <UpdateBanner />
+        <UpdateBanner />
       </ErrorBoundary>
 
       <div className="main-area">

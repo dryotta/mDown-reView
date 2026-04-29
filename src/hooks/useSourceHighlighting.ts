@@ -18,10 +18,7 @@ const RETRY_DELAY_MS = 150;
  * files can fail transiently in the Tauri webview (#206), so we retry
  * once after a short delay before falling back to "text".
  */
-export async function loadLanguageWithRetry(
-  hl: Highlighter,
-  lang: string,
-): Promise<boolean> {
+export async function loadLanguageWithRetry(hl: Highlighter, lang: string): Promise<boolean> {
   for (let attempt = 0; attempt < MAX_LOAD_RETRIES; attempt++) {
     try {
       if (lang === "kql") {
@@ -37,7 +34,9 @@ export async function loadLanguageWithRetry(
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
     }
   }
-  warn(`[shiki] language "${lang}" failed to load after ${MAX_LOAD_RETRIES} attempts — falling back to plain text`);
+  void warn(
+    `[shiki] language "${lang}" failed to load after ${MAX_LOAD_RETRIES} attempts — falling back to plain text`
+  ); // fire-and-forget log
   return false;
 }
 
@@ -74,7 +73,7 @@ export function useSourceHighlighting(content: string, path: string) {
             // Strip the closing </span> that belongs to the line wrapper.
             // Each part ends with </span> (line close) possibly followed by
             // </code></pre> or more line spans.
-            const endIdx = parts[i].lastIndexOf('</span>');
+            const endIdx = parts[i].lastIndexOf("</span>");
             htmlLines.push(endIdx >= 0 ? parts[i].substring(0, endIdx) : parts[i]);
           }
           // Fallback: if split found no line spans (unexpected format), use plain escape
@@ -85,11 +84,15 @@ export function useSourceHighlighting(content: string, path: string) {
           }
           setHighlightedLines(htmlLines);
         } catch {
-          setHighlightedLines(deferredLines.map(l => escapeHtml(l)));
+          setHighlightedLines(deferredLines.map((l) => escapeHtml(l)));
         }
       })
-      .catch(() => { if (!cancelled) setHighlightedLines([]); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setHighlightedLines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [deferredContent, deferredLines, path, currentTheme]);
 
   return { highlightedLines };

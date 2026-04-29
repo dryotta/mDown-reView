@@ -91,6 +91,12 @@ implicit_clone = "warn"
 [lints.rust]
 unsafe_code = "warn"
 
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
 [[bench]]
 name = "sidecar_bench"
 harness = false

@@ -88,6 +88,9 @@ jobs:
       - name: ESLint
         run: npm run lint
 
+      - name: ESLint (typed)
+        run: npm run lint:typed
+
       - name: Vitest unit tests
         run: npm test
 
@@ -96,6 +99,12 @@ jobs:
 
       - name: Audit zoom cascade
         run: npm run audit:zoom-cascade
+
+      - name: Build frontend bundle
+        run: npm run build
+
+      - name: Check JS bundle size (gzipped, 3 MB starter / 2 MB target)
+        run: node scripts/check-bundle-size.mjs
 
   # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
   e2e-browser:

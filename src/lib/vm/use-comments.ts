@@ -1,10 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listenEvent } from "@/lib/tauri-events";
-import {
-  getFileComments,
-  type CommentThread,
-  type MatchedComment,
-} from "@/lib/tauri-commands";
+import { getFileComments, type CommentThread, type MatchedComment } from "@/lib/tauri-commands";
 import { useStore } from "@/store/index";
 import { info, error } from "@/logger";
 
@@ -54,13 +50,13 @@ export function useComments(filePath: string | null): UseCommentsResult {
           });
         }
       } catch (e) {
-        error(`[vm] Failed to load comments for ${filePath}: ${e}`);
+        void error(`[vm] Failed to load comments for ${filePath}: ${e}`); // fire-and-forget log
         if (!isCancelled()) setThreads([]);
       } finally {
         if (!isCancelled()) setLoading(false);
       }
     },
-    [filePath],
+    [filePath]
   );
 
   // Initial load + reload on filePath change (with cancellation for stale responses).
@@ -71,8 +67,12 @@ export function useComments(filePath: string | null): UseCommentsResult {
     const { isCancelled } = startLoad();
     // Wrap in async IIFE so the synchronous setState inside `load` is decoupled
     // from this effect body (avoids react-hooks/set-state-in-effect false positive).
-    (async () => { await load(isCancelled); })();
-    return () => { loadGenRef.current += 1; };
+    void (async () => {
+      await load(isCancelled);
+    })(); // fire-and-forget initial load — cancellation handled via loadGenRef
+    return () => {
+      loadGenRef.current += 1;
+    };
   }, [load, startLoad]);
 
   // Listen for comments-changed (from Rust mutation commands)
@@ -80,13 +80,15 @@ export function useComments(filePath: string | null): UseCommentsResult {
     if (!filePath) return;
     const listenerPromise = listenEvent("comments-changed", (payload) => {
       if (payload.file_path === filePath) {
-        info(`[vm] comments-changed for ${filePath}, reloading`);
+        void info(`[vm] comments-changed for ${filePath}, reloading`); // fire-and-forget log
         const { isCancelled } = startLoad();
-        load(isCancelled);
+        void load(isCancelled); // fire-and-forget reload — cancellation via loadGenRef
       }
     });
 
-    return () => { listenerPromise.then((fn) => fn()).catch(() => {}); };
+    return () => {
+      listenerPromise.then((fn) => fn()).catch(() => {});
+    };
   }, [filePath, load, startLoad]);
 
   // Listen for file-changed (from watcher, for external sidecar changes)
@@ -98,15 +100,15 @@ export function useComments(filePath: string | null): UseCommentsResult {
       if (payload.kind === "review") {
         // Check if this is the sidecar for our file
         if (payload.path === sidecarYaml || payload.path === sidecarJson) {
-          info(`[vm] External sidecar change for ${filePath}, reloading`);
+          void info(`[vm] External sidecar change for ${filePath}, reloading`); // fire-and-forget log
           const { isCancelled } = startLoad();
-          load(isCancelled);
+          void load(isCancelled); // fire-and-forget reload — cancellation via loadGenRef
         }
       } else if (payload.kind === "deleted") {
         // Sidecar deleted → drop threads + clear cached commentsMtime so
         // StatusBar (Group E) can reflect "no sidecar" without a reload.
         if (payload.path === sidecarYaml || payload.path === sidecarJson) {
-          info(`[vm] Sidecar deleted for ${filePath}, clearing threads`);
+          void info(`[vm] Sidecar deleted for ${filePath}, clearing threads`); // fire-and-forget log
           // Bump generation BEFORE the synchronous clear so any in-flight
           // reload that resolves later cannot restore the just-deleted threads.
           loadGenRef.current += 1;
@@ -116,7 +118,9 @@ export function useComments(filePath: string | null): UseCommentsResult {
       }
     });
 
-    return () => { listenerPromise.then((fn) => fn()).catch(() => {}); };
+    return () => {
+      listenerPromise.then((fn) => fn()).catch(() => {});
+    };
   }, [filePath, load, startLoad]);
 
   const comments: MatchedComment[] = useMemo(
@@ -124,5 +128,12 @@ export function useComments(filePath: string | null): UseCommentsResult {
     [threads]
   );
 
-  return { threads, comments, loading, reload: load };
+  return {
+    threads,
+    comments,
+    loading,
+    reload: () => {
+      void load();
+    },
+  };
 }

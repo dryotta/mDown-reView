@@ -10,17 +10,8 @@ import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import { sanitizeSchema } from "./markdown/sanitizeSchema";
 import { rehypeFootnotePrefix } from "./markdown/rehype-footnote-prefix";
 import { rehypeKatexStyle } from "./markdown/rehype-katex-style";
-import {
-  hasRemoteImageReferences,
-  useImgResolver,
-} from "./markdown/useImgResolver";
-import {
-  useState,
-  useEffect,
-  useRef,
-  useMemo,
-  useCallback,
-} from "react";
+import { hasRemoteImageReferences, useImgResolver } from "./markdown/useImgResolver";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { FrontmatterBlock } from "./FrontmatterBlock";
 import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { MdCommentContext } from "./markdown/CommentableBlocks";
@@ -127,19 +118,14 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const workspaceRoot = useStore((s) => s.root) ?? "";
   const components = useMemo(
     () => buildMarkdownComponents({ filePath, workspaceRoot, img }),
-    [filePath, img, workspaceRoot],
+    [filePath, img, workspaceRoot]
   );
 
   // A1 banner: show when the doc has remote-image refs — both to allow and
   // to revoke. The banner stays visible in either state so the user can
   // toggle the permission.
-  const remoteImagesAllowed = useStore(
-    (s) => s.allowedRemoteImageDocs[filePath] === true,
-  );
-  const hasRemoteImages = useMemo(
-    () => hasRemoteImageReferences(body),
-    [body],
-  );
+  const remoteImagesAllowed = useStore((s) => s.allowedRemoteImageDocs[filePath] === true);
+  const hasRemoteImages = useMemo(() => hasRemoteImageReferences(body), [body]);
   const handleAllowRemoteImages = useCallback(() => {
     useStore.getState().allowRemoteImagesForDoc(filePath);
   }, [filePath]);
@@ -155,10 +141,10 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const [rehypeKatexPlugin, setRehypeKatexPlugin] = useState<unknown | null>(null);
   useEffect(() => {
     if (!hasMath) return;
-    ensureKatexCssLoaded();
+    void ensureKatexCssLoaded();
     if (rehypeKatexPlugin) return;
     let cancelled = false;
-    import("rehype-katex").then((m) => {
+    void import("rehype-katex").then((m) => {
       if (!cancelled) setRehypeKatexPlugin(() => m.default);
     });
     return () => {
@@ -178,25 +164,22 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   //                                   cannot be abused via raw markdown HTML.
   //   5. rehype-sanitize            → strip anything not in `sanitizeSchema`.
   //   6. rehype-slug + autolink     → assign ids and prepend anchors.
-  const rehypePlugins = useMemo(
-    () => {
-      const plugins: unknown[] = [rehypeRaw, rehypeFootnotePrefix];
-      if (rehypeKatexPlugin) plugins.push(rehypeKatexPlugin);
-      plugins.push(rehypeKatexStyle);
-      plugins.push([rehypeSanitize, sanitizeSchema]);
-      plugins.push(rehypeSlug);
-      plugins.push([
-        rehypeAutolinkHeadings,
-        {
-          behavior: "prepend",
-          properties: { className: ["heading-anchor"], ariaHidden: "true", tabIndex: -1 },
-          content: { type: "text", value: "#" },
-        },
-      ]);
-      return plugins;
-    },
-    [rehypeKatexPlugin],
-  );
+  const rehypePlugins = useMemo(() => {
+    const plugins: unknown[] = [rehypeRaw, rehypeFootnotePrefix];
+    if (rehypeKatexPlugin) plugins.push(rehypeKatexPlugin);
+    plugins.push(rehypeKatexStyle);
+    plugins.push([rehypeSanitize, sanitizeSchema]);
+    plugins.push(rehypeSlug);
+    plugins.push([
+      rehypeAutolinkHeadings,
+      {
+        behavior: "prepend",
+        properties: { className: ["heading-anchor"], ariaHidden: "true", tabIndex: -1 },
+        content: { type: "text", value: "#" },
+      },
+    ]);
+    return plugins;
+  }, [rehypeKatexPlugin]);
 
   // Scroll-to-line from CommentsPanel click
   const handleScrollTo = useCallback((line: number) => {
@@ -207,41 +190,50 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
-  const handleLineClick = useCallback((line: number) => {
-    const lineThreads = threadsByLine.get(line) ?? [];
-    if (lineThreads.length > 0) {
-      setExpandedLine(expandedLine === line ? null : line);
-      setCommentingLine(null);
-    } else {
-      setCommentingLine(commentingLine === line ? null : line);
-      setExpandedLine(null);
-    }
-  }, [threadsByLine, expandedLine, commentingLine]);
+  const handleLineClick = useCallback(
+    (line: number) => {
+      const lineThreads = threadsByLine.get(line) ?? [];
+      if (lineThreads.length > 0) {
+        setExpandedLine(expandedLine === line ? null : line);
+        setCommentingLine(null);
+      } else {
+        setCommentingLine(commentingLine === line ? null : line);
+        setExpandedLine(null);
+      }
+    },
+    [threadsByLine, expandedLine, commentingLine]
+  );
 
-  const contextValue = useMemo(() => ({
-    commentCountByLine,
-  }), [commentCountByLine]);
+  const contextValue = useMemo(
+    () => ({
+      commentCountByLine,
+    }),
+    [commentCountByLine]
+  );
 
-  const handleGutterClick = useCallback((e: React.MouseEvent) => {
-    const container = bodyRef.current;
-    if (!container) return;
-    const containerRect = container.getBoundingClientRect();
-    const relativeX = e.clientX - containerRect.left;
+  const handleGutterClick = useCallback(
+    (e: React.MouseEvent) => {
+      const container = bodyRef.current;
+      if (!container) return;
+      const containerRect = container.getBoundingClientRect();
+      const relativeX = e.clientX - containerRect.left;
 
-    // Only handle clicks in the gutter zone (left 28px)
-    if (relativeX > 28) return;
+      // Only handle clicks in the gutter zone (left 28px)
+      if (relativeX > 28) return;
 
-    const target = (e.target as HTMLElement).closest("[data-source-line]");
-    if (!target) return;
-    const line = Number(target.getAttribute("data-source-line"));
-    if (line <= 0) return;
+      const target = (e.target as HTMLElement).closest("[data-source-line]");
+      if (!target) return;
+      const line = Number(target.getAttribute("data-source-line"));
+      if (line <= 0) return;
 
-    e.stopPropagation();
-    handleLineClick(line);
-  }, [handleLineClick]);
+      e.stopPropagation();
+      handleLineClick(line);
+    },
+    [handleLineClick]
+  );
 
   const handleSelectionAdd = useCallback(() => {
-    handleAddSelectionComment((line) => {
+    void handleAddSelectionComment((line) => {
       setCommentingLine(line);
       setExpandedLine(null);
     });
@@ -275,17 +267,18 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [openFindBar]);
 
-  const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } = useViewerContextMenu({
-    filePath,
-    resolveLine: (target) => {
-      const lineEl = target.closest<HTMLElement>("[data-source-line]");
-      if (!lineEl) return null;
-      const n = Number(lineEl.getAttribute("data-source-line"));
-      return Number.isFinite(n) && n > 0 ? n : null;
-    },
-    primeSelection: handleMouseUp,
-    startSelectionComment: handleSelectionAdd,
-  });
+  const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } =
+    useViewerContextMenu({
+      filePath,
+      resolveLine: (target) => {
+        const lineEl = target.closest<HTMLElement>("[data-source-line]");
+        if (!lineEl) return null;
+        const n = Number(lineEl.getAttribute("data-source-line"));
+        return Number.isFinite(n) && n > 0 ? n : null;
+      },
+      primeSelection: handleMouseUp,
+      startSelectionComment: handleSelectionAdd,
+    });
 
   return (
     <div className="markdown-viewer" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
@@ -310,10 +303,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
           </div>
         )}
         {hasRemoteImages && (
-          <div
-            className="viewer-info-banner"
-            role="status"
-          >
+          <div className="viewer-info-banner" role="status">
             {remoteImagesAllowed
               ? "Remote images allowed for this document. "
               : "This document contains remote images. "}
@@ -321,7 +311,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               type="button"
               className="comment-btn"
               onClick={remoteImagesAllowed ? handleDisallowRemoteImages : handleAllowRemoteImages}
-              aria-label={remoteImagesAllowed ? "Disallow remote images" : "Allow remote images for this document"}
+              aria-label={
+                remoteImagesAllowed
+                  ? "Disallow remote images"
+                  : "Allow remote images for this document"
+              }
             >
               {remoteImagesAllowed ? "Disallow remote images" : "Allow remote images"}
             </button>

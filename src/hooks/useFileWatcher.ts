@@ -27,13 +27,13 @@ export function useFileWatcher() {
       if (currentRoot) {
         scanReviewFiles(currentRoot)
           .then((pairs) =>
-            useStore.getState().setGhostEntries(
-              pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
-            )
+            useStore
+              .getState()
+              .setGhostEntries(
+                pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
+              )
           )
-          .catch((err) =>
-            warn(`[useFileWatcher] failed to re-scan after deletion: ${err}`)
-          );
+          .catch((err) => warn(`[useFileWatcher] failed to re-scan after deletion: ${err}`));
       }
     }, SCAN_DEBOUNCE_MS);
   }, []);
@@ -54,11 +54,11 @@ export function useFileWatcher() {
       const lastSave = lastSaveByPathRef.current[path] ?? 0;
 
       if (now - lastSave < SAVE_DEBOUNCE_MS) {
-        debug(`[useFileWatcher] ignoring event within save debounce window: ${path}`);
+        void debug(`[useFileWatcher] ignoring event within save debounce window: ${path}`); // fire-and-forget log inside sync event handler
         return;
       }
 
-      debug(`[useFileWatcher] file changed: ${path} (${kind})`);
+      void debug(`[useFileWatcher] file changed: ${path} (${kind})`); // fire-and-forget log inside sync event handler
       window.dispatchEvent(
         new CustomEvent("mdownreview:file-changed", {
           detail: { path, kind },
@@ -74,7 +74,7 @@ export function useFileWatcher() {
 
     // Re-scan ghosts when sidecar config changes (toggle or migration)
     const unlistenConfig = listenEvent("sidecar-config-changed", () => {
-      debug("[useFileWatcher] sidecar config changed, re-scanning ghosts");
+      void debug("[useFileWatcher] sidecar config changed, re-scanning ghosts"); // fire-and-forget log inside sync event handler
       debouncedScan();
     });
 
@@ -97,13 +97,11 @@ export function useFileWatcher() {
     scanReviewFiles(root)
       .then((pairs) => {
         if (cancelled) return;
-        setGhostEntries(
-          pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath }))
-        );
+        setGhostEntries(pairs.map(([sidecarPath, sourcePath]) => ({ sidecarPath, sourcePath })));
       })
-      .catch((err) =>
-        warn(`[useFileWatcher] failed to scan review files: ${err}`)
-      );
-    return () => { cancelled = true; };
+      .catch((err) => warn(`[useFileWatcher] failed to scan review files: ${err}`));
+    return () => {
+      cancelled = true;
+    };
   }, [root, setGhostEntries]);
 }

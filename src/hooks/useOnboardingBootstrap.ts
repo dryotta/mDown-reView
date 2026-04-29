@@ -21,7 +21,7 @@ export function useOnboardingBootstrap(): void {
       .getState()
       .refreshOnboarding()
       .catch((err) => {
-        logger.warn(`[onboarding] bootstrap failed: ${String(err)}`);
+        void logger.warn(`[onboarding] bootstrap failed: ${String(err)}`); // fire-and-forget log inside sync .catch
       });
   }, []);
 
@@ -36,7 +36,7 @@ export function useOnboardingBootstrap(): void {
           .getState()
           .refreshOnboarding()
           .catch((err) => {
-            logger.warn(`[onboarding] focus refresh failed: ${String(err)}`);
+            void logger.warn(`[onboarding] focus refresh failed: ${String(err)}`); // fire-and-forget log inside sync .catch
           });
       }, FOCUS_REFRESH_DEBOUNCE_MS);
     };

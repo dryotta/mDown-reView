@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import { render, screen, fireEvent, act, within, waitFor } from "@testing-library/react";
 import { SettingsView } from "../SettingsView";
 import { useStore } from "@/store";
@@ -14,7 +15,7 @@ vi.mock("@/lib/vm/useAuthor", () => ({
   useAuthor: () => ({ author: currentAuthor, setAuthor: setAuthorMock }),
 }));
 
-const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
+const mockedInvoke = invoke as MockedFunction<typeof invoke>;
 
 beforeEach(() => {
   // jsdom does not implement HTMLDialogElement.showModal / .close.
@@ -210,7 +211,7 @@ describe("SettingsView", () => {
     });
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      expect.stringContaining("/plugin marketplace add"),
+      expect.stringContaining("/plugin marketplace add")
     );
     expect(copyBtn).toHaveTextContent("Copied!");
   });
@@ -286,8 +287,7 @@ describe("SettingsView", () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === "cli_shim_status") return "unsupported";
       if (cmd === "default_handler_status") return "unknown";
-      if (cmd === "onboarding_state")
-        return { schema_version: 1, last_seen_sections: [] };
+      if (cmd === "onboarding_state") return { schema_version: 1, last_seen_sections: [] };
       return undefined;
     });
     useStore.setState({
@@ -298,15 +298,18 @@ describe("SettingsView", () => {
     });
     const row = screen.getByTestId("settings-row-cliShim");
     expect(within(row).queryByRole("switch")).toBeNull();
-    expect(within(row).getByTestId("settings-row-fallback-cliShim"))
-      .toHaveTextContent(/Not available on this platform/i);
+    expect(within(row).getByTestId("settings-row-fallback-cliShim")).toHaveTextContent(
+      /Not available on this platform/i
+    );
   });
 
   it("renders a one-line description under each row label (B5)", async () => {
     await act(async () => {
       render(<SettingsView onClose={onCloseMock} />);
     });
-    expect(screen.getByTestId("settings-row-description-cliShim")).toHaveTextContent(/coding agents/);
+    expect(screen.getByTestId("settings-row-description-cliShim")).toHaveTextContent(
+      /coding agents/
+    );
     expect(screen.getByTestId("settings-row-defaultHandler")).toHaveTextContent(/markdown files/);
   });
 
@@ -398,9 +401,7 @@ describe("SettingsView", () => {
     // resolves, so `author` is "" on mount. After the store updates with
     // the resolved value, the input must reflect it.
     currentAuthor = "";
-    const { rerender } = await act(async () =>
-      render(<SettingsView onClose={onCloseMock} />),
-    );
+    const { rerender } = await act(async () => render(<SettingsView onClose={onCloseMock} />));
     const input = screen.getByLabelText("Display name") as HTMLInputElement;
     expect(input.value).toBe("");
 

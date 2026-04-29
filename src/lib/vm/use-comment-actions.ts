@@ -28,7 +28,7 @@ export type AddCommentAnchor = CommentAnchor | Anchor;
  * hash-computation branch for non-line tagged anchors.
  */
 function isLineShapedAnchor(
-  a: AddCommentAnchor,
+  a: AddCommentAnchor
 ): a is CommentAnchor | Extract<Anchor, { kind: "line" }> {
   return !("kind" in a) || a.kind === "line";
 }
@@ -42,16 +42,8 @@ interface UseCommentActionsResult {
     severity?: string,
     document?: string
   ) => Promise<void>;
-  addReply: (
-    filePath: string,
-    parentId: string,
-    text: string
-  ) => Promise<void>;
-  editComment: (
-    filePath: string,
-    commentId: string,
-    text: string
-  ) => Promise<void>;
+  addReply: (filePath: string, parentId: string, text: string) => Promise<void>;
+  editComment: (filePath: string, commentId: string, text: string) => Promise<void>;
   deleteComment: (filePath: string, commentId: string) => Promise<void>;
   resolveComment: (filePath: string, commentId: string) => Promise<void>;
   unresolveComment: (filePath: string, commentId: string) => Promise<void>;
@@ -73,6 +65,7 @@ export function useCommentActions(): UseCommentActionsResult {
   const authorName = useStore((s) => s.authorName);
 
   const addComment = useCallback(
+    // allow-chained-invokes: computeAnchorHash result is captured as resolvedAnchor.selected_text_hash and consumed by the subsequent addCommentCmd call — sequential dependency, not parallelizable.
     async (
       filePath: string,
       text: string,
@@ -88,7 +81,12 @@ export function useCommentActions(): UseCommentActionsResult {
         // text is present but the hash is missing. Non-line tagged anchors
         // (`file`, `image_rect`, ...) carry no `selected_text_hash`, so we
         // pass them through untouched.
-        if (anchor && isLineShapedAnchor(anchor) && anchor.selected_text && !anchor.selected_text_hash) {
+        if (
+          anchor &&
+          isLineShapedAnchor(anchor) &&
+          anchor.selected_text &&
+          !anchor.selected_text_hash
+        ) {
           const hash = await computeAnchorHash(anchor.selected_text);
           resolvedAnchor = { ...anchor, selected_text_hash: hash };
         }
@@ -102,7 +100,7 @@ export function useCommentActions(): UseCommentActionsResult {
           document
         );
       } catch (e) {
-        error(`[vm] Failed to add comment: ${e}`);
+        void error(`[vm] Failed to add comment: ${e}`); // fire-and-forget log before re-throw
         throw e;
       }
     },
@@ -114,66 +112,54 @@ export function useCommentActions(): UseCommentActionsResult {
       try {
         await addReplyCmd(filePath, parentId, authorName || "Anonymous", text);
       } catch (e) {
-        error(`[vm] Failed to add reply: ${e}`);
+        void error(`[vm] Failed to add reply: ${e}`); // fire-and-forget log before re-throw
         throw e;
       }
     },
     [authorName]
   );
 
-  const editComment = useCallback(
-    async (filePath: string, commentId: string, text: string) => {
-      try {
-        await editCommentCmd(filePath, commentId, text);
-      } catch (e) {
-        error(`[vm] Failed to edit comment: ${e}`);
-        throw e;
-      }
-    },
-    []
-  );
+  const editComment = useCallback(async (filePath: string, commentId: string, text: string) => {
+    try {
+      await editCommentCmd(filePath, commentId, text);
+    } catch (e) {
+      void error(`[vm] Failed to edit comment: ${e}`); // fire-and-forget log before re-throw
+      throw e;
+    }
+  }, []);
 
-  const deleteComment = useCallback(
-    async (filePath: string, commentId: string) => {
-      try {
-        await deleteCommentCmd(filePath, commentId);
-      } catch (e) {
-        error(`[vm] Failed to delete comment: ${e}`);
-        throw e;
-      }
-    },
-    []
-  );
+  const deleteComment = useCallback(async (filePath: string, commentId: string) => {
+    try {
+      await deleteCommentCmd(filePath, commentId);
+    } catch (e) {
+      void error(`[vm] Failed to delete comment: ${e}`); // fire-and-forget log before re-throw
+      throw e;
+    }
+  }, []);
 
-  const resolveComment = useCallback(
-    async (filePath: string, commentId: string) => {
-      try {
-        await updateComment(filePath, commentId, {
-          kind: "set_resolved",
-          data: { resolved: true },
-        });
-      } catch (e) {
-        error(`[vm] Failed to resolve comment: ${e}`);
-        throw e;
-      }
-    },
-    []
-  );
+  const resolveComment = useCallback(async (filePath: string, commentId: string) => {
+    try {
+      await updateComment(filePath, commentId, {
+        kind: "set_resolved",
+        data: { resolved: true },
+      });
+    } catch (e) {
+      void error(`[vm] Failed to resolve comment: ${e}`); // fire-and-forget log before re-throw
+      throw e;
+    }
+  }, []);
 
-  const unresolveComment = useCallback(
-    async (filePath: string, commentId: string) => {
-      try {
-        await updateComment(filePath, commentId, {
-          kind: "set_resolved",
-          data: { resolved: false },
-        });
-      } catch (e) {
-        error(`[vm] Failed to unresolve comment: ${e}`);
-        throw e;
-      }
-    },
-    []
-  );
+  const unresolveComment = useCallback(async (filePath: string, commentId: string) => {
+    try {
+      await updateComment(filePath, commentId, {
+        kind: "set_resolved",
+        data: { resolved: false },
+      });
+    } catch (e) {
+      void error(`[vm] Failed to unresolve comment: ${e}`); // fire-and-forget log before re-throw
+      throw e;
+    }
+  }, []);
 
   const resolveFocusedThread = useCallback(async () => {
     const { focusedThreadId, activeTabPath } = useStore.getState();
@@ -184,7 +170,7 @@ export function useCommentActions(): UseCommentActionsResult {
         data: { resolved: true },
       });
     } catch (e) {
-      error(`[vm] Failed to resolve focused thread: ${e}`);
+      void error(`[vm] Failed to resolve focused thread: ${e}`); // fire-and-forget log before re-throw
       throw e;
     }
   }, []);

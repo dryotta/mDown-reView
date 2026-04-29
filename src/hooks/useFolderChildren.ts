@@ -29,7 +29,11 @@ export function useFolderChildren(root: string | null) {
       if (cached && limit === undefined) return cached.entries;
       try {
         const result = await readDir(path, limit, showSidecarFiles || undefined);
-        const value: CachedDir = { entries: result.entries, hasMore: result.has_more, total: result.total };
+        const value: CachedDir = {
+          entries: result.entries,
+          hasMore: result.has_more,
+          total: result.total,
+        };
         setChildrenCache((prev) => {
           const next = { ...prev, [path]: value };
           childrenCacheRef.current = next;
@@ -82,15 +86,17 @@ export function useFolderChildren(root: string | null) {
         .then((result) => {
           if (generationRef.current !== gen) return;
           setChildrenCache((prev) => {
-            const value: CachedDir = { entries: result.entries, hasMore: result.has_more, total: result.total };
+            const value: CachedDir = {
+              entries: result.entries,
+              hasMore: result.has_more,
+              total: result.total,
+            };
             const next = { ...prev, [path]: value };
             childrenCacheRef.current = next;
             return next;
           });
         })
-        .catch((err) =>
-          warn(`[useFolderChildren] folder-changed refresh failed: ${err}`)
-        );
+        .catch((err) => warn(`[useFolderChildren] folder-changed refresh failed: ${err}`));
     });
     return () => {
       unlisten.then((fn) => fn()).catch(() => {});

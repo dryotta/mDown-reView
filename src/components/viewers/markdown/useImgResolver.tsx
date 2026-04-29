@@ -37,7 +37,7 @@ function RemoteImage({
       })
       .catch((err) => {
         if (cancelled) return;
-        warn(`useImgResolver: fetchRemoteAsset failed for ${url}: ${String(err)}`);
+        void warn(`useImgResolver: fetchRemoteAsset failed for ${url}: ${String(err)}`);
         setFailed(true);
       });
     return () => {
@@ -83,9 +83,7 @@ function RemoteImage({
  * The returned `img` reference is stable per `(filePath, allowed)` pair.
  */
 export function useImgResolver(filePath: string | null): { img: ImgComponent } {
-  const allowed = useStore((s) =>
-    filePath ? s.allowedRemoteImageDocs[filePath] === true : false,
-  );
+  const allowed = useStore((s) => (filePath ? s.allowedRemoteImageDocs[filePath] === true : false));
   const img = useCallback<ImgComponent>(
     ({ src, alt, node: _node, ...props }) => {
       if (!src) return <img alt={alt ?? ""} {...props} />;
@@ -120,7 +118,7 @@ export function useImgResolver(filePath: string | null): { img: ImgComponent } {
 
       return <img src={src} alt={alt ?? ""} {...props} />;
     },
-    [filePath, allowed],
+    [filePath, allowed]
   );
 
   return { img };
@@ -139,9 +137,7 @@ export function useImgResolver(filePath: string | null): { img: ImgComponent } {
 export function hasRemoteImageReferences(body: string): boolean {
   // Order matters: strip fenced blocks before inline ticks so the inline
   // regex does not chew across a fence.
-  const stripped = body
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`\n]*`/g, "");
+  const stripped = body.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
   return (
     /!\[[^\]]*\]\(\s*https?:\/\//i.test(stripped) ||
     /<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i.test(stripped)

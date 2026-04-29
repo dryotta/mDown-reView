@@ -92,15 +92,20 @@ export interface ReadDirResult {
   has_more: boolean;
 }
 
-export const readDir = (path: string, limit?: number, showSidecars?: boolean): Promise<ReadDirResult> =>
-  invoke<ReadDirResult>("read_dir", { path, limit: limit ?? null, showSidecars: showSidecars ?? null });
+export const readDir = (
+  path: string,
+  limit?: number,
+  showSidecars?: boolean
+): Promise<ReadDirResult> =>
+  invoke<ReadDirResult>("read_dir", {
+    path,
+    limit: limit ?? null,
+    showSidecars: showSidecars ?? null,
+  });
 
-export const getLaunchArgs = (): Promise<LaunchArgs> =>
-  invoke<LaunchArgs>("get_launch_args");
+export const getLaunchArgs = (): Promise<LaunchArgs> => invoke<LaunchArgs>("get_launch_args");
 
-export const getLogPath = (): Promise<string> =>
-  invoke<string>("get_log_path");
-
+export const getLogPath = (): Promise<string> => invoke<string>("get_log_path");
 
 export const updateWatchedFiles = (paths: string[]): Promise<void> =>
   invoke<void>("update_watched_files", { paths });
@@ -116,7 +121,6 @@ export const canonicalizePath = (path: string): Promise<string> =>
 
 export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
   invoke<"file" | "dir" | "missing">("check_path_exists", { path });
-
 
 export const getAppVersion = (): Promise<string> => getVersion();
 
@@ -156,7 +160,6 @@ export interface GetFileCommentsResult {
 export const getFileComments = (filePath: string): Promise<GetFileCommentsResult> =>
   invoke<GetFileCommentsResult>("get_file_comments", { filePath });
 
-
 export const addComment = (
   filePath: string,
   author: string,
@@ -181,20 +184,12 @@ export const addReply = (
   parentId: string,
   author: string,
   text: string
-): Promise<void> =>
-  invoke<void>("add_reply", { filePath, parentId, author, text });
+): Promise<void> => invoke<void>("add_reply", { filePath, parentId, author, text });
 
-export const editComment = (
-  filePath: string,
-  commentId: string,
-  text: string
-): Promise<void> =>
+export const editComment = (filePath: string, commentId: string, text: string): Promise<void> =>
   invoke<void>("edit_comment", { filePath, commentId, text });
 
-export const deleteComment = (
-  filePath: string,
-  commentId: string
-): Promise<void> =>
+export const deleteComment = (filePath: string, commentId: string): Promise<void> =>
   invoke<void>("delete_comment", { filePath, commentId });
 
 export const computeAnchorHash = (text: string): Promise<string> =>
@@ -216,21 +211,17 @@ export interface FileBadge {
  * `CommentPatch` enum (snake_case). Adding a new patch variant requires
  * editing both this union and `commands/comments/update.rs`.
  */
-export type CommentPatch =
-  | { kind: "set_resolved"; data: { resolved: boolean } };
+export type CommentPatch = { kind: "set_resolved"; data: { resolved: boolean } };
 
 /** Apply a discriminated patch to a single comment. */
 export const updateComment = (
   filePath: string,
   commentId: string,
-  patch: CommentPatch,
-): Promise<void> =>
-  invoke<void>("update_comment", { filePath, commentId, patch });
+  patch: CommentPatch
+): Promise<void> => invoke<void>("update_comment", { filePath, commentId, patch });
 
 /** Per-file unresolved-thread count + worst severity. */
-export const getFileBadges = (
-  filePaths: string[],
-): Promise<Record<string, FileBadge>> =>
+export const getFileBadges = (filePaths: string[]): Promise<Record<string, FileBadge>> =>
   invoke<Record<string, FileBadge>>("get_file_badges", { filePaths });
 
 /** Discriminated error from `set_author`. */
@@ -241,8 +232,7 @@ export type ConfigError =
 /** Persist the display name written into `MrsfComment.author`. Returns the
  *  trimmed value on success; throws a typed `ConfigError` on validation /
  *  persistence failure. */
-export const setAuthor = (name: string): Promise<string> =>
-  invoke<string>("set_author", { name });
+export const setAuthor = (name: string): Promise<string> => invoke<string>("set_author", { name });
 
 /** Read the persisted display name. Falls back to the OS user (USERNAME /
  *  USER env var) and finally to `"anonymous"` on the Rust side — never
@@ -321,7 +311,10 @@ export const getSidecarConfig = (root: string): Promise<SidecarConfigResult> =>
 export const setSidecarConfig = (root: string, enabled: boolean): Promise<SidecarConfigResult> =>
   invoke<SidecarConfigResult>("set_sidecar_config", { root, enabled });
 
-export const migrateSidecars = (root: string, direction: MigrateDirection): Promise<MigrateSidecarsResult> =>
+export const migrateSidecars = (
+  root: string,
+  direction: MigrateDirection
+): Promise<MigrateSidecarsResult> =>
   invoke<MigrateSidecarsResult>("migrate_sidecars_cmd", { root, direction });
 
 // ── Remote asset fetcher(bounded HTTPS image proxy) ─────────────────────
@@ -365,8 +358,7 @@ export interface UpdateInfo {
 export const checkUpdate = (channel: string): Promise<UpdateInfo | null> =>
   invoke<UpdateInfo | null>("check_update", { channel });
 
-export const installUpdate = (): Promise<void> =>
-  invoke<void>("install_update");
+export const installUpdate = (): Promise<void> => invoke<void>("install_update");
 
 // ── Dialog wrapper ────────────────────────────────────────────────────────
 
@@ -398,7 +390,7 @@ export const copyToClipboard = (text: string): Promise<void> => {
 
 export const openExternalUrl = (url: string): Promise<void> => {
   if (BLOCKED_LINK_SCHEME.test(url) || !EXTERNAL_LINK_SCHEME.test(url)) {
-    warn(`openExternalUrl: blocked URL scheme: ${url}`);
+    void warn(`openExternalUrl: blocked URL scheme: ${url}`); // fire-and-forget log
     return Promise.reject(new Error(`Blocked URL scheme: ${url}`));
   }
   return openUrl(url);
@@ -424,20 +416,16 @@ export type DefaultHandlerStatus = "done" | "other" | "unknown" | "unsupported";
 export const onboardingState = (): Promise<OnboardingState> =>
   invoke<OnboardingState>("onboarding_state");
 
-export const cliShimStatus = (): Promise<CliShimStatus> =>
-  invoke<CliShimStatus>("cli_shim_status");
+export const cliShimStatus = (): Promise<CliShimStatus> => invoke<CliShimStatus>("cli_shim_status");
 
-export const installCliShim = (): Promise<void> =>
-  invoke<void>("install_cli_shim");
+export const installCliShim = (): Promise<void> => invoke<void>("install_cli_shim");
 
-export const removeCliShim = (): Promise<void> =>
-  invoke<void>("remove_cli_shim");
+export const removeCliShim = (): Promise<void> => invoke<void>("remove_cli_shim");
 
 export const defaultHandlerStatus = (): Promise<DefaultHandlerStatus> =>
   invoke<DefaultHandlerStatus>("default_handler_status");
 
-export const setDefaultHandler = (): Promise<void> =>
-  invoke<void>("set_default_handler");
+export const setDefaultHandler = (): Promise<void> => invoke<void>("set_default_handler");
 
 // ── Per-file viewer prefs (Rust persistence) ─────────────────────────────
 
@@ -462,6 +450,4 @@ export const registerWindowFolder = (folder: string): Promise<void> =>
   invoke<void>("register_window_folder", { folder });
 
 /** Reset this window's registry entry to FileOnly and clear the title. */
-export const unregisterWindowFolder = (): Promise<void> =>
-  invoke<void>("unregister_window_folder");
-
+export const unregisterWindowFolder = (): Promise<void> => invoke<void>("unregister_window_folder");

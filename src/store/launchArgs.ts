@@ -20,7 +20,7 @@ import { warn } from "@/logger";
 export async function openFilesFromArgs(
   files: string[],
   folders: string[],
-  store: ReturnType<typeof useStore.getState>,
+  store: ReturnType<typeof useStore.getState>
 ): Promise<void> {
   // Last folder wins (spec requirement).
   // Confirm registration with the Rust registry (the Rust setup/router
@@ -35,7 +35,7 @@ export async function openFilesFromArgs(
     try {
       await registerWindowFolder(canonicalFolder);
     } catch (err) {
-      warn(`[launchArgs] register_window_folder failed: ${err}`);
+      void warn(`[launchArgs] register_window_folder failed: ${err}`); // fire-and-forget log
     }
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));

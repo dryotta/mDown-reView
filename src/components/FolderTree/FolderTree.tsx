@@ -73,7 +73,13 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
   }, []);
 
   // ── Tree mode list (no filter — filter mode uses grouped view below) ──────
-  const { nodes: treeList, hiddenGhostsByFolder } = useFolderTree(root, childrenCache, expandedFolders, "", ghostEntries);
+  const { nodes: treeList, hiddenGhostsByFolder } = useFolderTree(
+    root,
+    childrenCache,
+    expandedFolders,
+    "",
+    ghostEntries
+  );
 
   // ── "Other files" derived from open tabs that live outside `root` ─────────
   const otherFiles = useMemo(
@@ -256,10 +262,10 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
         {Array.from({ length: opts.depth }, (_, i) => (
           <span key={i} className="tree-indent" />
         ))}
-        <span className="tree-icon">
-          {opts.isDir ? (expanded ? "▾" : "▸") : "·"}
+        <span className="tree-icon">{opts.isDir ? (expanded ? "▾" : "▸") : "·"}</span>
+        <span className="tree-name" title={opts.titleOverride ?? path}>
+          {name}
         </span>
-        <span className="tree-name" title={opts.titleOverride ?? path}>{name}</span>
         {!opts.isDir && (
           <CommentBadge
             count={fileBadges[path]?.count ?? 0}
@@ -267,27 +273,24 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
             className="tree-comment-badge"
           />
         )}
-        {opts.isDir && (() => {
-          const ghostPaths = hiddenGhostsByFolder[path];
-          if (!ghostPaths || ghostPaths.length === 0) return null;
-          let totalCount = 0;
-          let maxSev: Severity = "none";
-          for (const gp of ghostPaths) {
-            const badge = fileBadges[gp];
-            if (!badge) continue;
-            totalCount += badge.count;
-            if (SEVERITY_ORDER[badge.max_severity] > SEVERITY_ORDER[maxSev]) {
-              maxSev = badge.max_severity;
+        {opts.isDir &&
+          (() => {
+            const ghostPaths = hiddenGhostsByFolder[path];
+            if (!ghostPaths || ghostPaths.length === 0) return null;
+            let totalCount = 0;
+            let maxSev: Severity = "none";
+            for (const gp of ghostPaths) {
+              const badge = fileBadges[gp];
+              if (!badge) continue;
+              totalCount += badge.count;
+              if (SEVERITY_ORDER[badge.max_severity] > SEVERITY_ORDER[maxSev]) {
+                maxSev = badge.max_severity;
+              }
             }
-          }
-          return (
-            <CommentBadge
-              count={totalCount}
-              severity={maxSev}
-              className="tree-comment-badge"
-            />
-          );
-        })()}
+            return (
+              <CommentBadge count={totalCount} severity={maxSev} className="tree-comment-badge" />
+            );
+          })()}
       </div>
     );
   };
@@ -305,11 +308,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
           <IconFolder /> {root ? root.split(/[/\\]/).pop() : ""}
         </span>
         <span className="folder-tree-header-actions">
-          <button
-            className="folder-tree-btn"
-            onClick={openSidecarConfig}
-            title="Sidecar config"
-          >
+          <button className="folder-tree-btn" onClick={openSidecarConfig} title="Sidecar config">
             ⚙
           </button>
           <button
@@ -326,7 +325,9 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
           id="file-filter-input"
           className="folder-tree-filter"
           type="text"
-          placeholder={navigator.platform?.startsWith("Mac") ? "Filter files (⌘P)" : "Filter files (Ctrl+P)"}
+          placeholder={
+            navigator.platform?.startsWith("Mac") ? "Filter files (⌘P)" : "Filter files (Ctrl+P)"
+          }
           aria-label="Filter files"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -360,9 +361,10 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
               <span className="tree-icon">{otherFilesOpen ? "▾" : "▸"}</span>
               <span className="folder-tree-section-label">Other files ({otherFiles.length})</span>
             </button>
-            {otherFilesOpen && otherFiles.map((t) =>
-              renderRow(t.path, pathBasename(t.path), { isDir: false, depth: 0 })
-            )}
+            {otherFilesOpen &&
+              otherFiles.map((t) =>
+                renderRow(t.path, pathBasename(t.path), { isDir: false, depth: 0 })
+              )}
           </div>
         )}
 
@@ -401,7 +403,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                       style={{ paddingLeft: `${(top.depth + 1) * 16 + 8}px` }}
                       onClick={() => {
                         const total = childrenCache[top.path]?.total ?? 10000;
-                        loadChildren(top.path, total);
+                        void loadChildren(top.path, total);
                       }}
                     >
                       Show all {childrenCache[top.path]?.total} items…
@@ -411,7 +413,9 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                   break;
                 }
               }
-              result.push(renderRow(n.path, n.name, { isDir: n.isDir, depth: n.depth, isGhost: n.isGhost }));
+              result.push(
+                renderRow(n.path, n.name, { isDir: n.isDir, depth: n.depth, isGhost: n.isGhost })
+              );
               if (n.isDir && expandedFolders[n.path] && childrenCache[n.path]?.hasMore) {
                 truncatedStack.push({ path: n.path, depth: n.depth });
               }
@@ -426,7 +430,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
                   style={{ paddingLeft: `${(top.depth + 1) * 16 + 8}px` }}
                   onClick={() => {
                     const total = childrenCache[top.path]?.total ?? 10000;
-                    loadChildren(top.path, total);
+                    void loadChildren(top.path, total);
                   }}
                 >
                   Show all {childrenCache[top.path]?.total} items…
