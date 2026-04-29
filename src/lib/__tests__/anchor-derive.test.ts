@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { deriveAnchor, assertNeverAnchorKind } from "../comments";
-import type { MrsfComment, Anchor } from "../comments";
+import { deriveAnchor, assertNeverAnchorKind } from "@/lib/anchor-derive";
+import type { MrsfComment, Anchor } from "@/lib/anchor-derive";
 
 /** Minimal MrsfComment stub for testing deriveAnchor. */
 function stub(overrides: Partial<MrsfComment> = {}): MrsfComment {
@@ -54,7 +54,7 @@ describe("deriveAnchor", () => {
     expect(deriveAnchor(c)).toEqual({ kind: "file" });
   });
 
-  it('derives word_range anchor from payload', () => {
+  it("derives word_range anchor from payload", () => {
     const wr = { start_word: 2, end_word: 5, line: 1, snippet: "foo bar", line_text_hash: "abc" };
     const c = stub({ anchor_kind: "word_range", word_range: wr });
     const a = deriveAnchor(c);
@@ -83,6 +83,17 @@ describe("deriveAnchor", () => {
       anchor_kind: "image_rect",
       image_rect: { x_pct: 0.5, y_pct: 0.5 },
     });
+    expect(deriveAnchor(c)).toEqual({ kind: "unknown" });
+  });
+
+  // Forward-compat: an unknown future discriminator (e.g. a renderer running
+  // against a sidecar emitted by a newer Rust core) must NOT silently
+  // collapse to a fabricated `Line 0` anchor — that would render as a
+  // normal line badge in the UI. Rust's `TryFrom<&MrsfCommentRepr> for
+  // Anchor` (`src-tauri/src/core/types/wire.rs`) maps any unrecognised
+  // kind to `Anchor::Unknown`; the JS adapter must do the same.
+  it('returns { kind: "unknown" } for an unknown future anchor_kind', () => {
+    const c = stub({ anchor_kind: "image_v2" });
     expect(deriveAnchor(c)).toEqual({ kind: "unknown" });
   });
 });

@@ -4,7 +4,7 @@
 // payload object keys arrive in a different order. Sync by design (no
 // Web Crypto / Promise) so call-sites can compute keys at render time.
 
-import type { Anchor } from "@/types/comments";
+import type { Anchor } from "@/lib/anchor-derive";
 
 // Recursively serialize with sorted keys at every object level. Arrays are
 // kept in their natural order (their order is part of the identity for the
@@ -15,7 +15,9 @@ function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return "[" + value.map(stableStringify).join(",") + "]";
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
   return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
 }
 

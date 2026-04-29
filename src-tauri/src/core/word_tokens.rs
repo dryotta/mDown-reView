@@ -18,7 +18,7 @@ use unicode_segmentation::UnicodeSegmentation;
 /// One word-like segment produced by [`tokenize_words`]. Byte offsets are
 /// indexes into the original UTF-8 input — the renderer can map back to
 /// rendered glyphs trivially.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub struct WordSpan {
     pub start: u32,
     pub end: u32,

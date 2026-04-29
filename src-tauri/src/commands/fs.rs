@@ -11,6 +11,7 @@ use crate::core::types::DirEntry;
 /// workspace guard — this is the very command callers use to obtain the
 /// canonical form before they have a workspace to validate against.
 #[tauri::command]
+#[specta::specta]
 pub fn canonicalize_path(path: String) -> Result<String, String> {
     canonicalize_no_verbatim(std::path::Path::new(&path))
         .map(|p| p.to_string_lossy().into_owned())
@@ -20,21 +21,34 @@ pub fn canonicalize_path(path: String) -> Result<String, String> {
         })
 }
 
+/// Outcome of a `check_path_exists` probe. Serialized as a bare lowercase
+/// string ("file" / "dir" / "missing") so the wire shape matches the prior
+/// hand-mirrored TS literal union — but the enum forces specta to emit the
+/// union in `bindings.ts` so the façade can drop its `as` cast and a future
+/// variant addition fails the codegen drift gate.
+#[derive(serde::Serialize, Debug, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum PathKind {
+    File,
+    Dir,
+    Missing,
+}
+
 /// Check if a path exists and whether it is a directory or file.
-/// Returns "file", "dir", or "missing".
 #[tauri::command]
-pub fn check_path_exists(path: String) -> String {
+#[specta::specta]
+pub fn check_path_exists(path: String) -> PathKind {
     match std::fs::metadata(&path) {
-        Ok(meta) if meta.is_dir() => "dir".to_string(),
-        Ok(_) => "file".to_string(),
-        Err(_) => "missing".to_string(),
+        Ok(meta) if meta.is_dir() => PathKind::Dir,
+        Ok(_) => PathKind::File,
+        Err(_) => PathKind::Missing,
     }
 }
 
 const DEFAULT_READ_DIR_LIMIT: usize = 250;
 
 /// Capped directory listing: entries + total count + overflow flag.
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 pub struct ReadDirResult {
     pub entries: Vec<DirEntry>,
     pub total: usize,
@@ -48,6 +62,7 @@ pub struct ReadDirResult {
 /// `sidecar_root` directory when listing a workspace root with an active
 /// redirect (AC10: prevents users from seeing the internal sidecar store).
 #[tauri::command]
+#[specta::specta]
 pub fn read_dir(
     path: String,
     limit: Option<usize>,
@@ -155,7 +170,7 @@ pub fn read_dir_inner(
 /// Result of [`read_text_file`]: file content plus cheap-to-compute metadata
 /// (byte size and line count) that the UI surfaces in the status bar without
 /// requiring a second IPC round-trip.
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 pub struct TextFileResult {
     pub content: String,
     pub size_bytes: u64,
@@ -177,6 +192,7 @@ pub struct TextFileResult {
 /// before the body so content + mtime come from the same `open()` and the
 /// caller cannot observe a torn (content_v1, mtime_v2) pair.
 #[tauri::command]
+#[specta::specta]
 pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
     use std::io::Read;
 
@@ -228,6 +244,7 @@ pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
 
 /// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
 #[tauri::command]
+#[specta::specta]
 pub fn read_binary_file(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
@@ -252,7 +269,7 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
 /// malicious renderer cannot probe arbitrary paths (e.g. `~/.ssh/id_rsa`)
 /// for existence/size. The path must be inside an open workspace folder or
 /// an open tab.
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 pub struct FileStat {
     pub size_bytes: u64,
     /// Last-modified time as epoch milliseconds. `None` if the platform/FS
@@ -262,6 +279,7 @@ pub struct FileStat {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn stat_file(
     path: String,
     state: tauri::State<'_, crate::watcher::WatcherState>,
@@ -307,6 +325,7 @@ pub fn stat_file_inner(
 /// its `sidecar_root` value in [`SidecarConfigState`] so that subsequent
 /// sidecar reads/writes use the configured path.
 #[tauri::command]
+#[specta::specta]
 pub fn update_tree_watched_dirs(
     window: tauri::Window,
     root: String,

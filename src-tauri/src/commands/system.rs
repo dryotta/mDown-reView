@@ -15,7 +15,7 @@ use std::process::Command;
 
 /// Typed error surfaced to the renderer. Discriminated with an internal `kind`
 /// tag so the TS side can branch on it without parsing prose strings.
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 #[serde(tag = "kind")]
 pub enum SystemError {
     /// Caller asked us to act on a path outside the open workspace and not in
@@ -67,6 +67,7 @@ pub(crate) fn build_reveal_command(path: &Path) -> Result<Command, SystemError> 
 /// Workspace-allowlisted via `WatcherState::is_path_allowed`. On Linux there
 /// is no portable "select" — we open the parent directory instead.
 #[tauri::command]
+#[specta::specta]
 pub fn reveal_in_folder(
     path: String,
     state: tauri::State<'_, crate::watcher::WatcherState>,

@@ -35,7 +35,7 @@ beforeEach(() => {
   // global `vi.restoreAllMocks()` (in test-setup.ts) wipes implementations
   // of `vi.fn()` mocks between tests, so we must re-prime this each time.
   vi.mocked(convertFileSrc).mockImplementation(
-    (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
+    (path: string) => `asset://localhost/${encodeURIComponent(path)}`
   );
 });
 
@@ -88,7 +88,9 @@ describe("openExternalUrl", () => {
   });
 
   it("rejects data: URLs without calling plugin", async () => {
-    await expect(openExternalUrl("data:text/html,<script>alert(1)</script>")).rejects.toThrow(/Blocked/);
+    await expect(openExternalUrl("data:text/html,<script>alert(1)</script>")).rejects.toThrow(
+      /Blocked/
+    );
     expect(openUrl).not.toHaveBeenCalled();
   });
 
@@ -246,7 +248,7 @@ describe("tokenizeWords", () => {
 
 describe("deriveAnchor — WordRange (Group D-wire, iter 3)", () => {
   it("derives a word_range Anchor from the flat word_range payload sibling", async () => {
-    const { deriveAnchor } = await import("@/types/comments");
+    const { deriveAnchor } = await import("@/lib/anchor-derive");
     const a = deriveAnchor({
       id: "c1",
       author: "a",
@@ -273,7 +275,7 @@ describe("deriveAnchor — WordRange (Group D-wire, iter 3)", () => {
   });
 
   it("falls through to derived line anchor when word_range payload is missing", async () => {
-    const { deriveAnchor } = await import("@/types/comments");
+    const { deriveAnchor } = await import("@/lib/anchor-derive");
     const a = deriveAnchor({
       id: "c1",
       author: "a",
@@ -357,7 +359,6 @@ describe("onboarding & platform-integration wrappers", () => {
     await setDefaultHandler();
     expect(m).toHaveBeenCalledWith("set_default_handler");
   });
-
 });
 
 describe("system integration wrappers (Section E)", () => {
@@ -395,9 +396,7 @@ describe("system integration wrappers (Section E)", () => {
   });
 });
 
-
-
-//  Iter 1 / F0  new IPC surface dispatch table 
+//  Iter 1 / F0  new IPC surface dispatch table
 
 describe("F0 IPC surface", () => {
   // Re-import to pick up the same mocked invoke. These tests assert that the
@@ -489,27 +488,27 @@ describe("getFileComments — Anchor discriminated union", () => {
     const m = await getInvoke();
     m.mockResolvedValueOnce({
       threads: [
-      {
-        root: {
-          id: "c-line",
-          author: "tester",
-          timestamp: "2025-01-01T00:00:00Z",
-          text: "line-anchored",
-          resolved: false,
-          line: 7,
-          matchedLineNumber: 7,
-          isOrphaned: false,
-          // NB: real wire never includes `anchor` for v1.0 line-anchored
-          // comments. Test mirrors that — derivation through `deriveAnchor`
-          // is what production code must use.
+        {
+          root: {
+            id: "c-line",
+            author: "tester",
+            timestamp: "2025-01-01T00:00:00Z",
+            text: "line-anchored",
+            resolved: false,
+            line: 7,
+            matchedLineNumber: 7,
+            isOrphaned: false,
+            // NB: real wire never includes `anchor` for v1.0 line-anchored
+            // comments. Test mirrors that — derivation through `deriveAnchor`
+            // is what production code must use.
+          },
+          replies: [],
         },
-        replies: [],
-      },
       ],
       sidecar_mtime_ms: null,
     });
     const { getFileComments } = await import("../tauri-commands");
-    const { deriveAnchor } = await import("@/types/comments");
+    const { deriveAnchor } = await import("@/lib/anchor-derive");
     const { threads } = await getFileComments("/ws/a.md");
     expect(threads).toHaveLength(1);
     const root = threads[0].root;
@@ -525,30 +524,30 @@ describe("getFileComments — Anchor discriminated union", () => {
     const m = await getInvoke();
     m.mockResolvedValueOnce({
       threads: [
-      {
-        root: {
-          id: "c-img",
-          author: "tester",
-          timestamp: "2025-01-01T00:00:00Z",
-          text: "image-anchored",
-          resolved: false,
-          matchedLineNumber: 0,
-          isOrphaned: false,
-          anchor_kind: "image_rect",
-          image_rect: {
-            x_pct: 0.25,
-            y_pct: 0.5,
-            w_pct: 0.1,
-            h_pct: 0.1,
+        {
+          root: {
+            id: "c-img",
+            author: "tester",
+            timestamp: "2025-01-01T00:00:00Z",
+            text: "image-anchored",
+            resolved: false,
+            matchedLineNumber: 0,
+            isOrphaned: false,
+            anchor_kind: "image_rect",
+            image_rect: {
+              x_pct: 0.25,
+              y_pct: 0.5,
+              w_pct: 0.1,
+              h_pct: 0.1,
+            },
           },
+          replies: [],
         },
-        replies: [],
-      },
       ],
       sidecar_mtime_ms: null,
     });
     const { getFileComments } = await import("../tauri-commands");
-    const { deriveAnchor } = await import("@/types/comments");
+    const { deriveAnchor } = await import("@/lib/anchor-derive");
     const { threads } = await getFileComments("/ws/img.png");
     expect(threads).toHaveLength(1);
     const root = threads[0].root;

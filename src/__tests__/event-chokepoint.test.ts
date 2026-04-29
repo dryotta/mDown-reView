@@ -7,6 +7,12 @@ const SRC_ROOT = join(__dirname, "..");
 const ALLOWED = new Set<string>([
   // The chokepoint itself.
   join("lib", "tauri-events.ts"),
+  // tauri-specta-generated bindings (issue #263) — emits unused
+  // event-API scaffolding alongside the typed command wrappers. The
+  // re-export façade in src/lib/tauri-commands.ts (iter 2) keeps
+  // tauri-events as the only event chokepoint that production code
+  // imports.
+  join("lib", "bindings.ts"),
 ]);
 
 const FORBIDDEN_IMPORT = /from\s+["']@tauri-apps\/api\/event["']/;
@@ -57,7 +63,7 @@ describe("event chokepoint architecture", () => {
     expect(
       offenders,
       `These files import @tauri-apps/api/event directly. ` +
-        `Use listenEvent from @/lib/tauri-events instead:\n  ${offenders.join("\n  ")}`,
+        `Use listenEvent from @/lib/tauri-events instead:\n  ${offenders.join("\n  ")}`
     ).toEqual([]);
   });
 
@@ -66,34 +72,26 @@ describe("event chokepoint architecture", () => {
   // the regex is broken or the walker skips files it shouldn't.
   describe("hasForbiddenEventImport (matcher self-test)", () => {
     it("flags double-quoted import from @tauri-apps/api/event", () => {
-      expect(
-        hasForbiddenEventImport(`import { listen } from "@tauri-apps/api/event";`),
-      ).toBe(true);
+      expect(hasForbiddenEventImport(`import { listen } from "@tauri-apps/api/event";`)).toBe(true);
     });
 
     it("flags single-quoted import from @tauri-apps/api/event", () => {
-      expect(
-        hasForbiddenEventImport(`import { listen } from '@tauri-apps/api/event';`),
-      ).toBe(true);
+      expect(hasForbiddenEventImport(`import { listen } from '@tauri-apps/api/event';`)).toBe(true);
     });
 
     it("does NOT flag imports from @/lib/tauri-events (the chokepoint)", () => {
-      expect(
-        hasForbiddenEventImport(`import { listenEvent } from "@/lib/tauri-events";`),
-      ).toBe(false);
+      expect(hasForbiddenEventImport(`import { listenEvent } from "@/lib/tauri-events";`)).toBe(
+        false
+      );
     });
 
     it("does NOT flag unrelated tauri imports", () => {
-      expect(
-        hasForbiddenEventImport(`import { invoke } from "@tauri-apps/api/core";`),
-      ).toBe(false);
+      expect(hasForbiddenEventImport(`import { invoke } from "@tauri-apps/api/core";`)).toBe(false);
     });
 
     it("does NOT flag a partial / substring match", () => {
       // No "from" keyword preceding the package name => not an import statement.
-      expect(
-        hasForbiddenEventImport(`// see @tauri-apps/api/event for details`),
-      ).toBe(false);
+      expect(hasForbiddenEventImport(`// see @tauri-apps/api/event for details`)).toBe(false);
     });
   });
 });

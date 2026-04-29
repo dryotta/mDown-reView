@@ -16,7 +16,7 @@ const AUTHOR_MAX_BYTES: usize = 128;
 
 /// Discriminated error: each variant carries a stable `kind` tag the TS side
 /// can branch on (mirrors `system::SystemError`).
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 #[serde(tag = "kind")]
 pub enum ConfigError {
     /// Author rejected by validation (length / control chars / newlines).
@@ -74,6 +74,7 @@ pub fn set_author_at(path: &Path, name: &str) -> Result<String, ConfigError> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_author(app: AppHandle, name: String) -> Result<String, ConfigError> {
     let path = default_path(&app)?;
     set_author_at(&path, &name)
@@ -99,6 +100,7 @@ pub fn get_author_at_with<F: FnOnce() -> String>(path: &Path, fallback: F) -> St
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_author(app: AppHandle) -> Result<String, ConfigError> {
     let path = default_path(&app)?;
     Ok(get_author_at_with(&path, default_author))

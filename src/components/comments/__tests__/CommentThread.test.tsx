@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CommentThread } from "../CommentThread";
-import type { MatchedComment } from "@/lib/tauri-commands";
+import type { Anchor, MatchedComment } from "@/lib/tauri-commands";
+
+// Test-only type: extends the wire `MatchedComment` shape with the
+// optional in-memory `anchor` field. Production code never reads
+// `comment.anchor` directly (the canonical path is `deriveAnchor(c)`),
+// but this fixture seeds `anchor` directly so test scenarios can
+// drive `deriveAnchor`'s switch without populating sibling fields.
+type FixtureComment = MatchedComment & { anchor?: Anchor };
 
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
@@ -28,7 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function makeComment(overrides: Partial<MatchedComment> = {}): MatchedComment {
+function makeComment(overrides: Partial<FixtureComment> = {}): FixtureComment {
   return {
     id: "comment-1",
     author: "Test User (human)",
@@ -86,21 +93,27 @@ describe("CommentThread - existing functionality", () => {
   });
 
   it("Resolve button calls resolveComment with filePath", () => {
-    render(<CommentThread rootComment={makeComment({ resolved: false })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ resolved: false })} filePath="/test/file.md" />
+    );
     fireEvent.click(screen.getByRole("button", { name: /resolve/i }));
 
     expect(mockResolveComment).toHaveBeenCalledWith("/test/file.md", "comment-1");
   });
 
   it("resolved comment shows 'Unresolve' button instead of 'Resolve'", () => {
-    render(<CommentThread rootComment={makeComment({ resolved: true })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ resolved: true })} filePath="/test/file.md" />
+    );
 
     expect(screen.getByRole("button", { name: /unresolve/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^resolve$/i })).not.toBeInTheDocument();
   });
 
   it("resolved comment calls unresolveComment when Unresolve is clicked", () => {
-    render(<CommentThread rootComment={makeComment({ resolved: true })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ resolved: true })} filePath="/test/file.md" />
+    );
     fireEvent.click(screen.getByRole("button", { name: /unresolve/i }));
 
     expect(mockUnresolveComment).toHaveBeenCalledWith("/test/file.md", "comment-1");
@@ -111,7 +124,12 @@ describe("CommentThread - existing functionality", () => {
 
 describe("CommentThread - Author badges", () => {
   it("renders author badge with author text", () => {
-    render(<CommentThread rootComment={makeComment({ author: "Test User (human)" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ author: "Test User (human)" })}
+        filePath="/test/file.md"
+      />
+    );
 
     const badge = document.querySelector(".comment-author-badge");
     expect(badge).toBeInTheDocument();
@@ -119,7 +137,12 @@ describe("CommentThread - Author badges", () => {
   });
 
   it("renders author badge for agent author", () => {
-    render(<CommentThread rootComment={makeComment({ author: "AI Agent (agent)" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ author: "AI Agent (agent)" })}
+        filePath="/test/file.md"
+      />
+    );
 
     const badge = document.querySelector(".comment-author-badge");
     expect(badge).toBeInTheDocument();
@@ -131,29 +154,42 @@ describe("CommentThread - Author badges", () => {
 
 describe("CommentThread - Orphan banner", () => {
   it("shows orphan banner when isOrphaned is true", () => {
-    render(<CommentThread rootComment={makeComment({ isOrphaned: true })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ isOrphaned: true })} filePath="/test/file.md" />
+    );
 
     const banner = document.querySelector(".comment-orphan-banner");
     expect(banner).toBeInTheDocument();
-    expect(banner?.textContent).toBe("⚠ Original location not found — comment may need manual review");
+    expect(banner?.textContent).toBe(
+      "⚠ Original location not found — comment may need manual review"
+    );
   });
 
   it("does not show orphan banner when isOrphaned is false", () => {
-    render(<CommentThread rootComment={makeComment({ isOrphaned: false })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ isOrphaned: false })} filePath="/test/file.md" />
+    );
 
     const banner = document.querySelector(".comment-orphan-banner");
     expect(banner).not.toBeInTheDocument();
   });
 
   it("does not show orphan banner when isOrphaned is undefined", () => {
-    render(<CommentThread rootComment={makeComment({ isOrphaned: undefined })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ isOrphaned: undefined })}
+        filePath="/test/file.md"
+      />
+    );
 
     const banner = document.querySelector(".comment-orphan-banner");
     expect(banner).not.toBeInTheDocument();
   });
 
   it("does not show old ⚠ icon when using orphan banner", () => {
-    render(<CommentThread rootComment={makeComment({ isOrphaned: true })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ isOrphaned: true })} filePath="/test/file.md" />
+    );
 
     const oldIcon = document.querySelector(".comment-orphaned-icon");
     expect(oldIcon).not.toBeInTheDocument();
@@ -299,7 +335,12 @@ describe("CommentThread - Replies rendering", () => {
 
 describe("CommentThread - Markdown rendering", () => {
   it("renders bold markdown as <strong>", () => {
-    render(<CommentThread rootComment={makeComment({ text: "This is **bold** text" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ text: "This is **bold** text" })}
+        filePath="/test/file.md"
+      />
+    );
 
     const strong = document.querySelector(".comment-text strong");
     expect(strong).toBeInTheDocument();
@@ -307,13 +348,23 @@ describe("CommentThread - Markdown rendering", () => {
   });
 
   it("renders plain text without markdown artifacts", () => {
-    render(<CommentThread rootComment={makeComment({ text: "Just plain text" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ text: "Just plain text" })}
+        filePath="/test/file.md"
+      />
+    );
 
     expect(screen.getByText("Just plain text")).toBeInTheDocument();
   });
 
   it("renders links as <a> tags", () => {
-    render(<CommentThread rootComment={makeComment({ text: "See [docs](https://example.com)" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ text: "See [docs](https://example.com)" })}
+        filePath="/test/file.md"
+      />
+    );
 
     const link = document.querySelector(".comment-text a") as HTMLAnchorElement;
     expect(link).toBeInTheDocument();
@@ -322,7 +373,12 @@ describe("CommentThread - Markdown rendering", () => {
   });
 
   it("renders inline code with <code> tags", () => {
-    render(<CommentThread rootComment={makeComment({ text: "Use `console.log()` here" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ text: "Use `console.log()` here" })}
+        filePath="/test/file.md"
+      />
+    );
 
     const code = document.querySelector(".comment-text code");
     expect(code).toBeInTheDocument();
@@ -330,7 +386,12 @@ describe("CommentThread - Markdown rendering", () => {
   });
 
   it("renders bullet lists as <ul>/<li>", () => {
-    render(<CommentThread rootComment={makeComment({ text: "Items:\n- one\n- two\n- three" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread
+        rootComment={makeComment({ text: "Items:\n- one\n- two\n- three" })}
+        filePath="/test/file.md"
+      />
+    );
 
     const listItems = document.querySelectorAll(".comment-text li");
     expect(listItems).toHaveLength(3);
@@ -340,7 +401,9 @@ describe("CommentThread - Markdown rendering", () => {
   });
 
   it("uses a div wrapper instead of p for comment-text", () => {
-    render(<CommentThread rootComment={makeComment({ text: "Some text" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ text: "Some text" })} filePath="/test/file.md" />
+    );
 
     const commentText = document.querySelector(".comment-text");
     expect(commentText).toBeInTheDocument();
@@ -348,7 +411,9 @@ describe("CommentThread - Markdown rendering", () => {
   });
 
   it("applies md-wrap-cascade class to comment-text surface (#153)", () => {
-    render(<CommentThread rootComment={makeComment({ text: "wrap test" })} filePath="/test/file.md" />);
+    render(
+      <CommentThread rootComment={makeComment({ text: "wrap test" })} filePath="/test/file.md" />
+    );
 
     const commentText = document.querySelector(".comment-text");
     expect(commentText).toBeInTheDocument();

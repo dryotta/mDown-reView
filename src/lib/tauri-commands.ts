@@ -1,8 +1,104 @@
+// Façade over the auto-generated `@/lib/bindings.ts` (tauri-specta). Every
+// typed Tauri command wrapper this module exports is a thin pass-through
+// that:
+//   1. delegates to `commands.<camelCaseName>(...)` from `bindings.ts`,
+//   2. unwraps the `Result<T, E>` discriminated union into a `Promise<T>`
+//      that throws on error — matching the pre-rewrite contract that
+//      every consumer in this codebase already expects.
+//
+// Why this layer exists at all
+// ────────────────────────────
+// `bindings.ts` is auto-generated and changes shape whenever a Rust
+// command's signature changes. Routing every consumer through this façade
+// gives us:
+//   - One file to update when we want to rename a wrapper, change the
+//     unwrap policy, or add cross-cutting logging.
+//   - A stable home for IPC helpers that bindings.ts cannot describe
+//     (binary-IPC `fetch_remote_asset`, plugin trampolines, asset-URL
+//     conversion). These are listed at the bottom under "non-IPC helpers".
+//   - The single-IPC-chokepoint rule (`docs/architecture.md` rule 1) is
+//     preserved at the file pair: `tauri-commands.ts` + `bindings.ts`
+//     together form the chokepoint. No production code outside this pair
+//     imports `invoke`/`Channel`/`event` from `@tauri-apps/api/core`. The
+//     `eslint-rules/no-direct-invoke.js` allowlist enforces this.
+
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { warn } from "@/logger";
 import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
+import { commands as bindings, type Result } from "@/lib/bindings";
+
+// ── Result unwrap chokepoint ───────────────────────────────────────────────
+// Bindings return `Result<T, E>` (tagged `{status: "ok", data} | {status:
+// "error", error}`). Every façade wrapper passes the bindings call through
+// `unwrap` so callers see the legacy throws-on-error contract.
+//
+// Error normalisation: typed payloads (e.g. `ConfigError`, `CliShimError`,
+// `SystemError`) survive intact — we re-throw them verbatim so consumers
+// can `catch (e: ConfigError)` and branch on `e.kind` without parsing
+// strings. String errors are wrapped in `Error` for stack traces.
+function unwrap<T, E>(p: Promise<Result<T, E>>): Promise<T> {
+  return p.then((r) => {
+    if (r.status === "ok") return r.data;
+    const err = r.error;
+    if (typeof err === "string") throw new Error(err);
+    throw err;
+  });
+}
+
+// ── Re-exports of bindings types ───────────────────────────────────────────
+// Surface the same type names the codebase already imports from
+// `@/lib/tauri-commands`. Adding a new bindings type to this list keeps the
+// façade as the canonical TS-side import root so consumers don't need to
+// reach into `@/lib/bindings` directly. (They CAN — bindings is a public
+// module — but the convention is "consumers import from tauri-commands,
+// chokepoint maintainers import from bindings".)
+
+export type {
+  CliShimError,
+  CliShimStatus,
+  CommentAnchor,
+  CommentPatch,
+  CommentThread,
+  ConfigError,
+  CsvCellAnchor,
+  DefaultHandlerStatus,
+  DirEntry,
+  FileBadge,
+  FileStat,
+  FileViewerPref,
+  FoldRegion,
+  GetFileCommentsResult,
+  HtmlElementAnchor,
+  HtmlRangeAnchor,
+  ImageRectAnchor,
+  JsonPathAnchor,
+  KqlPipelineStep,
+  LaunchArgs,
+  MatchedComment,
+  MigrateDirection,
+  MigrateSidecarsResult,
+  NewCommentAnchor,
+  OnboardingState,
+  Reaction,
+  ReadDirResult,
+  SearchMatch,
+  Severity,
+  SidecarConfigResult,
+  SystemError,
+  TaggedNewAnchor,
+  TextFileResult,
+  UpdateInfo,
+  WordRangePayload,
+  WordSpan,
+} from "@/lib/bindings";
+
+// In-memory tagged anchor + sidecar/comment shapes + helpers. These come
+// from `@/lib/anchor-derive` (the post-IPC adapter layer), NOT from
+// bindings — `bindings.ts`'s `Anchor` is the wire shape. See
+// `src/lib/anchor-derive.ts` for the divergence rationale.
+export type { Anchor, MrsfComment, MrsfSidecar, WordRangeAnchor } from "@/lib/anchor-derive";
 
 // ── Asset URL chokepoint ───────────────────────────────────────────────────
 // All conversion of absolute filesystem paths to webview-loadable asset URLs
@@ -10,323 +106,225 @@ import { EXTERNAL_LINK_SCHEME, BLOCKED_LINK_SCHEME } from "@/lib/url-policy";
 // of this module.
 export const convertAssetUrl = (absolute: string): string => convertFileSrc(absolute);
 
-// ── Shared interfaces ──────────────────────────────────────────────────────
+// ── Typed command wrappers (delegated to bindings) ─────────────────────────
 
-export interface DirEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-}
+import type {
+  CommentAnchor,
+  CommentPatch,
+  FileBadge,
+  FileStat,
+  FileViewerPref,
+  FoldRegion,
+  GetFileCommentsResult,
+  KqlPipelineStep,
+  LaunchArgs,
+  MigrateDirection,
+  MigrateSidecarsResult,
+  NewCommentAnchor,
+  OnboardingState,
+  PathKind,
+  ReadDirResult,
+  SearchMatch,
+  SidecarConfigResult,
+  TextFileResult,
+  UpdateInfo,
+  WordSpan,
+  CliShimStatus,
+  DefaultHandlerStatus,
+} from "@/lib/bindings";
+import type { Anchor } from "@/lib/anchor-derive";
 
-export interface LaunchArgs {
-  files: string[];
-  folders: string[];
-}
-
-// MRSF comment + anchor types live in `@/types/comments` (canonical home,
-// added in iter 2 Group B). Re-exported here for back-compat with existing
-// imports `from "@/lib/tauri-commands"`.
-export type {
-  Anchor,
-  CsvCellAnchor,
-  HtmlElementAnchor,
-  HtmlRangeAnchor,
-  ImageRectAnchor,
-  JsonPathAnchor,
-  MrsfComment,
-  MrsfSidecar,
-  Reaction,
-  WordRangeAnchor,
-} from "@/types/comments";
-import type { MrsfComment } from "@/types/comments";
-
-// ── Typed wrappers ─────────────────────────────────────────────────────────
-
-export interface TextFileResult {
-  content: string;
-  size_bytes: number;
-  line_count: number;
-  /**
-   * Last-modified time as epoch milliseconds; `null`/missing when the FS does
-   * not expose it. Mirrors `FileStat.mtime_ms` so Group D consumers
-   * (useFileContent → store) can populate `FileMeta.fileMtime` without a
-   * second `stat_path` round-trip. See src-tauri/src/commands/fs.rs.
-   */
-  mtime_ms?: number | null;
-}
+// File-system commands ──────────────────────────────────────────────────────
 
 export const readTextFile = (path: string): Promise<TextFileResult> =>
-  invoke<TextFileResult>("read_text_file", { path });
+  unwrap(bindings.readTextFile(path));
 
 export const readBinaryFile = (path: string): Promise<string> =>
-  invoke<string>("read_binary_file", { path });
+  unwrap(bindings.readBinaryFile(path));
 
-export interface FileStat {
-  size_bytes: number;
-  /** Last-modified time as epoch milliseconds; `null`/missing when the FS does not expose it. */
-  mtime_ms?: number | null;
-}
-
-export const statFile = (path: string): Promise<FileStat> =>
-  invoke<FileStat>("stat_file", { path });
-
-// ── System integration: reveal in folder ──────────────────────────────────
-// Workspace-allowlisted in Rust (`commands/system.rs`): the path must be in
-// an open tab or inside an open workspace folder. On rejection the IPC
-// throws a `SystemError` discriminated by `kind`.
-
-export type SystemError =
-  | { kind: "PathOutsideWorkspace" }
-  | { kind: "IoError"; message: string }
-  | { kind: "Unsupported" };
-
-export const revealInFolder = (path: string): Promise<void> =>
-  invoke<void>("reveal_in_folder", { path });
-
-export const resolveHtmlAssets = (html: string, htmlDir: string): Promise<string> =>
-  invoke<string>("resolve_html_assets", { html, htmlDir });
-
-export interface ReadDirResult {
-  entries: DirEntry[];
-  total: number;
-  has_more: boolean;
-}
+export const statFile = (path: string): Promise<FileStat> => unwrap(bindings.statFile(path));
 
 export const readDir = (
   path: string,
   limit?: number,
   showSidecars?: boolean
-): Promise<ReadDirResult> =>
-  invoke<ReadDirResult>("read_dir", {
-    path,
-    limit: limit ?? null,
-    showSidecars: showSidecars ?? null,
-  });
+): Promise<ReadDirResult> => unwrap(bindings.readDir(path, limit ?? null, showSidecars ?? null));
 
-export const getLaunchArgs = (): Promise<LaunchArgs> => invoke<LaunchArgs>("get_launch_args");
-
-export const getLogPath = (): Promise<string> => invoke<string>("get_log_path");
-
-export const updateWatchedFiles = (paths: string[]): Promise<void> =>
-  invoke<void>("update_watched_files", { paths });
-
-export const updateTreeWatchedDirs = (root: string, dirs: string[]): Promise<void> =>
-  invoke<void>("update_tree_watched_dirs", { root, dirs });
-
-export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
-  invoke<[string, string][]>("scan_review_files", { root });
+export const checkPathExists = (path: string): Promise<PathKind> => bindings.checkPathExists(path);
 
 export const canonicalizePath = (path: string): Promise<string> =>
-  invoke<string>("canonicalize_path", { path });
+  unwrap(bindings.canonicalizePath(path));
 
-export const checkPathExists = (path: string): Promise<"file" | "dir" | "missing"> =>
-  invoke<"file" | "dir" | "missing">("check_path_exists", { path });
+// System integration ──────────────────────────────────────────────────────
 
-export const getAppVersion = (): Promise<string> => getVersion();
+export const revealInFolder = (path: string): Promise<void> =>
+  unwrap(bindings.revealInFolder(path)).then(() => {
+    /* discard `null` data */
+  });
 
-// ── Phase 2: MVVM domain commands ─────────────────────────────────────────
+// HTML asset inliner — Rust returns a bare string (no Result wrapper).
+export const resolveHtmlAssets = (html: string, htmlDir: string): Promise<string> =>
+  bindings.resolveHtmlAssets(html, htmlDir);
 
-export interface MatchedComment extends MrsfComment {
-  matchedLineNumber: number;
-  isOrphaned: boolean;
-  anchoredText?: string;
-}
+// Launch / log / scan ──────────────────────────────────────────────────────
 
-export interface CommentThread {
-  root: MatchedComment;
-  replies: MatchedComment[];
-}
+export const getLaunchArgs = (): Promise<LaunchArgs> => unwrap(bindings.getLaunchArgs());
 
-export interface CommentAnchor {
-  line: number;
-  end_line?: number;
-  start_column?: number;
-  end_column?: number;
-  selected_text?: string;
-  selected_text_hash?: string;
-}
+export const getLogPath = (): Promise<string> => unwrap(bindings.getLogPath());
 
-/**
- * Envelope returned by `get_file_comments`. Wraps the thread list with the
- * sidecar mtime so consumers (Group D `use-comments`) can stamp
- * `FileMeta.commentsMtime` and let the StatusBar render staleness without a
- * second IPC round-trip. See src-tauri/src/commands/comments.rs.
- */
-export interface GetFileCommentsResult {
-  threads: CommentThread[];
-  sidecar_mtime_ms: number | null;
-}
+export const updateWatchedFiles = (paths: string[]): Promise<void> =>
+  unwrap(bindings.updateWatchedFiles(paths)).then(() => {});
+
+export const updateTreeWatchedDirs = (root: string, dirs: string[]): Promise<void> =>
+  unwrap(bindings.updateTreeWatchedDirs(root, dirs)).then(() => {});
+
+export const scanReviewFiles = (root: string): Promise<[string, string][]> =>
+  unwrap(bindings.scanReviewFiles(root));
+
+// MVVM domain commands (comments) ──────────────────────────────────────────
 
 export const getFileComments = (filePath: string): Promise<GetFileCommentsResult> =>
-  invoke<GetFileCommentsResult>("get_file_comments", { filePath });
+  unwrap(bindings.getFileComments(filePath));
 
 export const addComment = (
   filePath: string,
   author: string,
   text: string,
-  anchor?: CommentAnchor | import("@/types/comments").Anchor,
+  anchor?: CommentAnchor | Anchor,
   commentType?: string,
   severity?: string,
   document?: string
 ): Promise<void> =>
-  invoke<void>("add_comment", {
-    filePath,
-    author,
-    text,
-    anchor: anchor ?? null,
-    commentType: commentType ?? null,
-    severity: severity ?? null,
-    document: document ?? null,
-  });
+  unwrap(
+    bindings.addComment(
+      filePath,
+      author,
+      text,
+      // `Anchor` (in-memory tagged) is structurally compatible with the
+      // wire-shape `NewCommentAnchor` (which accepts both the tagged
+      // `{kind, ...}` and the legacy flat `{line, ...}`). Cast through
+      // unknown so TS doesn't reject the union widening.
+      (anchor ?? null) as NewCommentAnchor | null,
+      commentType ?? null,
+      severity ?? null,
+      document ?? null
+    )
+  ).then(() => {});
 
 export const addReply = (
   filePath: string,
   parentId: string,
   author: string,
   text: string
-): Promise<void> => invoke<void>("add_reply", { filePath, parentId, author, text });
+): Promise<void> => unwrap(bindings.addReply(filePath, parentId, author, text)).then(() => {});
 
 export const editComment = (filePath: string, commentId: string, text: string): Promise<void> =>
-  invoke<void>("edit_comment", { filePath, commentId, text });
+  unwrap(bindings.editComment(filePath, commentId, text)).then(() => {});
 
 export const deleteComment = (filePath: string, commentId: string): Promise<void> =>
-  invoke<void>("delete_comment", { filePath, commentId });
+  unwrap(bindings.deleteComment(filePath, commentId)).then(() => {});
 
 export const computeAnchorHash = (text: string): Promise<string> =>
-  invoke<string>("compute_anchor_hash", { text });
+  bindings.computeAnchorHash(text);
 
-// ── Iter 1 / F0 — new IPC surface (advisory #2/3) ────────────────────────
-
-/** Total order of comment severity. Mirrors `core::severity::Severity`. */
-export type Severity = "none" | "low" | "medium" | "high";
-
-/**
- * Per-file badge payload returned by `get_file_badges`.
- * - `count`: total unresolved threads for the file.
- * - `max_severity`: worst severity across those threads.
- * - `file_level_count`: subset of `count` whose root anchor is `Anchor::File`
- *   (explicit MRSF `anchor_kind: "file"` — see [`docs/specs/MRSF-v1.0.md`]).
- *   Surfaced separately so the viewer toolbar can render a dedicated
- *   file-anchored thread badge alongside the per-line gutter indicators.
- */
-export interface FileBadge {
-  count: number;
-  max_severity: Severity;
-  file_level_count: number;
-}
-
-/**
- * Discriminated patch payload for `update_comment`. Kinds mirror the Rust
- * `CommentPatch` enum (snake_case). Adding a new patch variant requires
- * editing both this union and `commands/comments/update.rs`.
- */
-export type CommentPatch = { kind: "set_resolved"; data: { resolved: boolean } };
-
-/** Apply a discriminated patch to a single comment. */
 export const updateComment = (
   filePath: string,
   commentId: string,
   patch: CommentPatch
-): Promise<void> => invoke<void>("update_comment", { filePath, commentId, patch });
+): Promise<void> => unwrap(bindings.updateComment(filePath, commentId, patch)).then(() => {});
 
-/** Per-file unresolved-thread count + worst severity. */
 export const getFileBadges = (filePaths: string[]): Promise<Record<string, FileBadge>> =>
-  invoke<Record<string, FileBadge>>("get_file_badges", { filePaths });
+  // bindings models the result as `Partial<{ [key in string]: FileBadge }>`
+  // (Rust `HashMap<String, FileBadge>`); coerce to the tighter
+  // `Record<string, FileBadge>` shape consumers already use.
+  unwrap(bindings.getFileBadges(filePaths)) as Promise<Record<string, FileBadge>>;
 
-/** Discriminated error from `set_author`. */
-export type ConfigError =
-  | { kind: "InvalidAuthor"; reason: "empty" | "too_long" | "newline" | "control_char" }
-  | { kind: "IoError"; message: string };
+// Author / config ──────────────────────────────────────────────────────────
 
-/** Persist the display name written into `MrsfComment.author`. Returns the
- *  trimmed value on success; throws a typed `ConfigError` on validation /
- *  persistence failure. */
-export const setAuthor = (name: string): Promise<string> => invoke<string>("set_author", { name });
+export const setAuthor = (name: string): Promise<string> => unwrap(bindings.setAuthor(name));
 
-/** Read the persisted display name. Falls back to the OS user (USERNAME /
- *  USER env var) and finally to `"anonymous"` on the Rust side — never
- *  rejects on validation. */
-export const getAuthor = (): Promise<string> => invoke<string>("get_author");
+export const getAuthor = (): Promise<string> => unwrap(bindings.getAuthor());
 
-// ── Document search ──────────────────────────────────────────────────────
-
-export interface SearchMatch {
-  lineIndex: number;
-  startCol: number;
-  endCol: number;
-}
+// Document search / parsers ────────────────────────────────────────────────
 
 export const searchInDocument = (content: string, query: string): Promise<SearchMatch[]> =>
-  invoke<SearchMatch[]>("search_in_document", { content, query });
-
-// ── Pure parsers (Rust core) ─────────────────────────────────────────────
-
-export interface FoldRegion {
-  startLine: number;
-  endLine: number;
-}
+  bindings.searchInDocument(content, query);
 
 export const computeFoldRegions = (content: string, language: string): Promise<FoldRegion[]> =>
-  invoke<FoldRegion[]>("compute_fold_regions", { content, language });
+  bindings.computeFoldRegions(content, language);
 
-export interface KqlPipelineStep {
-  step: number;
-  operator: string;
-  details: string;
-  isSource: boolean;
-}
-
-export const parseKql = (query: string): Promise<KqlPipelineStep[]> =>
-  invoke<KqlPipelineStep[]>("parse_kql", { query });
+export const parseKql = (query: string): Promise<KqlPipelineStep[]> => bindings.parseKql(query);
 
 export const stripJsonComments = (text: string): Promise<string> =>
-  invoke<string>("strip_json_comments", { text });
-
-// ── UAX #29 word tokeniser (Rust core, used by WordRange anchor) ─────────
-//
-// Single source of truth for word-stream offsets shared between the
-// renderer (selection/highlight) and the Rust matcher (anchor resolution).
-// Byte offsets are into the original UTF-8 input.
-
-export interface WordSpan {
-  start: number;
-  end: number;
-  text: string;
-}
+  bindings.stripJsonComments(text);
 
 export const tokenizeWords = (text: string): Promise<WordSpan[]> =>
-  invoke<WordSpan[]>("tokenize_words", { text });
+  unwrap(bindings.tokenizeWords(text));
 
-// ── Sidecar config (issue #240) ──────────────────────────────────────────
-
-export interface SidecarConfigResult {
-  enabled: boolean;
-  sidecar_root: string | null;
-  count_in_folder: number;
-  count_colocated: number;
-}
-
-export interface MigrateSidecarsResult {
-  moved: number;
-  failed: string[];
-  config: SidecarConfigResult;
-}
-
-export type MigrateDirection = "to_folder" | "to_colocated";
+// Sidecar config ──────────────────────────────────────────────────────────
 
 export const getSidecarConfig = (root: string): Promise<SidecarConfigResult> =>
-  invoke<SidecarConfigResult>("get_sidecar_config", { root });
+  unwrap(bindings.getSidecarConfig(root));
 
 export const setSidecarConfig = (root: string, enabled: boolean): Promise<SidecarConfigResult> =>
-  invoke<SidecarConfigResult>("set_sidecar_config", { root, enabled });
+  unwrap(bindings.setSidecarConfig(root, enabled));
 
 export const migrateSidecars = (
   root: string,
   direction: MigrateDirection
-): Promise<MigrateSidecarsResult> =>
-  invoke<MigrateSidecarsResult>("migrate_sidecars_cmd", { root, direction });
+): Promise<MigrateSidecarsResult> => unwrap(bindings.migrateSidecarsCmd(root, direction));
 
-// ── Remote asset fetcher(bounded HTTPS image proxy) ─────────────────────
+// Update channel ──────────────────────────────────────────────────────────
+
+export const checkUpdate = (channel: string): Promise<UpdateInfo | null> =>
+  unwrap(bindings.checkUpdate(channel));
+
+export const installUpdate = (): Promise<void> => unwrap(bindings.installUpdate()).then(() => {});
+
+// Onboarding & platform integration ──────────────────────────────────────
+
+export const onboardingState = (): Promise<OnboardingState> => unwrap(bindings.onboardingState());
+
+export const cliShimStatus = (): Promise<CliShimStatus> => bindings.cliShimStatus();
+
+export const installCliShim = (): Promise<void> => unwrap(bindings.installCliShim()).then(() => {});
+
+export const removeCliShim = (): Promise<void> => unwrap(bindings.removeCliShim()).then(() => {});
+
+export const defaultHandlerStatus = (): Promise<DefaultHandlerStatus> =>
+  bindings.defaultHandlerStatus();
+
+export const setDefaultHandler = (): Promise<void> =>
+  unwrap(bindings.setDefaultHandler()).then(() => {});
+
+// Per-file viewer prefs ──────────────────────────────────────────────────
+
+export const getFileViewerPref = (path: string): Promise<FileViewerPref | null> =>
+  bindings.getFileViewerPref(path);
+
+export const setFileViewerPref = (path: string, allowImages: boolean): Promise<void> =>
+  unwrap(bindings.setFileViewerPref(path, allowImages)).then(() => {});
+
+// Window registry sync ────────────────────────────────────────────────────
+
+export const registerWindowFolder = (folder: string): Promise<void> =>
+  unwrap(bindings.registerWindowFolder(folder)).then(() => {});
+
+export const unregisterWindowFolder = (): Promise<void> =>
+  unwrap(bindings.unregisterWindowFolder()).then(() => {});
+
+// ── Non-IPC helpers (cannot route through bindings) ───────────────────────
+//
+// The wrappers below are NOT part of the bindings.ts surface because either:
+//   - the IPC payload is binary (specta doesn't describe `tauri::ipc::Response`);
+//   - the function trampolines through a Tauri plugin (dialog, clipboard,
+//     opener, process) loaded dynamically; or
+//   - it consumes a pure JS API (`getVersion` from `@tauri-apps/api/app`).
+// The single-chokepoint rule is preserved at the file level — the
+// `eslint-rules/no-direct-invoke.js` allowlist exempts both
+// `tauri-commands.ts` and `bindings.ts`.
+
+// Remote asset fetcher (bounded HTTPS image proxy) — binary IPC ────────────
 // Renderer hands a remote URL to Rust; Rust returns a single binary blob
 // (`tauri::ipc::Response`) so the payload bytes do NOT bloat through JSON
 // number-array encoding (~3-4× per byte). Wire format:
@@ -357,19 +355,7 @@ export async function fetchRemoteAsset(url: string): Promise<RemoteAssetResponse
   return { bytes, contentType };
 }
 
-// ── Update channel commands ───────────────────────────────────────────────
-
-export interface UpdateInfo {
-  version: string;
-  body: string | null;
-}
-
-export const checkUpdate = (channel: string): Promise<UpdateInfo | null> =>
-  invoke<UpdateInfo | null>("check_update", { channel });
-
-export const installUpdate = (): Promise<void> => invoke<void>("install_update");
-
-// ── Dialog wrapper ────────────────────────────────────────────────────────
+// Dialog wrapper (plugin trampoline) ──────────────────────────────────────
 
 export interface OpenDialogOptions {
   directory?: boolean;
@@ -386,7 +372,7 @@ export const showOpenDialog = async (
   return open(options);
 };
 
-// ── Plugin wrappers ──────────────────────────────────────────────────────
+// Clipboard / process plugins ─────────────────────────────────────────────
 
 export const copyToClipboard = (text: string): Promise<void> => {
   return import("@tauri-apps/plugin-clipboard-manager").then((m) => m.writeText(text));
@@ -409,54 +395,6 @@ export const restartApp = (): Promise<void> => {
   return import("@tauri-apps/plugin-process").then((m) => m.relaunch());
 };
 
-// ── Onboarding & platform integration commands ───────────────────────────
+// App version (pure JS API) ───────────────────────────────────────────────
 
-export interface OnboardingState {
-  schema_version: number;
-  last_seen_sections: string[];
-}
-
-export type CliShimStatus = "done" | "missing" | "broken" | "unsupported";
-export type CliShimError =
-  | { kind: "permission_denied"; path: string; target: string }
-  | { kind: "io"; message: string };
-export type DefaultHandlerStatus = "done" | "other" | "unknown" | "unsupported";
-
-export const onboardingState = (): Promise<OnboardingState> =>
-  invoke<OnboardingState>("onboarding_state");
-
-export const cliShimStatus = (): Promise<CliShimStatus> => invoke<CliShimStatus>("cli_shim_status");
-
-export const installCliShim = (): Promise<void> => invoke<void>("install_cli_shim");
-
-export const removeCliShim = (): Promise<void> => invoke<void>("remove_cli_shim");
-
-export const defaultHandlerStatus = (): Promise<DefaultHandlerStatus> =>
-  invoke<DefaultHandlerStatus>("default_handler_status");
-
-export const setDefaultHandler = (): Promise<void> => invoke<void>("set_default_handler");
-
-// ── Per-file viewer prefs (Rust persistence) ─────────────────────────────
-
-/** Stored per-file viewer preference. Only `allowImages` (HTML preview) is
- *  persisted — `allowScripts` and `allowRemoteImages` are session-only. */
-export interface FileViewerPref {
-  allow_images: boolean;
-}
-
-/** Read persisted viewer pref for a file. Returns `null` when no pref stored. */
-export const getFileViewerPref = (path: string): Promise<FileViewerPref | null> =>
-  invoke<FileViewerPref | null>("get_file_viewer_pref", { path });
-
-/** Persist the `allowImages` pref for a file (HTML preview). */
-export const setFileViewerPref = (path: string, allowImages: boolean): Promise<void> =>
-  invoke<void>("set_file_viewer_pref", { path, allowImages });
-
-// ── Window registry sync ─────────────────────────────────────────────────
-
-/** Update the WindowRegistry to record this window as owning `folder`. */
-export const registerWindowFolder = (folder: string): Promise<void> =>
-  invoke<void>("register_window_folder", { folder });
-
-/** Reset this window's registry entry to FileOnly and clear the title. */
-export const unregisterWindowFolder = (): Promise<void> => invoke<void>("unregister_window_folder");
+export const getAppVersion = (): Promise<string> => getVersion();

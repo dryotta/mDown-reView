@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useComments } from "@/lib/vm/use-comments";
 import type { CommentThread } from "@/lib/tauri-commands";
-import { deriveAnchor, assertNeverAnchorKind } from "@/types/comments";
+import { deriveAnchor, assertNeverAnchorKind } from "@/lib/anchor-derive";
 
 export interface CommentFilters {
-  showResolved: boolean;             // false hides fully-resolved threads
+  showResolved: boolean; // false hides fully-resolved threads
 }
 
 export interface FilteredThread {
@@ -40,7 +40,7 @@ function threadIsDisplayable(t: CommentThread): boolean {
  *  Always carries the source filePath alongside each thread. */
 export function useFilteredComments(
   activeFilePath: string | null,
-  filters: CommentFilters,
+  filters: CommentFilters
 ): FilteredThread[] {
   const { threads: activeThreads } = useComments(activeFilePath);
 

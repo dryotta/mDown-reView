@@ -4,7 +4,19 @@ import { CommentsPanel } from "../CommentsPanel";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { useStore } from "@/store";
-import type { MatchedComment, CommentThread as CommentThreadType } from "@/lib/tauri-commands";
+import type {
+  Anchor,
+  MatchedComment,
+  CommentThread as CommentThreadType,
+} from "@/lib/tauri-commands";
+
+// Test-only type: extends the wire `MatchedComment` shape with the
+// optional in-memory `anchor` field. Production code never reads
+// `comment.anchor` directly (the canonical path is `deriveAnchor(c)`),
+// but the mocked `useComments` bypasses that conversion, so fixtures
+// set `anchor` to drive the derivation switch without populating the
+// v1.1 sibling fields explicitly.
+type FixtureComment = MatchedComment & { anchor?: Anchor };
 
 vi.mock("@tauri-apps/api/core");
 
@@ -34,8 +46,8 @@ const FILE = "/docs/README.md";
 function makeComment(
   id: string,
   text: string,
-  overrides: Partial<MatchedComment> = {}
-): MatchedComment {
+  overrides: Partial<FixtureComment> = {}
+): FixtureComment {
   return {
     id,
     author: "Test User (human)",
@@ -50,15 +62,12 @@ function makeComment(
   };
 }
 
-function makeThread(
-  root: MatchedComment,
-  replies: MatchedComment[] = []
-): CommentThreadType {
+function makeThread(root: FixtureComment, replies: FixtureComment[] = []): CommentThreadType {
   return { root, replies };
 }
 
 function setMockComments(threads: CommentThreadType[]) {
-  const allComments = threads.flatMap(t => [t.root, ...t.replies]);
+  const allComments = threads.flatMap((t) => [t.root, ...t.replies]);
   mockUseComments.mockReturnValue({
     threads,
     comments: allComments,
@@ -117,8 +126,12 @@ describe("14.3 – CommentsPanel", () => {
 
   it("orphaned comments show warning icon ⚠ next to line number", () => {
     setMockComments([
-      makeThread(makeComment("1", "Orphaned comment", { isOrphaned: true, line: 5, matchedLineNumber: 5 })),
-      makeThread(makeComment("2", "Normal comment", { isOrphaned: false, line: 10, matchedLineNumber: 10 })),
+      makeThread(
+        makeComment("1", "Orphaned comment", { isOrphaned: true, line: 5, matchedLineNumber: 5 })
+      ),
+      makeThread(
+        makeComment("2", "Normal comment", { isOrphaned: false, line: 10, matchedLineNumber: 10 })
+      ),
     ]);
 
     render(<CommentsPanel filePath={FILE} />);
@@ -130,7 +143,9 @@ describe("14.3 – CommentsPanel", () => {
   it("'Show resolved' toggle shows resolved comments", () => {
     setMockComments([
       makeThread(makeComment("1", "Active comment", { line: 1, matchedLineNumber: 1 })),
-      makeThread(makeComment("2", "Resolved comment", { resolved: true, line: 2, matchedLineNumber: 2 })),
+      makeThread(
+        makeComment("2", "Resolved comment", { resolved: true, line: 2, matchedLineNumber: 2 })
+      ),
     ]);
 
     render(<CommentsPanel filePath={FILE} />);
@@ -147,7 +162,9 @@ describe("14.3 – CommentsPanel", () => {
   it("'Hide resolved' toggle hides resolved comments again", () => {
     setMockComments([
       makeThread(makeComment("1", "Active comment", { line: 1, matchedLineNumber: 1 })),
-      makeThread(makeComment("2", "Resolved comment", { resolved: true, line: 2, matchedLineNumber: 2 })),
+      makeThread(
+        makeComment("2", "Resolved comment", { resolved: true, line: 2, matchedLineNumber: 2 })
+      ),
     ]);
 
     render(<CommentsPanel filePath={FILE} />);
@@ -178,9 +195,7 @@ describe("14.3 – CommentsPanel", () => {
     const handler = vi.fn();
     window.addEventListener("scroll-to-line", handler);
 
-    setMockComments([
-      makeThread(makeComment("1", "Click me", { line: 7, matchedLineNumber: 7 })),
-    ]);
+    setMockComments([makeThread(makeComment("1", "Click me", { line: 7, matchedLineNumber: 7 }))]);
 
     render(<CommentsPanel filePath={FILE} />);
 
@@ -297,13 +312,20 @@ describe("14.3 – CommentsPanel", () => {
 
   it("displays reply comments threaded under parent", () => {
     setMockComments([
-      makeThread(
-        makeComment("1", "Parent comment", { line: 1, matchedLineNumber: 1 }),
-        [
-          makeComment("reply-1", "Good point!", { line: 1, matchedLineNumber: 1, reply_to: "1", author: "Alice (human)" }),
-          makeComment("reply-2", "I agree", { line: 1, matchedLineNumber: 1, reply_to: "1", author: "Bob (human)" }),
-        ]
-      ),
+      makeThread(makeComment("1", "Parent comment", { line: 1, matchedLineNumber: 1 }), [
+        makeComment("reply-1", "Good point!", {
+          line: 1,
+          matchedLineNumber: 1,
+          reply_to: "1",
+          author: "Alice (human)",
+        }),
+        makeComment("reply-2", "I agree", {
+          line: 1,
+          matchedLineNumber: 1,
+          reply_to: "1",
+          author: "Bob (human)",
+        }),
+      ]),
     ]);
 
     render(<CommentsPanel filePath={FILE} />);
@@ -452,14 +474,10 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
     render(<CommentsPanel filePath={FILE} />);
     fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "to discard" } });
-    expect(
-      Object.entries(localStorage).find(([, v]) => v === "to discard"),
-    ).toBeDefined();
+    expect(Object.entries(localStorage).find(([, v]) => v === "to discard")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
-    expect(
-      Object.entries(localStorage).find(([, v]) => v === "to discard"),
-    ).toBeUndefined();
+    expect(Object.entries(localStorage).find(([, v]) => v === "to discard")).toBeUndefined();
   });
 });
 
@@ -473,7 +491,7 @@ describe("CommentsPanel — file-level thread rendering", () => {
           line: 0,
           matchedLineNumber: 1,
           anchor: { kind: "file" },
-        }),
+        })
       ),
     ]);
 
@@ -495,7 +513,7 @@ describe("CommentsPanel — file-level thread rendering", () => {
           line: 7,
           matchedLineNumber: 7,
           anchor: { kind: "line", line: 7 },
-        }),
+        })
       ),
     ]);
 

@@ -21,6 +21,11 @@ const tfr = (content: string) => ({
   content,
   size_bytes: new TextEncoder().encode(content).length,
   line_count: content.split("\n").filter((_, i, arr) => i < arr.length - 1 || arr[i] !== "").length,
+  // bindings.ts emits `mtime_ms: number | null` (required, not optional —
+  // the IPC always supplies a value, `null` when the FS doesn't expose
+  // it). The hand-written tauri-commands.ts had it as optional; iter 2
+  // of #263 converged on the bindings shape.
+  mtime_ms: null,
 });
 
 describe("useFileContent", () => {
@@ -154,18 +159,27 @@ describe("useFileContent", () => {
   });
 
   it("ignores stale response when path changes rapidly (cancellation)", async () => {
-    let resolveFirst: (v: { content: string; size_bytes: number; line_count: number }) => void;
-    const firstPromise = new Promise<{ content: string; size_bytes: number; line_count: number }>(
-      (r) => { resolveFirst = r; }
-    );
+    let resolveFirst: (v: {
+      content: string;
+      size_bytes: number;
+      line_count: number;
+      mtime_ms: number | null;
+    }) => void;
+    const firstPromise = new Promise<{
+      content: string;
+      size_bytes: number;
+      line_count: number;
+      mtime_ms: number | null;
+    }>((r) => {
+      resolveFirst = r;
+    });
     vi.mocked(commands.readTextFile)
       .mockReturnValueOnce(firstPromise)
       .mockResolvedValueOnce(tfr("file B content"));
 
-    const { result, rerender } = renderHook(
-      ({ path }) => useFileContent(path),
-      { initialProps: { path: "/path/fileA.md" } }
-    );
+    const { result, rerender } = renderHook(({ path }) => useFileContent(path), {
+      initialProps: { path: "/path/fileA.md" },
+    });
 
     // Switch to file B before file A resolves
     rerender({ path: "/path/fileB.md" });
@@ -175,23 +189,33 @@ describe("useFileContent", () => {
     expect(result.current.content).toBe("file B content");
 
     // Now resolve file A (should be ignored due to cancellation)
-    await act(async () => { resolveFirst!(tfr("file A content")); });
+    await act(async () => {
+      resolveFirst!(tfr("file A content"));
+    });
 
     // Should still show file B content
     expect(result.current.content).toBe("file B content");
   });
 
   it("shows loading when path changes after a reload (no stale content)", async () => {
-    let resolveB: (v: { content: string; size_bytes: number; line_count: number }) => void;
+    let resolveB: (v: {
+      content: string;
+      size_bytes: number;
+      line_count: number;
+      mtime_ms: number | null;
+    }) => void;
     vi.mocked(commands.readTextFile)
       .mockResolvedValueOnce(tfr("file A content"))
       .mockResolvedValueOnce(tfr("file A reloaded"))
-      .mockReturnValueOnce(new Promise((r) => { resolveB = r; }));
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          resolveB = r;
+        })
+      );
 
-    const { result, rerender } = renderHook(
-      ({ path }) => useFileContent(path),
-      { initialProps: { path: "/path/fileA.md" } }
-    );
+    const { result, rerender } = renderHook(({ path }) => useFileContent(path), {
+      initialProps: { path: "/path/fileA.md" },
+    });
 
     // Let file A load
     await act(async () => {});
@@ -218,16 +242,27 @@ describe("useFileContent", () => {
     expect(result.current.content).toBeUndefined();
 
     // Let file B resolve
-    await act(async () => { resolveB!(tfr("file B content")); });
+    await act(async () => {
+      resolveB!(tfr("file B content"));
+    });
     expect(result.current.status).toBe("ready");
     expect(result.current.content).toBe("file B content");
   });
 
   it("does not show loading spinner on reload (keeps stale content)", async () => {
-    let resolveSecond: (v: { content: string; size_bytes: number; line_count: number }) => void;
+    let resolveSecond: (v: {
+      content: string;
+      size_bytes: number;
+      line_count: number;
+      mtime_ms: number | null;
+    }) => void;
     vi.mocked(commands.readTextFile)
       .mockResolvedValueOnce(tfr("original"))
-      .mockReturnValueOnce(new Promise((r) => { resolveSecond = r; }));
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          resolveSecond = r;
+        })
+      );
 
     const { result } = renderHook(() => useFileContent("/path/file.md"));
 
@@ -248,7 +283,9 @@ describe("useFileContent", () => {
     expect(result.current.content).toBe("original");
 
     // Complete reload
-    await act(async () => { resolveSecond!(tfr("updated")); });
+    await act(async () => {
+      resolveSecond!(tfr("updated"));
+    });
     expect(result.current.content).toBe("updated");
   });
 

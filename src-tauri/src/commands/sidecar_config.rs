@@ -16,7 +16,7 @@ use tauri::{Emitter, Manager};
 // `#[serde(rename_all = "camelCase")]` here — that silently turns every
 // numeric field into `undefined` on the JS side and the dialog falls
 // back to 0/0 (issue #240 regression).
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 pub struct SidecarConfigResult {
     pub enabled: bool,
     pub sidecar_root: Option<String>,
@@ -24,7 +24,7 @@ pub struct SidecarConfigResult {
     pub count_colocated: u32,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 pub struct MigrateSidecarsResult {
     pub moved: u32,
     pub failed: Vec<String>,
@@ -70,6 +70,7 @@ fn emit_config_changed(app: &tauri::AppHandle, root: &std::path::Path) {
 // ── Commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_sidecar_config(
     root: String,
     config_state: tauri::State<'_, SidecarConfigState>,
@@ -85,6 +86,7 @@ pub fn get_sidecar_config(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_sidecar_config(
     window: tauri::Window,
     root: String,
@@ -118,6 +120,7 @@ pub fn set_sidecar_config(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+#[specta::specta]
 pub fn migrate_sidecars_cmd(
     window: tauri::Window,
     root: String,

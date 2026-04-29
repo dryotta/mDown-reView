@@ -10,7 +10,7 @@ use serde::Deserialize;
 /// `{ kind: "...", ... }` shape introduced for file-level + typed
 /// anchors (Group A/B). Untagged so the JS chokepoint (`addComment` in
 /// `lib/tauri-commands.ts`) does not have to convert.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, specta::Type)]
 #[serde(untagged)]
 pub enum NewCommentAnchor {
     Tagged(TaggedNewAnchor),
@@ -18,9 +18,9 @@ pub enum NewCommentAnchor {
 }
 
 /// Tagged variant of [`NewCommentAnchor`]. Mirrors the TS `Anchor` union
-/// in `src/types/comments.ts` — discriminator is `kind`, payload fields
+/// in `src/lib/anchor-derive.ts` — discriminator is `kind`, payload fields
 /// are flattened alongside it (internally tagged).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaggedNewAnchor {
     Line {

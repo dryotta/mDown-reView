@@ -12,6 +12,7 @@ use crate::core::word_tokens::{tokenize_words as core_tokenize, WordSpan};
 const MAX_BYTES: usize = 65_536;
 
 #[tauri::command]
+#[specta::specta]
 pub fn tokenize_words(text: String) -> Result<Vec<WordSpan>, String> {
     if text.len() > MAX_BYTES {
         return Err(format!("tokenize_words: input exceeds {} bytes", MAX_BYTES));

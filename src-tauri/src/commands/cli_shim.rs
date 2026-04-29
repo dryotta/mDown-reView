@@ -3,7 +3,7 @@
 use serde::Serialize;
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum CliShimStatus {
     Done,
@@ -15,7 +15,7 @@ pub enum CliShimStatus {
 /// Structured error for CLI-shim install/remove. Serializes to a tagged
 /// payload (`{"kind":"...", ...}`) so the FE can branch on `kind` without
 /// string matching. Manual `Display` impl avoids pulling in `thiserror`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CliShimError {
     PermissionDenied { path: String, target: String },
@@ -54,16 +54,19 @@ mod unsupported;
 use unsupported as imp;
 
 #[tauri::command]
+#[specta::specta]
 pub fn cli_shim_status(app: tauri::AppHandle) -> CliShimStatus {
     imp::status(&app)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn install_cli_shim(app: tauri::AppHandle) -> Result<(), CliShimError> {
     imp::install(&app)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn remove_cli_shim(app: tauri::AppHandle) -> Result<(), CliShimError> {
     imp::remove(&app)
 }

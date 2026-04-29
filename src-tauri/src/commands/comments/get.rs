@@ -18,7 +18,7 @@ use crate::watcher::{SidecarConfigState, WatcherState};
 /// not expose mtime). Callers can use the value to detect external sidecar
 /// edits without a follow-up IPC. Field name mirrors the `*_ms` epoch
 /// convention used by [`crate::commands::FileStat::mtime_ms`].
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, Debug, specta::Type)]
 pub struct GetFileCommentsResult {
     pub threads: Vec<CommentThread>,
     pub sidecar_mtime_ms: Option<i64>,
@@ -68,6 +68,7 @@ fn sidecar_mtime_ms_from(yaml: &str, json: &str) -> Option<i64> {
 /// degrades silently to empty bytes so all comments orphan, identical to the
 /// `NotFound` branch.
 #[tauri::command]
+#[specta::specta]
 pub fn get_file_comments(
     state: State<'_, WatcherState>,
     config_state: State<'_, SidecarConfigState>,

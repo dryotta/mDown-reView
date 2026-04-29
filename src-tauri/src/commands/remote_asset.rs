@@ -87,6 +87,11 @@ fn encode(resp: &RemoteAssetResponse) -> Vec<u8> {
     buf
 }
 
+// EXCLUDED from `tauri_specta::collect_commands![]` — `tauri::ipc::Response`
+// is a binary-IPC return type that specta cannot describe (it has no
+// `specta::Type` impl). Registered separately via `tauri::generate_handler!`
+// in `lib.rs::run`. The frontend uses a hand-rolled wrapper. Iter 2 may
+// revisit (e.g. wrap in a `Vec<u8>` return that specta can handle).
 #[tauri::command]
 pub async fn fetch_remote_asset(url: String) -> Result<tauri::ipc::Response, String> {
     let resp = fetch_validated(url).await?;

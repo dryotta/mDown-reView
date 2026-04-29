@@ -49,6 +49,10 @@ describe("StatusBar + ViewerRouter — single read_text_file IPC per tab activat
       content: "# hello\n",
       size_bytes: 8,
       line_count: 1,
+      // bindings.ts emits `mtime_ms: number | null` (required field, `null`
+      // when the platform/FS does not expose it). iter 2 of #263 converged
+      // on the bindings shape — fixtures must include the field.
+      mtime_ms: null,
     });
 
     const path = "/repo/notes.md";
@@ -61,7 +65,7 @@ describe("StatusBar + ViewerRouter — single read_text_file IPC per tab activat
       <>
         <ViewerRouter path={path} />
         <StatusBar />
-      </>,
+      </>
     );
 
     // Drain the read promise + any post-resolve effects.
@@ -82,6 +86,7 @@ describe("StatusBar + ViewerRouter — single read_text_file IPC per tab activat
       content: `# ${p}\n`,
       size_bytes: p.length + 4,
       line_count: 1,
+      mtime_ms: null,
     }));
 
     const pathA = "/repo/a.md";
@@ -95,7 +100,7 @@ describe("StatusBar + ViewerRouter — single read_text_file IPC per tab activat
       <>
         <ViewerRouter path={pathA} />
         <StatusBar />
-      </>,
+      </>
     );
     await act(async () => {});
     expect(commands.readTextFile).toHaveBeenCalledTimes(1);
@@ -111,7 +116,7 @@ describe("StatusBar + ViewerRouter — single read_text_file IPC per tab activat
       <>
         <ViewerRouter path={pathB} />
         <StatusBar />
-      </>,
+      </>
     );
     await act(async () => {});
 

@@ -28,7 +28,7 @@ pub struct FileViewerPrefEntry {
 }
 
 /// The public-facing pref returned over IPC (no internal bookkeeping fields).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct FileViewerPref {
     pub allow_images: bool,
 }
@@ -126,6 +126,7 @@ pub fn set_pref_at(
 // ── IPC commands ──────────────────────────────────────────────────────
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_file_viewer_pref(app: AppHandle, path: String) -> Option<FileViewerPref> {
     let canonical = match crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&path)) {
         Ok(c) => c,
@@ -140,6 +141,7 @@ pub fn get_file_viewer_pref(app: AppHandle, path: String) -> Option<FileViewerPr
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_file_viewer_pref(
     app: AppHandle,
     path: String,

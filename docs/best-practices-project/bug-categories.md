@@ -56,12 +56,12 @@ Failure modes:
 
 ### `category: ipc-type-mismatch` -- Rust ↔ TypeScript drift
 
-Hot files: `src-tauri/src/commands/*.rs` paired with `src/lib/tauri-commands.ts`.
+Hot files: `src-tauri/src/commands/*.rs` paired with the auto-generated `src/lib/bindings.ts` and the façade `src/lib/tauri-commands.ts`.
 
 Failure modes:
-- Rust command returns `Option<T>` → TypeScript wrapper expects `T`, null handling forgotten.
-- Rust returns a tagged enum (`#[serde(tag = "kind")]`) → TypeScript only handles one variant; other variants render as raw JSON.
-- Field renamed in Rust struct, TypeScript wrapper not updated → silent runtime undefined.
+- Rust command returns `Option<T>` → caller forgets the `null` branch when consuming the generated wrapper. (Compile-only catch: TS will type the field as `T | null`; runtime catch: tests that exercise both arms.)
+- Rust adds a variant to a `#[serde(tag = "kind")]` tagged enum → TS callers with a non-exhaustive `switch` silently render the new variant as raw JSON. Mitigation: `assertNeverAnchorKind` (`src/lib/anchor-derive.ts`) — every Anchor-shape switch lands in `default` → `assertNever(_: never)` so a new wire variant fails type-check until consumers add a branch.
+- ~~Field renamed in Rust struct, TypeScript wrapper not updated → silent runtime undefined.~~ (Now a CI failure, not a runtime failure.) Field-rename and command-shape drift are mechanically blocked by the `bindings-drift` CI job (`.github/workflows/ci.yml`) which runs `cargo test --features codegen --test specta_codegen` and then `git diff --exit-code src/lib/bindings.ts`. Any divergence between the Rust IPC surface and the committed `bindings.ts` fails the PR before review.
 
 ### `category: tauri-lifecycle` -- v2 lifecycle pitfalls
 
@@ -77,5 +77,5 @@ Failure modes:
 
 1. Read every file in `src/hooks/` — focus on `useEffect` cleanup and error paths.
 2. Read `src-tauri/src/core/anchors.rs` and `src-tauri/src/core/matching.rs` fully.
-3. Read every `src-tauri/src/commands/*.rs` — check `Result<>` error variants and how each is surfaced in `tauri-commands.ts`.
+3. Read every `src-tauri/src/commands/*.rs` — check `Result<>` error variants and how each is surfaced through the auto-generated `src/lib/bindings.ts` and consumed by callers (the façade in `src/lib/tauri-commands.ts` unwraps `Result<T, E>` to `Promise<T>` so error variants surface as thrown values).
 4. Grep for `listen(` across `src/` and verify each call has cleanup.

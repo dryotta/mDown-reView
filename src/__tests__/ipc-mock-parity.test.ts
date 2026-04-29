@@ -27,23 +27,32 @@ import { resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "../..");
 const TAURI_COMMANDS = readFileSync(resolve(ROOT, "src/lib/tauri-commands.ts"), "utf8");
-const VITEST_MOCK = readFileSync(
-  resolve(ROOT, "src/__mocks__/@tauri-apps/api/core.ts"),
-  "utf8",
-);
+// Iter 2 of #263: tauri-commands.ts is now a façade over the auto-generated
+// `bindings.ts` (every typed wrapper delegates through `commands.<name>`).
+// The literal `invoke("...")` calls live in bindings.ts, so we must scan it
+// too — otherwise `extractCommands` returns the empty set and the parity
+// check is silently a no-op.
+const TAURI_BINDINGS = readFileSync(resolve(ROOT, "src/lib/bindings.ts"), "utf8");
+const VITEST_MOCK = readFileSync(resolve(ROOT, "src/__mocks__/@tauri-apps/api/core.ts"), "utf8");
 const PLAYWRIGHT_FIXTURE = readFileSync(
   resolve(ROOT, "e2e/browser/fixtures/error-tracking.ts"),
-  "utf8",
+  "utf8"
 );
 
-// Extract every `invoke<...>("<command_name>"...)` literal from the chokepoint.
+// Extract every `invoke<...>("<command_name>"...)` / `TAURI_INVOKE("<name>")`
+// literal from the chokepoint pair. The auto-generated bindings use the
+// uppercase `TAURI_INVOKE` alias (re-bind of `@tauri-apps/api/core::invoke`);
+// hand-written wrappers (and the binary-IPC `fetch_remote_asset`) use the
+// lowercase form. Match both.
 function extractCommands(src: string): Set<string> {
   const out = new Set<string>();
-  // Match `invoke` then anything except `(` (covers nested generics, arrays,
-  // unions, type params) up to the call's opening paren and the literal name.
-  const re = /\binvoke[^(]*\(\s*["']([a-z_][a-z0-9_]*)["']/g;
+  // Lowercase variant — hand-written `invoke<T>("name", ...)`.
+  const reLower = /\binvoke[^(]*\(\s*["']([a-z_][a-z0-9_]*)["']/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) out.add(m[1]);
+  while ((m = reLower.exec(src)) !== null) out.add(m[1]);
+  // Uppercase variant — bindings.ts `TAURI_INVOKE("name", ...)`.
+  const reUpper = /\bTAURI_INVOKE\(\s*["']([a-z_][a-z0-9_]*)["']/g;
+  while ((m = reUpper.exec(src)) !== null) out.add(m[1]);
   return out;
 }
 
@@ -56,7 +65,10 @@ function extractExplicitArms(src: string): Set<string> {
   return out;
 }
 
-const COMMANDS = extractCommands(TAURI_COMMANDS);
+const COMMANDS = new Set<string>([
+  ...extractCommands(TAURI_COMMANDS),
+  ...extractCommands(TAURI_BINDINGS),
+]);
 const VITEST_ARMS = extractExplicitArms(VITEST_MOCK);
 const PLAYWRIGHT_ARMS = extractExplicitArms(PLAYWRIGHT_FIXTURE);
 
@@ -65,7 +77,7 @@ const PLAYWRIGHT_ARMS = extractExplicitArms(PLAYWRIGHT_FIXTURE);
 const FRAMEWORK_INTERNAL = new Set<string>(["plugin"]);
 
 describe("two-layer IPC mock parity contract (issue #135)", () => {
-  it("extracts a non-empty IPC command set from tauri-commands.ts (sanity)", () => {
+  it("extracts a non-empty IPC command set from the IPC chokepoint (sanity)", () => {
     expect(COMMANDS.size).toBeGreaterThan(20);
     // Spot-check well-known commands so a wholesale rename of the chokepoint
     // doesn't make this test silently extract zero commands.
@@ -89,12 +101,12 @@ describe("two-layer IPC mock parity contract (issue #135)", () => {
       const msg = skew
         .map(
           (s) =>
-            `  - ${s.command}: vitest=${s.vitest ? "✓" : "✗"} playwright=${s.playwright ? "✓" : "✗"}`,
+            `  - ${s.command}: vitest=${s.vitest ? "✓" : "✗"} playwright=${s.playwright ? "✓" : "✗"}`
         )
         .join("\n");
       throw new Error(
         `Mock parity violation — the following IPC command(s) have an explicit handler in only one mock layer.\n` +
-          `Add the missing arm so both layers return the same shape (or remove it from both and rely on the catch-all):\n${msg}`,
+          `Add the missing arm so both layers return the same shape (or remove it from both and rely on the catch-all):\n${msg}`
       );
     }
   });
@@ -113,7 +125,7 @@ describe("two-layer IPC mock parity contract (issue #135)", () => {
       const msg = orphans.map((o) => `  - ${o.mock}: "${o.command}"`).join("\n");
       throw new Error(
         `Mock-arm references a command name that is not declared in src/lib/tauri-commands.ts.\n` +
-          `Likely a typo or a deleted command. Update the mock or restore the wrapper:\n${msg}`,
+          `Likely a typo or a deleted command. Update the mock or restore the wrapper:\n${msg}`
       );
     }
   });

@@ -9,7 +9,7 @@ use tauri::{AppHandle, Runtime, State};
 /// `kind`/`data` tags) so the TS side can branch cleanly. Every per-comment
 /// mutation flows through this enum so the IPC surface stays a single
 /// chokepoint.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum CommentPatch {
     /// Append a reaction. Idempotent on (`user`, `kind`) — adding the same
@@ -29,11 +29,18 @@ pub enum CommentPatch {
     /// applies are a no-op so re-anchoring with the same value doesn't
     /// pollute history or fire `comments-changed`. Reuses the tagged
     /// `AnchorRepr` wire format via `{ new_anchor: Anchor }`.
-    MoveAnchor { new_anchor: Anchor },
+    MoveAnchor {
+        // `Anchor` rides serde try_from/into over `AnchorRepr` (hand-rolled
+        // wire); forward TS codegen to the shadow `AnchorWire` so the
+        // bindings reflect the on-the-wire `{anchor_kind, anchor_data}`.
+        #[specta(type = crate::core::types::wire::AnchorWire)]
+        new_anchor: Anchor,
+    },
 }
 
 /// Apply a [`CommentPatch`] to a single comment.
 #[tauri::command]
+#[specta::specta]
 pub fn update_comment<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, WatcherState>,

@@ -9,7 +9,7 @@ import {
   computeAnchorHash,
   type CommentAnchor,
 } from "@/lib/tauri-commands";
-import type { Anchor } from "@/types/comments";
+import type { Anchor } from "@/lib/anchor-derive";
 import { error } from "@/logger";
 
 /**
