@@ -26,7 +26,7 @@ export function useDialogActions() {
   }, [openFile, addRecentItem]);
 
   const handleOpenFolder = useCallback(async () => {
-    // allow-chained-invokes: register-then-set is required — registerWindowFolder rejects when the folder is already open elsewhere, and setRoot must not run on a rejected registration.
+    // allow-chained-invokes: showOpenDialog returns the user-selected path that must feed registerWindowFolder, which rejects if the folder is already open in another window — setRoot must not run on a rejected registration. Sequential, not parallelizable.
     try {
       const selected = await showOpenDialog({ directory: true, multiple: false });
       if (typeof selected === "string") {
