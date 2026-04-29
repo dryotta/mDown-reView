@@ -54,6 +54,8 @@ vi.mock("@/lib/tauri-commands", () => ({
   getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
   getAuthor: vi.fn().mockResolvedValue("Test User"),
   setAuthor: vi.fn().mockResolvedValue("Test User"),
+  // Issue #264 — runtime tracing fires from App.tsx's mount effect.
+  recordStartupPhase: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({ useFileWatcher: () => {} }));

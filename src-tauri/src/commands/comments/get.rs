@@ -11,6 +11,7 @@ use tauri::State;
 
 use super::enforce_workspace_path;
 use crate::watcher::{SidecarConfigState, WatcherState};
+use crate::mdr_command;
 
 /// Result of [`get_file_comments`]: matched/grouped threads plus the mtime
 /// of the sidecar file the loader actually picked. `sidecar_mtime_ms` is
@@ -67,8 +68,7 @@ fn sidecar_mtime_ms_from(yaml: &str, json: &str) -> Option<i64> {
 /// cap (matching `read_text_file` and `SIDECAR_MAX_BYTES`) — anything larger
 /// degrades silently to empty bytes so all comments orphan, identical to the
 /// `NotFound` branch.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn get_file_comments(
     state: State<'_, WatcherState>,
     config_state: State<'_, SidecarConfigState>,

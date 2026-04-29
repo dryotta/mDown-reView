@@ -8,11 +8,11 @@
 //! `Err(String)` rather than burning CPU on adversarial payloads.
 
 use crate::core::word_tokens::{tokenize_words as core_tokenize, WordSpan};
+use crate::mdr_command;
 
 const MAX_BYTES: usize = 65_536;
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn tokenize_words(text: String) -> Result<Vec<WordSpan>, String> {
     if text.len() > MAX_BYTES {
         return Err(format!("tokenize_words: input exceeds {} bytes", MAX_BYTES));

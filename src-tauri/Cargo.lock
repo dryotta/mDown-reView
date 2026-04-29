@@ -2895,6 +2895,7 @@ dependencies = [
  "dunce",
  "ignore",
  "log",
+ "mdr-macros",
  "notify",
  "notify-debouncer-mini",
  "rand 0.8.6",
@@ -2929,6 +2930,15 @@ dependencies = [
  "windows-sys 0.59.0",
  "winreg 0.52.0",
  "wiremock",
+]
+
+[[package]]
+name = "mdr-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

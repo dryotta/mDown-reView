@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 use tauri::AppHandle;
+use crate::mdr_command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
@@ -28,14 +29,12 @@ mod unsupported;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use unsupported as imp;
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn default_handler_status(app: AppHandle) -> DefaultHandlerStatus {
     imp::status(&app)
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn set_default_handler(app: AppHandle) -> Result<(), String> {
     imp::set(&app)
 }

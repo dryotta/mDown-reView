@@ -8,6 +8,7 @@ use crate::core::sidecar::config::{load_mrsf_config, SidecarConfigState};
 use crate::core::sidecar::migration::{self, MigrateDirection, SidecarCounts};
 use std::path::PathBuf;
 use tauri::{Emitter, Manager};
+use crate::mdr_command;
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -69,8 +70,7 @@ fn emit_config_changed(app: &tauri::AppHandle, root: &std::path::Path) {
 
 // ── Commands ─────────────────────────────────────────────────────────
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn get_sidecar_config(
     root: String,
     config_state: tauri::State<'_, SidecarConfigState>,
@@ -85,8 +85,7 @@ pub fn get_sidecar_config(
     Ok(build_result(&root, &sidecar_root))
 }
 
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn set_sidecar_config(
     window: tauri::Window,
     root: String,
@@ -119,8 +118,7 @@ pub fn set_sidecar_config(
     Ok(build_result(&root, &sidecar_root))
 }
 
-#[tauri::command(rename_all = "camelCase")]
-#[specta::specta]
+#[mdr_command(rename_all = "camelCase")]
 pub fn migrate_sidecars_cmd(
     window: tauri::Window,
     root: String,

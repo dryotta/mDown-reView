@@ -6,6 +6,7 @@ use crate::watcher::{SidecarConfigState, WatcherState};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use tauri::State;
+use crate::mdr_command;
 
 /// File anchors and typed anchors (image/csv/json/html/word) do not need to
 /// read source bytes for badge computation. The matcher path
@@ -34,8 +35,7 @@ pub struct FileBadge {
 }
 
 /// Per-file unresolved-thread count + worst severity.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn get_file_badges(
     state: State<'_, WatcherState>,
     config_state: State<'_, SidecarConfigState>,

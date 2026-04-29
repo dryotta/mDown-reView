@@ -86,6 +86,7 @@ export type {
   SearchMatch,
   Severity,
   SidecarConfigResult,
+  StartupPhase,
   SystemError,
   TaggedNewAnchor,
   TextFileResult,
@@ -126,6 +127,7 @@ import type {
   ReadDirResult,
   SearchMatch,
   SidecarConfigResult,
+  StartupPhase,
   TextFileResult,
   UpdateInfo,
   WordSpan,
@@ -312,6 +314,16 @@ export const registerWindowFolder = (folder: string): Promise<void> =>
 
 export const unregisterWindowFolder = (): Promise<void> =>
   unwrap(bindings.unregisterWindowFolder()).then(() => {});
+
+// Startup-phase telemetry (issue #264) ────────────────────────────────────
+// The frontend reports the phases it owns — `theme-applied`,
+// `frontend-mounted`, `first-file-loaded` — by name. Rust dedupes by
+// phase per-process, so a chatty caller (StrictMode double-invoke,
+// hot reload) cannot inflate the timeline. The recorder emits
+// `[startup] phase=… t_ms=…` to the rotating log file. See
+// `docs/observability.md` for the post-hoc analysis story.
+export const recordStartupPhase = (phase: StartupPhase): Promise<void> =>
+  bindings.recordStartupPhase(phase);
 
 // ── Non-IPC helpers (cannot route through bindings) ───────────────────────
 //

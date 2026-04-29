@@ -27,7 +27,7 @@ import { isSidecarFile } from "@/lib/file-types";
 import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
-import { unregisterWindowFolder } from "@/lib/tauri-commands";
+import { recordStartupPhase, unregisterWindowFolder } from "@/lib/tauri-commands";
 
 export default function App() {
   const { theme, root, folderPaneWidth, commentsPaneVisible, activeTabPath } = useStore(
@@ -64,6 +64,16 @@ export default function App() {
       document.title = folderName ? `${folderName} — mdownreview` : "mdownreview";
     }
   }, [activeTabPath, root]);
+
+  // Issue #264 — runtime tracing: report `frontend-mounted` to Rust's
+  // `StartupRecorder` once React's `App` finishes its first effect.
+  // The Rust side dedupes per-phase per-process so StrictMode's
+  // double-invoke is harmless. Errors are swallowed because telemetry
+  // is non-essential — the user-visible app must keep working even if
+  // the IPC fails (e.g. headless tests with no Tauri host).
+  useEffect(() => {
+    void recordStartupPhase("frontend-mounted").catch(() => {});
+  }, []);
 
   const [aboutOpen, setAboutOpen] = useState(false);
   const settingsDialogOpen = useStore((s) => s.settingsDialogOpen);

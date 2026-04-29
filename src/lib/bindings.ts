@@ -395,6 +395,14 @@ async migrateSidecarsCmd(root: string, direction: MigrateDirection) : Promise<Re
 }
 },
 /**
+ * Record a startup phase from the frontend. Mirrors
+ * `StartupPhase` 1:1 — see that enum for the kebab-case wire shape
+ * (`"theme-applied"`, `"frontend-mounted"`, `"first-file-loaded"`).
+ */
+async recordStartupPhase(phase: StartupPhase) : Promise<void> {
+    await TAURI_INVOKE("record_startup_phase", { phase });
+},
+/**
  * Check for an update on the given channel.
  * For cross-channel switches the version comparator is overridden
  * to accept any different version (enabling "downgrades").
@@ -637,6 +645,24 @@ export type SearchMatch = { lineIndex: number; startCol: number; endCol: number 
  */
 export type Severity = "none" | "low" | "medium" | "high"
 export type SidecarConfigResult = { enabled: boolean; sidecar_root: string | null; count_in_folder: number; count_colocated: number }
+/**
+ * Ordered phases of app startup, mirrored to TypeScript via specta as a
+ * kebab-case string union (`"app-init" | "webview-ready" | ...`). Each
+ * phase is recorded at most once per process lifetime.
+ * 
+ * Order of expected emission:
+ * 1. `AppInit` — Rust `pub fn run` first instruction.
+ * 2. `WebviewReady` — main webview's `Created` window event.
+ * 3. `FirstIpc` — first call through any `#[mdr_command]` IPC.
+ * 4. `ThemeApplied` — frontend reports after applying initial theme
+ * (PR4 will move this to a pre-React script tag).
+ * 5. `FrontendMounted` — React's `App` finished its first effect.
+ * 6. `FirstFileLoaded` — the user's first viewer paint completes.
+ * 
+ * Phase order is not enforced — async timing differences mean the recorder
+ * must accept events in any sequence.
+ */
+export type StartupPhase = "app-init" | "webview-ready" | "first-ipc" | "theme-applied" | "frontend-mounted" | "first-file-loaded"
 /**
  * Typed error surfaced to the renderer. Discriminated with an internal `kind`
  * tag so the TS side can branch on it without parsing prose strings.

@@ -27,7 +27,22 @@
 
 // Per-file allowlists. Each entry is either an exact specifier or a
 // prefix that ends in "/" (matching any submodule under that prefix).
-const MAIN_TSX_EXACT = new Set(["react", "react-dom", "react-dom/client", "@/logger", "@/App"]);
+//
+// `@/lib/tauri-commands` is allowlisted for main.tsx specifically so the
+// runtime-tracing entry point (`recordStartupPhase("theme-applied")` —
+// issue #264) can fire from the renderer entry script without a dynamic
+// import. The wrapper is a thin façade over the auto-generated bindings
+// and pulls minimal additional dependencies; the cold-start cost
+// (microseconds) is documented as well below the engineering-excellence
+// budget.
+const MAIN_TSX_EXACT = new Set([
+  "react",
+  "react-dom",
+  "react-dom/client",
+  "@/logger",
+  "@/App",
+  "@/lib/tauri-commands",
+]);
 
 const MAIN_TSX_PREFIX = [];
 

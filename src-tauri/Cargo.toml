@@ -1,3 +1,12 @@
+# `[workspace]` exists solely to host the proc-macro sibling crate
+# `mdr-macros/` (issue #264). Procedural macros must live in their own
+# `proc-macro = true` crate per Rust's lib-crate rules; pulling
+# `mdr-macros` into the workspace lets `cargo build` / `cargo test`
+# operate on both crates from a single root and keeps the macro source
+# colocated with the only consumer (this main crate).
+[workspace]
+members = ["mdr-macros"]
+
 [package]
 name = "mdownreview"
 version = "0.3.4"
@@ -95,6 +104,11 @@ specta-typescript = { version = "=0.0.9", optional = true }
 # (above) re-enables it via `tauri-specta/typescript`. This keeps
 # specta-typescript out of the production dep tree.
 tauri-specta = { version = "=2.0.0-rc.21", default-features = false, features = ["derive"] }
+# Internal proc-macro crate (issue #264) — exposes #[mdr_command] which
+# composes #[tauri::command] + #[specta::specta] + IPC tracing. Lives
+# under src-tauri/mdr-macros/; pinned by path so it cannot drift from
+# the consumer crate's compile.
+mdr-macros = { path = "mdr-macros" }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

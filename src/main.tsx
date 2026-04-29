@@ -1,8 +1,19 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import * as logger from "@/logger";
+import { recordStartupPhase } from "@/lib/tauri-commands";
 import App from "@/App";
 import "@/styles/settings-view.css";
+
+// Issue #264 / PR3 — startup tracing placeholder. PR4 will move this to
+// a pre-React inline script in `index.html` so the phase fires before
+// Vite-injected modules even parse (FOUC mitigation pairs with
+// `theme-applied`). For now we report from the renderer entry point
+// — close enough for log-analysis purposes; the schema slot is what
+// matters for `analyze-log` (PR4). Errors swallowed: telemetry is
+// non-essential and missing IPC (e.g. unit tests / headless harnesses)
+// must not break the main render path.
+void recordStartupPhase("theme-applied").catch(() => {});
 
 // Install global error handlers before React initializes so that errors
 // during module loading or the first render are captured.

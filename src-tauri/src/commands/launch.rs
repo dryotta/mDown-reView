@@ -1,5 +1,6 @@
 //! Launch-time and diagnostic commands (CLI args, log path, file scanner).
 
+use crate::mdr_command;
 #[cfg(debug_assertions)]
 use super::is_sidecar_file;
 use crate::core::paths::canonicalize_no_verbatim;
@@ -74,8 +75,7 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
 }
 
 /// Get (and drain) launch args queued for the calling window.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub async fn get_launch_args(
     window: tauri::Window,
     registry: tauri::State<'_, crate::registry::WindowRegistry>,
@@ -84,8 +84,7 @@ pub async fn get_launch_args(
 }
 
 /// Get the log file path for display in the About dialog.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
     let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
     Ok(log_dir
@@ -101,16 +100,14 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
 /// instead of being incorrectly flagged as ghosts. Both the GUI IPC
 /// and the CLI go through [`crate::core::scanner::scan_workspace`] for
 /// identical `(sidecar, source)` output.
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> {
     Ok(crate::core::scanner::scan_workspace(&root, 10_000))
 }
 
 /// Test-only command: open a folder and all its non-sidecar files via args-received.
 #[cfg(debug_assertions)]
-#[tauri::command]
-#[specta::specta]
+#[mdr_command]
 pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), String> {
     use tauri::{Emitter, Manager};
 
