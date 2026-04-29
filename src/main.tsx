@@ -5,14 +5,15 @@ import { recordStartupPhase } from "@/lib/tauri-commands";
 import App from "@/App";
 import "@/styles/settings-view.css";
 
-// Issue #264 / PR3 — startup tracing placeholder. PR4 will move this to
-// a pre-React inline script in `index.html` so the phase fires before
-// Vite-injected modules even parse (FOUC mitigation pairs with
-// `theme-applied`). For now we report from the renderer entry point
-// — close enough for log-analysis purposes; the schema slot is what
-// matters for `analyze-log` (PR4). Errors swallowed: telemetry is
-// non-essential and missing IPC (e.g. unit tests / headless harnesses)
-// must not break the main render path.
+// Issue #265 / PR4 — `theme-applied` is now wired against the FOUC
+// script in `index.html`, which runs synchronously in `<head>` BEFORE
+// this module is fetched. By the time we reach this line the
+// `<html data-theme="…">` attribute is already set and app.css's
+// theme tokens are already correct, so the recorder timestamp here
+// faithfully captures the post-theme moment in the cold-startup
+// timeline. Errors swallowed: telemetry is non-essential and missing
+// IPC (e.g. unit tests / headless harnesses) must not break the main
+// render path.
 void recordStartupPhase("theme-applied").catch(() => {});
 
 // Install global error handlers before React initializes so that errors

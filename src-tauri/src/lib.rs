@@ -7,6 +7,7 @@
 // proc-macros that need an absolute path back to the host crate.
 extern crate self as mdown_review_lib;
 
+pub mod cli;
 pub mod commands;
 pub mod core;
 pub mod instance_scope;

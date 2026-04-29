@@ -1,10 +1,50 @@
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, Subcommand};
+use mdown_review_lib::cli::analyze_log::{
+    analyze, evaluate_budgets, render_json, render_text, PhaseBudget,
+};
 use mdown_review_lib::core::types::CommentMutation;
 use mdown_review_lib::core::paths::{self, canonicalize_no_verbatim};
 use mdown_review_lib::core::{comments, scanner, sidecar};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+/// Bundle identifier — must match `tauri.conf.json` `identifier` so the
+/// default-path computation in `analyze-log` resolves to the same
+/// directory the runtime logs to (verified by inspecting
+/// `tauri::path::PathResolver::app_log_dir` against tauri-2.10.3).
+/// If `tauri.conf.json` ever changes, update this constant too.
+const APP_BUNDLE_ID: &str = "com.mdownreview.desktop";
+
+/// Compute the default log-file path the runtime uses (Tauri's
+/// `app_log_dir` + the `tauri-plugin-log` `file_name` configured in
+/// `lib.rs::run`). This is platform-specific and mirrors the layout in
+/// `tauri::path::PathResolver::app_log_dir`:
+///
+/// | Platform | Path |
+/// |---|---|
+/// | Linux   | `$XDG_DATA_HOME/<bundle_id>/logs/mdownreview.log` |
+/// | macOS   | `$HOME/Library/Logs/<bundle_id>/mdownreview.log` |
+/// | Windows | `%LOCALAPPDATA%/<bundle_id>/logs/mdownreview.log` |
+///
+/// Returns an error string when the OS-specific base dir is missing
+/// (extremely rare — only on stripped-down sandbox environments).
+fn default_log_path() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    let base = dirs::home_dir()
+        .ok_or_else(|| "cannot resolve home dir".to_string())?
+        .join("Library/Logs")
+        .join(APP_BUNDLE_ID);
+
+    #[cfg(not(target_os = "macos"))]
+    let base = dirs::data_local_dir()
+        .ok_or_else(|| "cannot resolve local data dir".to_string())?
+        .join(APP_BUNDLE_ID)
+        .join("logs");
+
+    Ok(base.join("mdownreview.log"))
+}
 
 #[derive(Parser)]
 #[command(
@@ -64,6 +104,28 @@ enum Commands {
         #[arg(long)]
         include_unresolved: bool,
     },
+    /// Aggregate `[ipc]` and `[startup]` events from the rotating log
+    /// file. See `docs/specs/cli-mdownreview-cli.md` for the full spec.
+    AnalyzeLog {
+        /// Path to the log file (default: the runtime's standard
+        /// rotating-log location, computed from the OS log dir).
+        path: Option<String>,
+        /// Read from stdin instead of a file. Mutually exclusive with
+        /// the positional path.
+        #[arg(long, conflicts_with = "path")]
+        stdin: bool,
+        /// Emit a JSON report (schema documented in
+        /// `docs/specs/cli-mdownreview-cli.md`) instead of the
+        /// human-readable text table.
+        #[arg(long)]
+        json: bool,
+        /// Assert `<phase> t_ms <= <ms>`. Repeatable. On any breach the
+        /// CLI exits non-zero (code `2`) after printing every breach
+        /// to stderr. Phase names match the kebab-case wire form
+        /// (`frontend-mounted`, `webview-ready`, …).
+        #[arg(long = "phase-budget", value_name = "PHASE=MS")]
+        phase_budget: Vec<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -86,7 +148,7 @@ fn main() -> ExitCode {
     }
 
     let cli = Cli::parse();
-    let result = match cli.command {
+    match cli.command {
         Commands::Read {
             folder,
             file,
@@ -95,7 +157,7 @@ fn main() -> ExitCode {
             include_resolved,
         } => {
             let effective_format = if json { "json" } else { format.as_str() };
-            cmd_read(folder, file, effective_format, include_resolved)
+            ok_or_fail(cmd_read(folder, file, effective_format, include_resolved))
         }
         Commands::Respond {
             folder,
@@ -103,13 +165,31 @@ fn main() -> ExitCode {
             comment_id,
             response,
             resolve,
-        } => cmd_respond(folder, &file, &comment_id, response.as_deref(), resolve),
+        } => ok_or_fail(cmd_respond(
+            folder,
+            &file,
+            &comment_id,
+            response.as_deref(),
+            resolve,
+        )),
         Commands::Cleanup {
             folder,
             dry_run,
             include_unresolved,
-        } => cmd_cleanup(folder, dry_run, include_unresolved),
-    };
+        } => ok_or_fail(cmd_cleanup(folder, dry_run, include_unresolved)),
+        Commands::AnalyzeLog {
+            path,
+            stdin,
+            json,
+            phase_budget,
+        } => cmd_analyze_log(path, stdin, json, &phase_budget),
+    }
+}
+
+/// Map a `Result<(), String>` to an `ExitCode`, printing the error to
+/// stderr on failure. Used by every subcommand whose only failure mode
+/// is operational ("error: …" → exit 1).
+fn ok_or_fail(result: Result<(), String>) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) => {
@@ -413,4 +493,94 @@ fn cmd_cleanup(
     let action = if dry_run { "would delete" } else { "deleted" };
     println!("{} file(s) {}", report.deleted.len(), action);
     Ok(())
+}
+
+// ── cmd_analyze_log ────────────────────────────────────────────────────────
+
+/// Implement `mdownreview-cli analyze-log`. Owns its own `ExitCode`
+/// mapping because budget breaches map to exit `2` (distinct from the
+/// usual operational `1`) — see the spec in
+/// `docs/specs/cli-mdownreview-cli.md`.
+///
+/// I/O strategy:
+/// * `--stdin` reads from `io::stdin()` directly.
+/// * positional `<path>` opens that file.
+/// * neither: fall back to `default_log_path()` (the runtime's standard
+///   rotating-log location).
+fn cmd_analyze_log(
+    path: Option<String>,
+    stdin: bool,
+    json: bool,
+    phase_budget_strs: &[String],
+) -> ExitCode {
+    // Pre-parse every budget so a malformed flag fails fast (clap
+    // usage error → exit 2).
+    let mut budgets: Vec<PhaseBudget> = Vec::with_capacity(phase_budget_strs.len());
+    for raw in phase_budget_strs {
+        match PhaseBudget::parse(raw) {
+            Ok(b) => budgets.push(b),
+            Err(e) => {
+                eprintln!("error: {e}");
+                // Use exit 2 — same shape as clap's usage errors.
+                return ExitCode::from(2);
+            }
+        }
+    }
+
+    let report = if stdin {
+        match analyze(io::stdin().lock()) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: reading stdin: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        let log_path: PathBuf = match path {
+            Some(p) => PathBuf::from(p),
+            None => match default_log_path() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+        };
+        match std::fs::File::open(&log_path) {
+            Ok(file) => match analyze(file) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("error: parsing {}: {e}", log_path.display());
+                    return ExitCode::FAILURE;
+                }
+            },
+            Err(e) => {
+                eprintln!("error: opening {}: {e}", log_path.display());
+                return ExitCode::FAILURE;
+            }
+        }
+    };
+
+    if json {
+        match render_json(&report) {
+            Ok(s) => println!("{s}"),
+            Err(e) => {
+                eprintln!("error: rendering json: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        // `print!` not `println!` — render_text always ends with `\n`.
+        print!("{}", render_text(&report));
+    }
+
+    let breaches = evaluate_budgets(&report, &budgets);
+    if !breaches.is_empty() {
+        for b in &breaches {
+            eprintln!("{b}");
+        }
+        return ExitCode::from(2);
+    }
+
+    ExitCode::SUCCESS
 }

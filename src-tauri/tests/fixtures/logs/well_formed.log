@@ -1,0 +1,31 @@
+2026-04-28T01:00:00.000Z [INFO][startup] [startup] phase=app-init t_ms=0
+2026-04-28T01:00:00.012Z [INFO][startup] [startup] phase=theme-applied t_ms=12
+2026-04-28T01:00:00.142Z [INFO][startup] [startup] phase=webview-ready t_ms=142
+2026-04-28T01:00:00.270Z [INFO][startup] [startup] phase=first-ipc t_ms=270
+2026-04-28T01:00:00.387Z [INFO][startup] [startup] phase=frontend-mounted t_ms=387
+2026-04-28T01:00:00.510Z [INFO][startup] [startup] phase=first-file-loaded t_ms=510
+2026-04-28T01:00:00.270Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1200 payload_bytes=0 ok=true
+2026-04-28T01:00:00.275Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1500 payload_bytes=0 ok=true
+2026-04-28T01:00:00.280Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1100 payload_bytes=0 ok=true
+2026-04-28T01:00:00.285Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=2400 payload_bytes=0 ok=true
+2026-04-28T01:00:00.290Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=3100 payload_bytes=0 ok=true
+2026-04-28T01:00:00.295Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=950 payload_bytes=0 ok=true
+2026-04-28T01:00:00.300Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1300 payload_bytes=0 ok=true
+2026-04-28T01:00:00.305Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=8100 payload_bytes=0 ok=true
+2026-04-28T01:00:00.310Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1050 payload_bytes=0 ok=true
+2026-04-28T01:00:00.315Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1250 payload_bytes=0 ok=true
+2026-04-28T01:00:00.320Z [INFO][ipc] [ipc] cmd=read_dir duration_us=2200 payload_bytes=0 ok=true
+2026-04-28T01:00:00.325Z [INFO][ipc] [ipc] cmd=read_dir duration_us=2400 payload_bytes=0 ok=true
+2026-04-28T01:00:00.330Z [INFO][ipc] [ipc] cmd=read_dir duration_us=2100 payload_bytes=0 ok=true
+2026-04-28T01:00:00.335Z [INFO][ipc] [ipc] cmd=read_dir duration_us=2500 payload_bytes=0 ok=true
+2026-04-28T01:00:00.340Z [INFO][ipc] [ipc] cmd=read_dir duration_us=2300 payload_bytes=0 ok=true
+2026-04-28T01:00:00.345Z [INFO][ipc] [ipc] cmd=stat_file duration_us=400 payload_bytes=0 ok=true
+2026-04-28T01:00:00.350Z [INFO][ipc] [ipc] cmd=stat_file duration_us=420 payload_bytes=0 ok=true
+2026-04-28T01:00:00.355Z [INFO][ipc] [ipc] cmd=stat_file duration_us=380 payload_bytes=0 ok=true
+2026-04-28T01:00:00.360Z [INFO][ipc] [ipc] cmd=get_file_comments duration_us=5500 payload_bytes=0 ok=true
+2026-04-28T01:00:00.365Z [INFO][ipc] [ipc] cmd=get_file_comments duration_us=6200 payload_bytes=0 ok=true
+2026-04-28T01:00:00.370Z [INFO][ipc] [ipc] cmd=get_file_comments duration_us=4800 payload_bytes=0 ok=true
+2026-04-28T01:00:00.375Z [WARN][ipc] [ipc] cmd=get_file_comments duration_us=3000 payload_bytes=0 ok=false err=ConfigError("missing key")
+2026-04-28T01:00:00.380Z [INFO][ipc] [ipc] cmd=record_startup_phase duration_us=80 payload_bytes=0 ok=true
+2026-04-28T01:00:00.385Z [INFO][ipc] [ipc] cmd=record_startup_phase duration_us=72 payload_bytes=0 ok=true
+2026-04-28T01:00:00.390Z [INFO][ipc] [ipc] cmd=record_startup_phase duration_us=68 payload_bytes=0 ok=true

@@ -4,6 +4,66 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mdownreview</title>
+    <!--
+      FOUC mitigation (issue #265 / PR4) — pairs with the
+      `backgroundColor` set on the main window in tauri.conf.json so
+      neither the OS-rendered window nor the in-page <html>/<body>
+      surface paints white before React mounts.
+
+      Reads the persisted Zustand state from localStorage (key
+      `mdownreview-ui` — see src/store/index.ts), resolves
+      `theme === "system"` via prefers-color-scheme, and writes the
+      result onto `<html data-theme>` so app.css's theme tokens are
+      already correct on the very first paint. Wrapped in try/catch
+      because parse failure / disabled localStorage MUST NOT block
+      React's hydration — the dark fallback ensures we never flash
+      white on a parse error.
+
+      Both the inline <style> and the <script> run synchronously
+      (the script has no defer/async and lives BEFORE the React
+      module script below) so the attribute is set before the
+      `<script type="module">` is even fetched.
+    -->
+    <style>
+      html,
+      body {
+        background: #0d1117;
+        margin: 0;
+      }
+      html[data-theme="light"],
+      html[data-theme="light"] body {
+        background: #ffffff;
+      }
+    </style>
+    <script>
+      try {
+        var raw = localStorage.getItem("mdownreview-ui");
+        var resolved = "dark";
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          var theme = parsed && parsed.state ? parsed.state.theme : null;
+          if (theme === "light" || theme === "dark") {
+            resolved = theme;
+          } else {
+            // theme === "system" or unknown — defer to OS preference
+            resolved =
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          }
+        } else {
+          resolved =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        }
+        document.documentElement.setAttribute("data-theme", resolved);
+      } catch (_e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    </script>
   </head>
 
   <body>

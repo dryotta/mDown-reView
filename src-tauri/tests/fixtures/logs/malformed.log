@@ -1,0 +1,8 @@
+garbage line with no schema markers at all
+2026-04-28T01:00:00.000Z [INFO][startup] [startup] phase=app-init t_ms=0
+this line has [ipc] but is malformed: cmd= duration_us=
+2026-04-28T01:00:00.270Z [INFO][ipc] [ipc] cmd=read_text_file duration_us=1234 payload_bytes=0 ok=true
+[startup] phase=webview-ready t_ms=NOT_A_NUMBER
+[startup] phase=frontend-mounted t_ms=387
+random non-utf8 substitute lines should also be skipped
+[ipc] cmd=ok duration_us=42 payload_bytes=0 ok=true

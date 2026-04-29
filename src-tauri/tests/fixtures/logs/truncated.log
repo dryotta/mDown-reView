@@ -1,0 +1,4 @@
+[startup] phase=app-init t_ms=0
+[startup] phase=frontend-mounted t_ms=387
+[ipc] cmd=read_text_file duration_us=1200 payload_bytes=0 ok=true
+[ipc] cmd=read_text_
