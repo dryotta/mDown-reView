@@ -280,6 +280,14 @@ jobs:
         run: npm run test:e2e:native
         env:
           MDR_NATIVE_SKIP_INSTALLER: "1"
+          # Cold-startup p95 budget (`07-cold-startup.spec.ts`) currently
+          # runs against the debug binary built above and enforces the
+          # un-multiplied 800 ms target only when MDR_E2E_RELEASE_BUILD=1.
+          # We intentionally leave it unset here — release builds add
+          # ~10 min to the gate. The 3× debug multiplier (2400 ms) is the
+          # de-facto enforced budget in CI; the strict 800 ms target is
+          # exercised by the canary release build's installer-validation
+          # job (see `release.yml`). See `docs/performance.md` rule 33.
 
       - name: Upload Playwright report
         if: failure()

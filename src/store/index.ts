@@ -12,6 +12,7 @@ import {
   type DefaultHandlerStatus,
   type OnboardingState,
 } from "@/lib/tauri-commands";
+import { STORAGE_KEY as PERSIST_KEY } from "@/lib/theme-bootstrap";
 import {
   createTabsSlice,
   filterStaleTabs,
@@ -185,8 +186,16 @@ interface OnboardingSlice {
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice & TabHistorySlice & CommentsSlice;
-
+export type Store = WorkspaceSlice &
+  TabsSlice &
+  UISlice &
+  UpdateSlice &
+  WatcherSlice &
+  RecentSlice &
+  OnboardingSlice &
+  ViewerPrefsSlice &
+  TabHistorySlice &
+  CommentsSlice;
 
 export const useStore = create<Store>()(
   persist(
@@ -241,7 +250,8 @@ export const useStore = create<Store>()(
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
-      requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath, commentsPaneVisible: true }),
+      requestFileLevelInput: (filePath) =>
+        set({ pendingFileLevelInputFor: filePath, commentsPaneVisible: true }),
       clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
       setPendingFragment: (entry) => set({ pendingFragment: entry }),
       consumePendingFragment: (path) => {
@@ -262,8 +272,12 @@ export const useStore = create<Store>()(
         const current = get().ghostEntries;
         if (
           current.length === entries.length &&
-          current.every((e, i) => e.sidecarPath === entries[i].sidecarPath && e.sourcePath === entries[i].sourcePath)
-        ) return;
+          current.every(
+            (e, i) =>
+              e.sidecarPath === entries[i].sidecarPath && e.sourcePath === entries[i].sourcePath
+          )
+        )
+          return;
         set({ ghostEntries: entries });
       },
       lastSaveByPath: {},
@@ -310,7 +324,7 @@ export const useStore = create<Store>()(
         const errors: Record<string, string> = { ...get().onboardingErrors };
         const mapStatus = (
           r: PromiseSettledResult<string>,
-          key: OnboardingSectionKey,
+          key: OnboardingSectionKey
         ): OnboardingStatus => {
           if (r.status === "rejected") {
             errors[key] = formatOnboardingError(r.reason);
@@ -335,12 +349,12 @@ export const useStore = create<Store>()(
       },
       openSettings: () => set({ settingsDialogOpen: true }),
       closeSettings: () => set({ settingsDialogOpen: false }),
-      installCliShim:() => runOnboardingAction("cliShim", ipcInstallCliShim),
+      installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
       removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
       setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),
     }),
     {
-      name: "mdownreview-ui",
+      name: PERSIST_KEY,
       // Bump when persisted-shape migrations land. v1 (issue #89) strips
       // Windows `\\?\` verbatim prefixes from every persisted path field
       // so old clients agree with the post-fix Rust IPC chokepoint
@@ -353,11 +367,8 @@ export const useStore = create<Store>()(
         // 500-LOC budget). The persist signature requires the
         // partialize-shape return; runtime shape is identical so we cast
         // through the partialize result type.
-        const migrated =
-          fromVersion < 1 ? migrateV1StripVerbatim(persistedState) : persistedState;
-        return migrated as ReturnType<
-          NonNullable<Parameters<typeof persist>[1]["partialize"]>
-        >;
+        const migrated = fromVersion < 1 ? migrateV1StripVerbatim(persistedState) : persistedState;
+        return migrated as ReturnType<NonNullable<Parameters<typeof persist>[1]["partialize"]>>;
       },
       // Only persist global prefs — per-window state (tabs, activeTabPath,
       // expandedFolders, root) starts fresh each window / app launch.
@@ -444,7 +455,7 @@ export function formatOnboardingError(reason: unknown): string {
  */
 async function runOnboardingAction(
   sectionKey: OnboardingSectionKey,
-  action: () => Promise<void>,
+  action: () => Promise<void>
 ): Promise<void> {
   try {
     await action();
