@@ -178,6 +178,11 @@ pub fn save_sidecar_at(
 ) -> Result<(), SidecarError> {
     if comments.is_empty() {
         if sidecar_path.exists() {
+            log::info!(
+                target: "mdownreview::sidecar",
+                "save_sidecar_at: empty comments  deleting sidecar path={}",
+                sidecar_path.display()
+            );
             std::fs::remove_file(sidecar_path)?;
         }
         return Ok(());
@@ -188,9 +193,28 @@ pub fn save_sidecar_at(
         document: document.to_string(),
         comments: comments.to_vec(),
     };
-    let yaml = serde_saphyr::to_string(&payload).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
+    let yaml = serde_saphyr::to_string(&payload).map_err(|e| {
+        log::warn!(
+            target: "mdownreview::sidecar",
+            "save_sidecar_at: serde_saphyr serialise failed path={} comment_count={} error={}",
+            sidecar_path.display(), comments.len(), e
+        );
+        SidecarError::YamlParse(e.to_string())
+    })?;
 
-    crate::core::atomic::write_atomic(sidecar_path, yaml.as_bytes())?;
+    crate::core::atomic::write_atomic(sidecar_path, yaml.as_bytes()).map_err(|e| {
+        log::warn!(
+            target: "mdownreview::sidecar",
+            "save_sidecar_at: atomic write failed path={} error={}",
+            sidecar_path.display(), e
+        );
+        SidecarError::from(e)
+    })?;
+    log::info!(
+        target: "mdownreview::sidecar",
+        "save_sidecar_at: wrote sidecar path={} comment_count={} bytes={}",
+        sidecar_path.display(), comments.len(), yaml.len()
+    );
     Ok(())
 }
 

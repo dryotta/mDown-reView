@@ -377,6 +377,52 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     // Foreign request must not be consumed by us
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/some/other.md");
   });
+
+  // ── Failure surface (binary-file persistence regression) ──────────────────
+  // Before this surface existed, a file-level addComment that failed (most
+  // commonly: `path not in workspace`) was silently dropped via
+  // `.catch(() => {})` and the input closed as if everything were fine —
+  // leaving the user with no comment on disk and no UI feedback.
+
+  it("surfaces an error banner when addComment rejects", async () => {
+    mockAddComment.mockRejectedValueOnce(new Error("path not in workspace"));
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "binary note" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // The input still closes optimistically (responsive UX).
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // Error banner appears asynchronously after the rejection settles.
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toMatch(/could not save comment/i);
+    expect(banner.textContent).toMatch(/path not in workspace/);
+  });
+
+  it("dismiss button clears the error banner", async () => {
+    mockAddComment.mockRejectedValueOnce(new Error("path not in workspace"));
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: /dismiss error/i }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not show an error banner on a successful save", async () => {
+    mockAddComment.mockResolvedValueOnce(undefined);
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "ok" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // Wait for the IPC promise to settle in the test microtask queue.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 // ─── Iter 6 Group A C5 — file-level "+" composer draftKey persistence ───────
