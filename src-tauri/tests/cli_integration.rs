@@ -487,3 +487,121 @@ fn cleanup_include_unresolved_deletes_all() {
     assert!(stdout.contains("1 file(s) deleted"));
     assert!(!sidecar.exists());
 }
+
+// ── .mrsf.yaml redirect (sidecar_root) ─────────────────────────────────────
+
+/// Stage a workspace where sidecars live under `.reviews/` per a
+/// `.mrsf.yaml` redirect — exercises the CLI/GUI shared `.mrsf.yaml`
+/// support: the source file is at `<root>/<name>.md` and the sidecar
+/// is at `<root>/.reviews/<name>.md.review.yaml`.
+fn stage_redirected_mixed() -> (tempfile::TempDir, PathBuf) {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".mrsf.yaml"),
+        "sidecar_root: .reviews\n",
+    )
+    .unwrap();
+    std::fs::create_dir(tmp.path().join(".reviews")).unwrap();
+    let src = fixtures_dir().join("mixed.md.review.yaml");
+    let sidecar = tmp.path().join(".reviews").join("mixed.md.review.yaml");
+    std::fs::copy(&src, &sidecar).unwrap();
+    std::fs::write(tmp.path().join("mixed.md"), "# Test").unwrap();
+    (tmp, sidecar)
+}
+
+#[test]
+fn read_folder_mode_honours_mrsf_yaml_redirect() {
+    let (tmp, _sidecar) = stage_redirected_mixed();
+    let (stdout, _stderr, code) = run_cli(&[
+        "read",
+        "--folder",
+        tmp.path().to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("CLI output is JSON");
+    let arr = v.as_array().expect("top-level array");
+    assert_eq!(arr.len(), 1, "expected one entry, got: {stdout}");
+    let entry = &arr[0];
+    // The source-file path the CLI reports must be the REAL location
+    // (`mixed.md` at the workspace root), not the non-existent
+    // `.reviews/mixed.md` produced by a naive suffix-trim.
+    let source_rel = entry["sourceFile"]["relative"]
+        .as_str()
+        .expect("sourceFile.relative");
+    assert_eq!(source_rel, "mixed.md", "got: {source_rel}");
+    let review_rel = entry["reviewFile"]["relative"]
+        .as_str()
+        .expect("reviewFile.relative");
+    assert!(
+        review_rel.contains(".reviews"),
+        "review file must live under .reviews/, got: {review_rel}"
+    );
+}
+
+#[test]
+fn read_single_file_resolves_redirected_sidecar_from_source_path() {
+    // User passes the SOURCE filename — CLI must probe `.reviews/` per
+    // the `.mrsf.yaml` redirect to find the sidecar there.
+    let (tmp, _sidecar) = stage_redirected_mixed();
+    let (stdout, stderr, code) = run_cli(&[
+        "read",
+        "--folder",
+        tmp.path().to_str().unwrap(),
+        "--file",
+        "mixed.md",
+        "--json",
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("CLI output is JSON");
+    assert_eq!(v["sourceFile"]["relative"].as_str(), Some("mixed.md"));
+    assert!(v["reviewFile"]["relative"]
+        .as_str()
+        .unwrap_or("")
+        .contains(".reviews"));
+}
+
+#[test]
+fn respond_writes_to_redirected_sidecar() {
+    // Writing a response must mutate the sidecar at `.reviews/...`,
+    // not synthesize a fresh co-located one. Read-modify-write through
+    // the CLI must touch only the existing redirected file.
+    let (tmp, sidecar) = stage_redirected_mixed();
+    let original = std::fs::read_to_string(&sidecar).unwrap();
+    // Pull a comment id out of the staged fixture without depending on
+    // a YAML parser crate — the fixture format is stable and lists ids
+    // as `- id: "<value>"`.
+    let comment_id = original
+        .lines()
+        .find_map(|l| {
+            l.trim_start()
+                .strip_prefix("- id:")
+                .map(|rest| rest.trim().trim_matches('"').to_string())
+        })
+        .expect("fixture has at least one id");
+
+    let (_stdout, stderr, code) = run_cli(&[
+        "respond",
+        "--folder",
+        tmp.path().to_str().unwrap(),
+        "mixed.md",
+        &comment_id,
+        "--response",
+        "addressed by CLI test",
+    ]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    // No co-located sibling should have been created.
+    let colocated = tmp.path().join("mixed.md.review.yaml");
+    assert!(
+        !colocated.exists(),
+        "respond must NOT create a co-located sidecar when redirect is active"
+    );
+
+    // The redirected sidecar must contain the new response.
+    let updated = std::fs::read_to_string(&sidecar).unwrap();
+    assert!(
+        updated.contains("addressed by CLI test"),
+        "redirected sidecar was not updated: {updated}"
+    );
+}

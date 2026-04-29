@@ -160,28 +160,49 @@ pub fn find_review_files_with_config(
     results
 }
 
+/// Scan a workspace for sidecar files, automatically loading the
+/// workspace's `.mrsf.yaml` configuration to honour any `sidecar_root`
+/// redirect.
+///
+/// Single shared primitive used by the GUI IPC (`scan_review_files`)
+/// and the CLI's folder-scan mode so the two surfaces produce identical
+/// `(sidecar, source)` pairs for the same workspace. Loud callers that
+/// need to log `.mrsf.yaml` parse failures should canonicalize the root
+/// themselves and pair [`crate::core::paths::load_mrsf_config`] with
+/// [`find_review_files_with_config`].
+pub fn scan_workspace(root: &str, cap: usize) -> Vec<(String, String)> {
+    let sidecar_root = crate::core::paths::try_load_mrsf_config(Path::new(root));
+    find_review_files_with_config(root, cap, sidecar_root.as_deref())
+}
+
 /// Derive the source-file path for a sidecar.
 ///
-/// The default rule is "trim the `.review.{yaml,json}` suffix" — which
-/// works for co-located sidecars (`foo.md.review.yaml` → `foo.md`).
-/// When a `sidecar_root` redirect is configured, sidecars stored under
-/// `<workspace>/<sidecar_root>/<rel>.review.{yaml,json}` are mapped to
-/// `<workspace>/<rel>` so the source resolves to the real file location
-/// rather than the non-existent path inside the redirect folder.
+/// Thin wrapper over [`crate::core::paths::source_for_sidecar_with_config`]
+/// returning a [`String`] for the scanner's `(sidecar, source)` output
+/// shape. The conversion logic (suffix-strip + optional redirect
+/// remap) lives in `paths` so the CLI's single-file mode and the
+/// scanner agree on it.
 fn derive_source_path(
     workspace_root: &Path,
     sidecar_path: &str,
     suffix: &str,
     sidecar_root: Option<&Path>,
 ) -> String {
-    let trimmed = sidecar_path.trim_end_matches(suffix);
-    if let Some(sr) = sidecar_root {
-        let abs_sidecar_root = workspace_root.join(sr);
-        if let Ok(rel) = Path::new(trimmed).strip_prefix(&abs_sidecar_root) {
-            return workspace_root.join(rel).to_string_lossy().to_string();
-        }
+    // Fast path matches the historical scanner behaviour byte-for-byte
+    // when no redirect is configured: trim the suffix off the original
+    // string. This keeps the "sidecar shares form with read_dir" path
+    // invariant on Windows (issue #89) — the shared helper takes a
+    // `&Path` and would round-trip through `to_string_lossy`.
+    if sidecar_root.is_none() {
+        return sidecar_path.trim_end_matches(suffix).to_string();
     }
-    trimmed.to_string()
+    crate::core::paths::source_for_sidecar_with_config(
+        Path::new(sidecar_path),
+        workspace_root,
+        sidecar_root,
+    )
+    .map(|p| p.to_string_lossy().into_owned())
+    .unwrap_or_else(|| sidecar_path.trim_end_matches(suffix).to_string())
 }
 
 /// Load a sidecar given the sidecar file path directly (not the source file path).
@@ -371,6 +392,130 @@ comments:
 
         assert_eq!(results.len(), 2);
         for (_sidecar, source) in &results {
+            assert!(
+                std::path::Path::new(source).exists(),
+                "every source must exist on disk: {source}"
+            );
+        }
+    }
+
+    // ---- scan_workspace (.mrsf.yaml-aware shared primitive) ----------
+    //
+    // Used by both the GUI IPC and the CLI's folder-scan mode. These
+    // tests cover both layouts (co-located, redirected) and the
+    // sidecar→source conversion the scanner performs from disk-loaded
+    // `.mrsf.yaml`.
+
+    #[test]
+    fn scan_workspace_colocated_mode_no_mrsf_yaml() {
+        // No `.mrsf.yaml` → sidecars are co-located, source paths are
+        // produced by trimming the suffix. Behaviour identical to
+        // `find_review_files`.
+        let tmp = TempDir::new().unwrap();
+        let canonical_root = canonicalize_no_verbatim(tmp.path()).unwrap();
+        std::fs::write(canonical_root.join("a.md"), "# A").unwrap();
+        std::fs::write(canonical_root.join("b.md"), "# B").unwrap();
+        write_yaml_sidecar(&canonical_root, "a.md");
+        write_yaml_sidecar(&canonical_root, "b.md");
+
+        let results = scan_workspace(canonical_root.to_str().unwrap(), 10_000);
+
+        assert_eq!(results.len(), 2);
+        for (sidecar, source) in &results {
+            assert!(
+                sidecar.ends_with(".review.yaml"),
+                "sidecar must keep its suffix: {sidecar}"
+            );
+            assert!(
+                std::path::Path::new(source).exists(),
+                "co-located source must exist: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn scan_workspace_redirected_mode_loads_mrsf_yaml() {
+        // `.mrsf.yaml` declares `sidecar_root: .reviews`. Sidecars live
+        // under .reviews/ but their source paths must point back at the
+        // real files at the workspace root — exercises the conversion
+        // performed via `try_load_mrsf_config` + `find_review_files_with_config`
+        // inside `scan_workspace`.
+        let tmp = TempDir::new().unwrap();
+        let canonical_root = canonicalize_no_verbatim(tmp.path()).unwrap();
+        std::fs::write(
+            canonical_root.join(".mrsf.yaml"),
+            "sidecar_root: .reviews\n",
+        )
+        .unwrap();
+        std::fs::write(canonical_root.join("readme.md"), "# A").unwrap();
+        let reviews = canonical_root.join(".reviews");
+        std::fs::create_dir(&reviews).unwrap();
+        write_yaml_sidecar(&reviews, "readme.md");
+
+        let results = scan_workspace(canonical_root.to_str().unwrap(), 10_000);
+
+        assert_eq!(results.len(), 1);
+        let (sidecar, source) = &results[0];
+        assert!(
+            sidecar.contains(".reviews"),
+            "sidecar lives under .reviews: {sidecar}"
+        );
+        assert!(
+            !source.contains(".reviews"),
+            "source must be remapped out of .reviews: {source}"
+        );
+        assert!(
+            std::path::Path::new(source).exists(),
+            "remapped source must point at a real file: {source}"
+        );
+    }
+
+    #[test]
+    fn scan_workspace_falls_back_to_colocated_on_malformed_mrsf_yaml() {
+        // A workspace with a broken `.mrsf.yaml` must NOT panic or
+        // return empty — falls back silently to the co-located scan.
+        // CLI users on workspaces they didn't author depend on this.
+        let tmp = TempDir::new().unwrap();
+        let canonical_root = canonicalize_no_verbatim(tmp.path()).unwrap();
+        std::fs::write(canonical_root.join(".mrsf.yaml"), ":::not yaml:::\n").unwrap();
+        std::fs::write(canonical_root.join("doc.md"), "# doc").unwrap();
+        write_yaml_sidecar(&canonical_root, "doc.md");
+
+        let results = scan_workspace(canonical_root.to_str().unwrap(), 10_000);
+        assert_eq!(results.len(), 1, "expected one co-located sidecar");
+        assert!(
+            std::path::Path::new(&results[0].1).exists(),
+            "co-located source must still resolve: {}",
+            results[0].1
+        );
+    }
+
+    #[test]
+    fn scan_workspace_mixed_layout_under_redirect() {
+        // Workspace with both layouts present: `.mrsf.yaml` is
+        // configured AND a stale co-located sidecar exists alongside a
+        // newly-redirected one. Both should appear, both source paths
+        // must point at real files. Mirrors the
+        // `redirect_only_rewrites_sidecars_under_sidecar_root` case but
+        // exercises the full `scan_workspace` entry point (config
+        // loading included).
+        let tmp = TempDir::new().unwrap();
+        let canonical_root = canonicalize_no_verbatim(tmp.path()).unwrap();
+        std::fs::write(
+            canonical_root.join(".mrsf.yaml"),
+            "sidecar_root: .reviews\n",
+        )
+        .unwrap();
+        std::fs::write(canonical_root.join("co.md"), "# co").unwrap();
+        std::fs::write(canonical_root.join("redir.md"), "# redir").unwrap();
+        write_yaml_sidecar(&canonical_root, "co.md");
+        let reviews = canonical_root.join(".reviews");
+        std::fs::create_dir(&reviews).unwrap();
+        write_yaml_sidecar(&reviews, "redir.md");
+
+        let results = scan_workspace(canonical_root.to_str().unwrap(), 10_000);
+        assert_eq!(results.len(), 2);
+        for (_, source) in &results {
             assert!(
                 std::path::Path::new(source).exists(),
                 "every source must exist on disk: {source}"

@@ -10,7 +10,7 @@
 
 #![cfg(windows)]
 
-use mdown_review_lib::commands::{parse_launch_args, read_dir_inner, scan_review_files_inner};
+use mdown_review_lib::commands::{parse_launch_args, read_dir_inner, scan_review_files};
 use mdown_review_lib::watcher::{SidecarConfigState, WatcherState};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,10 +77,8 @@ fn read_dir_emits_no_verbatim_prefix() {
 #[test]
 fn scan_review_files_emits_no_verbatim_prefix() {
     let ws = build_workspace();
-    let pairs = scan_review_files_inner(
-        ws.path().to_string_lossy().into_owned(),
-        &SidecarConfigState::new(),
-    );
+    let pairs = scan_review_files(ws.path().to_string_lossy().into_owned())
+        .expect("scan_review_files");
     assert!(!pairs.is_empty(), "expected at least one sidecar pair");
     for (sidecar, source) in &pairs {
         assert_no_verbatim("scan_review_files.sidecar", sidecar);
@@ -183,10 +181,8 @@ fn scan_review_files_shares_form_with_read_dir() {
     let ws = build_workspace();
     let entries =
         read_dir_inner(ws.path().to_string_lossy().into_owned(), None, None, &SidecarConfigState::new()).expect("read_dir").entries;
-    let pairs = scan_review_files_inner(
-        ws.path().to_string_lossy().into_owned(),
-        &SidecarConfigState::new(),
-    );
+    let pairs = scan_review_files(ws.path().to_string_lossy().into_owned())
+        .expect("scan_review_files");
 
     // Pick the source path emitted for doc.md by the scanner and assert
     // read_dir would emit the byte-identical string for the same file.

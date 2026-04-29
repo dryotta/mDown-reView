@@ -75,6 +75,32 @@ pub fn source_for_sidecar(p: &Path) -> Option<PathBuf> {
     None
 }
 
+/// `.mrsf.yaml`-aware variant of [`source_for_sidecar`]. If the sidecar
+/// lives under `<workspace_root>/<sidecar_root>/`, the returned source
+/// path is remapped to `<workspace_root>/<rel>` so callers see the real
+/// file location instead of the non-existent path inside the redirect
+/// folder. Falls through to the suffix-strip behaviour for co-located
+/// sidecars or when no redirect is configured.
+///
+/// Shared by [`crate::core::scanner::find_review_files_with_config`]
+/// (folder-scan source mapping) and the CLI's single-file
+/// `mdownreview-cli read --file …` path so both surfaces report the
+/// same source location for a redirected sidecar.
+pub fn source_for_sidecar_with_config(
+    sidecar_path: &Path,
+    workspace_root: &Path,
+    sidecar_root: Option<&Path>,
+) -> Option<PathBuf> {
+    let trimmed = source_for_sidecar(sidecar_path)?;
+    if let Some(sr) = sidecar_root {
+        let abs_sidecar_root = workspace_root.join(sr);
+        if let Ok(rel) = trimmed.strip_prefix(&abs_sidecar_root) {
+            return Some(workspace_root.join(rel));
+        }
+    }
+    Some(trimmed)
+}
+
 /// Resolve a sidecar path from CLI input,canonicalize it, and verify it
 /// stays inside `folder` if one was supplied.
 ///
@@ -88,6 +114,25 @@ pub fn source_for_sidecar(p: &Path) -> Option<PathBuf> {
 /// is provided, the canonical result must start with the canonical folder
 /// — symlinks pointing outside the folder are rejected.
 pub fn resolve_sidecar(input: &str, folder: Option<&str>, cwd: &Path) -> Result<PathBuf, String> {
+    resolve_sidecar_with_config(input, folder, cwd, None)
+}
+
+/// Like [`resolve_sidecar`] but also probes the workspace's
+/// `sidecar_root` redirect (e.g. `.reviews/`) when no co-located sidecar
+/// exists for `input`. Pass `Some(&sr)` after loading `.mrsf.yaml` for
+/// the workspace; pass `None` (or call [`resolve_sidecar`]) to keep the
+/// legacy co-located-only behaviour.
+///
+/// Co-located sidecars take priority — a workspace mid-migration may
+/// have both a stale co-located file and a freshly-redirected one, and
+/// the CLI should match what the GUI shows (co-located wins until
+/// migrated).
+pub fn resolve_sidecar_with_config(
+    input: &str,
+    folder: Option<&str>,
+    cwd: &Path,
+    sidecar_root: Option<&Path>,
+) -> Result<PathBuf, String> {
     let resolved = resolve_path(input, folder, cwd);
 
     let candidate = if input.ends_with(".review.yaml") || input.ends_with(".review.json") {
@@ -96,13 +141,15 @@ pub fn resolve_sidecar(input: &str, folder: Option<&str>, cwd: &Path) -> Result<
         let mut yaml = resolved.clone().into_os_string();
         yaml.push(".review.yaml");
         let yaml = PathBuf::from(yaml);
-        let mut json = resolved.into_os_string();
+        let mut json = resolved.clone().into_os_string();
         json.push(".review.json");
         let json = PathBuf::from(json);
         if yaml.exists() {
             yaml
         } else if json.exists() {
             json
+        } else if let Some(redirected) = probe_redirected_sidecar(&resolved, folder, cwd, sidecar_root) {
+            redirected
         } else {
             return Err(not_found_error(input, folder));
         }
@@ -136,6 +183,39 @@ pub fn resolve_sidecar(input: &str, folder: Option<&str>, cwd: &Path) -> Result<
     Ok(canonical)
 }
 
+/// Probe `<workspace>/<sidecar_root>/<rel_from_workspace>.review.{yaml,json}`
+/// for an existing sidecar. Returns the first match (yaml preferred).
+/// Used as a fallback by [`resolve_sidecar_with_config`] when no
+/// co-located sidecar exists.
+fn probe_redirected_sidecar(
+    resolved_input: &Path,
+    folder: Option<&str>,
+    cwd: &Path,
+    sidecar_root: Option<&Path>,
+) -> Option<PathBuf> {
+    let sr = sidecar_root?;
+    let workspace_raw = folder.map(Path::new).unwrap_or(cwd);
+    let workspace = canonicalize_no_verbatim(workspace_raw).ok()?;
+    let canonical_input =
+        canonicalize_no_verbatim(resolved_input).unwrap_or_else(|_| resolved_input.to_path_buf());
+    let rel = canonical_input.strip_prefix(&workspace).ok()?;
+    let base = workspace.join(sr).join(rel);
+
+    let mut yaml = base.clone().into_os_string();
+    yaml.push(".review.yaml");
+    let yaml = PathBuf::from(yaml);
+    if yaml.exists() {
+        return Some(yaml);
+    }
+    let mut json = base.into_os_string();
+    json.push(".review.json");
+    let json = PathBuf::from(json);
+    if json.exists() {
+        return Some(json);
+    }
+    None
+}
+
 fn not_found_error(input: &str, folder: Option<&str>) -> String {
     format!(
         "error: sidecar not found for '{}' under folder '{}'",
@@ -157,6 +237,18 @@ fn outside_root_error(input: &str, folder: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub use crate::core::sidecar::config::load_mrsf_config;
+
+/// Best-effort `.mrsf.yaml` lookup for a workspace root. Canonicalizes
+/// `root` and loads the redirect (if any). Errors and missing files are
+/// silently treated as "no redirect configured" — useful for callers that
+/// can't (or don't need to) surface load errors, such as the CLI's
+/// folder scan and `core::scanner::scan_workspace`. Loud callers
+/// (e.g. the `update_tree_watched_dirs` IPC) canonicalize and call
+/// [`load_mrsf_config`] directly so they can log failures.
+pub fn try_load_mrsf_config(root: &Path) -> Option<PathBuf> {
+    let canonical = canonicalize_no_verbatim(root).ok()?;
+    load_mrsf_config(&canonical).ok().flatten()
+}
 
 // ---------------------------------------------------------------------------
 // Sidecar-root path resolution

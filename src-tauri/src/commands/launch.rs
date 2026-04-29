@@ -94,28 +94,14 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Scan a directory tree for MRSF sidecar files (delegates to core::scanner).
 ///
-/// Honours the workspace's `sidecar_root` redirect (if a `.mrsf.yaml`
-/// has been registered for `root` via `SidecarConfigState`) so sidecars
-/// stored under e.g. `.reviews/` are mapped back to their real source
-/// location instead of being incorrectly flagged as ghosts.
+/// Honours the workspace's `.mrsf.yaml` redirect so sidecars stored
+/// under e.g. `.reviews/` are mapped back to their real source location
+/// instead of being incorrectly flagged as ghosts. Both the GUI IPC
+/// and the CLI go through [`crate::core::scanner::scan_workspace`] for
+/// identical `(sidecar, source)` output.
 #[tauri::command]
-pub fn scan_review_files(
-    root: String,
-    config_state: tauri::State<'_, crate::watcher::SidecarConfigState>,
-) -> Result<Vec<(String, String)>, String> {
-    Ok(scan_review_files_inner(root, &config_state))
-}
-
-/// Inner implementation, decoupled from `tauri::State` so unit/integration
-/// tests can construct a plain `SidecarConfigState` and call this directly.
-pub fn scan_review_files_inner(
-    root: String,
-    config_state: &crate::watcher::SidecarConfigState,
-) -> Vec<(String, String)> {
-    let sidecar_root = config_state
-        .resolve_for_file(std::path::Path::new(&root))
-        .and_then(|(_, sr)| sr);
-    crate::core::scanner::find_review_files_with_config(&root, 10_000, sidecar_root.as_deref())
+pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> {
+    Ok(crate::core::scanner::scan_workspace(&root, 10_000))
 }
 
 /// Test-only command: open a folder and all its non-sidecar files via args-received.
