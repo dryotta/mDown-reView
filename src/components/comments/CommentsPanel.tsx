@@ -103,14 +103,14 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     // surface in the persistent error banner below (unblocking the input
     // for retry without forcing the user to wait on the IPC round-trip).
     setShowFileLevelInput(false);
-    addComment(filePath, text, { kind: "file" }).catch((e) => {
+    void addComment(filePath, text, { kind: "file" }).catch((e) => {
       // The most common cause is `path not in workspace` — surface it to
       // the user (not just the log) so they don't lose the comment
       // silently. The Rust side also logs via `tracing::warn!` to the
       // unified log so future "comment didn't save" reports are
       // diagnosable from `%LocalAppData%\com.mdownreview.desktop\logs\`.
       const msg = e instanceof Error ? e.message : String(e);
-      logError(`[CommentsPanel] file-level addComment failed for ${filePath}: ${msg}`);
+      void logError(`[CommentsPanel] file-level addComment failed for ${filePath}: ${msg}`);
       setFileLevelError(`Could not save comment: ${msg}`);
     });
   }, [addComment, filePath]);
