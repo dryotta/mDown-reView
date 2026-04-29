@@ -4,7 +4,6 @@ import * as fs from "fs";
 import * as os from "os";
 import * as http from "http";
 
-
 const CDP_PORT = 9222;
 // Must match devUrl in src-tauri/tauri.conf.json
 const VITE_PORT = 1420;
@@ -29,7 +28,7 @@ async function waitForHttp(
   url: string,
   label: string,
   timeoutMs: number,
-  isAlive?: () => boolean,
+  isAlive?: () => boolean
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
@@ -60,25 +59,16 @@ async function waitForHttp(
     }
   }
   throw new Error(
-    `[native-setup] ${label} at ${url} did not become ready within ${timeoutMs}ms (last error: ${lastError})`,
+    `[native-setup] ${label} at ${url} did not become ready within ${timeoutMs}ms (last error: ${lastError})`
   );
 }
 
-async function waitForCdp(
-  port: number,
-  timeoutMs: number,
-  isAlive: () => boolean,
-): Promise<void> {
+async function waitForCdp(port: number, timeoutMs: number, isAlive: () => boolean): Promise<void> {
   // Wait for the CDP HTTP endpoint to respond — this confirms WebView2 has
   // started its DevTools server. The actual Playwright connection happens
   // in each test's fixture (connectOverCDP in fixtures.ts).
   console.log(`[native-setup] Waiting for CDP HTTP endpoint on port ${port}...`);
-  await waitForHttp(
-    `http://localhost:${port}/json/version`,
-    "CDP HTTP",
-    timeoutMs,
-    isAlive,
-  );
+  await waitForHttp(`http://localhost:${port}/json/version`, "CDP HTTP", timeoutMs, isAlive);
   console.log("[native-setup] CDP endpoint verified via HTTP.");
 }
 
@@ -96,12 +86,8 @@ function spawnVite(): ChildProcess {
     shell: process.platform === "win32",
   });
 
-  proc.stdout?.on("data", (d: Buffer) =>
-    process.stdout.write(`[vite] ${d}`),
-  );
-  proc.stderr?.on("data", (d: Buffer) =>
-    process.stderr.write(`[vite:err] ${d}`),
-  );
+  proc.stdout?.on("data", (d: Buffer) => process.stdout.write(`[vite] ${d}`));
+  proc.stderr?.on("data", (d: Buffer) => process.stderr.write(`[vite:err] ${d}`));
 
   proc.once("exit", (code, signal) => {
     console.log(`[native-setup] Vite exited (code=${code}, signal=${signal})`);
@@ -121,12 +107,8 @@ function spawnApp(): ChildProcess {
     detached: false,
   });
 
-  proc.stdout?.on("data", (d: Buffer) =>
-    process.stdout.write(`[app] ${d}`),
-  );
-  proc.stderr?.on("data", (d: Buffer) =>
-    process.stderr.write(`[app:err] ${d}`),
-  );
+  proc.stdout?.on("data", (d: Buffer) => process.stdout.write(`[app] ${d}`));
+  proc.stderr?.on("data", (d: Buffer) => process.stderr.write(`[app:err] ${d}`));
 
   proc.once("exit", (code, signal) => {
     console.log(`[native-setup] App exited (code=${code}, signal=${signal})`);
@@ -137,9 +119,7 @@ function spawnApp(): ChildProcess {
 
 export default async function globalSetup() {
   if (process.platform !== "win32") {
-    console.log(
-      "[native-setup] Non-Windows platform: skipping (CDP not supported on WKWebView)",
-    );
+    console.log("[native-setup] Non-Windows platform: skipping (CDP not supported on WKWebView)");
     return;
   }
 
@@ -149,45 +129,56 @@ export default async function globalSetup() {
     try {
       const stale: NativePids = JSON.parse(fs.readFileSync(PID_FILE, "utf8"));
       if (stale.appPid) {
-        try { process.kill(stale.appPid, "SIGTERM"); } catch { /* already dead */ }
+        try {
+          process.kill(stale.appPid, "SIGTERM");
+        } catch {
+          /* already dead */
+        }
       }
       if (stale.vitePid) {
-        try { process.kill(stale.vitePid, "SIGTERM"); } catch { /* already dead */ }
+        try {
+          process.kill(stale.vitePid, "SIGTERM");
+        } catch {
+          /* already dead */
+        }
       }
-    } catch { /* corrupt file, ignore */ }
+    } catch {
+      /* corrupt file, ignore */
+    }
     fs.unlinkSync(PID_FILE);
   }
 
   if (!fs.existsSync(BINARY_PATH)) {
     throw new Error(
       `[native-setup] Binary not found at ${BINARY_PATH}.\n` +
-        `Run 'cd src-tauri && cargo build' first, or use 'npm run test:e2e:native:build'.`,
+        `Run 'cd src-tauri && cargo build' first, or use 'npm run test:e2e:native:build'.`
     );
   }
 
   // Step 1: Start Vite dev server (the debug binary loads frontend from devUrl)
   const viteProc = spawnVite();
   let viteAlive = true;
-  viteProc.once("exit", () => { viteAlive = false; });
+  viteProc.once("exit", () => {
+    viteAlive = false;
+  });
   savePids({ vitePid: viteProc.pid });
 
-  console.log(`[native-setup] Vite spawned (pid ${viteProc.pid}), waiting for http://localhost:${VITE_PORT}...`);
-  await waitForHttp(
-    `http://localhost:${VITE_PORT}`,
-    "Vite dev server",
-    20_000,
-    () => viteAlive,
+  console.log(
+    `[native-setup] Vite spawned (pid ${viteProc.pid}), waiting for http://localhost:${VITE_PORT}...`
   );
+  await waitForHttp(`http://localhost:${VITE_PORT}`, "Vite dev server", 20_000, () => viteAlive);
   console.log("[native-setup] Vite dev server ready.");
 
   // Step 2: Launch the Tauri binary with CDP enabled
   const appProc = spawnApp();
   let appAlive = true;
-  appProc.once("exit", () => { appAlive = false; });
+  appProc.once("exit", () => {
+    appAlive = false;
+  });
   savePids({ vitePid: viteProc.pid, appPid: appProc.pid });
 
   console.log(
-    `[native-setup] App spawned (pid ${appProc.pid}), waiting for CDP on port ${CDP_PORT}...`,
+    `[native-setup] App spawned (pid ${appProc.pid}), waiting for CDP on port ${CDP_PORT}...`
   );
   await waitForCdp(CDP_PORT, 30_000, () => appAlive);
   console.log("[native-setup] CDP ready — all systems go.");
@@ -212,7 +203,9 @@ export async function spawnAppWithCdp(opts?: {
   const cdpPort = opts?.cdpPort ?? CDP_PORT;
   const binaryPath = opts?.binaryPath ?? BINARY_PATH;
   if (!fs.existsSync(binaryPath)) {
-    throw new Error(`Binary not found at ${binaryPath}. Build first: 'cd src-tauri && cargo build'.`);
+    throw new Error(
+      `Binary not found at ${binaryPath}. Build first: 'cd src-tauri && cargo build'.`
+    );
   }
   // WebView2 reuses one host process across launches that share a user-data
   // folder, so the second binary's --remote-debugging-port arg is ignored
@@ -234,11 +227,23 @@ export async function spawnAppWithCdp(opts?: {
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
   });
+  // Drain stdout/stderr — debug builds log to both file AND stdout (see
+  // `lib.rs::run` log targets). With nobody reading the pipe, Windows'
+  // ~64 KB buffer fills within a few hundred IPC events and blocks the
+  // binary mid-startup before phases reach the file. Tag the prefix so
+  // the test runner stream stays readable across multiple parallel spawns.
+  const tag = `app-${cdpPort}`;
+  appProc.stdout?.on("data", (d: Buffer) => process.stdout.write(`[${tag}] ${d}`));
+  appProc.stderr?.on("data", (d: Buffer) => process.stderr.write(`[${tag}:err] ${d}`));
   let alive = true;
   appProc.once("exit", () => {
     alive = false;
     if (ownsDataDir) {
-      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
   await waitForCdp(cdpPort, opts?.timeoutMs ?? 30_000, () => alive);

@@ -61,13 +61,26 @@ async function killProcess(proc: ChildProcess): Promise<void> {
   if (!proc.pid) return;
   try {
     if (process.platform === "win32") {
-      spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+      // First a graceful WM_CLOSE so WebView2 flushes localStorage to its
+      // leveldb on the user-data folder — /F is TerminateProcess and
+      // skips that flush, breaking cross-launch persistence in the
+      // flicker test. Wait up to 3 s for clean exit, then force-kill.
+      spawnSync("taskkill", ["/PID", String(proc.pid), "/T"], { stdio: "ignore" });
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline && proc.exitCode === null && proc.signalCode === null) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (proc.exitCode === null && proc.signalCode === null) {
+        spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+      }
     } else {
       proc.kill("SIGTERM");
     }
   } catch {
     /* already dead */
   }
+  // Give Windows a beat to release file locks before the next launch
+  // reuses the same user-data folder.
   await new Promise((r) => setTimeout(r, 500));
 }
 
