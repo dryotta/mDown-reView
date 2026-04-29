@@ -1,9 +1,5 @@
 import React from "react";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
-import {
-  CommentContextMenu,
-  type CommentContextMenuAction,
-} from "@/components/comments/CommentContextMenu";
 import { MdCommentPopover } from "./CommentableBlocks";
 import type {
   CommentThread as CommentThreadType,
@@ -12,14 +8,6 @@ import type {
 
 export interface SelectionToolbarState {
   position: { top: number; left: number };
-}
-
-export interface CommentContextMenuState {
-  open: boolean;
-  x: number;
-  y: number;
-  hasSelection: boolean;
-  hasLine: boolean;
 }
 
 interface Props {
@@ -42,12 +30,6 @@ interface Props {
   selectionToolbar: SelectionToolbarState | null;
   dismissSelectionToolbar: () => void;
   onAddSelectionComment: () => void;
-
-  // F6 — right-click context menu. Optional; viewers that don't wire it
-  // pass nothing and the menu never renders.
-  contextMenu?: CommentContextMenuState;
-  onContextMenuAction?: (a: CommentContextMenuAction) => void;
-  onContextMenuClose?: () => void;
 }
 
 /**
@@ -72,9 +54,6 @@ export function MarkdownInteractionLayer({
   selectionToolbar,
   dismissSelectionToolbar,
   onAddSelectionComment,
-  contextMenu,
-  onContextMenuAction,
-  onContextMenuClose,
 }: Props) {
   return (
     <>
@@ -98,17 +77,6 @@ export function MarkdownInteractionLayer({
           position={selectionToolbar.position}
           onAddComment={onAddSelectionComment}
           onDismiss={dismissSelectionToolbar}
-        />
-      )}
-      {contextMenu && onContextMenuAction && onContextMenuClose && (
-        <CommentContextMenu
-          open={contextMenu.open}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          hasSelection={contextMenu.hasSelection}
-          hasLine={contextMenu.hasLine}
-          onAction={onContextMenuAction}
-          onClose={onContextMenuClose}
         />
       )}
     </>

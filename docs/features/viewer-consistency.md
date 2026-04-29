@@ -25,7 +25,6 @@ Full inline commenting at line and selection granularity. These are the primary 
 | File-level comment (toolbar button) | ✅ |
 | Line-level comment (gutter click) | ✅ |
 | Text selection comment (selection toolbar) | ✅ |
-| Right-click context menu (F6) | ✅ |
 | Scroll-to-line from CommentsPanel | ✅ |
 | Comment badges in gutter | ✅ |
 | Find / search (Ctrl+F) | ✅ |
@@ -45,7 +44,6 @@ These render structured content in a non-line-based visual form. In visual mode,
 | File-level comment (toolbar button) | ✅ | ✅ |
 | Line-level comment | ❌ | ✅ (via SourceView) |
 | Text selection comment | ❌ | ✅ (via SourceView) |
-| Right-click context menu | ❌ | ✅ (via SourceView) |
 | Source/Visual toggle | ✅ | ✅ |
 | ViewerToolbar | ✅ | ✅ |
 | FileActionsBar | ✅ | ✅ |

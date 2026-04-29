@@ -7,7 +7,6 @@ const mockSetActiveTab = vi.fn();
 const mockBumpZoom = vi.fn();
 const mockBack = vi.fn();
 const mockForward = vi.fn();
-const mockActiveViewerContextMenu = vi.fn();
 
 const storeState = {
   activeTabPath: "/a.md",
@@ -17,9 +16,6 @@ const storeState = {
   bumpZoom: mockBumpZoom,
   back: mockBack,
   forward: mockForward,
-  activeViewerContextMenu: mockActiveViewerContextMenu as
-    | ((x: number, y: number) => void)
-    | null,
   zoomByFiletype: {} as Record<string, number>,
   viewModeByTab: {} as Record<string, "source" | "visual">,
   tabs: [
@@ -209,54 +205,6 @@ describe("useGlobalShortcuts", () => {
       // alt=true, mod (ctrl)=true → modifier guard rejects.
       fire({ key: "ArrowLeft", alt: true, mod: true });
       expect(mockBack).not.toHaveBeenCalled();
-    });
-  });
-
-  // F6 — Shift+F10 / ContextMenu key reachability via registered callback.
-  describe("F6 keyboard reachability (Shift+F10 / ContextMenu)", () => {
-    beforeEach(() => {
-      mockActiveViewerContextMenu.mockReset();
-      storeState.activeViewerContextMenu = mockActiveViewerContextMenu as
-        | ((x: number, y: number) => void)
-        | null;
-    });
-
-    it("Shift+F10 invokes the registered active-viewer opener", () => {
-      renderHook(() => useGlobalShortcuts(callbacks));
-      const ev = new KeyboardEvent("keydown", {
-        key: "F10",
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true,
-      });
-      window.dispatchEvent(ev);
-      expect(mockActiveViewerContextMenu).toHaveBeenCalledTimes(1);
-      const [x, y] = mockActiveViewerContextMenu.mock.calls[0];
-      expect(typeof x).toBe("number");
-      expect(typeof y).toBe("number");
-      expect(ev.defaultPrevented).toBe(true);
-    });
-
-    it("ContextMenu key invokes the registered opener", () => {
-      renderHook(() => useGlobalShortcuts(callbacks));
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }),
-      );
-      expect(mockActiveViewerContextMenu).toHaveBeenCalledTimes(1);
-    });
-
-    it("Shift+F10 is a clean no-op when no viewer is registered", () => {
-      storeState.activeViewerContextMenu = null;
-      renderHook(() => useGlobalShortcuts(callbacks));
-      const ev = new KeyboardEvent("keydown", {
-        key: "F10",
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true,
-      });
-      window.dispatchEvent(ev);
-      expect(mockActiveViewerContextMenu).not.toHaveBeenCalled();
-      expect(ev.defaultPrevented).toBe(false);
     });
   });
 
