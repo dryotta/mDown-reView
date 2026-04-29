@@ -19,6 +19,15 @@ window.onunhandledrejection = (event) => {
   void logger.error(`Unhandled promise rejection: ${reason}`); // fire-and-forget — global handler signature is sync
 };
 
+// Suppress the WebView's default OS context menu everywhere in the renderer.
+// The app does not ship any in-app context menu — every right-click is a
+// hard suppression. DevTools remain reachable via the native menu — Window →
+// Toggle Developer Tools (F12) — in both debug and release builds.
+// See `docs/architecture.md` rule 29.
+window.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+});
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />

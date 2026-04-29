@@ -102,8 +102,18 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
 
     let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
     let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
+    // Developer Tools — available in BOTH debug and release builds. Enabled by
+    // the `devtools` Cargo feature on the `tauri` crate (see Cargo.toml). F12
+    // is the universal cross-platform accelerator (also accepted natively by
+    // WebView2/WKWebView in dev builds, so users get muscle-memory parity in
+    // production via this menu item). Rust-handled in `on_menu_event` like the
+    // other window-frame actions (`win-minimize`, `win-bring-all`).
+    let toggle_devtools = MenuItem::with_id(
+        handle, id("toggle-devtools"), "Toggle Developer Tools", true, Some("F12"),
+    )?;
     let window_menu = SubmenuBuilder::new(handle, "Window")
-        .item(&win_minimize).separator().item(&win_bring_all).build()?;
+        .item(&win_minimize).separator().item(&win_bring_all)
+        .separator().item(&toggle_devtools).build()?;
 
     let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;
     let check_updates = MenuItem::with_id(handle, id("check-updates"), "Check for Updates…", true, None::<&str>)?;
@@ -425,6 +435,16 @@ pub fn run() {
                 if action == "new-window" {
                     if let Err(e) = open_new_window(app) {
                         log::error!("[window] new-window failed: {e}");
+                    }
+                    return;
+                }
+                if action == "toggle-devtools" {
+                    // Per-window devtools toggle. Available in release thanks
+                    // to the `devtools` feature on `tauri` in Cargo.toml.
+                    if window.is_devtools_open() {
+                        window.close_devtools();
+                    } else {
+                        window.open_devtools();
                     }
                     return;
                 }

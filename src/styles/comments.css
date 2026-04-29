@@ -382,42 +382,6 @@
   background: var(--color-bg-hover, #f3f4f6);
 }
 
-/* F6 — Right-click context menu (CommentContextMenu) */
-.comment-context-menu {
-  position: fixed;
-  z-index: 110;
-  min-width: 200px;
-  background: var(--color-bg-elevated, #fff);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-}
-
-.comment-context-menu-item {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 6px 10px;
-  border-radius: 4px;
-  color: var(--color-fg-default, #1f2328);
-  text-align: left;
-}
-
-.comment-context-menu-item:hover:not(:disabled),
-.comment-context-menu-item:focus {
-  background: var(--color-bg-hover, #f3f4f6);
-  outline: none;
-}
-
-.comment-context-menu-item:disabled {
-  color: var(--color-muted, #8c959f);
-  cursor: default;
-}
-
 /* Selection highlight */
 .comment-selection-highlight {
   background: rgba(255, 186, 0, 0.2);

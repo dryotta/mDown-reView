@@ -75,30 +75,6 @@ export function useGlobalShortcuts({
       // ALL shortcut branches below — Alt+Arrow as well as the Ctrl-modified set.
       if (isEditableTarget(e)) return;
 
-      // F6 — Shift+F10 / ContextMenu key invoke the active viewer's
-      // registered context-menu opener (commentsSlice.activeViewerContextMenu).
-      // Position priority: current selection rect → fallback (100, 100). Line
-      // resolution and `hasSelection` detection live in the registered
-      // callback (see `useViewerContextMenu`). Outside any commentable viewer
-      // the registration is null and this is a clean no-op.
-      if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
-        const open = useStore.getState().activeViewerContextMenu;
-        if (!open) return;
-        const sel = window.getSelection();
-        let x = 100;
-        let y = 100;
-        if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
-          const r = sel.getRangeAt(0).getBoundingClientRect();
-          if (r.width > 0 || r.height > 0) {
-            x = r.left + Math.min(r.width, 16);
-            y = r.bottom;
-          }
-        }
-        e.preventDefault();
-        open(x, y);
-        return;
-      }
-
       // Alt+Left / Alt+Right — back/forward through tab history (no Ctrl/Meta).
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         if (e.key === "ArrowLeft") {

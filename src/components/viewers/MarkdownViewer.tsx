@@ -27,7 +27,6 @@ import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
-import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import { useFindInPage } from "@/hooks/useFindInPage";
 import { FindInPageBar } from "@/components/FindInPageBar";
 import { isSidecarFile } from "@/lib/file-types";
@@ -287,19 +286,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [openFindBar]);
 
-  const { ctxMenu, handleContextMenu, handleContextAction, closeContextMenu } =
-    useViewerContextMenu({
-      filePath,
-      resolveLine: (target) => {
-        const lineEl = target.closest<HTMLElement>("[data-source-line]");
-        if (!lineEl) return null;
-        const n = Number(lineEl.getAttribute("data-source-line"));
-        return Number.isFinite(n) && n > 0 ? n : null;
-      },
-      primeSelection: handleMouseUp,
-      startSelectionComment: handleSelectionAdd,
-    });
-
   return (
     <div className="markdown-viewer" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
       <FindInPageBar
@@ -349,7 +335,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
             ref={bodyRef}
             onClick={commentable ? handleGutterClick : undefined}
             onMouseUp={commentable ? handleMouseUp : undefined}
-            onContextMenu={commentable ? handleContextMenu : undefined}
             style={{ position: "relative" }}
           >
             <ReactMarkdown
@@ -375,15 +360,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
                 selectionToolbar={selectionToolbar}
                 dismissSelectionToolbar={() => setSelectionToolbar(null)}
                 onAddSelectionComment={handleSelectionAdd}
-                contextMenu={{
-                  open: ctxMenu.state.open,
-                  x: ctxMenu.state.x,
-                  y: ctxMenu.state.y,
-                  hasSelection: ctxMenu.state.payload?.hasSelection ?? false,
-                  hasLine: ctxMenu.state.payload?.line != null,
-                }}
-                onContextMenuAction={handleContextAction}
-                onContextMenuClose={closeContextMenu}
               />
             )}
           </div>

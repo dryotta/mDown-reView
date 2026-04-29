@@ -12,7 +12,7 @@ A flex row pinned above the main area. The left side holds a button group (Open 
 
 The Settings button (gear icon) flips `settingsSurface` to `'inline'` on the store. The no-tab area then routes to `<WelcomeView>` by default and to `<SettingsView>` when `settingsSurface === 'inline'` — see [settings.md](settings.md).
 
-After the post-redesign cleanup, the toolbar carries no theme dropdown or About button — those moved into the native OS menu. App-level menu events (Theme · Light/Dark/System, About, Check for Update) are forwarded as `menu-*` Tauri events handled in `useMenuListeners` (rule 24 in [`docs/architecture.md`](../architecture.md)).
+After the post-redesign cleanup, the toolbar carries no theme dropdown or About button — those moved into the native OS menu. App-level menu events (Theme · Light/Dark/System, About, Check for Update) are forwarded as `menu-*` Tauri events handled in `useMenuListeners` (rule 24 in [`docs/architecture.md`](../architecture.md)). The **Window** submenu also exposes a **Toggle Developer Tools** item (`F12`) that opens or closes the WebView's inspector for the current window — handled entirely in Rust (no frontend event) and available in release builds because `tauri` is built with the `devtools` Cargo feature. This is the **only** way to inspect the renderer: right-click does nothing (the WebView's default context menu is suppressed app-wide and the app ships no in-app context menus, see rule 29 in [`docs/architecture.md`](../architecture.md)).
 
 ### Viewer toolbar (sticky)
 
