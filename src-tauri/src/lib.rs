@@ -62,7 +62,7 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     let close_folder =
         MenuItem::with_id(handle, id("close-folder"), "Close Folder", true, None::<&str>)?;
     let new_window = MenuItem::with_id(
-        handle, id("new-window"), "New Window", true, Some("CmdOrCtrl+Shift+N"),
+        handle, id("new-window"), "New Window", true, None::<&str>,
     )?;
     let close_tab =
         MenuItem::with_id(handle, id("close-tab"), "Close Tab", true, Some("CmdOrCtrl+W"))?;
@@ -128,6 +128,18 @@ fn create_app_window(
         .min_inner_size(600.0, 400.0)
         .menu(menu)
         .build()
+}
+
+/// Shared logic for opening a new empty window. Used by the native menu handler.
+fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let reg = app.state::<registry::WindowRegistry>();
+    let new_label = reg.next_label();
+    create_app_window(app, &new_label, "mdownreview")
+        .map(|_| {
+            reg.register(new_label.clone(), registry::WindowKind::FileOnly);
+            log::info!("[window] new-window: created {new_label}");
+        })
+        .map_err(|e| format!("failed to create window: {e}"))
 }
 
 #[tauri::command]
@@ -411,14 +423,8 @@ pub fn run() {
                     return;
                 }
                 if action == "new-window" {
-                    let reg = app.state::<registry::WindowRegistry>();
-                    let new_label = reg.next_label();
-                    match create_app_window(app, &new_label, "mdownreview") {
-                        Ok(_) => {
-                            reg.register(new_label.clone(), registry::WindowKind::FileOnly);
-                            log::info!("[window] new-window: created {new_label}");
-                        }
-                        Err(e) => log::error!("[window] new-window failed: {e}"),
+                    if let Err(e) = open_new_window(app) {
+                        log::error!("[window] new-window failed: {e}");
                     }
                     return;
                 }
