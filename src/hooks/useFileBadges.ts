@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { listenEvent } from "@/lib/tauri-events";
 import { getFileBadges, type FileBadge } from "@/lib/tauri-commands";
+import { info } from "@/logger";
 
 /**
  * Returns per-file unresolved-comment badge data (count + worst severity)
@@ -20,10 +21,18 @@ export function useFileBadges(filePaths: string[]): Record<string, FileBadge> {
     let cancelled = false;
     const paths = pathsRef.current;
     if (paths.length === 0) return;
+    // [badge-diag] temporary instrumentation — remove once race + perf
+    // hypotheses are confirmed.
+    const t0 = performance.now();
+    void info(`[badge-diag] useFileBadges fire: paths=${paths.length} reloadKey=${reloadKey}`);
     getFileBadges(paths)
       .then((result) => {
-        if (cancelled) return;
+        const elapsed = Math.round(performance.now() - t0);
         const next = result ?? {};
+        void info(
+          `[badge-diag] useFileBadges result: paths=${paths.length} returned=${Object.keys(next).length} elapsed_ms=${elapsed} cancelled=${cancelled}`,
+        );
+        if (cancelled) return;
         setBadges((prev) => {
           const prevKeys = Object.keys(prev);
           const nextKeys = Object.keys(next);
@@ -46,13 +55,19 @@ export function useFileBadges(filePaths: string[]): Record<string, FileBadge> {
   }, [pathsKey, reloadKey]);
 
   useEffect(() => {
-    const p = listenEvent("comments-changed", () => { setReloadKey((k) => k + 1); });
+    const p = listenEvent("comments-changed", () => {
+      void info("[badge-diag] useFileBadges reload: comments-changed");
+      setReloadKey((k) => k + 1);
+    });
     return () => { p.then((fn) => fn()).catch(() => {}); };
   }, []);
 
   useEffect(() => {
     const p = listenEvent("file-changed", (payload) => {
-      if (payload.kind === "review") setReloadKey((k) => k + 1);
+      if (payload.kind === "review") {
+        void info(`[badge-diag] useFileBadges reload: file-changed review path=${payload.path}`);
+        setReloadKey((k) => k + 1);
+      }
     });
     return () => { p.then((fn) => fn()).catch(() => {}); };
   }, []);

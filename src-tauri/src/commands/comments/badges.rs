@@ -61,16 +61,30 @@ pub fn get_file_badges_inner(
     config_state: &SidecarConfigState,
     file_paths: &[String],
 ) -> HashMap<String, FileBadge> {
+    // [badge-diag] Temporary instrumentation: validates the
+    // updateTreeWatchedDirs / getFileBadges race hypothesis and bounds
+    // the per-call cost (sidecar reads + source reads). Remove once the
+    // diagnosis has been collected and a fix is in. Counters are
+    // deliberately cheap (atomic increments + one summary log).
+    let t_start = std::time::Instant::now();
+    let mut rejected_by_gate: u32 = 0;
+    let mut sidecars_loaded: u32 = 0;
+    let mut sidecars_skipped_empty: u32 = 0;
+    let mut source_reads: u32 = 0;
     let mut out: HashMap<String, FileBadge> = HashMap::new();
     for fp in file_paths {
         // Use the relaxed guard so badges still surface for orphan / deleted
         // files whose sidecar is the only artifact left in the workspace.
         if !state.is_path_or_parent_allowed(Path::new(fp)) {
+            rejected_by_gate += 1;
             continue;
         }
         let (yaml, json, _) = super::resolve_sidecar_pair(fp, config_state);
         let sidecar = match crate::core::sidecar::load_sidecar_at(&yaml, &json) {
-            Ok(Some(s)) => s,
+            Ok(Some(s)) => {
+                sidecars_loaded += 1;
+                s
+            }
             Ok(None) => continue,
             Err(e) => {
                 tracing::warn!("[get_file_badges] could not load {fp}: {e}");
@@ -78,6 +92,7 @@ pub fn get_file_badges_inner(
             }
         };
         if sidecar.comments.is_empty() {
+            sidecars_skipped_empty += 1;
             continue;
         }
 
@@ -104,6 +119,7 @@ pub fn get_file_badges_inner(
         let line_matched = if line_only.is_empty() {
             Vec::new()
         } else {
+            source_reads += 1;
             let content = std::fs::read_to_string(fp).unwrap_or_default();
             let lines: Vec<&str> = content.lines().collect();
             crate::core::matching::match_comments(&line_only, &lines)
@@ -141,6 +157,17 @@ pub fn get_file_badges_inner(
             );
         }
     }
+    let elapsed_ms = t_start.elapsed().as_millis();
+    tracing::info!(
+        "[badge-diag] get_file_badges: input={} rejected_by_gate={} sidecars_loaded={} sidecars_empty={} source_reads={} emitted={} elapsed_ms={}",
+        file_paths.len(),
+        rejected_by_gate,
+        sidecars_loaded,
+        sidecars_skipped_empty,
+        source_reads,
+        out.len(),
+        elapsed_ms,
+    );
     out
 }
 
