@@ -156,20 +156,68 @@ jobs:
             test-results/
           retention-days: 7
 
+  # ── Bindings drift check (#263) ──────────────────────────────────────────
+  # Regenerates `src/lib/bindings.ts` via the codegen test and asserts no
+  # diff against the committed copy. Fails the PR if the Rust IPC surface
+  # (commands or wire types) has drifted from `bindings.ts`. Uses the same
+  # Linux apt deps as `rust-test` because `tests/specta_codegen.rs` links
+  # against `mdown_review_lib::build_specta_builder` which pulls
+  # `tauri::Wry` and `tauri-runtime-wry`.
+  bindings-drift:
+    name: Bindings drift check (#263)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          # Only the main branch publishes the cache; PR jobs restore-only.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Distinct cache key so the test build (incl. dev-deps like
+          # `specta-typescript`) does not evict the production rust-test
+          # artefacts.
+          prefix-key: bindings-drift
+
+      - name: Cache Linux system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
+
+      - name: Regenerate bindings.ts
+        working-directory: src-tauri
+        run: cargo test --features codegen --test specta_codegen generate_bindings_ts
+
+      - name: Assert bindings.ts is up-to-date
+        run: |
+          if ! git diff --exit-code src/lib/bindings.ts; then
+            echo "::error::bindings.ts is out of date. Regenerate with:"
+            echo "::error::  cd src-tauri && cargo test --features codegen --test specta_codegen generate_bindings_ts"
+            echo "::error::Then commit the result."
+            exit 1
+          fi
+
   # ── Aggregate test gate (satisfies branch-protection rule) ──────────────
   # Branch protection requires a check called "Test (Linux)".
   # This no-op job depends on every Linux test job so the gate stays green.
   test-gate:
     name: Test (Linux)
     if: always()
-    needs: [rust-test, vitest, e2e-browser]
+    needs: [rust-test, vitest, e2e-browser, bindings-drift]
     runs-on: ubuntu-latest
     steps:
       - name: Check test results
         run: |
           if [[ "${{ needs.rust-test.result }}" != "success" || \
                 "${{ needs.vitest.result }}" != "success" || \
-                "${{ needs.e2e-browser.result }}" != "success" ]]; then
+                "${{ needs.e2e-browser.result }}" != "success" || \
+                "${{ needs.bindings-drift.result }}" != "success" ]]; then
             echo "::error::One or more test jobs failed"
             exit 1
           fi

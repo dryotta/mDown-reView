@@ -46,7 +46,7 @@ The display-name editor is inline in the General category (merged from the delet
 - `src/components/SettingsView.tsx` — the dialog component + typed descriptors
 - `src/styles/settings-view.css` — `.settings-dialog` / `.settings-row` / `.settings-switch` / `.settings-copy-btn`
 - `src/store/index.ts` — `settingsDialogOpen`, `onboardingStatuses`, `onboardingErrors`, `defaultHandlerRawStatus`, action wrappers
-- `src/lib/tauri-commands.ts` — typed IPC wrappers for `onboarding_state`, `cli_shim_status`, `default_handler_status`, and action mutators
+- `src/lib/bindings.ts` — auto-generated typed IPC wrappers for `onboarding_state`, `cli_shim_status`, `default_handler_status`, and action mutators (re-exported through the `src/lib/tauri-commands.ts` façade that production code imports)
 - `src-tauri/src/commands/onboarding.rs` — single IPC command (`onboarding_state`)
 - `src-tauri/src/core/onboarding.rs` — schema-versioned persisted state
 

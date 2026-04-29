@@ -43,7 +43,7 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 17. Every `scanReviewFiles` trigger is behind the debounced helper. (`useFileWatcher.ts:23-39,71`.)
 
 ### Mock-file idioms (testing)
-18. The single-file mock of `@tauri-apps/api/core` drives every Vitest test; its `InvokeResult` union is a subset of types imported from `tauri-commands.ts`. (`src/__mocks__/@tauri-apps/api/core.ts:2-27`.)
+18. The single-file mock of `@tauri-apps/api/core` drives every Vitest test; its `InvokeResult` union is a subset of types imported from `bindings.ts` (re-exported via `tauri-commands.ts`). (`src/__mocks__/@tauri-apps/api/core.ts:2-27`.)
 19. `src/__mocks__/logger.ts` exposes `vi.fn()` for every real logger export. (`src/__mocks__/logger.ts:3-7`.)
 
 ### Handler lifecycle
