@@ -81,6 +81,14 @@ interface UISlice {
    * NOT persisted (never carried across reloads).
    */
   pendingFileLevelInputFor: string | null;
+  /**
+   * Transient: a `{path, fragment}` request to scroll the next viewer for
+   * `path` to the given heading id. Set by viewer link handlers when they
+   * open another file (or the same file) with a `#fragment`. Consumed by
+   * the destination viewer (markdown or HTML iframe) once its content has
+   * rendered. NOT persisted.
+   */
+  pendingFragment: { path: string; fragment: string } | null;
   setTheme: (theme: Theme) => void;
   setFolderPaneWidth: (width: number) => void;
   toggleCommentsPane: () => void;
@@ -88,6 +96,9 @@ interface UISlice {
   setReadingWidth: (n: number) => void;
   requestFileLevelInput: (filePath: string) => void;
   clearFileLevelInput: () => void;
+  setPendingFragment: (entry: { path: string; fragment: string } | null) => void;
+  /** Returns + clears the pending fragment iff its path matches; else null. */
+  consumePendingFragment: (path: string) => string | null;
   /** When true, .review.yaml/.review.json files appear in the folder tree. */
   showSidecarFiles: boolean;
   toggleShowSidecarFiles: () => void;
@@ -224,6 +235,7 @@ export const useStore = create<Store>()(
       authorName: "",
       readingWidth: 720,
       pendingFileLevelInputFor: null,
+      pendingFragment: null,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
@@ -231,6 +243,13 @@ export const useStore = create<Store>()(
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
       requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath, commentsPaneVisible: true }),
       clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
+      setPendingFragment: (entry) => set({ pendingFragment: entry }),
+      consumePendingFragment: (path) => {
+        const pending = get().pendingFragment;
+        if (!pending || pending.path !== path) return null;
+        set({ pendingFragment: null });
+        return pending.fragment;
+      },
       showSidecarFiles: false,
       toggleShowSidecarFiles: () => set((s) => ({ showSidecarFiles: !s.showSidecarFiles })),
       sidecarConfigDialogOpen: false,

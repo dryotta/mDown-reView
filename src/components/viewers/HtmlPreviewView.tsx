@@ -8,6 +8,7 @@ import {
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
+import { injectAnchorTitles } from "@/lib/html-anchor-titles";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { warn } from "@/logger";
@@ -63,7 +64,11 @@ export function HtmlPreviewView({ content, filePath }: Props) {
     });
   }, [filePath]);
 
-  // Effect 1 — local-asset resolution.
+  // Effect 1 — local-asset resolution + anchor-title injection. Title
+  // stamping runs over the asset-resolved HTML so any rewritten `href`s
+  // already reflect their final shape, and lives in this effect (rather
+  // than in the resolveHtmlAssets Rust path) because it depends on the
+  // window-side workspaceRoot.
   useEffect(() => {
     if (!filePath) {
       setResolvedBase(content); // eslint-disable-line react-hooks/set-state-in-effect
@@ -75,7 +80,11 @@ export function HtmlPreviewView({ content, filePath }: Props) {
     resolveHtmlAssets(content, dirname(filePath))
       .then((resolved) => {
         if (cancelled) return;
-        setResolvedBase(resolved);
+        const titled = injectAnchorTitles(resolved, {
+          baseDir: dirname(filePath),
+          workspaceRoot,
+        });
+        setResolvedBase(titled);
       })
       .catch(() => {
         if (!cancelled) setResolvedBase(content);
@@ -86,7 +95,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [content, filePath]);
+  }, [content, filePath, workspaceRoot]);
 
   // Effect 2 — remote-image rewrite over the cached resolved-base HTML.
   useEffect(() => {
@@ -152,6 +161,12 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             className="html-preview-iframe"
             style={{ background: "white" }}
             onLoad={() => {
+              const scrollIframeToFragment = (doc: Document, fragment: string) => {
+                let id = fragment;
+                try { id = decodeURIComponent(fragment); } catch { /* keep raw */ }
+                const el = doc.getElementById(id);
+                el?.scrollIntoView({ behavior: "smooth", block: "start" });
+              };
               const installClickHandler = (doc: Document) => {
                 doc.addEventListener("click", (event) => {
                   const target = event.target as Element | null;
@@ -177,14 +192,33 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                       return;
                     case "workspace":
                       event.preventDefault();
-                      useStore.getState().openFile(route.path);
+                      if (filePath && route.path === filePath) {
+                        // Same-file link — scroll inside this iframe; openFile
+                        // would be a no-op and `srcDoc` doesn't navigate to a
+                        // sub-URL, so we have to do the scroll ourselves.
+                        if (route.fragment) scrollIframeToFragment(doc, route.fragment);
+                      } else {
+                        if (route.fragment) {
+                          useStore.getState().setPendingFragment({
+                            path: route.path,
+                            fragment: route.fragment,
+                          });
+                        }
+                        useStore.getState().openFile(route.path);
+                      }
                       return;
                   }
                 });
               };
+              const consumePendingForThisFile = (doc: Document) => {
+                if (!filePath) return;
+                const fragment = useStore.getState().consumePendingFragment(filePath);
+                if (fragment) scrollIframeToFragment(doc, fragment);
+              };
               const doc = iframeRef.current?.contentDocument;
               if (doc) {
                 installClickHandler(doc);
+                consumePendingForThisFile(doc);
                 return;
               }
               // Bounded retry — contentDocument can be null when the load
@@ -194,6 +228,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                 const retryDoc = iframeRef.current?.contentDocument;
                 if (retryDoc) {
                   installClickHandler(retryDoc);
+                  consumePendingForThisFile(retryDoc);
                 } else {
                   void warn("[HtmlPreviewView] contentDocument unavailable after rAF retry");
                 }

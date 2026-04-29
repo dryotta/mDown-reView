@@ -67,6 +67,14 @@ describe("Tauri capabilities least-privilege", () => {
     expect(caps.permissions).toContain("opener:allow-open-url");
   });
 
+  // Without `opener:allow-default-urls` the URL-scope check rejects every
+  // call to `openUrl()`, so external links from the markdown / HTML viewers
+  // silently fail. This permission is the canned scope for http(s)/mailto/tel,
+  // matching the JS-side `EXTERNAL_LINK_SCHEME` allowlist in `lib/url-policy.ts`.
+  it("includes opener:allow-default-urls so http(s)/mailto/tel URLs pass the scope check", () => {
+    expect(caps.permissions).toContain("opener:allow-default-urls");
+  });
+
   it("includes updater permissions for auto-update workflow", () => {
     expect(caps.permissions).toContain("updater:default");
   });
