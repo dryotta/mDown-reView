@@ -245,6 +245,9 @@ test.describe("Flicker regression (issue #265)", () => {
       try {
         const { browser: b1, page } = await attachToPage(9232, Date.now() + 15_000);
         browser = b1;
+        // Symmetric with the dark test: clear any persisted state so a
+        // pre-seeded user-data dir cannot poison the FOUC read.
+        await page.evaluate(() => window.localStorage.removeItem("mdownreview-ui"));
         await setPersistedTheme(page, "light");
       } finally {
         if (browser) await browser.close();

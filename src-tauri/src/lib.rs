@@ -512,6 +512,20 @@ pub fn run() {
                 reg.register("main".to_string(), registry::WindowKind::FileOnly);
             }
 
+            // ── WebviewReady recording ──────────────────────────────────────
+            // The main webview window is created from `tauri.conf.json`
+            // before `setup` runs, so its presence here is the cold-start
+            // signal that the renderer is loadable. Record BEFORE the
+            // extra-window-creation loop below — multi-folder launches
+            // create additional windows that take 100–500 ms each on
+            // Windows, and the metric should reflect the main window's
+            // readiness, not "all windows ready".
+            if let Some(main_win) = app.get_webview_window("main") {
+                let main_menu = build_window_menu(app, "main")?;
+                main_win.set_menu(main_menu)?;
+                startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
+            }
+
             // Create additional windows for extra folders (beyond the first),
             // deduplicating via route_folder() to enforce one-folder-one-window.
             let app_handle = app.handle().clone();
@@ -552,18 +566,6 @@ pub fn run() {
             };
             reg.push_args("main", main_args);
 
-            // ── Per-window menu for main window ──────────────────────────────
-            // Main window is created by tauri.conf.json; set its menu here.
-            // The presence of the main webview window at this point is the
-            // best in-process signal that the renderer is loadable, so we
-            // record `WebviewReady` here. Frontend-side phases
-            // (`ThemeApplied`, `FrontendMounted`, `FirstFileLoaded`) are
-            // reported via `record_startup_phase` once React mounts.
-            if let Some(main_win) = app.get_webview_window("main") {
-                let main_menu = build_window_menu(app, "main")?;
-                main_win.set_menu(main_menu)?;
-                startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
-            }
 
             // ── Menu event routing ───────────────────────────────────────────
             // Menu item IDs encode the originating window as `{label}:{action}`

@@ -264,9 +264,34 @@ mod sanitize_tests {
     }
 }
 
+/// Test-only access to the recorder's internal `seen` set. Used by the
+/// recorder/race tests below to assert the first-call-wins contract.
+#[cfg(test)]
+pub(crate) fn seen_phases_for_tests() -> HashSet<StartupPhase> {
+    state().lock().unwrap_or_else(|p| p.into_inner()).seen.clone()
+}
+
+/// Test-only reset hook. Required because `STATE` is process-global —
+/// without this, dedup behaviour from one test pollutes the next when
+/// `cargo test` runs them in the same process.
+#[cfg(test)]
+pub(crate) fn reset_for_tests() {
+    let mut st = state().lock().unwrap_or_else(|p| p.into_inner());
+    st.start = Instant::now();
+    st.seen.clear();
+    FIRST_IPC_DONE.store(false, Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+    use std::thread;
+
+    // `STATE` is a process-global `OnceLock<Mutex<...>>`; tests that
+    // mutate it must serialize. `cargo test` runs tests in parallel by
+    // default and would otherwise observe each other's `seen` set.
+    static SERIAL: Mutex<()> = Mutex::new(());
 
     /// `as_str` is the schema contract — every phase name is kebab-case
     /// and stable for log analyzers. Adding a new variant requires
@@ -289,5 +314,80 @@ mod tests {
     fn serde_emits_kebab_case() {
         let s = serde_json::to_string(&StartupPhase::FrontendMounted).unwrap();
         assert_eq!(s, "\"frontend-mounted\"");
+    }
+
+    /// First call inserts; subsequent calls against the same phase are
+    /// silently deduplicated. Pins the "first observation wins" contract
+    /// the cold-startup bench depends on.
+    #[test]
+    fn record_phase_dedupes_repeated_calls() {
+        let _g = SERIAL.lock().unwrap();
+        reset_for_tests();
+        record_phase(StartupPhase::AppInit);
+        record_phase(StartupPhase::AppInit);
+        record_phase(StartupPhase::AppInit);
+        let seen = seen_phases_for_tests();
+        assert!(seen.contains(&StartupPhase::AppInit));
+        // Each unique variant counted once regardless of how many times
+        // `record_phase` was called.
+        assert_eq!(seen.len(), 1);
+    }
+
+    /// Distinct phases all land in the `seen` set. Distinguishes the
+    /// dedup behaviour from accidental "only ever record one phase".
+    #[test]
+    fn record_phase_keeps_distinct_phases() {
+        let _g = SERIAL.lock().unwrap();
+        reset_for_tests();
+        record_phase(StartupPhase::AppInit);
+        record_phase(StartupPhase::WebviewReady);
+        record_phase(StartupPhase::FrontendMounted);
+        let seen = seen_phases_for_tests();
+        assert_eq!(seen.len(), 3);
+        assert!(seen.contains(&StartupPhase::AppInit));
+        assert!(seen.contains(&StartupPhase::WebviewReady));
+        assert!(seen.contains(&StartupPhase::FrontendMounted));
+    }
+
+    /// `record_first_ipc` flips the `FIRST_IPC_DONE` atomic and records
+    /// `FirstIpc` exactly once even under contention from many threads.
+    /// Without the CAS guard, every losing thread would also enter
+    /// `record_phase`, holding the recorder mutex on the IPC hot path.
+    #[test]
+    fn record_first_ipc_runs_once_under_contention() {
+        let _g = SERIAL.lock().unwrap();
+        reset_for_tests();
+
+        let handles: Vec<_> = (0..32)
+            .map(|_| thread::spawn(record_first_ipc))
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert!(FIRST_IPC_DONE.load(Ordering::Relaxed));
+        let seen = seen_phases_for_tests();
+        assert!(seen.contains(&StartupPhase::FirstIpc));
+        // Only the FirstIpc phase should be recorded; the recorder must
+        // not have side-effected any other phase under the race.
+        assert_eq!(seen.len(), 1);
+    }
+
+    /// After the first call has flipped the atomic, subsequent calls are
+    /// no-ops — the relaxed-load fast path. This is the hot-path
+    /// guarantee `mdr_command!` relies on.
+    #[test]
+    fn record_first_ipc_is_idempotent_after_first_call() {
+        let _g = SERIAL.lock().unwrap();
+        reset_for_tests();
+
+        record_first_ipc();
+        // Manually clear seen but leave FIRST_IPC_DONE set — second
+        // call must short-circuit on the relaxed-load and NOT re-enter
+        // `record_phase(FirstIpc)`.
+        state().lock().unwrap().seen.clear();
+        record_first_ipc();
+        let seen = seen_phases_for_tests();
+        assert!(seen.is_empty(), "second record_first_ipc must short-circuit");
     }
 }
