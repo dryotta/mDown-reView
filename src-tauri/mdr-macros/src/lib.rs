@@ -44,8 +44,8 @@
 //!
 //! `payload_bytes` is currently a stable `0` schema slot. Iter-2 of this
 //! infrastructure may compute it from the IPC argument JSON; for now it
-//! reserves the column so log-analyzer regexes (PR4 `analyze-log`) can
-//! pin against the exact field order.
+//! reserves the column so log-analyzer regexes can pin against the exact
+//! field order.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

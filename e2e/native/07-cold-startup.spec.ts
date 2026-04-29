@@ -1,8 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { spawnAppWithCdp } from "./global-setup";
 import { chromium, type Page, type Browser } from "@playwright/test";
-import * as path from "path";
-import * as fs from "fs";
 import { spawnSync, type ChildProcess } from "child_process";
 
 /**
@@ -19,12 +17,7 @@ import { spawnSync, type ChildProcess } from "child_process";
  *
  * Budget: 800 ms p95 (release builds; debug builds run un-optimized
  * code so the assertion is loosened — we still record the value but
- * only fail if it's > 3x the release target). The doc rule cited in
- * `docs/performance.md` (rule N) names this file as the canonical
- * gate.
- *
- * `mdownreview-cli` is still invoked elsewhere (release CI uses the
- * `--phase-budget` flag) so the test skips when it isn't built.
+ * only fail if it's > 3x the release target).
  */
 
 const ITERATIONS = 5;
@@ -34,20 +27,6 @@ const DEBUG_BUILD_MULTIPLIER = 3;
 interface LaunchResult {
   frontendMountedMs: number;
   appInitMs: number;
-}
-
-function locateCliBinary(): string {
-  const ext = process.platform === "win32" ? ".exe" : "";
-  const staged = path.join(
-    process.cwd(),
-    "src-tauri",
-    "binaries",
-    `mdownreview-cli${process.platform === "win32" ? "-x86_64-pc-windows-msvc.exe" : ext}`
-  );
-  if (fs.existsSync(staged)) return staged;
-  // Fall back to the cargo-built binary (debug build in target/debug).
-  const debug = path.join(process.cwd(), "src-tauri", "target", "debug", `mdownreview-cli${ext}`);
-  return debug;
 }
 
 async function killProcess(proc: ChildProcess): Promise<void> {
@@ -89,11 +68,10 @@ async function singleLaunch(cdpPort: number): Promise<LaunchResult | null> {
   // port 9222 introduced file-locking races on Windows that swallowed
   // the spawned binary's writes silently. Read the [startup] phases
   // straight off the spawned process's stdout instead — debug builds
-  // emit them via the Stdout target (lib.rs::run) so this is the same
-  // data analyze-log would parse, without crossing a shared file.
-  // `getStdout` returns the buffer accumulated from spawn time so the
-  // early phases (app-init, webview-ready) which fire before
-  // `spawnAppWithCdp` resolves are still visible.
+  // emit them via the Stdout target (lib.rs::run). `getStdout` returns
+  // the buffer accumulated from spawn time so the early phases
+  // (app-init, webview-ready) which fire before `spawnAppWithCdp`
+  // resolves are still visible.
   const { appProc, getStdout } = await spawnAppWithCdp({ cdpPort, timeoutMs: 30_000 });
 
   const deadline = Date.now() + 15_000;
@@ -149,14 +127,6 @@ test.describe("Cold startup bench (issue #265)", () => {
   test.skip(process.platform !== "win32", "Native UI tests require Windows (WebView2 + CDP)");
 
   test("frontend-mounted t_ms p95 budget across 5 cold launches", async () => {
-    const cliPath = locateCliBinary();
-    if (!fs.existsSync(cliPath)) {
-      test.skip(
-        true,
-        `mdownreview-cli not built at ${cliPath} — run scripts/stage-cli.mjs or cargo build`
-      );
-      return;
-    }
     const measurements: LaunchResult[] = [];
 
     // Use a CDP port range above the persistent harness's 9222 to
@@ -184,9 +154,8 @@ test.describe("Cold startup bench (issue #265)", () => {
 
     // Debug builds run unoptimized code; loosen the assertion so the
     // gate doesn't false-positive on local dev runs against
-    // `cargo build` (no --release). Release CI builds tighten this
-    // back to FRONTEND_MOUNTED_BUDGET_MS via the analyze-log
-    // --phase-budget flag (also wired into this same spec for CI).
+    // `cargo build` (no --release). Release CI sets
+    // MDR_E2E_RELEASE_BUILD=1 to enforce the un-multiplied target.
     const isReleaseBuild = process.env.MDR_E2E_RELEASE_BUILD === "1";
     const effectiveBudget = isReleaseBuild
       ? FRONTEND_MOUNTED_BUDGET_MS

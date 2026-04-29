@@ -120,7 +120,7 @@ The rotation strategy (`5 MB cap, KeepAll`) is configured in `src-tauri/src/lib.
 
 ## Post-hoc analysis
 
-A future PR (PR4 of the engineering-excellence plan) will ship `analyze-log` — the canonical command-line consumer for these schemas. It parses the rotating log file and emits aggregate startup timings + per-command IPC distribution histograms. Until that PR lands, ad-hoc `grep "^\[ipc\]"` / `grep "^\[startup\]"` against the rotating file is the supported analysis path.
+`grep "^\[ipc\]"` / `grep "^\[startup\]"` against the rotating file is the supported analysis path. The schemas above are deliberately stable so external tools can parse them without coupling to the runtime.
 
 ## Performance budget
 

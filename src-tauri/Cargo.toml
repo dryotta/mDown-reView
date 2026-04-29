@@ -87,13 +87,6 @@ rayon = "1"
 # (tauri/open) to direct so `core::paths::canonicalize_no_verbatim` has a
 # stable, intentional dependency. See docs/security.md rule 11.
 dunce = "1"
-# Used by `mdownreview-cli analyze-log` (PR4 / issue #265) to compute the
-# default log-file path WITHOUT a Tauri AppHandle. Mirrors the platform
-# layout `tauri::path::PathResolver::app_log_dir` produces (verified
-# 2026-04-28 against tauri-2.10.3/src/path/desktop.rs:278). Promoted from
-# transitive (tauri) to direct so the CLI binary's import is intentional
-# rather than incidental.
-dirs = "6"
 # tauri-specta + specta: generates `src/lib/bindings.ts` from the Rust IPC
 # surface so the frontend's typed wrappers stay in lockstep with the Rust
 # command signatures (issue #263). The published `tauri-specta@2.0.0-rc.21`

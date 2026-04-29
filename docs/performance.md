@@ -18,7 +18,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 
 | Metric | Budget | Measured? | Evidence / bench needed |
 |---|---|---|---|
-| Cold startup to `frontend-mounted` | < 800 ms p95 (release) | Yes | `e2e/native/07-cold-startup.spec.ts` (5-iteration bench, asserts via `mdownreview-cli analyze-log --phase-budget frontend-mounted=800`) |
+| Cold startup to `frontend-mounted` | < 800 ms p95 (release) | Yes | `e2e/native/07-cold-startup.spec.ts` (5-iteration bench, parses `[startup] phase=frontend-mounted t_ms=N` from spawned-binary stdout) |
 | First file open (≤ 100 KB, cached Shiki) | < 150 ms p95 | No | — |
 | First file open (≤ 1 MB md) | < 400 ms p95 | No | — |
 | `get_file_comments` — 200 comments × 5000 lines | < 20 ms | Yes | `hot_path_bench.rs:64` |
@@ -96,11 +96,11 @@ Unique to performance. Rust-First is a charter meta-principle.
 32. JS bundle-size CI gate (`scripts/check-bundle-size.mjs`) enforces ≤ 3 MB total gzipped size as a starter ceiling (current baseline ~2.77 MB); long-term target ≤ 2 MB once Shiki language lazy-loading lands (deferred to PR4 cold-startup work). Catches regressions where a heavy package is imported eagerly at startup (mitigates root cause of the rule 27 lazy-load pattern by failing CI before the regression ships). Wired in `.github/workflows/ci.yml` after `npm run build`.
 
 ### Cold-startup gate
-33. Cold-startup `frontend-mounted` p95 ≤ 800 ms (release builds). Bench at `e2e/native/07-cold-startup.spec.ts` runs 5 cold launches, deletes the rotating log between each so `analyze-log` sees only that launch's events, parses `[startup]` events via `mdownreview-cli analyze-log --json`, and applies `--phase-budget frontend-mounted=800` against the p95. Debug builds are loosened by `DEBUG_BUILD_MULTIPLIER=3` (so local dev runs against `cargo build` don't false-positive); CI passes `MDR_E2E_RELEASE_BUILD=1` to enforce the un-multiplied target. The flicker-fix layers (window backgroundColor + index.html FOUC script) reduce visible-startup time but do NOT affect this metric — `frontend-mounted` is recorded by React's first effect, not by the OS painter. Companion regression test: `e2e/native/08-no-flicker.spec.ts` asserts no white frame in the first 500 ms post-window-ready (dark theme) / no dark frame (light theme).
+33. Cold-startup `frontend-mounted` p95 ≤ 800 ms (release builds). Bench at `e2e/native/07-cold-startup.spec.ts` runs 5 cold launches and parses `[startup] phase=frontend-mounted t_ms=N` directly off each spawned binary's stdout (debug builds emit the schema via the Stdout target in `lib.rs::run`). Debug builds are loosened by `DEBUG_BUILD_MULTIPLIER=3` (so local dev runs against `cargo build` don't false-positive); CI passes `MDR_E2E_RELEASE_BUILD=1` to enforce the un-multiplied target. The flicker-fix layers (window backgroundColor + index.html FOUC script) reduce visible-startup time but do NOT affect this metric — `frontend-mounted` is recorded by React's first effect, not by the OS painter. Companion regression test: `e2e/native/08-no-flicker.spec.ts` asserts no white frame in the first 500 ms post-window-ready (dark theme) / no dark frame (light theme).
 
 ## Gaps
 
-- ~~No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.~~ (closed by PR for #265 — see rule 33; bench at `e2e/native/07-cold-startup.spec.ts` enforces `frontend-mounted` p95 ≤ 800 ms across 5 cold launches via `mdownreview-cli analyze-log --phase-budget`)
+- ~~No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.~~ (closed by PR for #265 — see rule 33; bench at `e2e/native/07-cold-startup.spec.ts` enforces `frontend-mounted` p95 ≤ 800 ms across 5 cold launches by parsing `[startup]` events from spawned-binary stdout)
 - `read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
 - ~~No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.~~ (closed by PR for #262 — see rule 31)
 - ~~No JS bundle-size budget enforced in CI.~~ (closed by PR for #262 — see rule 32)

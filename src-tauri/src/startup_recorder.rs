@@ -269,8 +269,8 @@ mod tests {
     use super::*;
 
     /// `as_str` is the schema contract — every phase name is kebab-case
-    /// and stable for log analyzers (PR4's `analyze-log`). Adding a new
-    /// variant requires extending this match.
+    /// and stable for log analyzers. Adding a new variant requires
+    /// extending this match.
     #[test]
     fn as_str_uses_kebab_case() {
         assert_eq!(StartupPhase::AppInit.as_str(), "app-init");
