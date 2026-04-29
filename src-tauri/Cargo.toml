@@ -57,6 +57,16 @@ unicode-segmentation = "1"
 # (tauri/open) to direct so `core::paths::canonicalize_no_verbatim` has a
 # stable, intentional dependency. See docs/security.md rule 11.
 dunce = "1"
+# tauri-specta + specta: generates `src/lib/bindings.ts` from the Rust IPC
+# surface so the frontend's typed wrappers stay in lockstep with the Rust
+# command signatures (issue #263). The published `tauri-specta@2.0.0-rc.21`
+# manifest pins `specta=2.0.0-rc.22` (upstream docs lag the crate by one
+# patch — verified via crates.io API on 2026-04-28). Pinning rc.21 blindly
+# fails to resolve. All three deps stay locked with `=` so future passive
+# updates to peer-deps can't break the codegen pipeline silently.
+specta = { version = "=2.0.0-rc.22", features = ["serde_json"] }
+specta-typescript = "=0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
@@ -70,6 +80,9 @@ serde_json = "1"
 rand = "0.8"
 wiremock = "0.6"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+# Used by `tests/specta_coverage.rs` to walk the source tree and meta-test
+# that every `#[tauri::command]` carries a paired `#[specta::specta]`.
+syn = { version = "2", features = ["full", "extra-traits", "visit"] }
 
 [lints.clippy]
 # Deny — CI-blocking, never allow in production

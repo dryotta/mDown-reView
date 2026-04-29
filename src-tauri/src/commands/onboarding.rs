@@ -11,6 +11,7 @@ fn default_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn onboarding_state(app: AppHandle) -> Result<OnboardingState, String> {
     let path = default_path(&app)?;
     Ok(load_at(&path))

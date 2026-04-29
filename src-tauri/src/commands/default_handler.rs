@@ -4,7 +4,7 @@
 use serde::Serialize;
 use tauri::AppHandle;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum DefaultHandlerStatus {
     Done,
@@ -29,11 +29,13 @@ mod unsupported;
 use unsupported as imp;
 
 #[tauri::command]
+#[specta::specta]
 pub fn default_handler_status(app: AppHandle) -> DefaultHandlerStatus {
     imp::status(&app)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_default_handler(app: AppHandle) -> Result<(), String> {
     imp::set(&app)
 }

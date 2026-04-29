@@ -10,7 +10,7 @@ use std::path::Path;
 
 const SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct OnboardingState {
     pub schema_version: u32,
     #[serde(default)]

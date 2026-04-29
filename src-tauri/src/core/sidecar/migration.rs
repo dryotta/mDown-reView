@@ -107,7 +107,7 @@ pub fn count_sidecars(root: &Path, sidecar_root: Option<&Path>) -> SidecarCounts
 // ── Migration ───────────────────────────────────────────────────────────
 
 /// Direction to migrate sidecars.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrateDirection {
     /// Move co-located sidecars into the `sidecar_root` folder.

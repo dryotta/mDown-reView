@@ -26,7 +26,7 @@ pub const MAX_BADGE_PATHS: usize = 1000;
 /// `file_level_count` is the subset of `count` whose root anchor is
 /// `Anchor::File` — surfaced separately so the viewer toolbar can show a
 /// dedicated file-anchored thread badge.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct FileBadge {
     pub count: u32,
     pub max_severity: Severity,
@@ -35,6 +35,7 @@ pub struct FileBadge {
 
 /// Per-file unresolved-thread count + worst severity.
 #[tauri::command]
+#[specta::specta]
 pub fn get_file_badges(
     state: State<'_, WatcherState>,
     config_state: State<'_, SidecarConfigState>,

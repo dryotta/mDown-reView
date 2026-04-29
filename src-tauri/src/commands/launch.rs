@@ -75,6 +75,7 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
 
 /// Get (and drain) launch args queued for the calling window.
 #[tauri::command]
+#[specta::specta]
 pub async fn get_launch_args(
     window: tauri::Window,
     registry: tauri::State<'_, crate::registry::WindowRegistry>,
@@ -84,6 +85,7 @@ pub async fn get_launch_args(
 
 /// Get the log file path for display in the About dialog.
 #[tauri::command]
+#[specta::specta]
 pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
     let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
     Ok(log_dir
@@ -100,6 +102,7 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
 /// and the CLI go through [`crate::core::scanner::scan_workspace`] for
 /// identical `(sidecar, source)` output.
 #[tauri::command]
+#[specta::specta]
 pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> {
     Ok(crate::core::scanner::scan_workspace(&root, 10_000))
 }
@@ -107,6 +110,7 @@ pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> 
 /// Test-only command: open a folder and all its non-sidecar files via args-received.
 #[cfg(debug_assertions)]
 #[tauri::command]
+#[specta::specta]
 pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), String> {
     use tauri::{Emitter, Manager};
 

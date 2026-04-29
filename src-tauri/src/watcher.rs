@@ -429,6 +429,7 @@ fn sync_dirs(
 /// Tauri command: update the set of watched file paths.
 /// The frontend calls this whenever the set of open tabs changes.
 #[tauri::command]
+#[specta::specta]
 pub fn update_watched_files(
     window: tauri::Window,
     paths: Vec<String>,

@@ -11,7 +11,7 @@ const CANARY_ENDPOINT: &str =
 /// can show a banner and the user can decide when to install.
 pub struct PendingUpdate(pub Mutex<Option<Update>>);
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, specta::Type)]
 pub struct UpdateInfo {
     pub version: String,
     pub body: Option<String>,
@@ -52,6 +52,7 @@ fn installed_channel(app: &AppHandle) -> &'static str {
 /// For cross-channel switches the version comparator is overridden
 /// to accept any different version (enabling "downgrades").
 #[tauri::command]
+#[specta::specta]
 pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<UpdateInfo>, String> {
     let endpoint = endpoint_for_channel(&channel);
     let cross_channel = installed_channel(&app) != channel.as_str();
@@ -88,6 +89,7 @@ pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<Upda
 /// Download and install the pending update. Emits "update-progress"
 /// events so the frontend can show a progress bar.
 #[tauri::command]
+#[specta::specta]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let update = {
         let state = app.state::<PendingUpdate>();

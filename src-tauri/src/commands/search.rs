@@ -2,7 +2,7 @@
 
 pub use crate::core::kql::KqlPipelineStep;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
     pub line_index: usize,
@@ -11,6 +11,7 @@ pub struct SearchMatch {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn search_in_document(content: String, query: String) -> Vec<SearchMatch> {
     if query.is_empty() {
         return vec![];
@@ -40,11 +41,13 @@ pub fn search_in_document(content: String, query: String) -> Vec<SearchMatch> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn parse_kql(query: String) -> Vec<KqlPipelineStep> {
     crate::core::kql::parse_kql_pipeline(&query)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn strip_json_comments(text: String) -> String {
     crate::core::json::strip_json_comments(&text)
 }

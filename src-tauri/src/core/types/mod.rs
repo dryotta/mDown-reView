@@ -2,16 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
-mod wire;
+pub mod wire;
+pub use wire::{AnchorWire, LineAnchorPayload, MrsfCommentRepr};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct DirEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
 pub struct LaunchArgs {
     pub files: Vec<String>,
     pub folders: Vec<String>,
@@ -50,7 +51,7 @@ pub enum Anchor {
     WordRange(WordRangePayload),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct ImageRectAnchor {
     pub x_pct: f32,
@@ -61,7 +62,7 @@ pub struct ImageRectAnchor {
     pub h_pct: Option<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct CsvCellAnchor {
     pub row_idx: u32,
@@ -73,7 +74,7 @@ pub struct CsvCellAnchor {
     pub primary_key_value: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct JsonPathAnchor {
     pub json_path: String,
@@ -81,7 +82,7 @@ pub struct JsonPathAnchor {
     pub scalar_text: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct HtmlRangeAnchor {
     pub selector_path: String,
@@ -90,7 +91,7 @@ pub struct HtmlRangeAnchor {
     pub selected_text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct HtmlElementAnchor {
     pub selector_path: String,
@@ -108,7 +109,7 @@ pub struct HtmlElementAnchor {
 /// Hardening lives in [`WordRangePayload::sanitize`], called at the wire→domain
 /// conversion boundary so attackers can't smuggle bidi confusables, oversize
 /// blobs, NUL bytes, or non-hex hashes into in-memory anchors.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct WordRangePayload {
     pub start_word: u32,
@@ -169,7 +170,7 @@ fn strip_bidi_zw(s: &str) -> String {
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub struct Reaction {
     pub user: String,
@@ -310,15 +311,19 @@ impl MrsfComment {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct MrsfSidecar {
     pub mrsf_version: String,
     pub document: String,
+    // `MrsfComment` rides serde `try_from`/`into` over the wire repr;
+    // forward TS codegen to the wire shape so bindings reflect the
+    // actual on-wire JSON.
+    #[specta(type = Vec<wire::MrsfCommentRepr>)]
     pub comments: Vec<MrsfComment>,
 }
 
 /// Anchor specification for creating new comments.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct CommentAnchor {
     pub line: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -333,10 +338,14 @@ pub struct CommentAnchor {
     pub selected_text_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchedComment {
     #[serde(flatten)]
+    // `comment` flattens via serde over `MrsfCommentRepr` (try_from/into);
+    // forward TS codegen to the wire shape with `flatten` so the bindings
+    // emit the same flat JSON the renderer actually receives.
+    #[specta(type = wire::MrsfCommentRepr, flatten)]
     pub comment: MrsfComment,
     pub matched_line_number: u32,
     pub is_orphaned: bool,
@@ -345,7 +354,7 @@ pub struct MatchedComment {
 }
 
 /// A thread: root comment with replies sorted by timestamp.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct CommentThread {
     pub root: MatchedComment,
     pub replies: Vec<MatchedComment>,

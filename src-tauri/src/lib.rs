@@ -7,6 +7,8 @@ pub mod update;
 pub mod watcher;
 
 use commands::{parse_launch_args, LaunchArgs};
+#[allow(unused_imports)]
+use specta_typescript::Typescript;
 use tauri::menu::{Menu, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_log::{Target, TargetKind};
@@ -154,6 +156,7 @@ fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 fn register_window_folder(
     window: tauri::Window,
     folder: String,
@@ -183,6 +186,7 @@ fn register_window_folder(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn unregister_window_folder(
     window: tauri::Window,
     registry: tauri::State<'_, registry::WindowRegistry>,
@@ -265,6 +269,119 @@ fn route_args_through_registry(
             }
             _ => {}
         }
+    }
+}
+
+/// Build the `tauri_specta::Builder` carrying every IPC command. Two
+/// cfg-gated bodies mirror the previous `shared_commands!` macro shape:
+/// debug builds add `set_root_via_test` for the native e2e harness.
+///
+/// The returned builder owns the command registry; its `.invoke_handler()`
+/// REPLACES the previous `tauri::generate_handler![]` call. In debug
+/// builds, [`pub fn run`] also calls `.export()` on this builder to emit
+/// `src/lib/bindings.ts` (issue #263).
+///
+/// `commands::remote_asset::fetch_remote_asset` is NOT registered here —
+/// it returns a `tauri::ipc::Response` (binary IPC) that specta cannot
+/// describe. It is registered separately via the merge pattern below.
+/// Iter 2 may revisit.
+pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    #[cfg(debug_assertions)]
+    {
+        tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+            commands::fs::read_dir,
+            commands::fs::read_text_file,
+            commands::fs::read_binary_file,
+            commands::fs::stat_file,
+            commands::system::reveal_in_folder,
+            commands::html::resolve_html_assets,
+            commands::launch::get_launch_args,
+            commands::launch::get_log_path,
+            commands::launch::scan_review_files,
+            commands::fs::check_path_exists,
+            commands::fs::canonicalize_path,
+            commands::comments::get::get_file_comments,
+            commands::comments::add_comment::<tauri::Wry>,
+            commands::comments::add_reply::<tauri::Wry>,
+            commands::comments::edit_comment::<tauri::Wry>,
+            commands::comments::delete_comment::<tauri::Wry>,
+            commands::comments::compute_anchor_hash,
+            commands::comments::update::update_comment::<tauri::Wry>,
+            commands::comments::badges::get_file_badges,
+            commands::config::set_author,
+            commands::config::get_author,
+            commands::search::search_in_document,
+            commands::html::compute_fold_regions,
+            commands::search::parse_kql,
+            commands::search::strip_json_comments,
+            commands::onboarding::onboarding_state,
+            commands::cli_shim::cli_shim_status,
+            commands::cli_shim::install_cli_shim,
+            commands::cli_shim::remove_cli_shim,
+            commands::default_handler::default_handler_status,
+            commands::default_handler::set_default_handler,
+            commands::file_viewer_prefs::get_file_viewer_pref,
+            commands::file_viewer_prefs::set_file_viewer_pref,
+            watcher::update_watched_files,
+            commands::fs::update_tree_watched_dirs,
+            commands::word_tokens::tokenize_words,
+            commands::sidecar_config::get_sidecar_config,
+            commands::sidecar_config::set_sidecar_config,
+            commands::sidecar_config::migrate_sidecars_cmd,
+            update::check_update,
+            update::install_update,
+            register_window_folder,
+            unregister_window_folder,
+            commands::launch::set_root_via_test,
+        ])
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+            commands::fs::read_dir,
+            commands::fs::read_text_file,
+            commands::fs::read_binary_file,
+            commands::fs::stat_file,
+            commands::system::reveal_in_folder,
+            commands::html::resolve_html_assets,
+            commands::launch::get_launch_args,
+            commands::launch::get_log_path,
+            commands::launch::scan_review_files,
+            commands::fs::check_path_exists,
+            commands::fs::canonicalize_path,
+            commands::comments::get::get_file_comments,
+            commands::comments::add_comment::<tauri::Wry>,
+            commands::comments::add_reply::<tauri::Wry>,
+            commands::comments::edit_comment::<tauri::Wry>,
+            commands::comments::delete_comment::<tauri::Wry>,
+            commands::comments::compute_anchor_hash,
+            commands::comments::update::update_comment::<tauri::Wry>,
+            commands::comments::badges::get_file_badges,
+            commands::config::set_author,
+            commands::config::get_author,
+            commands::search::search_in_document,
+            commands::html::compute_fold_regions,
+            commands::search::parse_kql,
+            commands::search::strip_json_comments,
+            commands::onboarding::onboarding_state,
+            commands::cli_shim::cli_shim_status,
+            commands::cli_shim::install_cli_shim,
+            commands::cli_shim::remove_cli_shim,
+            commands::default_handler::default_handler_status,
+            commands::default_handler::set_default_handler,
+            commands::file_viewer_prefs::get_file_viewer_pref,
+            commands::file_viewer_prefs::set_file_viewer_pref,
+            watcher::update_watched_files,
+            commands::fs::update_tree_watched_dirs,
+            commands::word_tokens::tokenize_words,
+            commands::sidecar_config::get_sidecar_config,
+            commands::sidecar_config::set_sidecar_config,
+            commands::sidecar_config::migrate_sidecars_cmd,
+            update::check_update,
+            update::install_update,
+            register_window_folder,
+            unregister_window_folder,
+        ])
     }
 }
 
@@ -501,69 +618,44 @@ pub fn run() {
             }
         });
 
-    // Shared command list — debug adds set_root_via_test for native e2e tests
-    macro_rules! shared_commands {
-        ($($extra:path),* $(,)?) => {
-            tauri::generate_handler![
-                commands::fs::read_dir,
-                commands::fs::read_text_file,
-                commands::fs::read_binary_file,
-                commands::fs::stat_file,
-                commands::system::reveal_in_folder,
-                commands::html::resolve_html_assets,
-                commands::launch::get_launch_args,
-                commands::launch::get_log_path,
-                commands::launch::scan_review_files,
-                commands::fs::check_path_exists,
-                commands::fs::canonicalize_path,
-                commands::comments::get::get_file_comments,
-                commands::comments::add_comment,
-                commands::comments::add_reply,
-                commands::comments::edit_comment,
-                commands::comments::delete_comment,
-                commands::comments::compute_anchor_hash,
-                commands::comments::update::update_comment,
-                commands::comments::badges::get_file_badges,
-                commands::config::set_author,
-                commands::config::get_author,
-                commands::search::search_in_document,
-                commands::html::compute_fold_regions,
-                commands::search::parse_kql,
-                commands::search::strip_json_comments,
-                commands::onboarding::onboarding_state,
-                commands::cli_shim::cli_shim_status,
-                commands::cli_shim::install_cli_shim,
-                commands::cli_shim::remove_cli_shim,
-                commands::default_handler::default_handler_status,
-                commands::default_handler::set_default_handler,
-                commands::file_viewer_prefs::get_file_viewer_pref,
-                commands::file_viewer_prefs::set_file_viewer_pref,
-
-                watcher::update_watched_files,
-                commands::fs::update_tree_watched_dirs,
-                commands::remote_asset::fetch_remote_asset,
-                commands::word_tokens::tokenize_words,
-                commands::sidecar_config::get_sidecar_config,
-                commands::sidecar_config::set_sidecar_config,
-                commands::sidecar_config::migrate_sidecars_cmd,
-                update::check_update,
-                update::install_update,
-                register_window_folder,
-                unregister_window_folder,
-                $($extra),*
-            ]
-        };
-    }
+    // tauri-specta: build the typed command registry. In debug builds, also
+    // export `src/lib/bindings.ts` so the frontend's typed wrappers stay in
+    // lockstep with the Rust IPC surface (issue #263). Path is relative to
+    // the cargo manifest dir (i.e. src-tauri/).
+    let specta_builder = build_specta_builder();
 
     #[cfg(debug_assertions)]
-    let app = app
-        .invoke_handler(shared_commands![commands::launch::set_root_via_test])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application");
+    {
+        let header = "/* eslint-disable */\n// AUTO-GENERATED by tauri-specta. DO NOT EDIT.\n// Source: src-tauri/src/lib.rs::build_specta_builder. Regenerate with `cd src-tauri && cargo test --test specta_codegen generate_bindings_ts`.\n\n";
+        if let Err(e) = specta_builder.export(
+            Typescript::default().header(header),
+            "../src/lib/bindings.ts",
+        ) {
+            log::error!("[specta] failed to export bindings.ts: {e}");
+        }
+    }
 
-    #[cfg(not(debug_assertions))]
+    // `fetch_remote_asset` returns `tauri::ipc::Response` (binary IPC) which
+    // specta cannot describe. Compose its `tauri::generate_handler!` with
+    // `specta_builder.invoke_handler()` into a single dispatcher closure
+    // (each `tauri::Builder::invoke_handler` REPLACES, not chains, so we
+    // route Invoke through specta first and fall through to the legacy
+    // handler otherwise). Iter 2 may revisit by wrapping `fetch_remote_asset`
+    // in a `Vec<u8>` return that specta can describe.
+    let specta_handler = specta_builder.invoke_handler();
+    let legacy_handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> =
+        Box::new(tauri::generate_handler![
+            commands::remote_asset::fetch_remote_asset
+        ]);
+
     let app = app
-        .invoke_handler(shared_commands![])
+        .invoke_handler(move |invoke| {
+            if invoke.message.command() == "fetch_remote_asset" {
+                legacy_handler(invoke)
+            } else {
+                specta_handler(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

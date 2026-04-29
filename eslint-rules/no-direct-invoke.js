@@ -27,10 +27,19 @@ const rule = {
         if (node.source.value !== "@tauri-apps/api/core") return;
 
         const filename = context.filename || context.getFilename();
-        if (filename.endsWith("tauri-commands.ts")) return;
+        // The single chokepoint for hand-rolled IPC is `tauri-commands.ts`.
+        // `bindings.ts` is the auto-generated tauri-specta artefact (issue #263)
+        // — it imports `invoke` to wire up the typed wrappers. Allowlist both
+        // path separators so the rule works on Windows and macOS/Linux runners.
+        if (
+          filename.endsWith("tauri-commands.ts") ||
+          filename.endsWith("/lib/bindings.ts") ||
+          filename.endsWith("\\lib\\bindings.ts")
+        )
+          return;
 
         const hasInvoke = node.specifiers.some(
-          (s) => s.type === "ImportSpecifier" && s.imported.name === "invoke",
+          (s) => s.type === "ImportSpecifier" && s.imported.name === "invoke"
         );
 
         if (hasInvoke) {

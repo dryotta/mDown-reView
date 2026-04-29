@@ -12,6 +12,13 @@ import noStartupSideEffectImport from "./eslint-rules/no-startup-side-effect-imp
 
 export default [
   {
+    // tauri-specta-generated — entirely auto-generated; the
+    // `/* eslint-disable */` header in the codegen template covers most
+    // lint rules but not all (e.g. some plugins ignore the file-level
+    // disable). Skip outright. Issue #263.
+    ignores: ["src/lib/bindings.ts"],
+  },
+  {
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,

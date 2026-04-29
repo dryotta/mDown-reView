@@ -27,8 +27,8 @@ use super::{
 /// repeating ~12 `None`s per arm). All required `String` / `bool` fields
 /// default to empty/false, which is harmless because every conversion
 /// path overwrites them.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub(super) struct MrsfCommentRepr {
+#[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
+pub struct MrsfCommentRepr {
     pub id: String,
     pub author: String,
     pub timestamp: String,
@@ -70,10 +70,35 @@ pub(super) struct MrsfCommentRepr {
     pub html_element: Option<HtmlElementAnchor>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub word_range: Option<WordRangePayload>,
+    // `AnchorRepr` has hand-rolled serde and no `specta::Type`; forward
+    // the codegen view to the on-wire shape via the shadow `AnchorWire`.
+    // Iter 2 may swap this for a tagged discriminated union once the
+    // wire format settles.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[specta(type = Option<Vec<AnchorWire>>)]
     pub anchor_history: Option<Vec<AnchorRepr>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reactions: Option<Vec<Reaction>>,
+}
+
+/// Specta-shadow for [`AnchorRepr`]. Mirrors the wire JSON shape
+/// (`{anchor_kind, anchor_data}`) emitted by the hand-rolled serde
+/// impls below. Used only for TS codegen; never (de)serialised at
+/// runtime. Iter 2 may sharpen `anchor_data` into a discriminated
+/// union for better TS ergonomics.
+///
+/// Referenced exclusively via field-level `#[specta(type = AnchorWire)]`
+/// forwarding on every public struct that names `Anchor` or
+/// `AnchorRepr` (see `Anchor` in `mod.rs` and `MrsfCommentRepr`'s
+/// `anchor_history` field). `AnchorRepr` itself does NOT derive
+/// `specta::Type` because the hand-rolled `Serialize` / `Deserialize`
+/// impls below produce a shape that the natural enum-derive cannot
+/// describe accurately.
+#[derive(specta::Type)]
+#[allow(dead_code)]
+pub struct AnchorWire {
+    pub anchor_kind: String,
+    pub anchor_data: serde_json::Value,
 }
 
 /// Wire form for an Anchor inside `anchor_history`. Tagged via
@@ -81,7 +106,7 @@ pub(super) struct MrsfCommentRepr {
 /// the top-level comment uses, since history entries don't share the
 /// comment's flat line fields.
 #[derive(Debug, Clone)]
-pub(super) enum AnchorRepr {
+pub enum AnchorRepr {
     Line(LineAnchorPayload),
     File,
     WordRange(WordRangePayload),
@@ -151,9 +176,9 @@ impl serde::Serialize for AnchorRepr {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
 #[serde(rename_all = "snake_case")]
-pub(super) struct LineAnchorPayload {
+pub struct LineAnchorPayload {
     pub line: u32,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub end_line: Option<u32>,

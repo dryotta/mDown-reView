@@ -11,6 +11,7 @@ use crate::core::types::CommentThread;
 /// severity tag — comments with no severity sort below `Low`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    specta::Type,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
