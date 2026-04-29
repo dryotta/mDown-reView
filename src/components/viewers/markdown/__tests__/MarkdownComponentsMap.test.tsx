@@ -176,4 +176,96 @@ describe("buildMarkdownComponents — anchor link handling", () => {
       );
     });
   });
+
+  it("renders title attribute showing resolved external URL", async () => {
+    const { container } = renderMd("[link](https://example.com)\n");
+    await waitFor(() => {
+      expect(container.querySelector("a")?.getAttribute("title")).toBe(
+        "https://example.com",
+      );
+    });
+  });
+
+  it("renders title attribute showing workspace-relative path for relative links", async () => {
+    const { container } = renderMd("[link](./other.md)\n");
+    await waitFor(() => {
+      expect(container.querySelector("a")?.getAttribute("title")).toBe("other.md");
+    });
+  });
+
+  it("preserves an author-supplied title attribute (markdown `[label](url \"title\")`)", async () => {
+    const { container } = renderMd('[link](https://example.com "Hover text")\n');
+    await waitFor(() => {
+      expect(container.querySelector("a")?.getAttribute("title")).toBe("Hover text");
+    });
+  });
+
+  it("does not add a title attribute for blocked schemes", async () => {
+    const { container } = renderMd("[link](javascript:alert(1))\n");
+    await waitFor(() => {
+      const a = container.querySelector("a");
+      expect(a).not.toBeNull();
+      expect(a!.getAttribute("title")).toBeNull();
+    });
+  });
+});
+
+describe("buildMarkdownComponents — workspace fragment routing", () => {
+  beforeEach(async () => {
+    const { useStore } = await import("@/store");
+    useStore.setState({ pendingFragment: null });
+  });
+
+  it("same-file fragment click scrolls to the matching id (no openFile, no pending)", async () => {
+    const { useStore } = await import("@/store");
+    const openFile = vi.fn();
+    useStore.setState({ openFile });
+
+    // Insert a target heading the same way rehype-slug would.
+    const target = document.createElement("h2");
+    target.id = "section-x";
+    target.textContent = "Section X";
+    const scrollSpy = vi.fn();
+    target.scrollIntoView = scrollSpy;
+    document.body.appendChild(target);
+
+    const { container } = renderMd("[same](./x.md#section-x)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(openFile).not.toHaveBeenCalled();
+    expect(useStore.getState().pendingFragment).toBeNull();
+
+    document.body.removeChild(target);
+  });
+
+  it("cross-file fragment click sets pendingFragment then opens the new file", async () => {
+    const { useStore } = await import("@/store");
+    const openFile = vi.fn();
+    useStore.setState({ openFile });
+
+    const { container } = renderMd("[other](./other.md#part-2)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+
+    expect(useStore.getState().pendingFragment).toEqual({
+      path: "/docs/other.md",
+      fragment: "part-2",
+    });
+    expect(openFile).toHaveBeenCalledWith("/docs/other.md");
+  });
+
+  it("cross-file link without fragment does NOT set pendingFragment", async () => {
+    const { useStore } = await import("@/store");
+    const openFile = vi.fn();
+    useStore.setState({ openFile, pendingFragment: null });
+
+    const { container } = renderMd("[other](./other.md)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+
+    expect(useStore.getState().pendingFragment).toBeNull();
+    expect(openFile).toHaveBeenCalledWith("/docs/other.md");
+  });
 });

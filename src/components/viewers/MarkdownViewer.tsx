@@ -188,6 +188,26 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   }, []);
   useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo, filePath);
 
+  // Consume cross-file fragment requests left by anchor clicks. The link
+  // handler stashes `{path, fragment}` in the store, then `openFile` swaps
+  // the active tab. ViewerRouter remounts this viewer (keyed on `path`) and
+  // we land here with the new content already in `body`. rehype-slug emits
+  // ids synchronously during ReactMarkdown's first commit, so the heading
+  // exists in the DOM by the time this useEffect fires. Only the same-tab,
+  // already-mounted case is handled in the click handler directly.
+  useEffect(() => {
+    if (!body) return;
+    const fragment = useStore.getState().consumePendingFragment(filePath);
+    if (!fragment) return;
+    let id = fragment;
+    try { id = decodeURIComponent(fragment); } catch { /* keep raw */ }
+    const handle = requestAnimationFrame(() => {
+      const el = document.getElementById(id);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [filePath, body]);
+
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
   const handleLineClick = useCallback(

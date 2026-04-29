@@ -10,9 +10,10 @@ import React, {
 import type { Components, ExtraProps } from "react-markdown";
 import { getSharedHighlighter } from "@/lib/shiki";
 import { openExternalUrl } from "@/lib/tauri-commands";
-import { warn, info } from "@/logger";
+import { warn } from "@/logger";
 import { dirname } from "@/lib/path-utils";
 import { routeLinkClick } from "@/lib/url-policy";
+import { tooltipForRoute } from "@/lib/html-anchor-titles";
 import { useStore } from "@/store";
 import { lazyWithSuspense } from "../lazy";
 import {
@@ -85,17 +86,28 @@ const MermaidEmbed = lazyWithSuspense<{ content: string }>(() =>
 // resolution and external-scheme dispatch. See MarkdownViewer for the original
 // rationale: openExternalUrl already enforces an allowlist, but we should not
 // even call it for known-bad schemes.
+//
+// Also computes a `title` tooltip per link via the shared `tooltipForRoute`
+// chokepoint so hover on a relative-path link shows the resolved workspace
+// path rather than just `./other.md`. Mirrors the behaviour the HTML preview
+// gets via `injectAnchorTitles` in its asset-resolve pipeline.
 function makeAnchorComponent(filePath: string, workspaceRoot: string) {
   const baseDir = filePath ? dirname(filePath) : "";
   return function MarkdownAnchor({
     href,
     children,
     node: _node,
+    title,
     ...props
   }: ComponentPropsWithoutRef<"a"> & ExtraProps) {
+    const route = href
+      ? routeLinkClick(href, { baseDir: baseDir || undefined, workspaceRoot })
+      : null;
+    // Don't override an author-supplied title (markdown's `[label](url "title")`).
+    const computedTitle =
+      title ?? (route ? tooltipForRoute(route, workspaceRoot) ?? undefined : undefined);
     const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!href) return;
-      const route = routeLinkClick(href, { baseDir: baseDir || undefined, workspaceRoot });
+      if (!route) return;
       switch (route.kind) {
         case "fragment":
           // In-document scroll — let the browser handle it natively.
@@ -106,23 +118,48 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
           return;
         case "external":
           e.preventDefault();
-          openExternalUrl(route.href).catch((e) => warn(`[MarkdownViewer] link open failed: ${e}`));
+          openExternalUrl(route.href).catch((err) =>
+            warn(`[MarkdownViewer] link open failed: ${err}`),
+          );
           return;
         case "workspace":
           e.preventDefault();
-          useStore.getState().openFile(route.path);
-          if (route.fragment) {
-            void info(`MarkdownViewer: link fragment "#${route.fragment}" not yet scrolled`);
+          if (route.path === filePath) {
+            // Same-file link — file is already active; openFile would be a
+            // no-op. Scroll directly to the requested heading id (rehype-slug
+            // emits `id="…"` on every heading; ids are document-unique).
+            if (route.fragment) scrollToFragment(route.fragment);
+          } else {
+            // Cross-file link — stash the fragment for the destination viewer
+            // to consume on first render, then open the file.
+            if (route.fragment) {
+              useStore.getState().setPendingFragment({
+                path: route.path,
+                fragment: route.fragment,
+              });
+            }
+            useStore.getState().openFile(route.path);
           }
           return;
       }
     };
     return (
-      <a href={href} onClick={handleClick} {...props}>
+      <a href={href} title={computedTitle} onClick={handleClick} {...props}>
         {children}
       </a>
     );
   };
+}
+
+function scrollToFragment(fragment: string): void {
+  let id = fragment;
+  try {
+    id = decodeURIComponent(fragment);
+  } catch {
+    /* keep raw on malformed input */
+  }
+  const el = document.getElementById(id);
+  el?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // Build the components map for ReactMarkdown. The `pre`, `img`, and anchor
