@@ -295,3 +295,156 @@ fn update_comment_move_anchor_no_op_does_not_emit() {
 
     assert_eq!(emitter.count(), 0, "equal-anchor MoveAnchor must not emit");
 }
+
+// ── File-anchored on binary source ─────────────────────────────────────────
+
+/// User-reported (2026-04-28): file-level comments added to a binary file
+/// via the GUI appear in the panel transiently but do not persist to disk.
+/// This reproducer drives `add_comment_inner` with `TaggedNewAnchor::File`
+/// against a real binary file (NUL bytes, invalid UTF-8) inside a watched
+/// workspace. If this passes, the persistence bug lives elsewhere in the
+/// chain (frontend wiring, watcher dispatch, etc.) — not in the IPC core.
+#[test]
+fn add_file_anchor_persists_sidecar_for_binary_source() {
+    let dir = TempDir::new().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let state = watcher_allowing(dir.path());
+    let emitter = MockEmitter::default();
+
+    // Real binary file, not a markdown file. Mirrors what the user
+    // reported: comments on .png / .mp3 / .bin files.
+    let bin_path = canonical.join("phantom.bin");
+    std::fs::write(&bin_path, [0xFFu8, 0x00, 0x80, 0xFE, 0x00]).unwrap();
+    let bin_path_str = bin_path.to_string_lossy().into_owned();
+
+    let result = add_comment_inner(
+        &emitter,
+        &state,
+        &SidecarConfigState::new(),
+        bin_path_str.clone(),
+        "Tester".into(),
+        "this binary needs review".into(),
+        Some(NewCommentAnchor::Tagged(
+            mdown_review_lib::commands::TaggedNewAnchor::File,
+        )),
+        None,
+        None,
+        Some("phantom.bin".into()),
+    );
+
+    assert!(
+        result.is_ok(),
+        "add_comment with TaggedNewAnchor::File must succeed for a binary source; got: {:?}",
+        result
+    );
+    assert_eq!(emitter.count(), 1, "exactly one emit per successful mutation");
+    assert_eq!(emitter.paths(), vec![bin_path_str.clone()]);
+
+    // Sidecar MUST be on disk.
+    let sidecar_path = canonical.join("phantom.bin.review.yaml");
+    assert!(
+        sidecar_path.exists(),
+        "sidecar must persist next to the binary file at {:?}",
+        sidecar_path
+    );
+
+    // And it must round-trip correctly (Anchor::File, no flat targeting fields).
+    let loaded = load_sidecar(&bin_path_str)
+        .expect("load_sidecar")
+        .expect("sidecar present");
+    assert_eq!(loaded.comments.len(), 1);
+    let c = &loaded.comments[0];
+    assert!(matches!(c.anchor, Anchor::File));
+    assert_eq!(c.text, "this binary needs review");
+    assert!(c.line.is_none(), "file-anchored comment must not carry a flat `line`");
+}
+
+/// Same test, but with the binary file inside a SUBDIRECTORY of the
+/// watched workspace. Verifies that `enforce_workspace_path` accepts
+/// nested binary paths (the user's most common case: open a folder of
+/// images, comment on one of them).
+#[test]
+fn add_file_anchor_persists_sidecar_for_nested_binary_source() {
+    let dir = TempDir::new().unwrap();
+    let state = watcher_allowing(dir.path());
+    let emitter = MockEmitter::default();
+
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let nested_dir = canonical.join("images");
+    std::fs::create_dir(&nested_dir).unwrap();
+    let bin_path = nested_dir.join("photo.png");
+    std::fs::write(&bin_path, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+    let bin_path_str = bin_path.to_string_lossy().into_owned();
+
+    add_comment_inner(
+        &emitter,
+        &state,
+        &SidecarConfigState::new(),
+        bin_path_str.clone(),
+        "Tester".into(),
+        "thumbnail too dark".into(),
+        Some(NewCommentAnchor::Tagged(
+            mdown_review_lib::commands::TaggedNewAnchor::File,
+        )),
+        None,
+        None,
+        Some("images/photo.png".into()),
+    )
+    .expect("add_comment must succeed for nested binary source");
+
+    assert_eq!(emitter.count(), 1);
+    let sidecar_path = nested_dir.join("photo.png.review.yaml");
+    assert!(
+        sidecar_path.exists(),
+        "sidecar must persist next to the nested binary at {:?}",
+        sidecar_path
+    );
+}
+
+/// Negative companion: verify the workspace guard DOES reject a binary
+/// path outside any watched workspace. Surfaces "path not in workspace"
+/// — exactly the failure mode that would silently drop a user's comment
+/// if the renderer's `.catch(() => {})` swallowed it without logging.
+#[test]
+fn add_file_anchor_rejects_unwatched_binary_source() {
+    let dir = TempDir::new().unwrap();
+    let watched_dir = dir.path().join("watched");
+    std::fs::create_dir(&watched_dir).unwrap();
+    let outside_dir = dir.path().join("outside");
+    std::fs::create_dir(&outside_dir).unwrap();
+
+    // Watch ONLY the inner dir. The binary lives outside it.
+    let state = watcher_allowing(&watched_dir);
+    let emitter = MockEmitter::default();
+
+    let bin_path = outside_dir.join("stray.bin");
+    std::fs::write(&bin_path, [0x00, 0xFF]).unwrap();
+    let bin_path_str = bin_path.to_string_lossy().into_owned();
+
+    let err = add_comment_inner(
+        &emitter,
+        &state,
+        &SidecarConfigState::new(),
+        bin_path_str.clone(),
+        "Tester".into(),
+        "oops".into(),
+        Some(NewCommentAnchor::Tagged(
+            mdown_review_lib::commands::TaggedNewAnchor::File,
+        )),
+        None,
+        None,
+        Some("stray.bin".into()),
+    )
+    .expect_err("must reject unwatched path");
+
+    assert!(
+        err.contains("workspace"),
+        "expected workspace-guard rejection, got: {err}"
+    );
+    assert_eq!(emitter.count(), 0, "rejected mutation must not emit");
+    let sidecar_path = outside_dir.join("stray.bin.review.yaml");
+    assert!(
+        !sidecar_path.exists(),
+        "rejected mutation must NOT write a sidecar"
+    );
+}

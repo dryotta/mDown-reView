@@ -229,3 +229,37 @@
     display: none;
   }
 }
+
+/* File-anchored thread badge — sits inside the "Comment on file" button
+   so users see the unresolved file-level count without opening the panel.
+   Sized to match the tab/tree badges; severity colour is driven via
+   `data-severity` from `CommentBadge`. */
+.viewer-toolbar-file-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: white;
+  flex-shrink: 0;
+}
+
+.viewer-toolbar-file-badge[data-severity="high"] {
+  background: var(--color-severity-high, #c0392b);
+}
+
+.viewer-toolbar-file-badge[data-severity="medium"] {
+  background: var(--color-severity-medium, #d68910);
+}
+
+.viewer-toolbar-file-badge[data-severity="low"] {
+  background: var(--color-severity-low, #2980b9);
+}

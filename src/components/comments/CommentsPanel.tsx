@@ -6,6 +6,8 @@ import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { CommentThread } from "./CommentThread";
 import { CommentInput } from "./CommentInput";
 import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
+import { deriveAnchor } from "@/types/comments";
+import { error as logError } from "@/logger";
 import type { MatchedComment } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
@@ -21,6 +23,15 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   const { addComment } = useCommentActions();
   const [showResolved, setShowResolved] = useState(false);
   const [showFileLevelInput, setShowFileLevelInput] = useState(false);
+  /**
+   * Surfaces failures from `addComment(..., { kind: "file" })` so a silent
+   * IPC rejection (e.g. `path not in workspace`) doesn't leave the user
+   * thinking their comment saved. The banner is dismissable and clears
+   * automatically on the next successful Save. Rust-side rejections also
+   * land in the unified log via `tracing::warn!`, so this is the
+   * user-facing half of the chokepoint diagnostic.
+   */
+  const [fileLevelError, setFileLevelError] = useState<string | null>(null);
 
   // Iter 5 Group B — single-field selector (architecture rule 9). When this
   // matches our `filePath`, the toolbar's "Comment on file" button has
@@ -87,8 +98,21 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     // File-anchored comment — no line gutter, no selected text. We let the
     // VM hook chokepoint funnel the discriminated `{ kind: "file" }` anchor
     // through the existing `add_comment` IPC.
-    addComment(filePath, text, { kind: "file" }).catch(() => {});
+    setFileLevelError(null);
+    // Optimistically close the input so the UI stays responsive — failures
+    // surface in the persistent error banner below (unblocking the input
+    // for retry without forcing the user to wait on the IPC round-trip).
     setShowFileLevelInput(false);
+    void addComment(filePath, text, { kind: "file" }).catch((e) => {
+      // The most common cause is `path not in workspace` — surface it to
+      // the user (not just the log) so they don't lose the comment
+      // silently. The Rust side also logs via `tracing::warn!` to the
+      // unified log so future "comment didn't save" reports are
+      // diagnosable from `%LocalAppData%\com.mdownreview.desktop\logs\`.
+      const msg = e instanceof Error ? e.message : String(e);
+      void logError(`[CommentsPanel] file-level addComment failed for ${filePath}: ${msg}`);
+      setFileLevelError(`Could not save comment: ${msg}`);
+    });
   }, [addComment, filePath]);
 
   const canCommentOnFile = filePath.length > 0;
@@ -114,11 +138,30 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         </button>
       </div>
       <div className="comments-panel-body">
+        {fileLevelError && (
+          <div
+            className="comments-panel-error"
+            role="alert"
+            aria-live="polite"
+          >
+            <span className="comments-panel-error-text">{fileLevelError}</span>
+            <button
+              className="comments-panel-error-dismiss"
+              onClick={() => setFileLevelError(null)}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {showFileLevelInput && canCommentOnFile && (
           <div className="comment-panel-file-input">
             <CommentInput
               onSave={handleSaveFileLevel}
-              onClose={() => setShowFileLevelInput(false)}
+              onClose={() => {
+                setShowFileLevelInput(false);
+                setFileLevelError(null);
+              }}
               placeholder="Comment on this file… (Ctrl+Enter to save, Escape to cancel)"
               draftKey={`${filePath}::new::${fingerprintAnchor({ kind: "file" })}`}
             />
@@ -127,7 +170,10 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         {displayed.length === 0 ? (
           <div className="comments-empty">No comments yet</div>
         ) : (
-          displayed.map(({ thread, filePath: tp }) => (
+          displayed.map(({ thread, filePath: tp }) => {
+            const anchor = deriveAnchor(thread.root);
+            const isFileLevel = anchor.kind === "file";
+            return (
             <div
               key={`${tp}::${thread.root.id}`}
               className="comment-panel-item"
@@ -137,12 +183,23 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
               onKeyDown={(e) => handleKeyDown(e, thread.root, tp)}
             >
               <div className="comment-panel-item-line">
-                Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}
+                {isFileLevel ? (
+                  <span
+                    className="comment-panel-file-pill"
+                    title="File-level comment (anchored to the whole file)"
+                    aria-label="File-level comment"
+                  >
+                    📄 File
+                  </span>
+                ) : (
+                  <>Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}</>
+                )}
                 {thread.root.isOrphaned && <span className="comment-orphaned-icon" title="Orphaned">⚠</span>}
               </div>
               <CommentThread rootComment={thread.root} replies={thread.replies} filePath={tp} />
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

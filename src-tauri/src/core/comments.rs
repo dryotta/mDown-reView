@@ -30,12 +30,15 @@ pub fn filter_unresolved(comments: &[MrsfComment]) -> Vec<&MrsfComment> {
 ///
 /// Output shape (one comment, indented two spaces):
 /// ```text
-///   [RESOLVED] [<id>] line <line>  [<type>] (<severity>)  <author> · <timestamp>
+///   [RESOLVED] [<id>] <position>  [<type>] (<severity>)  <author> · <timestamp>
 ///     > <text line 1>
 ///     > <text line 2>
 ///     quoted: "<selected text, single-line, ≤80 chars>"
 ///     <responder> (<ts>): <response text>
 /// ```
+/// `<position>` is `line <N>` for line-anchored comments and `file-level`
+/// for file-anchored comments (explicit `anchor_kind: "file"` per
+/// MRSF §6/§7).
 /// `[RESOLVED] ` is only emitted when the comment is resolved AND the caller
 /// passed `include_resolved = true` (so unresolved-only output stays clean).
 pub fn format_comment_text_verbose(
@@ -43,11 +46,26 @@ pub fn format_comment_text_verbose(
     include_resolved: bool,
 ) -> String {
     let id = comment.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    let line = comment
-        .get("line")
-        .and_then(|v| v.as_u64())
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "?".to_string());
+    // File-level comments (explicit `anchor_kind: "file"`, MRSF §6/§7) carry
+    // no targeting fields and must NOT be labelled `line ?` — that would
+    // mask the deliberate file-scope intent. Detection is strict: only the
+    // explicit discriminator counts. A v1.0 legacy targetless comment (no
+    // `anchor_kind`, no `line`) keeps its existing `line ?` label so we do
+    // not silently relabel pre-existing sidecars.
+    let is_file_level = comment
+        .get("anchor_kind")
+        .and_then(|v| v.as_str())
+        == Some("file");
+    let position = if is_file_level {
+        "file-level".to_string()
+    } else {
+        let line = comment
+            .get("line")
+            .and_then(|v| v.as_u64())
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        format!("line {}", line)
+    };
     let ctype = comment
         .get("type")
         .and_then(|v| v.as_str())
@@ -77,8 +95,8 @@ pub fn format_comment_text_verbose(
         ""
     };
     out.push_str(&format!(
-        "  {}[{}] line {}  [{}] ({})  {} · {}\n",
-        prefix, id, line, ctype, sev, author, ts
+        "  {}[{}] {}  [{}] ({})  {} · {}\n",
+        prefix, id, position, ctype, sev, author, ts
     ));
     for ln in text.lines() {
         out.push_str(&format!("    > {}\n", ln));
@@ -362,6 +380,53 @@ responses:
         let out = format_comment_text_verbose(&v, false);
         // 77 x's + "..." inside quotes
         assert!(out.contains(&format!("\"{}...\"", "x".repeat(77))));
+    }
+
+    /// File-level comments (explicit `anchor_kind: "file"`) print
+    /// `file-level` instead of `line ?` — the CLI surface honours the
+    /// explicit MRSF §6/§7 file-scope intent without mislabeling.
+    #[test]
+    fn format_comment_text_verbose_renders_file_level_for_anchor_kind_file() {
+        let yaml = r#"
+id: f1
+author: alice
+timestamp: 2025-01-02T03:04:05Z
+text: high-level note
+resolved: false
+anchor_kind: file
+type: question
+severity: medium
+"#;
+        let v: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
+        let out = format_comment_text_verbose(&v, false);
+        assert!(
+            out.contains("[f1] file-level"),
+            "expected `file-level` token, got: {out}"
+        );
+        assert!(
+            !out.contains("line ?"),
+            "file-level comment must NOT print `line ?`: {out}"
+        );
+        assert!(out.contains("[question] (medium)"));
+        assert!(out.contains("alice · 2025-01-02T03:04:05Z"));
+    }
+
+    /// Legacy v1.0 targetless comments (no `anchor_kind`, no `line`) keep
+    /// the existing `line ?` label — we do NOT silently relabel pre-existing
+    /// sidecars as file-level.
+    #[test]
+    fn format_comment_text_verbose_keeps_line_question_for_legacy_targetless() {
+        let yaml = r#"
+id: l1
+author: alice
+timestamp: t
+text: legacy
+resolved: false
+"#;
+        let v: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
+        let out = format_comment_text_verbose(&v, false);
+        assert!(out.contains("line ?"), "got: {out}");
+        assert!(!out.contains("file-level"));
     }
 
     #[test]

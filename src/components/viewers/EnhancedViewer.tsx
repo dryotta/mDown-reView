@@ -10,6 +10,7 @@ import { JsonTreeView } from "./JsonTreeView";
 import { HtmlPreviewView } from "./HtmlPreviewView";
 import { KqlPlanView } from "./KqlPlanView";
 import { SkeletonLoader } from "./SkeletonLoader";
+import type { Severity } from "@/lib/tauri-commands";
 
 // Lazy-load heavy visualization components
 const CsvTableView = lazy(() =>
@@ -26,9 +27,13 @@ interface Props {
   fileSize?: number;
   /** Iter 5 Group B — forwarded to `ViewerToolbar` to surface a "Comment on file" button. */
   onCommentOnFile?: () => void;
+  /** Count of unresolved file-anchored threads — drives the toolbar's file-level badge. */
+  fileCommentCount?: number;
+  /** Worst severity across file-anchored unresolved threads — drives the badge colour. */
+  fileCommentSeverity?: Severity | null;
 }
 
-export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnFile }: Props) {
+export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnFile, fileCommentCount, fileCommentSeverity }: Props) {
   const category = getFileCategory(path);
   const canVisualize = hasVisualization(category);
   const defaultView = getDefaultView(category);
@@ -63,6 +68,8 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
         onToggleWrap={() => setWordWrap(!wordWrap)}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
         onCommentOnFile={onCommentOnFile}
+        fileCommentCount={fileCommentCount}
+        fileCommentSeverity={fileCommentSeverity}
         trailing={<FileActionsBar path={filePath} />}
       />
       {showSource ? (

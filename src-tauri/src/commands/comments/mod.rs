@@ -48,7 +48,22 @@ pub(crate) fn enforce_workspace_path(state: &WatcherState, file_path: &str) -> R
     if state.is_path_or_parent_allowed(Path::new(file_path)) {
         Ok(())
     } else {
-        tracing::warn!("[comments] rejected: path outside workspace: {file_path}");
+        // Critical for debugging "comment didn't save" reports: include the
+        // canonical form (so reviewers can spot path-normalisation drift)
+        // and the watched workspace dirs (so reviewers can spot scope
+        // mismatches — e.g. file is in a *different* open folder, OR the
+        // tab arrived before the watcher's `update_watched_files` /
+        // `update_tree_watched_dirs` IPCs landed).
+        let canonical = crate::core::paths::canonicalize_no_verbatim(Path::new(file_path))
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|e| format!("<canonicalize error: {e}>"));
+        let watched_dirs = state.snapshot_watched_dirs_for_diagnostics();
+        let watched_files = state.snapshot_watched_files_for_diagnostics();
+        log::warn!(
+            target: "mdownreview::comments",
+            "[comments] rejected: path outside workspace file_path={} canonical={} watched_dirs={:?} watched_files={:?}",
+            file_path, canonical, watched_dirs, watched_files
+        );
         Err("path not in workspace".to_string())
     }
 }
@@ -116,11 +131,35 @@ fn with_sidecar_mut<E: CommentsEmitter>(
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
     let (yaml, json, ws_root) = resolve_sidecar_pair(file_path, config_state);
+    log::debug!(
+        target: "mdownreview::comments",
+        "with_sidecar_mut: resolved file_path={} yaml={} json={} ws_root={:?}",
+        file_path, yaml, json, ws_root
+    );
     let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
-        .map_err(|e| e.to_string())?
-        .ok_or("sidecar not found")?;
+        .map_err(|e| {
+            log::warn!(
+                target: "mdownreview::comments",
+                "with_sidecar_mut: load_sidecar_at failed file_path={} yaml={} error={}",
+                file_path, yaml, e
+            );
+            e.to_string()
+        })?
+        .ok_or_else(|| {
+            log::warn!(
+                target: "mdownreview::comments",
+                "with_sidecar_mut: sidecar not found  mutation rejected file_path={} yaml={} json={}",
+                file_path, yaml, json
+            );
+            "sidecar not found".to_string()
+        })?;
     mutate(&mut sidecar)?;
     save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
+    log::info!(
+        target: "mdownreview::comments",
+        "with_sidecar_mut: saved sidecar file_path={} yaml={} comment_count={}",
+        file_path, yaml, sidecar.comments.len()
+    );
     emitter.emit_comments_changed(file_path);
     Ok(())
 }
@@ -137,20 +176,44 @@ pub fn mutate_sidecar_or_create(
     mutate: impl FnOnce(&mut MrsfSidecar) -> Result<(), String>,
 ) -> Result<(), String> {
     let (yaml, json, ws_root) = resolve_sidecar_pair(file_path, config_state);
+    log::debug!(
+        target: "mdownreview::comments",
+        "mutate_sidecar_or_create: resolved file_path={} yaml={} json={} ws_root={:?}",
+        file_path, yaml, json, ws_root
+    );
     let mut sidecar = crate::core::sidecar::load_sidecar_at(&yaml, &json)
-        .map_err(|e| e.to_string())?
-        .unwrap_or_else(|| MrsfSidecar {
-            mrsf_version: MRSF_VERSION_DEFAULT.to_string(),
-            document: document_default.unwrap_or_else(|| {
-                std::path::Path::new(file_path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            }),
-            comments: vec![],
+        .map_err(|e| {
+            log::warn!(
+                target: "mdownreview::comments",
+                "mutate_sidecar_or_create: load_sidecar_at failed file_path={} yaml={} error={}",
+                file_path, yaml, e
+            );
+            e.to_string()
+        })?
+        .unwrap_or_else(|| {
+            log::debug!(
+                target: "mdownreview::comments",
+                "mutate_sidecar_or_create: no existing sidecar  creating empty default file_path={}",
+                file_path
+            );
+            MrsfSidecar {
+                mrsf_version: MRSF_VERSION_DEFAULT.to_string(),
+                document: document_default.unwrap_or_else(|| {
+                    std::path::Path::new(file_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                }),
+                comments: vec![],
+            }
         });
     mutate(&mut sidecar)?;
     save_with_parent_creation(&yaml, ws_root.as_deref(), &sidecar.document, &sidecar.comments)?;
+    log::info!(
+        target: "mdownreview::comments",
+        "mutate_sidecar_or_create: saved sidecar file_path={} yaml={} comment_count={}",
+        file_path, yaml, sidecar.comments.len()
+    );
     Ok(())
 }
 
@@ -225,6 +288,25 @@ pub fn add_comment_inner<E: CommentsEmitter>(
     severity: Option<String>,
     document: Option<String>,
 ) -> Result<(), String> {
+    // Entry trace: every comment-mutation call lands here, so this is the
+    // single chokepoint for "is the IPC even arriving and with what?"
+    // questions. Logging at info level so it surfaces in default logs
+    // without enabling debug. `anchor_kind` is the most useful single
+    // discriminator for tracking down file-anchor-vs-line-anchor issues.
+    let anchor_kind = match &anchor {
+        None => "none".to_string(),
+        Some(NewCommentAnchor::Legacy(_)) => "legacy_line".to_string(),
+        Some(NewCommentAnchor::Tagged(t)) => match t {
+            TaggedNewAnchor::Line { .. } => "line".to_string(),
+            TaggedNewAnchor::File => "file".to_string(),
+            TaggedNewAnchor::WordRange(_) => "word_range".to_string(),
+        },
+    };
+    log::info!(
+        target: "mdownreview::comments",
+        "add_comment_inner: entry file_path={} author={} text_len={} anchor_kind={} comment_type={:?} severity={:?} document={:?}",
+        file_path, author, text.len(), anchor_kind, comment_type, severity, document
+    );
     enforce_workspace_path(state, &file_path)?;
     // Convert wire anchor → (canonical Anchor, optional flat legacy fields).
     // For Line/Legacy we pass the flat shape into `create_comment` so the
@@ -260,10 +342,24 @@ pub fn add_comment_inner<E: CommentsEmitter>(
         }
         comment.anchor = canonical;
     }
-    with_sidecar_or_create(emitter, &file_path, document, config_state, |sidecar| {
+    let comment_id = comment.id.clone();
+    let result = with_sidecar_or_create(emitter, &file_path, document, config_state, |sidecar| {
         sidecar.comments.push(comment);
         Ok(())
-    })
+    });
+    match &result {
+        Ok(()) => log::info!(
+            target: "mdownreview::comments",
+            "add_comment_inner: ok file_path={} comment_id={}",
+            file_path, comment_id
+        ),
+        Err(e) => log::warn!(
+            target: "mdownreview::comments",
+            "add_comment_inner: failed file_path={} error={}",
+            file_path, e
+        ),
+    }
+    result
 }
 
 /// Test seam: calls `enforce_workspace_path` for each retrofitted command so
@@ -303,8 +399,13 @@ pub fn add_reply_inner<E: CommentsEmitter>(
     author: String,
     text: String,
 ) -> Result<(), String> {
+    log::info!(
+        target: "mdownreview::comments",
+        "add_reply_inner: entry file_path={} parent_id={} author={} text_len={}",
+        file_path, parent_id, author, text.len()
+    );
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
+    let result = with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         let parent = sidecar
             .comments
             .iter()
@@ -314,7 +415,15 @@ pub fn add_reply_inner<E: CommentsEmitter>(
         let reply = crate::core::comments::create_reply(&author, &text, &parent);
         sidecar.comments.push(reply);
         Ok(())
-    })
+    });
+    if let Err(ref e) = result {
+        log::warn!(
+            target: "mdownreview::comments",
+            "add_reply_inner: failed file_path={} parent_id={} error={}",
+            file_path, parent_id, e
+        );
+    }
+    result
 }
 
 /// Edit a comment's text, save to sidecar.
@@ -339,8 +448,13 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
     comment_id: String,
     text: String,
 ) -> Result<(), String> {
+    log::info!(
+        target: "mdownreview::comments",
+        "edit_comment_inner: entry file_path={} comment_id={} text_len={}",
+        file_path, comment_id, text.len()
+    );
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
+    let result = with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         let comment = sidecar
             .comments
             .iter_mut()
@@ -348,7 +462,15 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
             .ok_or_else(|| format!("comment {} not found", comment_id))?;
         comment.text = crate::core::comments::clamp_comment_text(&text);
         Ok(())
-    })
+    });
+    if let Err(ref e) = result {
+        log::warn!(
+            target: "mdownreview::comments",
+            "edit_comment_inner: failed file_path={} comment_id={} error={}",
+            file_path, comment_id, e
+        );
+    }
+    result
 }
 
 /// Delete a comment (with reply reparenting per MRSF §9.1), save to sidecar.
@@ -371,11 +493,24 @@ pub fn delete_comment_inner<E: CommentsEmitter>(
     file_path: String,
     comment_id: String,
 ) -> Result<(), String> {
+    log::info!(
+        target: "mdownreview::comments",
+        "delete_comment_inner: entry file_path={} comment_id={}",
+        file_path, comment_id
+    );
     enforce_workspace_path(state, &file_path)?;
-    with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
+    let result = with_sidecar_mut(emitter, &file_path, config_state, |sidecar| {
         sidecar.comments = crate::core::comments::delete_comment(&sidecar.comments, &comment_id);
         Ok(())
-    })
+    });
+    if let Err(ref e) = result {
+        log::warn!(
+            target: "mdownreview::comments",
+            "delete_comment_inner: failed file_path={} comment_id={} error={}",
+            file_path, comment_id, e
+        );
+    }
+    result
 }
 
 /// Compute SHA-256 hash for selected text anchor.

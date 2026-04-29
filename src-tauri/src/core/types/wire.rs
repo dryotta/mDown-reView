@@ -265,7 +265,25 @@ impl TryFrom<&MrsfCommentRepr> for Anchor {
             (None, _) => Err(mismatch("payload present without anchor_kind")),
             (Some("line"), 0) => Ok(line_anchor()),
             (Some("line"), _) => Err(mismatch("anchor_kind=line with payload sibling")),
-            (Some("file"), 0) => Ok(Anchor::File),
+            (Some("file"), 0) => {
+                // MRSF §6/§7: file-level comments MUST NOT carry any flat
+                // targeting fields. Reject explicit `anchor_kind: "file"`
+                // sidecars that smuggle `line`/`selected_text`/etc — they
+                // are internally inconsistent and would behave ambiguously
+                // downstream (matchers, UI labels, badge counts).
+                if r.line.is_some()
+                    || r.end_line.is_some()
+                    || r.start_column.is_some()
+                    || r.end_column.is_some()
+                    || r.selected_text.is_some()
+                    || r.selected_text_hash.is_some()
+                {
+                    return Err(mismatch(
+                        "anchor_kind=file with flat targeting fields (line/end_line/start_column/end_column/selected_text/selected_text_hash)",
+                    ));
+                }
+                Ok(Anchor::File)
+            }
             (Some("file"), _) => Err(mismatch("anchor_kind=file with payload sibling")),
             (Some("word_range"), 1) => {
                 let mut p = r.word_range.clone().ok_or_else(|| {
@@ -306,19 +324,29 @@ impl TryFrom<MrsfCommentRepr> for MrsfComment {
 
     fn try_from(r: MrsfCommentRepr) -> Result<Self, Self::Error> {
         let anchor: Anchor = (&r).try_into()?;
+        // Belt-and-braces: when the resolved anchor is `File`, scrub the
+        // legacy flat targeting fields from the in-memory comment. The
+        // wire-level guard in `TryFrom<&MrsfCommentRepr> for Anchor`
+        // already rejects sidecars where these fields disagree with
+        // `anchor_kind: "file"`, but if a future caller hand-builds a
+        // `MrsfCommentRepr` and bypasses that guard (e.g. via the public
+        // `From<MrsfComment>` round-trip) we still want a consistent
+        // in-memory shape. This mirrors the chokepoint scrubbing in
+        // `add_comment_inner` for non-Line anchors.
+        let is_file_anchor = matches!(anchor, Anchor::File);
         Ok(MrsfComment {
             id: r.id,
             author: r.author,
             timestamp: r.timestamp,
             text: r.text,
             resolved: r.resolved,
-            line: r.line,
-            end_line: r.end_line,
-            start_column: r.start_column,
-            end_column: r.end_column,
-            selected_text: r.selected_text,
+            line: if is_file_anchor { None } else { r.line },
+            end_line: if is_file_anchor { None } else { r.end_line },
+            start_column: if is_file_anchor { None } else { r.start_column },
+            end_column: if is_file_anchor { None } else { r.end_column },
+            selected_text: if is_file_anchor { None } else { r.selected_text },
             anchored_text: r.anchored_text,
-            selected_text_hash: r.selected_text_hash,
+            selected_text_hash: if is_file_anchor { None } else { r.selected_text_hash },
             commit: r.commit,
             comment_type: r.comment_type,
             severity: r.severity,

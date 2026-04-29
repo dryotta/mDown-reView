@@ -101,4 +101,41 @@ describe("ViewerToolbar", () => {
     });
   });
 
+  // ── File-level badge (next to "Comment on file") ──────────────────────────
+  describe("file-level badge", () => {
+    it("does NOT render a badge when fileCommentCount is 0", () => {
+      const { container } = render(
+        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} fileCommentCount={0} />,
+      );
+      expect(container.querySelector(".viewer-toolbar-file-badge")).toBeNull();
+    });
+
+    it("renders the badge with the count when fileCommentCount > 0", () => {
+      const { container } = render(
+        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} fileCommentCount={3} fileCommentSeverity="high" />,
+      );
+      const badge = container.querySelector(".viewer-toolbar-file-badge");
+      expect(badge).not.toBeNull();
+      expect(badge?.textContent).toBe("3");
+      expect(badge?.getAttribute("data-severity")).toBe("high");
+      expect(badge?.getAttribute("aria-label")).toMatch(/3 unresolved comments/i);
+    });
+
+    it("does NOT render the badge when no `onCommentOnFile` callback is provided (button is hidden)", () => {
+      // The badge lives inside the button — without the button, no badge.
+      const { container } = render(
+        <ViewerToolbar activeView="source" onViewChange={vi.fn()} fileCommentCount={5} />,
+      );
+      expect(container.querySelector(".viewer-toolbar-file-badge")).toBeNull();
+    });
+
+    it("uses singular wording in aria-label when count is 1", () => {
+      const { container } = render(
+        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} fileCommentCount={1} />,
+      );
+      const badge = container.querySelector(".viewer-toolbar-file-badge");
+      expect(badge?.getAttribute("aria-label")).toMatch(/1 unresolved comment(?!s)/);
+    });
+  });
+
 });

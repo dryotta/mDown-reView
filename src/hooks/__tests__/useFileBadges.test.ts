@@ -16,8 +16,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const A: FileBadge = { count: 3, max_severity: "high" };
-const B: FileBadge = { count: 1, max_severity: "low" };
+const A: FileBadge = { count: 3, max_severity: "high", file_level_count: 0 };
+const B: FileBadge = { count: 1, max_severity: "low", file_level_count: 0 };
 
 describe("useFileBadges", () => {
   it("returns {} for an empty path list and skips the IPC call", async () => {
@@ -47,7 +47,7 @@ describe("useFileBadges", () => {
   it("refreshes on comments-changed events", async () => {
     vi.mocked(getFileBadges)
       .mockResolvedValueOnce({ "/a.md": A })
-      .mockResolvedValueOnce({ "/a.md": { count: 7, max_severity: "medium" } });
+      .mockResolvedValueOnce({ "/a.md": { count: 7, max_severity: "medium", file_level_count: 0 } });
 
     const { result } = renderHook(() => useFileBadges(["/a.md"]));
     await act(async () => {});
@@ -60,7 +60,7 @@ describe("useFileBadges", () => {
     await act(async () => {});
 
     expect(getFileBadges).toHaveBeenCalledTimes(2);
-    expect(result.current).toEqual({ "/a.md": { count: 7, max_severity: "medium" } });
+    expect(result.current).toEqual({ "/a.md": { count: 7, max_severity: "medium", file_level_count: 0 } });
   });
 
   it("refreshes on file-changed{kind:review} but ignores other kinds", async () => {
@@ -87,7 +87,7 @@ describe("useFileBadges", () => {
   it("dedupes when the result is structurally equal", async () => {
     vi.mocked(getFileBadges)
       .mockResolvedValueOnce({ "/a.md": A })
-      .mockResolvedValueOnce({ "/a.md": { count: 3, max_severity: "high" } });
+      .mockResolvedValueOnce({ "/a.md": { count: 3, max_severity: "high", file_level_count: 0 } });
 
     const { result } = renderHook(() => useFileBadges(["/a.md"]));
     await act(async () => {});

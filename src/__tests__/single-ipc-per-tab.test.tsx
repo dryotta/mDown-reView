@@ -19,6 +19,14 @@ import * as commands from "@/lib/tauri-commands";
 vi.mock("@/lib/tauri-commands");
 vi.mock("@/logger");
 
+// `useFileBadges` is auto-mocked by `vi.mock("@/lib/tauri-commands")` to
+// return `undefined`, which would crash the new `ViewerRouter` call site
+// added when file-level badges were wired through. Stub it explicitly so
+// this test stays focused on the read_text_file IPC contract.
+vi.mock("@/hooks/useFileBadges", () => ({
+  useFileBadges: () => ({}),
+}));
+
 // Stub the ready-state child viewer so the test exercises the IPC plumbing
 // without rendering Shiki / markdown / image internals.
 vi.mock("@/components/viewers/EnhancedViewer", () => ({

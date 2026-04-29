@@ -2,6 +2,8 @@ import "@/styles/viewer-toolbar.css";
 import { type ReactNode } from "react";
 import { ZoomControl } from "./ZoomControl";
 import { IconComment } from "@/components/Icons";
+import { CommentBadge } from "@/components/comments/CommentBadge";
+import type { Severity } from "@/lib/tauri-commands";
 
 /**
  * L5 — share the same prop shape as `ZoomControl`. Callers spread it directly
@@ -31,6 +33,19 @@ interface Props {
    */
   onCommentOnFile?: () => void;
   /**
+   * Count of unresolved file-anchored threads (MRSF `anchor_kind: "file"`).
+   * When > 0 a `CommentBadge` is rendered next to the "Comment on file"
+   * button so users see the count without opening the panel. The badge is
+   * only meaningful alongside the button — passing this without
+   * `onCommentOnFile` is a no-op.
+   */
+  fileCommentCount?: number;
+  /**
+   * Worst severity across the file-anchored unresolved threads — drives the
+   * badge colour. Optional; defaults to "none".
+   */
+  fileCommentSeverity?: Severity | null;
+  /**
    * Optional trailing slot rendered on the right edge of the toolbar.
    * `EnhancedViewer` plugs `FileActionsBar` in here so the file actions stay
    * pinned with the (sticky) toolbar instead of becoming a separate sibling
@@ -46,7 +61,7 @@ interface Props {
  * `EnhancedViewer`, or rendered above headerless media viewers by
  * `ViewerRouter`.
  */
-export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap, zoom, onCommentOnFile, trailing }: Props) {
+export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap, zoom, onCommentOnFile, fileCommentCount, fileCommentSeverity, trailing }: Props) {
   if (hidden && !showWrapToggle && !zoom && !trailing && !onCommentOnFile) return null;
 
   return (
@@ -91,6 +106,11 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
           >
             <IconComment />
             <span className="viewer-toolbar-comment-on-file-label">Comment on file</span>
+            <CommentBadge
+              count={fileCommentCount ?? 0}
+              severity={fileCommentSeverity ?? null}
+              className="viewer-toolbar-file-badge"
+            />
           </button>
         )}
       </div>

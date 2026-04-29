@@ -50,13 +50,27 @@ impl fmt::Display for SidecarError {
     }
 }
 
+/// `From<std::io::Error>` is **load-context only**. Historically this impl
+/// collapsed every `io::ErrorKind::NotFound` into `SidecarError::NotFound`
+/// (whose Display is `"sidecar not found"`) — which is fine for a load
+/// path ("the file doesn't exist on disk to be loaded") but wildly
+/// misleading for a save path: a NotFound from `std::fs::write` /
+/// `rename` (e.g. OneDrive's Known Folder Move filesystem filter
+/// rejecting writes to `Pictures`/`Documents`/`Desktop`) was surfaced as
+/// "sidecar not found", obscuring the real failure and suggesting the
+/// sidecar should be re-created when in fact the write itself was
+/// blocked.
+///
+/// Now: always wrap the underlying `io::Error` (preserving its kind,
+/// message, and OS error code). Load callers that need to distinguish
+/// "missing on disk" from "I/O failure" already check `e.kind() ==
+/// io::ErrorKind::NotFound` explicitly (see `load_sidecar_at`), so they
+/// are unaffected. Save callers now surface the real OS error to the
+/// user (e.g. "Could not find file 'C:\\Users\\…\\Pictures\\foo.png.review.yaml'")
+/// — strictly more informative.
 impl From<std::io::Error> for SidecarError {
     fn from(e: std::io::Error) -> Self {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            SidecarError::NotFound
-        } else {
-            SidecarError::Io(e)
-        }
+        SidecarError::Io(e)
     }
 }
 
@@ -178,6 +192,11 @@ pub fn save_sidecar_at(
 ) -> Result<(), SidecarError> {
     if comments.is_empty() {
         if sidecar_path.exists() {
+            log::info!(
+                target: "mdownreview::sidecar",
+                "save_sidecar_at: empty comments  deleting sidecar path={}",
+                sidecar_path.display()
+            );
             std::fs::remove_file(sidecar_path)?;
         }
         return Ok(());
@@ -188,9 +207,63 @@ pub fn save_sidecar_at(
         document: document.to_string(),
         comments: comments.to_vec(),
     };
-    let yaml = serde_saphyr::to_string(&payload).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
+    let yaml = serde_saphyr::to_string(&payload).map_err(|e| {
+        log::warn!(
+            target: "mdownreview::sidecar",
+            "save_sidecar_at: serde_saphyr serialise failed path={} comment_count={} error={}",
+            sidecar_path.display(), comments.len(), e
+        );
+        SidecarError::YamlParse(e.to_string())
+    })?;
 
-    crate::core::atomic::write_atomic(sidecar_path, yaml.as_bytes())?;
+    crate::core::atomic::write_atomic(sidecar_path, yaml.as_bytes()).map_err(|e| {
+        log::warn!(
+            target: "mdownreview::sidecar",
+            "save_sidecar_at: atomic write failed path={} error={} kind={:?}",
+            sidecar_path.display(), e, e.kind()
+        );
+        // Generic read-only / restricted-directory diagnostics. Many
+        // legitimate scenarios produce baffling errors here:
+        //
+        //   - OneDrive's Known Folder Move (Pictures/Documents/Desktop)
+        //     intercepts file creates and returns NotFound, even though
+        //     the directory is reachable in Explorer.
+        //   - Network shares with restricted permissions.
+        //   - System-protected folders (Program Files, Windows, …).
+        //   - Read-only mounts.
+        //
+        // Rather than special-casing any one of them, check the parent
+        // directory's `Permissions::readonly()` (cross-platform: maps
+        // to `FILE_ATTRIBUTE_READONLY` on Windows and the absence of the
+        // user-write bit on Unix). If the parent is read-only we surface
+        // a clear, actionable message that names the directory and points
+        // at the supported workaround.
+        if let Some(parent) = sidecar_path.parent() {
+            if let Ok(meta) = std::fs::metadata(parent) {
+                if meta.permissions().readonly() {
+                    return SidecarError::Io(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        format!(
+                            "directory is read-only: {} (cannot save sidecar `{}`). \
+                             Configure a writable location via `.mrsf.yaml` `sidecar_root`, \
+                             or open a folder you can write to.",
+                            parent.display(),
+                            sidecar_path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| "<sidecar>".to_string()),
+                        ),
+                    ));
+                }
+            }
+        }
+        SidecarError::from(e)
+    })?;
+    log::info!(
+        target: "mdownreview::sidecar",
+        "save_sidecar_at: wrote sidecar path={} comment_count={} bytes={}",
+        sidecar_path.display(), comments.len(), yaml.len()
+    );
     Ok(())
 }
 

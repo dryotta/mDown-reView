@@ -110,6 +110,45 @@ impl WatcherState {
         false
     }
 
+    /// Diagnostics-only snapshot of every watched directory across all
+    /// windows. Used by `enforce_workspace_path` rejection logging so a
+    /// reviewer can spot scope mismatches ("the file's in folder A but
+    /// only folder B is watched") without attaching a debugger. Kept
+    /// out of the hot path — only call from logging branches.
+    pub fn snapshot_watched_dirs_for_diagnostics(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if let Ok(dirs) = self.tree_watched_dirs.lock() {
+            for set in dirs.values() {
+                for dir in set.iter() {
+                    out.push(dir.display().to_string());
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// Same shape as `snapshot_watched_dirs_for_diagnostics` for the
+    /// per-tab `watched_paths` set. Logged alongside the dirs on workspace
+    /// rejection so a startup race (`update_watched_files` not yet flushed
+    /// when the renderer's `add_comment` IPC lands) is visually obvious in
+    /// the log: an empty `watched_files` AND empty `watched_dirs` for a
+    /// path that should be in either set is the canonical failure shape.
+    pub fn snapshot_watched_files_for_diagnostics(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if let Ok(files) = self.watched_paths.lock() {
+            for set in files.values() {
+                for path in set.iter() {
+                    out.push(path.display().to_string());
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
     /// Replace the set of tree-watched dirs after validating each entry.
     /// Inputs are canonicalized internally — frontend may pass any absolute
     /// form (Windows `C:\...` or Unix `/...`); we normalize to the OS canonical

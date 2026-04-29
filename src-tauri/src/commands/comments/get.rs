@@ -110,64 +110,97 @@ pub fn get_file_comments_inner(file_path: &str, config_state: &SidecarConfigStat
         });
     }
 
+    // Bucket comments by whether they need source bytes for resolution.
+    // Only `Anchor::Line` and `Anchor::WordRange` consume the per-line UTF-8
+    // split — `File`/`Unknown` do not. When no comment in the sidecar needs
+    // bytes, skip `std::fs::File::open` entirely; this is the binary-source
+    // hot path (an .mp3 / .png file with file-level comments must never be
+    // UTF-8 decoded).
+    let mut needs_bytes: Vec<MrsfComment> = Vec::new();
+    let mut zero_io: Vec<MrsfComment> = Vec::new();
+    for c in comments {
+        match c.anchor {
+            Anchor::Line { .. } | Anchor::WordRange(_) => needs_bytes.push(c),
+            Anchor::File | Anchor::Unknown { .. } => zero_io.push(c),
+        }
+    }
+
     // Read raw bytes once with a 10 MB cap (security blocker S1: docs/security.md
     // rule 1 — every fs read must be bounded). NotFound (deleted/renamed),
     // over-cap, and other errors all silently degrade to empty bytes so all
-    // comments orphan; cause is logged.
+    // comments orphan; cause is logged. Skipped entirely when only
+    // `File`/`Unknown` anchors are present (binary-source-safe).
     const MAX_BYTES: usize = 10 * 1024 * 1024;
-    let bytes = match std::fs::File::open(file_path) {
-        Ok(f) => {
-            use std::io::Read;
-            let mut buf = Vec::new();
-            match f.take((MAX_BYTES + 1) as u64).read_to_end(&mut buf) {
-                Ok(_) if buf.len() > MAX_BYTES => {
-                    tracing::warn!(
-                        "get_file_comments: {file_path} exceeds {MAX_BYTES}-byte cap; orphaning all comments"
-                    );
-                    Vec::new()
-                }
-                Ok(_) => buf,
-                Err(e) => {
-                    tracing::warn!("Could not read {file_path} for comment matching: {e}");
-                    Vec::new()
+    let bytes = if needs_bytes.is_empty() {
+        Vec::new()
+    } else {
+        match std::fs::File::open(file_path) {
+            Ok(f) => {
+                use std::io::Read;
+                let mut buf = Vec::new();
+                match f.take((MAX_BYTES + 1) as u64).read_to_end(&mut buf) {
+                    Ok(_) if buf.len() > MAX_BYTES => {
+                        tracing::warn!(
+                            "get_file_comments: {file_path} exceeds {MAX_BYTES}-byte cap; orphaning all comments"
+                        );
+                        Vec::new()
+                    }
+                    Ok(_) => buf,
+                    Err(e) => {
+                        tracing::warn!("Could not read {file_path} for comment matching: {e}");
+                        Vec::new()
+                    }
                 }
             }
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => {
-            tracing::warn!("Could not open {file_path} for comment matching: {e}");
-            Vec::new()
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                tracing::warn!("Could not open {file_path} for comment matching: {e}");
+                Vec::new()
+            }
         }
     };
     let doc = LazyParsedDoc::new(bytes);
 
-    let mut line_or_file: Vec<MrsfComment> = Vec::new();
-    let mut typed: Vec<MrsfComment> = Vec::new();
-    for c in comments {
-        match c.anchor {
-            Anchor::Line { .. } | Anchor::File => line_or_file.push(c),
-            _ => typed.push(c),
-        }
-    }
-
-    // Line/File: existing line-targeting heuristics. Skip materializing
-    // `doc.lines()` entirely when there are no Line/File anchors — typed-only
+    // Line: existing line-targeting heuristics. Skip materializing
+    // `doc.lines()` entirely when there are no Line anchors — typed-only
     // sidecars on multi-MB files do not need the line-split cache, and
     // populating it would be the dominant cost (perf-expert iter-4 finding).
-    let mut matched = if line_or_file.is_empty() {
+    let line_only: Vec<MrsfComment> = needs_bytes
+        .iter()
+        .filter(|c| matches!(c.anchor, Anchor::Line { .. }))
+        .cloned()
+        .collect();
+    let mut matched = if line_only.is_empty() {
         Vec::new()
     } else {
         let lines_str: Vec<&str> = doc.lines().iter().map(String::as_str).collect();
-        crate::core::matching::match_comments(&line_or_file, &lines_str)
+        crate::core::matching::match_comments(&line_only, &lines_str)
     };
 
-    // Typed anchors: per-comment dispatch with lazily-cached file parses.
-    for c in typed {
+    // WordRange: per-comment dispatch through `resolve_anchor` (consumes
+    // `doc.lines()` lazily on first call).
+    for c in needs_bytes
+        .into_iter()
+        .filter(|c| matches!(c.anchor, Anchor::WordRange(_)))
+    {
         let outcome = resolve_anchor(&c.anchor, &doc);
         matched.push(MatchedComment {
             comment: c,
             matched_line_number: 0,
             is_orphaned: matches!(outcome, MatchOutcome::Orphan),
+            anchored_text: None,
+        });
+    }
+
+    // File / Unknown: synthetic Exact match without touching `doc`. File
+    // anchors land at line 1 (#131 invariant) so the panel sort and
+    // line-keyed UI consumers behave consistently.
+    for c in zero_io {
+        let matched_line_number = if matches!(c.anchor, Anchor::File) { 1 } else { 0 };
+        matched.push(MatchedComment {
+            comment: c,
+            matched_line_number,
+            is_orphaned: false,
             anchored_text: None,
         });
     }
@@ -269,5 +302,63 @@ mod tests {
             1,
             "Line-anchor path must materialize lines exactly once"
         );
+    }
+
+    /// File-level perf guard + binary-source safety: a sidecar containing
+    /// only `Anchor::File` comments must never materialize `doc.lines()`
+    /// AND every comment must surface anchored at line 1, non-orphaned
+    /// (#131 invariant). We point the sidecar at a binary file containing
+    /// raw NUL bytes — `std::fs::read_to_string` would either fail or
+    /// produce lossy garbage if anyone widened `wants_source_bytes` to
+    /// include `Anchor::File`.
+    #[test]
+    fn get_file_comments_only_file_anchors_skips_lines_and_anchors_at_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("phantom.bin");
+        // Binary content with embedded NULs: invalid UTF-8 boundary, would
+        // fail or lose data via `read_to_string`.
+        std::fs::write(&file, [0xFFu8, 0x00, 0x80, 0xFE, 0x00]).unwrap();
+        let file_path = file.to_str().unwrap().to_string();
+
+        let f1 = typed_comment("f1", Anchor::File);
+        let f2 = typed_comment("f2", Anchor::File);
+        save_sidecar(&file_path, "phantom.bin", &[f1, f2]).unwrap();
+
+        let config = SidecarConfigState::new();
+        LINES_INIT_COUNT.with(|c| c.set(0));
+        let result = get_file_comments_inner(&file_path, &config).expect("ok");
+        assert_eq!(
+            LINES_INIT_COUNT.with(|c| c.get()),
+            0,
+            "file-only sidecars must not materialize doc.lines()  binary-source-safe"
+        );
+        // Two top-level threads (no replies), each anchored at line 1
+        // (#131), neither orphaned.
+        assert_eq!(result.threads.len(), 2);
+        for t in &result.threads {
+            assert_eq!(t.root.matched_line_number, 1, "file anchors land at line 1");
+            assert!(!t.root.is_orphaned, "file anchors are never orphaned");
+            assert!(matches!(t.root.comment.anchor, Anchor::File));
+        }
+    }
+
+    /// File-level + missing source: same invariant must hold even when the
+    /// source file does not exist on disk (deleted or never created).
+    /// CLI-driven workflows on binary files routinely leave the source
+    /// file missing; the IPC must succeed without `std::fs` errors.
+    #[test]
+    fn get_file_comments_only_file_anchors_succeeds_when_source_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        // NB: source file intentionally NOT created.
+        let file_path = dir.path().join("missing.bin").to_str().unwrap().to_string();
+
+        let f1 = typed_comment("f1", Anchor::File);
+        save_sidecar(&file_path, "missing.bin", &[f1]).unwrap();
+
+        let config = SidecarConfigState::new();
+        let result = get_file_comments_inner(&file_path, &config).expect("ok");
+        assert_eq!(result.threads.len(), 1);
+        assert_eq!(result.threads[0].root.matched_line_number, 1);
+        assert!(!result.threads[0].root.is_orphaned);
     }
 }

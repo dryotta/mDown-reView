@@ -2,6 +2,7 @@ pub mod commands;
 pub mod core;
 pub mod instance_scope;
 pub mod registry;
+pub mod tracing_log_bridge;
 pub mod update;
 pub mod watcher;
 
@@ -297,6 +298,15 @@ pub fn run() {
 
         builder.build()
     };
+
+    // Install tracing → log bridge so the existing `tracing::*` call sites
+    // throughout `commands/`, `core/`, and `watcher.rs` reach
+    // `tauri-plugin-log` (without this, every structured `tracing::warn!`
+    // is silently dropped — see `tracing_log_bridge` rustdoc for the
+    // history). Must run BEFORE the first `tracing::*` call site fires; the
+    // tauri builder below uses some `tracing::*` calls indirectly so we
+    // install it as early as possible after building the log plugin.
+    tracing_log_bridge::install();
 
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
