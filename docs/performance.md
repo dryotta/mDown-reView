@@ -91,12 +91,16 @@ Unique to performance. Rust-First is a charter meta-principle.
 29. `MarkdownViewer` and `SourceView` display a "large file" warning above `SIZE_WARN_THRESHOLD` so users expect slower rendering instead of assuming a hang. (`MarkdownViewer.tsx:321,371-375`; `SourceView.tsx:113,128-132`.)
 30. `tokenize_words` rejects inputs > 65 536 bytes with a typed `Err`; callers in word-range anchor creation short-circuit. Silent truncation was rejected — typed failure allows the caller to surface a user-visible warning. (`commands/word_tokens.rs`.)
 
+### Build-time perf gates
+31. `[profile.release]` in `src-tauri/Cargo.toml` enables `lto = true`, `codegen-units = 1`, `strip = true`, `panic = "abort"` — minimizes binary size and maximizes runtime perf for shipped builds. The `panic = "abort"` choice is critical: it removes unwinding-table size from the binary AND ensures the panic hook in `src-tauri/src/lib.rs` flushes log buffers before the process terminates (verified by the panic-then-log integration test added in PR for #262).
+32. JS bundle-size CI gate (`scripts/check-bundle-size.mjs`) enforces ≤ 2 MB total gzipped size across `dist/assets/*.js`. Catches regressions where a heavy package is imported eagerly at startup (mitigates root cause of the rule 27 lazy-load pattern by failing CI before the regression ships). Wired in `.github/workflows/ci.yml` after `npm run build`.
+
 ## Gaps
 
 - No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.
 - `read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
-- No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.
-- No JS bundle-size budget enforced in CI.
+- ~~No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.~~ (closed by PR for #262 — see rule 31)
+- ~~No JS bundle-size budget enforced in CI.~~ (closed by PR for #262 — see rule 32)
 - No benchmark for `read_dir` on a 1000-entry folder.
 - Shiki language load is unmeasured for uncommon languages.
 - `MarkdownViewer` re-parses markdown on every `content` change, including watcher reloads (`MarkdownViewer.tsx:276,282`). For >1 MB files this blocks the main thread.

@@ -97,6 +97,12 @@ jobs:
       - name: Audit zoom cascade
         run: npm run audit:zoom-cascade
 
+      - name: Build frontend bundle
+        run: npm run build
+
+      - name: Check JS bundle size (gzipped, ≤ 2 MB)
+        run: node scripts/check-bundle-size.mjs
+
   # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
   e2e-browser:
     name: E2E browser (Linux)

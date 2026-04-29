@@ -26,11 +26,10 @@ export function useDialogActions() {
   }, [openFile, addRecentItem]);
 
   const handleOpenFolder = useCallback(async () => {
+    // allow-chained-invokes: register-then-set is required — registerWindowFolder rejects when the folder is already open elsewhere, and setRoot must not run on a rejected registration.
     try {
       const selected = await showOpenDialog({ directory: true, multiple: false });
       if (typeof selected === "string") {
-        // Register with the Rust registry first — if the folder is already
-        // open in another window, this rejects and we must not switch root.
         await registerWindowFolder(selected);
         await setRoot(selected);
         addRecentItem(selected, "folder");

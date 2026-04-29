@@ -7,6 +7,8 @@ import prettier from "eslint-config-prettier";
 import security from "eslint-plugin-security";
 import noDirectInvoke from "./eslint-rules/no-direct-invoke.js";
 import noSharedBooleanMount from "./eslint-rules/no-shared-boolean-mount.js";
+import noChainedInvokes from "./eslint-rules/no-chained-invokes.js";
+import noStartupSideEffectImport from "./eslint-rules/no-startup-side-effect-import.js";
 
 export default [
   {
@@ -26,6 +28,8 @@ export default [
         rules: {
           "no-shared-boolean-mount": noSharedBooleanMount,
           "no-direct-invoke": noDirectInvoke,
+          "no-chained-invokes": noChainedInvokes,
+          "no-startup-side-effect-import": noStartupSideEffectImport,
         },
       },
       security: security,
@@ -41,6 +45,8 @@ export default [
       ],
       "local/no-shared-boolean-mount": "error",
       "local/no-direct-invoke": "error",
+      "local/no-chained-invokes": "error",
+      "local/no-startup-side-effect-import": "error",
 
       // Import hygiene
       "import-x/no-duplicates": "warn",
@@ -48,11 +54,7 @@ export default [
       "import-x/order": [
         "warn",
         {
-          groups: [
-            ["builtin", "external"],
-            "internal",
-            ["parent", "sibling", "index"],
-          ],
+          groups: [["builtin", "external"], "internal", ["parent", "sibling", "index"]],
           alphabetize: { order: "asc", caseInsensitive: true },
           "newlines-between": "always",
         },
@@ -89,6 +91,7 @@ export default [
     rules: {
       "no-console": "off",
       "local/no-direct-invoke": "off",
+      "local/no-chained-invokes": "off",
     },
   },
   prettier,
