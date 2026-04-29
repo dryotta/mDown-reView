@@ -25,14 +25,22 @@
 //! sanitized to strip control characters that could be used for log-line
 //! injection (see `startup_recorder::sanitize_err_for_log`).
 //!
-//! Gating: the per-call `[ipc]` line is emitted only when
-//! `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`. The flag is
-//! cached at first read via `startup_recorder::ipc_trace_enabled` so the
-//! steady-state cost of an IPC call in a release build with the env var
-//! unset is one relaxed atomic load + one branch — well under the
-//! `docs/performance.md` hot-path budget. The `[startup]` events
-//! (only ~6 per process) remain always-on, as does the first-IPC phase
-//! recording.
+//! Gating, split by log level:
+//!   * **warn-level err= lines** (the `Err` arm of a Result-returning
+//!     command) are **always-on**. IPC errors are rare and are the
+//!     highest-value production diagnostic the schema produces, so the
+//!     cost of the format + plugin write is acceptable on a path that
+//!     fires only on failure.
+//!   * **info-level ok=true lines** (every successful call) are gated
+//!     behind `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`,
+//!     cached at first read via `startup_recorder::ipc_trace_enabled` so
+//!     the steady-state cost of a successful IPC call in a release build
+//!     with the env var unset is one relaxed atomic load + one branch —
+//!     well under the `docs/performance.md` hot-path budget for hot
+//!     commands like `search_in_document` and watcher callbacks.
+//!
+//! The `[startup]` events (only ~6 per process) remain always-on, as
+//! does the first-IPC phase recording.
 //!
 //! `payload_bytes` is currently a stable `0` schema slot. Iter-2 of this
 //! infrastructure may compute it from the IPC argument JSON; for now it
@@ -98,40 +106,52 @@ fn expand(args: TokenStream2, input: TokenStream2) -> TokenStream2 {
         quote! { #[tauri::command(#args)] }
     };
 
-    // The per-call `[ipc]` emission is gated by `ipc_trace_enabled()` (cached
-    // OnceLock<bool>). In a release build with no `MDR_IPC_TRACE` env var,
-    // the gate fails and no log call is dispatched — keeping the IPC hot
-    // path within budget.
+    // Emission policy split by level:
+    //   * `log::warn!` (err=…) is **always-on** — IPC errors are rare and
+    //     are the most valuable production diagnostic the schema produces.
+    //     Sanitization (control-char strip + length bound) and the cmd=
+    //     prefix block log-line forgery and bound size, so the always-on
+    //     cost is acceptable for a path that fires only on failure.
+    //   * `log::info!` (ok=true) is **gated** by `ipc_trace_enabled()`
+    //     (cached `OnceLock<bool>`: `cfg!(debug_assertions) ||
+    //     env::var("MDR_IPC_TRACE").is_ok()`). The success path is the
+    //     hot path — `search_in_document`, watcher callbacks, etc. fire
+    //     thousands of times per session, and we keep them within the
+    //     `docs/performance.md` budget by skipping the format + plugin
+    //     write in release builds with the env var unset.
     let log_call = if returns_result {
         quote! {
-            if ::mdown_review_lib::startup_recorder::ipc_trace_enabled() {
-                match &__result {
-                    Ok(_) => {
+            match &__result {
+                Ok(_) => {
+                    if ::mdown_review_lib::startup_recorder::ipc_trace_enabled() {
                         log::info!(
                             target: "ipc",
                             "[ipc] cmd={} duration_us={} payload_bytes={} ok=true",
                             #fn_name_str, __dur_us, __payload_bytes
                         );
                     }
-                    Err(e) => {
-                        // Use Debug formatting for the err= field so typed
-                        // discriminated-union errors (ConfigError, SystemError,
-                        // CliShimError, ...) work without implementing Display
-                        // — they all derive Debug. The Debug string is
-                        // sanitized to strip control characters / ANSI
-                        // escapes that could otherwise forge log lines
-                        // through user-controllable error messages
-                        // (e.g. `std::io::Error::to_string()` carries
-                        // attacker-influenced path components).
-                        log::warn!(
-                            target: "ipc",
-                            "[ipc] cmd={} duration_us={} payload_bytes={} ok=false err={}",
-                            #fn_name_str, __dur_us, __payload_bytes,
-                            ::mdown_review_lib::startup_recorder::sanitize_err_for_log(
-                                &format!("{:?}", e)
-                            )
-                        );
-                    }
+                }
+                Err(e) => {
+                    // Use Debug formatting for the err= field so typed
+                    // discriminated-union errors (ConfigError, SystemError,
+                    // CliShimError, ...) work without implementing Display
+                    // — they all derive Debug. The Debug string is
+                    // sanitized to strip control characters / ANSI
+                    // escapes that could otherwise forge log lines
+                    // through user-controllable error messages
+                    // (e.g. `std::io::Error::to_string()` carries
+                    // attacker-influenced path components) and bounded
+                    // at 512 chars so a pathological payload cannot
+                    // displace useful diagnostic context in the
+                    // rotating log file.
+                    log::warn!(
+                        target: "ipc",
+                        "[ipc] cmd={} duration_us={} payload_bytes={} ok=false err={}",
+                        #fn_name_str, __dur_us, __payload_bytes,
+                        ::mdown_review_lib::startup_recorder::sanitize_err_for_log(
+                            &format!("{:?}", e)
+                        )
+                    );
                 }
             }
         }
@@ -245,6 +265,42 @@ mod tests {
         assert!(
             out.contains("sanitize_err_for_log"),
             "err= field must go through sanitizer to block log-line injection: {out}"
+        );
+    }
+
+    /// Errors and warnings must always be logged in production — the
+    /// warn-level err= line is NOT wrapped in the `ipc_trace_enabled()`
+    /// gate. Only the info-level success branch is gated. Regression
+    /// guard: if a future refactor accidentally moves the gate around
+    /// the whole `match`, this test fails.
+    #[test]
+    fn err_arm_is_not_gated_by_ipc_trace() {
+        let out = expand(
+            quote! {},
+            quote! { fn read(p: String) -> Result<String, String> { Ok(p) } },
+        )
+        .to_string();
+
+        // The Ok arm sits inside the gate; the Err arm sits outside.
+        // Token-stream of an unwrapped `Err (e) => { log :: warn ! (...) }`
+        // appears verbatim in the expansion — wrapping it in
+        // `if ipc_trace_enabled() { ... }` would inject the gate
+        // identifier between `Err (e) =>` and `{ log :: warn`.
+        let err_arm_pos = out.find("Err (e) =>").expect("Err arm missing");
+        let after_err_arm = &out[err_arm_pos..err_arm_pos + 200];
+        assert!(
+            !after_err_arm.contains("ipc_trace_enabled"),
+            "Err arm must NOT be gated — errors and warnings always log. \
+             Found gate in: {after_err_arm}"
+        );
+
+        // Ok arm conversely SHOULD have the gate.
+        let ok_arm_pos = out.find("Ok (_) =>").expect("Ok arm missing");
+        let after_ok_arm = &out[ok_arm_pos..ok_arm_pos + 200];
+        assert!(
+            after_ok_arm.contains("ipc_trace_enabled"),
+            "Ok arm must be gated by ipc_trace_enabled (hot-path budget). \
+             Found in: {after_ok_arm}"
         );
     }
 

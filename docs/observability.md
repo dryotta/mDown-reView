@@ -18,7 +18,14 @@ On error:
 [ipc] cmd=<command_name> duration_us=<u> payload_bytes=<n> ok=false err=<sanitized>
 ```
 
-**Gating:** `[ipc]` lines are emitted only when `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`. The flag is read once per process and cached in a `OnceLock<bool>` — steady-state cost in a release build with the env var unset is one relaxed atomic load + one branch, well under the hot-path budget in [`docs/performance.md`](performance.md). To enable production tracing, set `MDR_IPC_TRACE=1` before launch (see "Enabling extra trace detail" below).
+**Gating, split by log level:**
+
+| Level | Lines | When emitted |
+|---|---|---|
+| `warn` | `ok=false err=…` (the error variant) | **Always.** IPC errors are rare and high-value diagnostics; the format + plugin-write cost is negligible on a path that fires only on failure. The err= field is sanitized (control-char strip + 512-char bound) so log-injection / forensic-tampering is blocked. |
+| `info` | `ok=true` (every successful call) | Only when `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`. The success path is the IPC hot path — `search_in_document`, watcher callbacks, etc. fire thousands of times per session. The flag is read once per process and cached in a `OnceLock<bool>`; steady-state cost in a release build with the env var unset is one relaxed atomic load + one branch, well under the hot-path budget in [`docs/performance.md`](performance.md). |
+
+To enable per-success tracing in a release build, set `MDR_IPC_TRACE=1` before launch (see "Enabling extra trace detail" below). Errors and warnings always reach the rotating log file regardless of the env var or build profile.
 
 Field reference:
 
@@ -68,7 +75,7 @@ Every existing IPC handler in `src-tauri/src/commands/`, `src-tauri/src/lib.rs`,
 
 ## Enabling extra trace detail
 
-Set the `MDR_IPC_TRACE` environment variable to any value (e.g. `1`, `true`) before launching the app to enable per-IPC `[ipc]` log lines in a release build. Debug builds (`cargo build` without `--release`) enable the path implicitly via `cfg!(debug_assertions)`.
+Set the `MDR_IPC_TRACE` environment variable to any value (e.g. `1`, `true`) before launching the app to enable the per-success `[ipc] … ok=true` info-level lines in a release build. Debug builds (`cargo build` without `--release`) enable the path implicitly via `cfg!(debug_assertions)`.
 
 ```bash
 # macOS / Linux
@@ -80,7 +87,7 @@ $env:MDR_IPC_TRACE=1; mdownreview
 
 `MDR_IPC_TRACE` is **dev-time only** — there is no UI affordance to toggle it (Non-Goal: no in-app log viewer). The variable is read once at first IPC dispatch and cached for the rest of the process; live toggling is intentionally unsupported.
 
-`[startup]` events fire **regardless** of `MDR_IPC_TRACE` — they are at most ~6 per process and well within the always-on budget. Only the per-IPC `[ipc]` lines are gated.
+The env var **only** controls the success-path info lines. Errors (`[ipc] … ok=false err=…`) and `[startup]` phase events are always-on regardless of build profile or env var.
 
 ## Log location
 
@@ -97,17 +104,19 @@ A future PR (PR4 of the engineering-excellence plan) will ship `analyze-log` —
 
 ## Performance budget
 
-In a release build with `MDR_IPC_TRACE` unset, the per-IPC steady-state cost of the `#[mdr_command]` wrapper is:
+In a release build with `MDR_IPC_TRACE` unset, the per-IPC steady-state cost of the `#[mdr_command]` wrapper on the **success path** is:
 
-* one `Instant::now()` (the duration anchor — used by the trace path; cheap on modern Windows / macOS),
+* one `Instant::now()` (the duration anchor — cheap on modern Windows / macOS),
 * one relaxed atomic load to short-circuit `record_first_ipc` post-first-call,
-* one relaxed atomic load + branch to short-circuit `ipc_trace_enabled()` (no log emit, no allocation, no plugin write).
+* one relaxed atomic load + branch to short-circuit the `ipc_trace_enabled()` info-line gate (no log emit, no allocation, no plugin write).
 
-The `[ipc]` log call itself — `log::info!`/`log::warn!` formatting and the `tauri-plugin-log` dispatch — is paid only when the trace gate is open (debug builds, or release with `MDR_IPC_TRACE=1`). This keeps the IPC hot path within the budget tracked in [`docs/performance.md`](performance.md) for commands that fire at keystroke rate (`search_in_document`, `compute_anchor_hash`, watcher callbacks).
+On the **error path** the wrapper additionally pays one `log::warn!` invocation: format-args expansion, the sanitizer pass over the Debug-formatted error (bounded at 512 chars), and the plugin dispatch to the rotating log file. Errors are rare relative to successes, so this is unconditional — production diagnostics are valuable enough to justify the always-on cost on a path that fires only on failure.
+
+The `[ipc]` info-level call itself is paid only when the trace gate is open (debug builds, or release with `MDR_IPC_TRACE=1`). This keeps the IPC hot path within the budget tracked in [`docs/performance.md`](performance.md) for commands that fire at keystroke rate (`search_in_document`, `compute_anchor_hash`, watcher callbacks).
 
 `[startup]` events run at most ~6 times per process; their always-on budget is ~3 µs total, well below the 5 ms instrumentation overhead target from #264's acceptance criteria.
 
-Compiled binary growth is bounded by the proc-macro expansion (a single static string per command + a few stack locals + the gated log site), measured at well under the 100 kB target.
+Compiled binary growth is bounded by the proc-macro expansion (a single static string per command + a few stack locals + the warn-arm sanitize call + the gated info-arm log site), measured at well under the 100 kB target.
 
 ## Related rules
 
