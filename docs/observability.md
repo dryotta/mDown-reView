@@ -23,9 +23,9 @@ On error:
 | Level | Lines | When emitted |
 |---|---|---|
 | `warn` | `ok=false err=…` (the error variant) | **Always.** IPC errors are rare and high-value diagnostics; the format + plugin-write cost is negligible on a path that fires only on failure. The err= field is sanitized (control-char strip + 512-char bound) so log-injection / forensic-tampering is blocked. |
-| `info` | `ok=true` (every successful call) | Only when `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`. The success path is the IPC hot path — `search_in_document`, watcher callbacks, etc. fire thousands of times per session. The flag is read once per process and cached in a `OnceLock<bool>`; steady-state cost in a release build with the env var unset is one relaxed atomic load + one branch, well under the hot-path budget in [`docs/performance.md`](performance.md). |
+| `info` | `ok=true` (every successful call) | Only when the `--trace` launch flag (or `MDR_IPC_TRACE` env var fallback) opens the gate, or in debug builds. The success path is the IPC hot path — `search_in_document`, watcher callbacks, etc. fire thousands of times per session. The gate lives in a static `AtomicBool` set once at boot; steady-state cost when closed is one relaxed atomic load + one branch, well under the hot-path budget in [`docs/performance.md`](performance.md). |
 
-To enable per-success tracing in a release build, set `MDR_IPC_TRACE=1` before launch (see "Enabling extra trace detail" below). Errors and warnings always reach the rotating log file regardless of the env var or build profile.
+To enable per-success tracing in a release build, launch with `mdownreview --trace` (see "Enabling extra trace detail" below for all forms). Errors and warnings always reach the rotating log file regardless of the flag, env var, or build profile.
 
 Field reference:
 
@@ -75,19 +75,39 @@ Every existing IPC handler in `src-tauri/src/commands/`, `src-tauri/src/lib.rs`,
 
 ## Enabling extra trace detail
 
-Set the `MDR_IPC_TRACE` environment variable to any value (e.g. `1`, `true`) before launching the app to enable the per-success `[ipc] … ok=true` info-level lines in a release build. Debug builds (`cargo build` without `--release`) enable the path implicitly via `cfg!(debug_assertions)`.
+The per-success `[ipc] … ok=true` info-level lines are gated by the **`--trace` launch flag**:
 
 ```bash
+# Enable for this launch (any of these)
+mdownreview --trace
+mdownreview --trace=on        # explicit on (also: true, 1, yes)
+
+# Disable for this launch — overrides the debug-build default
+mdownreview --trace=off       # explicit off (also: false, 0, no)
+
+# Combine freely with file / folder args
+mdownreview --trace ./README.md /path/to/folder
+```
+
+Boot-time precedence (highest wins):
+
+1. **`--trace[=on|off]`** launch flag — explicit user intent for this launch (parsed by `commands::launch::parse_trace_flag`).
+2. **`MDR_IPC_TRACE`** env var (any value) — legacy escape hatch for shell aliases / launcher scripts.
+3. **`cfg!(debug_assertions)`** — debug builds default ON, release builds default OFF.
+
+The resolved value is stored in `startup_recorder::IPC_TRACE_ENABLED` (a static `AtomicBool`) and read by `ipc_trace_enabled()` on every IPC dispatch — one relaxed atomic load + one branch per call. See [`docs/specs/cli-file-open.md` § Process-global flags](specs/cli-file-open.md#process-global-flags) for the formal spec.
+
+```bash
+# Env-var fallback (still works)
 # macOS / Linux
 MDR_IPC_TRACE=1 mdownreview
-
 # Windows (PowerShell)
 $env:MDR_IPC_TRACE=1; mdownreview
 ```
 
-`MDR_IPC_TRACE` is **dev-time only** — there is no UI affordance to toggle it (Non-Goal: no in-app log viewer). The variable is read once at first IPC dispatch and cached for the rest of the process; live toggling is intentionally unsupported.
+**Per-launch only.** The flag is read at boot and applied **before** the Tauri runtime starts dispatching IPCs. There is no UI toggle (Non-Goal: no in-app log viewer / no developer settings panel) and no live-toggle IPC. A second-instance launch with `--trace` does **not** modify the running app's gate state — the file/folder args are still forwarded normally, but the running process keeps the gate state set at its own boot. To switch tracing on/off for an already-running app, quit and relaunch.
 
-The env var **only** controls the success-path info lines. Errors (`[ipc] … ok=false err=…`) and `[startup]` phase events are always-on regardless of build profile or env var.
+The flag **only** controls the success-path info lines. Errors (`[ipc] … ok=false err=…`) and `[startup]` phase events are always-on regardless of the flag, env var, or build profile.
 
 ## Log location
 

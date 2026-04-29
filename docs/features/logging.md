@@ -51,7 +51,7 @@ flowchart LR
 
 ## Runtime tracing schemas
 
-Two stable line schemas share this rotating file (issue #264 / PR3). The canonical home for the field reference, env-var gating, and the post-hoc `analyze-log` story is [`docs/observability.md`](../observability.md):
+Two stable line schemas share this rotating file (issue #264 / PR3). The canonical home for the field reference, gating model, and the post-hoc `analyze-log` story is [`docs/observability.md`](../observability.md):
 
-* **`[ipc] cmd=<name> duration_us=<u> payload_bytes=<n> ok=<bool>`** — emitted by every `#[mdr_command]`-wrapped Tauri command, target `"ipc"`. Errors land at `warn` level with `err=<debug>`.
-* **`[startup] phase=<kebab-name> t_ms=<n>`** — emitted at most once per phase per process by `StartupRecorder`, target `"startup"`. Phases: `app-init`, `webview-ready`, `first-ipc`, `theme-applied`, `frontend-mounted`, `first-file-loaded`.
+* **`[ipc] cmd=<name> duration_us=<u> payload_bytes=<n> ok=<bool>`** — emitted by every `#[mdr_command]`-wrapped Tauri command, target `"ipc"`. Errors land at `warn` level with `err=<sanitized>` and are **always-on**. Successful info-level lines are gated by the `--trace` launch flag (or `MDR_IPC_TRACE` env-var fallback) so the IPC hot path stays within the budget in [`docs/performance.md`](../performance.md).
+* **`[startup] phase=<kebab-name> t_ms=<n>`** — emitted at most once per phase per process by `StartupRecorder`, target `"startup"`. Phases: `app-init`, `webview-ready`, `first-ipc`, `theme-applied`, `frontend-mounted`, `first-file-loaded`. Always-on regardless of `--trace`.
