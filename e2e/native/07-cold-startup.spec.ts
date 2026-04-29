@@ -91,11 +91,10 @@ async function singleLaunch(cdpPort: number): Promise<LaunchResult | null> {
   // straight off the spawned process's stdout instead — debug builds
   // emit them via the Stdout target (lib.rs::run) so this is the same
   // data analyze-log would parse, without crossing a shared file.
-  const { appProc } = await spawnAppWithCdp({ cdpPort, timeoutMs: 30_000 });
-  let stdoutBuf = "";
-  appProc.stdout?.on("data", (d: Buffer) => {
-    stdoutBuf += d.toString("utf8");
-  });
+  // `getStdout` returns the buffer accumulated from spawn time so the
+  // early phases (app-init, webview-ready) which fire before
+  // `spawnAppWithCdp` resolves are still visible.
+  const { appProc, getStdout } = await spawnAppWithCdp({ cdpPort, timeoutMs: 30_000 });
 
   const deadline = Date.now() + 15_000;
   let captured: { appInit: number; frontendMounted: number } | null = null;
@@ -125,7 +124,7 @@ async function singleLaunch(cdpPort: number): Promise<LaunchResult | null> {
     );
 
     while (Date.now() < deadline) {
-      const phases = parseStartupPhases(stdoutBuf);
+      const phases = parseStartupPhases(getStdout());
       const ai = phases.get("app-init");
       const fm = phases.get("frontend-mounted");
       if (ai !== undefined && fm !== undefined) {

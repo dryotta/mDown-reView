@@ -162,13 +162,17 @@ async function setPersistedTheme(page: Page, theme: "light" | "dark" | "system")
     const payload = { state: { theme: t }, version: 1 };
     window.localStorage.setItem("mdownreview-ui", JSON.stringify(payload));
   }, theme);
-  // Chromium debounces localStorage writes to leveldb; without a flush
-  // trigger the value can sit in memory and be lost when the process
-  // is killed. Navigating away fires beforeunload, which calls
-  // LocalStorageImpl::ScheduleImmediateCommit and persists the write.
+  // Force Chromium to commit the localStorage write to leveldb — the
+  // value otherwise sits in memory and is lost when the host process
+  // is killed before its 5 s auto-commit timer fires
+  // (LocalStorageImpl::kCommitTimerDelay). Two triggers in series:
+  //   1. Navigate away → beforeunload calls ScheduleImmediateCommit.
+  //   2. Sleep past the timer threshold as a safety net in case the
+  //      navigation is short-circuited (Tauri CSP, async race, etc.).
   await page.goto("about:blank").catch(() => {
     /* page may already be detached */
   });
+  await new Promise((r) => setTimeout(r, 6_000));
 }
 
 test.describe("Flicker regression (issue #265)", () => {

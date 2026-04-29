@@ -196,7 +196,15 @@ export async function spawnAppWithCdp(opts?: {
   cdpPort?: number;
   timeoutMs?: number;
   userDataDir?: string;
-}): Promise<{ appProc: ChildProcess; cdpPort: number; userDataDir: string }> {
+}): Promise<{
+  appProc: ChildProcess;
+  cdpPort: number;
+  userDataDir: string;
+  /** Accumulated stdout from spawn time. Useful for tests that need
+   *  early phases (e.g. `[startup] phase=app-init`) which fire before
+   *  `await spawnAppWithCdp(...)` resolves. */
+  getStdout: () => string;
+}> {
   if (process.platform !== "win32") {
     throw new Error("spawnAppWithCdp requires Windows (WebView2 + CDP)");
   }
@@ -232,8 +240,16 @@ export async function spawnAppWithCdp(opts?: {
   // ~64 KB buffer fills within a few hundred IPC events and blocks the
   // binary mid-startup before phases reach the file. Tag the prefix so
   // the test runner stream stays readable across multiple parallel spawns.
+  // Also accumulate stdout into a buffer so callers can scrape early
+  // phases (`[startup] phase=app-init`) that fire before this function
+  // returns — attaching a 'data' listener after the fact would miss them.
   const tag = `app-${cdpPort}`;
-  appProc.stdout?.on("data", (d: Buffer) => process.stdout.write(`[${tag}] ${d}`));
+  let stdoutBuf = "";
+  appProc.stdout?.on("data", (d: Buffer) => {
+    const s = d.toString("utf8");
+    stdoutBuf += s;
+    process.stdout.write(`[${tag}] ${s}`);
+  });
   appProc.stderr?.on("data", (d: Buffer) => process.stderr.write(`[${tag}:err] ${d}`));
   let alive = true;
   appProc.once("exit", () => {
@@ -247,7 +263,7 @@ export async function spawnAppWithCdp(opts?: {
     }
   });
   await waitForCdp(cdpPort, opts?.timeoutMs ?? 30_000, () => alive);
-  return { appProc, cdpPort, userDataDir };
+  return { appProc, cdpPort, userDataDir, getStdout: () => stdoutBuf };
 }
 
 export { waitForCdp };
