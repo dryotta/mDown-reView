@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { StrictMode } from "react";
 import { useTreeWatcher } from "@/hooks/useTreeWatcher";
 import * as commands from "@/lib/tauri-commands";
 
@@ -98,6 +99,27 @@ describe("useTreeWatcher", () => {
     );
     act(() => { vi.advanceTimersByTime(100); });
 
+    expect(commands.updateTreeWatchedDirs).toHaveBeenCalledWith("/root", [
+      "/root",
+      "/root/a",
+    ]);
+  });
+
+  // Regression for the StrictMode bug found while writing the
+  // badge-loading-diag e2e: with `lastSentRef.current = key` placed
+  // BEFORE the setTimeout, a StrictMode double-mount cleared the timer
+  // in cleanup and the second effect run skipped because the key
+  // already matched — so updateTreeWatchedDirs effectively never fired
+  // in dev. The fix moves the assignment inside the setTimeout
+  // callback so the re-mounted effect harmlessly re-arms the timer.
+  it("fires updateTreeWatchedDirs even under StrictMode double-mount", () => {
+    renderHook(() => useTreeWatcher("/root", { "/root/a": true }), {
+      wrapper: StrictMode,
+    });
+
+    act(() => { vi.advanceTimersByTime(100); });
+
+    expect(commands.updateTreeWatchedDirs).toHaveBeenCalled();
     expect(commands.updateTreeWatchedDirs).toHaveBeenCalledWith("/root", [
       "/root",
       "/root/a",

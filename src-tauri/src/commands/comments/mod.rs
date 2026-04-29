@@ -1,9 +1,10 @@
 //! Comment thread mutation commands (sidecar reads, writes, anchor hashing).
 //!
-//! Split into 5 submodules for the 400-LOC budget (architecture rule 23):
+//! Split into 6 submodules for the 400-LOC budget (architecture rule 23):
 //! - `mod.rs` — workspace guard + CRUD entry points
 //! - `anchor_input.rs` — `NewCommentAnchor` / `TaggedNewAnchor` wire types
 //! - `badges.rs` — `get_file_badges`
+//! - `badge_cache.rs` — per-file badge cache with mtime invalidation
 //! - `get.rs` — `get_file_comments` (typed-anchor dispatch + matching)
 //! - `update.rs` — `update_comment` + `CommentPatch`
 
@@ -15,12 +16,14 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use crate::watcher::{SidecarConfigState, WatcherState};
 
 pub mod anchor_input;
+pub mod badge_cache;
 pub mod badges;
 pub mod get;
 pub mod update;
 
 pub use anchor_input::{NewCommentAnchor, TaggedNewAnchor};
 
+pub use badge_cache::BadgeCache;
 pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
 pub use get::{get_file_comments, get_file_comments_inner, GetFileCommentsResult};
 pub use update::{update_comment, update_comment_apply, update_comment_inner, CommentPatch};
