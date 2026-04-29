@@ -18,7 +18,7 @@ pub enum NewCommentAnchor {
 }
 
 /// Tagged variant of [`NewCommentAnchor`]. Mirrors the TS `Anchor` union
-/// in `src/types/comments.ts` — discriminator is `kind`, payload fields
+/// in `src/lib/anchor-derive.ts` — discriminator is `kind`, payload fields
 /// are flattened alongside it (internally tagged).
 #[derive(Debug, Clone, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]

@@ -652,7 +652,7 @@ export type SystemError =
 { kind: "Unsupported" }
 /**
  * Tagged variant of [`NewCommentAnchor`]. Mirrors the TS `Anchor` union
- * in `src/types/comments.ts` — discriminator is `kind`, payload fields
+ * in `src/lib/anchor-derive.ts` — discriminator is `kind`, payload fields
  * are flattened alongside it (internally tagged).
  */
 export type TaggedNewAnchor = { kind: "line"; line: number; end_line?: number | null; start_column?: number | null; end_column?: number | null; selected_text?: string | null; selected_text_hash?: string | null } | { kind: "file" } | ({ kind: "word_range" } & WordRangePayload)

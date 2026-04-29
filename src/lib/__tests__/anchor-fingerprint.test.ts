@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { canonicalizeAnchor, fingerprintAnchor } from "../anchor-fingerprint";
-import type { Anchor } from "@/types/comments";
+import type { Anchor } from "@/lib/anchor-derive";
 
 describe("anchor-fingerprint", () => {
   it("produces an 8-char lowercase hex fingerprint", () => {
@@ -48,7 +48,14 @@ describe("anchor-fingerprint", () => {
     const anchors: Anchor[] = [
       { kind: "line", line: 7 },
       { kind: "file" },
-      { kind: "word_range", start_word: 0, end_word: 3, line: 1, snippet: "hi", line_text_hash: "abc" },
+      {
+        kind: "word_range",
+        start_word: 0,
+        end_word: 3,
+        line: 1,
+        snippet: "hi",
+        line_text_hash: "abc",
+      },
       { kind: "unknown" },
     ];
     const fps = anchors.map(fingerprintAnchor);
