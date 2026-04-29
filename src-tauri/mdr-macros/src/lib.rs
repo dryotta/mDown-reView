@@ -9,7 +9,7 @@
 //!    binding generator (so `src/lib/bindings.ts` stays in lockstep with
 //!    Rust signatures — issue #263).
 //! 3. A tracing wrapper that records `[ipc] cmd=<name> duration_us=<u>
-//!    payload_bytes=<n> ok=<bool>` on every call and triggers the
+//!    payload_bytes=<n> ok=<bool>` (gated — see below) and triggers the
 //!    `StartupPhase::FirstIpc` event on the first IPC ever, per
 //!    issue #264 (engineering excellence — runtime tracing).
 //!
@@ -21,17 +21,28 @@
 //!
 //! ok-ness detection: if the function's return type starts with `Result`,
 //! the ok=<bool> field reflects `result.is_ok()`. Otherwise it is unconditionally
-//! `ok=true`. Errors are emitted at warn level with their `Display` form.
+//! `ok=true`. Errors are emitted at warn level with their Debug form,
+//! sanitized to strip control characters that could be used for log-line
+//! injection (see `startup_recorder::sanitize_err_for_log`).
 //!
-//! Implementation note: payload_bytes is currently always emitted as 0
-//! (placeholder). Computing it per-call requires either a snapshot of the
-//! arguments or post-processing of the on-wire JSON; both would either
-//! double-allocate or hook below the IPC dispatcher. Iter-2 of this
-//! infrastructure may revisit; for now PR3 ships the stable schema slot.
+//! Gating: the per-call `[ipc]` line is emitted only when
+//! `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`. The flag is
+//! cached at first read via `startup_recorder::ipc_trace_enabled` so the
+//! steady-state cost of an IPC call in a release build with the env var
+//! unset is one relaxed atomic load + one branch — well under the
+//! `docs/performance.md` hot-path budget. The `[startup]` events
+//! (only ~6 per process) remain always-on, as does the first-IPC phase
+//! recording.
+//!
+//! `payload_bytes` is currently a stable `0` schema slot. Iter-2 of this
+//! infrastructure may compute it from the IPC argument JSON; for now it
+//! reserves the column so log-analyzer regexes (PR4 `analyze-log`) can
+//! pin against the exact field order.
 
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, ItemFn, ReturnType, Type};
+use syn::{parse2, ItemFn, ReturnType, Type};
 
 /// True if `ty` is `Result<...>` (with any path tail / generic args).
 /// Used to decide whether the wrapper logs `ok=true|false` based on the
@@ -54,7 +65,18 @@ fn is_result_type(ty: &Type) -> bool {
 /// log schema.
 #[proc_macro_attribute]
 pub fn mdr_command(args: TokenStream, input: TokenStream) -> TokenStream {
-    let input_fn = parse_macro_input!(input as ItemFn);
+    expand(args.into(), input.into()).into()
+}
+
+/// `proc_macro2`-based expansion entry point. Split out from
+/// [`mdr_command`] so unit tests can drive the macro without the
+/// `proc_macro` crate (which is only available inside a real
+/// `#[proc_macro_attribute]` invocation).
+fn expand(args: TokenStream2, input: TokenStream2) -> TokenStream2 {
+    let input_fn: ItemFn = match parse2(input) {
+        Ok(f) => f,
+        Err(e) => return e.to_compile_error(),
+    };
 
     let attrs = &input_fn.attrs;
     let vis = &input_fn.vis;
@@ -73,49 +95,55 @@ pub fn mdr_command(args: TokenStream, input: TokenStream) -> TokenStream {
     let tauri_cmd_attr = if args.is_empty() {
         quote! { #[tauri::command] }
     } else {
-        let args = proc_macro2::TokenStream::from(args);
         quote! { #[tauri::command(#args)] }
     };
 
-    // ok-ness branch: the body is inlined (sync) OR is the body of an
-    // async fn (and `#[tauri::command]` handles async desugaring). Both
-    // shapes share the same epilogue logging logic so we factor it once.
-    //
-    // `__result` is whatever `#block` evaluates to — `Result<T, E>` or `T`.
-    // We branch on `returns_result` (compile-time) to drive the warn-on-error
-    // arm; non-Result returns always log `ok=true`.
+    // The per-call `[ipc]` emission is gated by `ipc_trace_enabled()` (cached
+    // OnceLock<bool>). In a release build with no `MDR_IPC_TRACE` env var,
+    // the gate fails and no log call is dispatched — keeping the IPC hot
+    // path within budget.
     let log_call = if returns_result {
         quote! {
-            match &__result {
-                Ok(_) => {
-                    log::info!(
-                        target: "ipc",
-                        "[ipc] cmd={} duration_us={} payload_bytes={} ok=true",
-                        #fn_name_str, __dur_us, __payload_bytes
-                    );
-                }
-                Err(e) => {
-                    // Use Debug formatting for the err= field so typed
-                    // discriminated-union errors (ConfigError, SystemError,
-                    // CliShimError, …) work without implementing Display
-                    // — they all derive Debug, and the log surface is
-                    // diagnostic-only (the over-the-wire payload uses the
-                    // serde-derived JSON shape, untouched by this format).
-                    log::warn!(
-                        target: "ipc",
-                        "[ipc] cmd={} duration_us={} payload_bytes={} ok=false err={:?}",
-                        #fn_name_str, __dur_us, __payload_bytes, e
-                    );
+            if ::mdown_review_lib::startup_recorder::ipc_trace_enabled() {
+                match &__result {
+                    Ok(_) => {
+                        log::info!(
+                            target: "ipc",
+                            "[ipc] cmd={} duration_us={} payload_bytes={} ok=true",
+                            #fn_name_str, __dur_us, __payload_bytes
+                        );
+                    }
+                    Err(e) => {
+                        // Use Debug formatting for the err= field so typed
+                        // discriminated-union errors (ConfigError, SystemError,
+                        // CliShimError, ...) work without implementing Display
+                        // — they all derive Debug. The Debug string is
+                        // sanitized to strip control characters / ANSI
+                        // escapes that could otherwise forge log lines
+                        // through user-controllable error messages
+                        // (e.g. `std::io::Error::to_string()` carries
+                        // attacker-influenced path components).
+                        log::warn!(
+                            target: "ipc",
+                            "[ipc] cmd={} duration_us={} payload_bytes={} ok=false err={}",
+                            #fn_name_str, __dur_us, __payload_bytes,
+                            ::mdown_review_lib::startup_recorder::sanitize_err_for_log(
+                                &format!("{:?}", e)
+                            )
+                        );
+                    }
                 }
             }
         }
     } else {
         quote! {
-            log::info!(
-                target: "ipc",
-                "[ipc] cmd={} duration_us={} payload_bytes={} ok=true",
-                #fn_name_str, __dur_us, __payload_bytes
-            );
+            if ::mdown_review_lib::startup_recorder::ipc_trace_enabled() {
+                log::info!(
+                    target: "ipc",
+                    "[ipc] cmd={} duration_us={} payload_bytes={} ok=true",
+                    #fn_name_str, __dur_us, __payload_bytes
+                );
+            }
         }
     };
 
@@ -147,24 +175,124 @@ pub fn mdr_command(args: TokenStream, input: TokenStream) -> TokenStream {
             ::mdown_review_lib::startup_recorder::record_first_ipc();
             #body_eval
             let __dur_us = __start.elapsed().as_micros();
-            let __payload_bytes: usize = if cfg!(debug_assertions)
-                || std::env::var("MDR_IPC_TRACE").is_ok()
-            {
-                0
-            } else {
-                0
-            };
+            // Reserved schema slot — Iter-2 will compute argument-payload
+            // size when MDR_IPC_TRACE is set. Until then this is a stable
+            // `0` so log-analyzer regexes can pin the field order.
+            let __payload_bytes: usize = 0;
             #log_call
             __result
         }
     };
 
-    let expanded = quote! {
+    quote! {
         #(#attrs)*
         #tauri_cmd_attr
         #[specta::specta]
         #vis #sig #wrapped_body
-    };
+    }
+}
 
-    TokenStream::from(expanded)
+#[cfg(test)]
+mod tests {
+    use super::expand;
+    use quote::quote;
+
+    /// Snapshot-style assertion that the macro emits both the
+    /// `#[tauri::command]` and `#[specta::specta]` attributes (so the
+    /// tauri-specta codegen pipeline keeps finding the function), the
+    /// gated `[ipc]` log call, and the `record_first_ipc` hook into the
+    /// startup recorder. Catches accidental drops of any composed
+    /// attribute when the macro is refactored.
+    #[test]
+    fn expansion_includes_tauri_command_and_specta_and_log() {
+        let out = expand(
+            quote! {},
+            quote! { fn check(path: String) -> bool { false } },
+        )
+        .to_string();
+        assert!(out.contains("# [tauri :: command]"), "missing #[tauri::command]: {out}");
+        assert!(out.contains("# [specta :: specta]"), "missing #[specta::specta]: {out}");
+        assert!(out.contains("\"[ipc] cmd"), "missing [ipc] log call: {out}");
+        assert!(
+            out.contains("ipc_trace_enabled"),
+            "missing ipc_trace_enabled gate (steady-state perf): {out}"
+        );
+        assert!(
+            out.contains("record_first_ipc"),
+            "missing record_first_ipc hook: {out}"
+        );
+    }
+
+    /// Result-returning fns should expand to a `match` against the result
+    /// so the warn-level err= line fires on `Err`. Non-Result returns
+    /// should hit the simpler info-level always-ok branch.
+    ///
+    /// Note: assertions match the format-literal text inside the
+    /// `log::warn!`/`log::info!` invocation (no whitespace inside string
+    /// literals), not the surrounding tokenized expansion.
+    #[test]
+    fn result_return_expands_to_match_on_result() {
+        let out = expand(
+            quote! {},
+            quote! { fn read(p: String) -> Result<String, String> { Ok(p) } },
+        )
+        .to_string();
+        assert!(out.contains("match & __result"), "result fn missing match: {out}");
+        assert!(
+            out.contains("ok=false err="),
+            "result fn missing err= line in log format string: {out}"
+        );
+        assert!(
+            out.contains("sanitize_err_for_log"),
+            "err= field must go through sanitizer to block log-line injection: {out}"
+        );
+    }
+
+    #[test]
+    fn non_result_return_uses_info_only() {
+        let out = expand(
+            quote! {},
+            quote! { fn ping() -> u8 { 0 } },
+        )
+        .to_string();
+        assert!(
+            !out.contains("match & __result"),
+            "non-result fn should not match: {out}"
+        );
+        assert!(
+            !out.contains("ok=false"),
+            "non-result fn should not emit err= branch in log format string: {out}"
+        );
+        assert!(
+            out.contains("ok=true"),
+            "non-result fn should always log ok=true: {out}"
+        );
+    }
+
+    /// Argument forwarding: `#[mdr_command(rename_all = "camelCase")]`
+    /// must reach the inner `#[tauri::command(...)]` so Tauri's case
+    /// conversion still applies. Bare `#[mdr_command]` must NOT add
+    /// stray parens.
+    #[test]
+    fn forwards_args_to_tauri_command() {
+        let with_args = expand(
+            quote! { rename_all = "camelCase" },
+            quote! { fn x() -> u8 { 0 } },
+        )
+        .to_string();
+        assert!(
+            with_args.contains("# [tauri :: command (rename_all = \"camelCase\")]"),
+            "missing forwarded args: {with_args}"
+        );
+
+        let bare = expand(quote! {}, quote! { fn x() -> u8 { 0 } }).to_string();
+        assert!(
+            bare.contains("# [tauri :: command]"),
+            "bare mdr_command should expand to bare tauri::command: {bare}"
+        );
+        assert!(
+            !bare.contains("# [tauri :: command ("),
+            "bare mdr_command must not emit empty parens: {bare}"
+        );
+    }
 }

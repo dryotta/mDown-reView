@@ -140,6 +140,103 @@ pub fn record_first_ipc() {
     }
 }
 
+/// Cached gate for the per-call `[ipc]` log line emitted by `#[mdr_command]`.
+/// Returns `true` in any debug build, or whenever `MDR_IPC_TRACE` is set in
+/// the process environment. The result is memoized in a `OnceLock<bool>`
+/// so the steady-state per-IPC cost is one relaxed atomic load + one
+/// branch — matches the hot-path budget in `docs/performance.md`.
+///
+/// Why cache: `std::env::var` is a syscall (or TLS lookup with a Mutex on
+/// Windows). Calling it on every IPC dispatch breaches the budget for
+/// hot commands like `search_in_document` and the watcher's `notify`
+/// callbacks. The env var is read at most once per process; live toggling
+/// is intentionally unsupported.
+pub fn ipc_trace_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| cfg!(debug_assertions) || std::env::var("MDR_IPC_TRACE").is_ok())
+}
+
+/// Maximum length of a sanitized err string in an `[ipc]` log line. Keeps
+/// pathological error payloads (e.g. multi-MB serde dumps) from blowing
+/// out the rotating log file on a single failed IPC call.
+const MAX_LOG_ERR_LEN: usize = 512;
+
+/// Sanitize a Debug-formatted error payload for inclusion in an `[ipc]`
+/// log line. Strips control characters that an attacker could use to
+/// forge log entries — newlines, carriage returns, and ANSI/CSI escape
+/// sequences — and bounds the length so a pathological error cannot
+/// rotate out useful diagnostic context.
+///
+/// The replacement character is `?` (0x3F), which is structurally
+/// distinguishable from real text and survives a UTF-8 round trip.
+/// Truncation appends `…(truncated)` so a downstream parser can detect
+/// the cut and avoid acting on a partial payload.
+///
+/// Used by the `#[mdr_command]` proc-macro's err= field (see
+/// `mdr-macros/src/lib.rs`). Not a security boundary on its own — the
+/// `[ipc]` lines are gated behind `ipc_trace_enabled()` and only fire
+/// in debug builds or when `MDR_IPC_TRACE=1` — but it closes the
+/// log-injection / forensic-tampering surface flagged in the security
+/// review of issue #264.
+pub fn sanitize_err_for_log(s: &str) -> String {
+    let mut out = String::with_capacity(s.len().min(MAX_LOG_ERR_LEN + 16));
+    let mut written = 0usize;
+    for c in s.chars() {
+        if written >= MAX_LOG_ERR_LEN {
+            out.push_str("…(truncated)");
+            return out;
+        }
+        // Control characters (C0 + DEL + C1) and ESC are replaced. Keeps
+        // ASCII printable, normal whitespace becomes a single space, and
+        // anything else (e.g. non-Latin path components) passes through
+        // unchanged so the log remains useful for diagnostics.
+        let safe = match c {
+            '\t' | ' ' => ' ',
+            c if c.is_control() => '?',
+            c => c,
+        };
+        out.push(safe);
+        written += 1;
+    }
+    out
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::sanitize_err_for_log;
+
+    #[test]
+    fn strips_newline_carriage_return_and_escape() {
+        let payload = "evil\n[ipc] cmd=install_update ok=true\rinjected\x1b[31m";
+        let out = sanitize_err_for_log(payload);
+        assert!(!out.contains('\n'), "newline must be stripped: {out:?}");
+        assert!(!out.contains('\r'), "CR must be stripped: {out:?}");
+        assert!(!out.contains('\x1b'), "ESC must be stripped: {out:?}");
+    }
+
+    #[test]
+    fn preserves_normal_diagnostic_text() {
+        let payload = "ConfigError::IoError { path: \"/Users/dev/x.md\", reason: \"ENOENT\" }";
+        let out = sanitize_err_for_log(payload);
+        assert_eq!(out, payload, "normal text must round-trip unchanged");
+    }
+
+    #[test]
+    fn truncates_pathological_input() {
+        let payload = "a".repeat(2048);
+        let out = sanitize_err_for_log(&payload);
+        assert!(
+            out.ends_with("…(truncated)"),
+            "must signal truncation: {out:?}"
+        );
+        assert!(
+            out.chars().count() <= super::MAX_LOG_ERR_LEN + "…(truncated)".chars().count(),
+            "must bound output length: got {} chars",
+            out.chars().count()
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

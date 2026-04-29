@@ -15,17 +15,20 @@ Two stable line schemas, both emitted via `log::info!`/`log::warn!` against name
 On error:
 
 ```
-[ipc] cmd=<command_name> duration_us=<u> payload_bytes=<n> ok=false err=<debug_form>
+[ipc] cmd=<command_name> duration_us=<u> payload_bytes=<n> ok=false err=<sanitized>
 ```
+
+**Gating:** `[ipc]` lines are emitted only when `cfg!(debug_assertions) || env::var("MDR_IPC_TRACE").is_ok()`. The flag is read once per process and cached in a `OnceLock<bool>` — steady-state cost in a release build with the env var unset is one relaxed atomic load + one branch, well under the hot-path budget in [`docs/performance.md`](performance.md). To enable production tracing, set `MDR_IPC_TRACE=1` before launch (see "Enabling extra trace detail" below).
 
 Field reference:
 
 | Field | Source | Notes |
 |---|---|---|
 | `cmd` | function name | Stable Rust ident; matches the IPC name on the wire after Tauri's snake_case conversion. |
-| `duration_us` | `std::time::Instant` | End-to-end wall time from wrapper entry to body completion, in microseconds. Includes await suspensions for async commands. |
-| `payload_bytes` | input args | **Iter-1 placeholder — always `0`.** A future iteration may compute via post-processing of the JSON payload at the dispatcher boundary; the schema slot is reserved now so analyzers can pin field order. The `MDR_IPC_TRACE=1` env var (and `cfg(debug_assertions)`) gate the *future* compute path; today both branches emit `0`. |
-| `ok` | `Result::is_ok()` | `true` for non-`Result` returns; otherwise reflects the discriminant. Errors are emitted at `log::warn!` level with `err=<Debug>` so typed errors (`ConfigError`, `SystemError`, …) survive without implementing `Display`. |
+| `duration_us` | `std::time::Instant` | End-to-end wall time from wrapper entry to body completion, in microseconds. Includes await suspensions for async commands. The `record_first_ipc` atomic and the trace-gate atomic load are *inside* this window; the log-emit cost is *not*. |
+| `payload_bytes` | input args | **Iter-1 placeholder — always `0`.** Reserved schema slot so analyzers can pin field order; a future iteration may compute the JSON payload size at the dispatcher boundary. |
+| `ok` | `Result::is_ok()` | `true` for non-`Result` returns; otherwise reflects the discriminant. Errors are emitted at `log::warn!` level. |
+| `err` (error variant only) | `format!("{:?}", e)`, sanitized | The Debug form of the error (so typed errors `ConfigError`, `SystemError`, … work without implementing `Display`). The string is passed through `startup_recorder::sanitize_err_for_log`: control characters (newlines, carriage returns, ANSI/CSI escapes) are replaced with `?`, and the result is bounded at 512 chars (truncated payloads end with `…(truncated)`). This blocks log-line forgery via attacker-influenced error messages. |
 
 `target` is `"ipc"` for every line.
 
@@ -65,7 +68,7 @@ Every existing IPC handler in `src-tauri/src/commands/`, `src-tauri/src/lib.rs`,
 
 ## Enabling extra trace detail
 
-Set the `MDR_IPC_TRACE` environment variable to any value (e.g. `1`, `true`) before launching the app. This gates the *future* `payload_bytes` computation path (today both branches emit `0`). Debug builds (`cargo build` without `--release`) implicitly enable the path via `cfg!(debug_assertions)`.
+Set the `MDR_IPC_TRACE` environment variable to any value (e.g. `1`, `true`) before launching the app to enable per-IPC `[ipc]` log lines in a release build. Debug builds (`cargo build` without `--release`) enable the path implicitly via `cfg!(debug_assertions)`.
 
 ```bash
 # macOS / Linux
@@ -75,7 +78,9 @@ MDR_IPC_TRACE=1 mdownreview
 $env:MDR_IPC_TRACE=1; mdownreview
 ```
 
-The `[ipc]` and `[startup]` events are emitted **regardless** of `MDR_IPC_TRACE` — the env var only affects the optional payload sizing.
+`MDR_IPC_TRACE` is **dev-time only** — there is no UI affordance to toggle it (Non-Goal: no in-app log viewer). The variable is read once at first IPC dispatch and cached for the rest of the process; live toggling is intentionally unsupported.
+
+`[startup]` events fire **regardless** of `MDR_IPC_TRACE` — they are at most ~6 per process and well within the always-on budget. Only the per-IPC `[ipc]` lines are gated.
 
 ## Log location
 
@@ -92,7 +97,17 @@ A future PR (PR4 of the engineering-excellence plan) will ship `analyze-log` —
 
 ## Performance budget
 
-The `#[mdr_command]` wrapper adds one `Instant::now()` + one atomic load (`record_first_ipc`) + one log call per IPC. On a modern Windows / macOS host this is a low-microsecond overhead per call — well below the 100 µs cold-startup IPC budget tracked in [`docs/performance.md`](performance.md). The compiled binary growth is bounded by the proc-macro expansion (a single static string per command + a few stack locals), measured at well under the 100 kB target documented in #264's acceptance criteria.
+In a release build with `MDR_IPC_TRACE` unset, the per-IPC steady-state cost of the `#[mdr_command]` wrapper is:
+
+* one `Instant::now()` (the duration anchor — used by the trace path; cheap on modern Windows / macOS),
+* one relaxed atomic load to short-circuit `record_first_ipc` post-first-call,
+* one relaxed atomic load + branch to short-circuit `ipc_trace_enabled()` (no log emit, no allocation, no plugin write).
+
+The `[ipc]` log call itself — `log::info!`/`log::warn!` formatting and the `tauri-plugin-log` dispatch — is paid only when the trace gate is open (debug builds, or release with `MDR_IPC_TRACE=1`). This keeps the IPC hot path within the budget tracked in [`docs/performance.md`](performance.md) for commands that fire at keystroke rate (`search_in_document`, `compute_anchor_hash`, watcher callbacks).
+
+`[startup]` events run at most ~6 times per process; their always-on budget is ~3 µs total, well below the 5 ms instrumentation overhead target from #264's acceptance criteria.
+
+Compiled binary growth is bounded by the proc-macro expansion (a single static string per command + a few stack locals + the gated log site), measured at well under the 100 kB target.
 
 ## Related rules
 

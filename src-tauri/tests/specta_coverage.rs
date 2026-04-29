@@ -77,10 +77,32 @@ fn attr_path_matches(attr: &syn::Attribute, targets: &[&[&str]]) -> bool {
     false
 }
 
+/// Floor for the number of `#[mdr_command]`-annotated IPC entry points
+/// the codebase must carry. The migration in issue #264 renamed every
+/// pre-existing `#[tauri::command]` (except `fetch_remote_asset`) to
+/// `#[mdr_command]`. If a future change accidentally reverts the
+/// annotation — or if someone copies a command stub without the
+/// `#[mdr_command]` line — the count drops below this floor and the
+/// test fails.
+///
+/// Set deliberately below the actual count (~50 at the time of the
+/// migration) so unrelated command additions / removals don't churn
+/// this number; the goal is to detect a wholesale silent regression,
+/// not to gate every PR on an exact count.
+const MIN_MDR_COMMAND_COUNT: usize = 30;
+
 struct CommandVisitor {
     file: PathBuf,
     /// Functions found that have `#[tauri::command]` but no `#[specta::specta]`.
     missing: Vec<(PathBuf, String)>,
+    /// Functions that carry BOTH `#[mdr_command]` and a bare
+    /// `#[tauri::command]` — a layering bug, since `#[mdr_command]`
+    /// already expands to `#[tauri::command]` and stacking them
+    /// double-wraps the body and breaks the trace span.
+    double_wrapped: Vec<(PathBuf, String)>,
+    /// Functions annotated with `#[mdr_command]`. Counted across the
+    /// whole tree to detect a silent migration regression.
+    mdr_command_count: usize,
 }
 
 impl<'ast> Visit<'ast> for CommandVisitor {
@@ -89,11 +111,30 @@ impl<'ast> Visit<'ast> for CommandVisitor {
             .attrs
             .iter()
             .any(|a| attr_path_matches(a, &[&["tauri", "command"], &["command"]]));
+        let has_mdr_cmd = item
+            .attrs
+            .iter()
+            .any(|a| attr_path_matches(a, &[&["mdr_command"]]));
+        let fn_name = item.sig.ident.to_string();
+
+        if has_mdr_cmd {
+            self.mdr_command_count += 1;
+            // `#[mdr_command]` always expands to `#[tauri::command] +
+            // #[specta::specta] + tracing wrap` (see mdr-macros/src/lib.rs).
+            // Pairing is therefore guaranteed by the macro itself — and
+            // verified by the unit tests in that crate. Coverage rule
+            // satisfied for this fn; no further attribute check needed.
+            if has_tauri_cmd {
+                self.double_wrapped.push((self.file.clone(), fn_name.clone()));
+            }
+            syn::visit::visit_item_fn(self, item);
+            return;
+        }
+
         if !has_tauri_cmd {
             syn::visit::visit_item_fn(self, item);
             return;
         }
-        let fn_name = item.sig.ident.to_string();
         if EXEMPT_FNS.contains(&fn_name.as_str()) {
             syn::visit::visit_item_fn(self, item);
             return;
@@ -121,6 +162,8 @@ fn every_tauri_command_has_specta_specta() {
     );
 
     let mut all_missing: Vec<(PathBuf, String)> = Vec::new();
+    let mut all_double_wrapped: Vec<(PathBuf, String)> = Vec::new();
+    let mut total_mdr_count = 0usize;
     for file in &files {
         let src = std::fs::read_to_string(file)
             .unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
@@ -134,9 +177,13 @@ fn every_tauri_command_has_specta_specta() {
         let mut visitor = CommandVisitor {
             file: file.clone(),
             missing: Vec::new(),
+            double_wrapped: Vec::new(),
+            mdr_command_count: 0,
         };
         visitor.visit_file(&ast);
         all_missing.extend(visitor.missing);
+        all_double_wrapped.extend(visitor.double_wrapped);
+        total_mdr_count += visitor.mdr_command_count;
     }
 
     assert!(
@@ -144,5 +191,23 @@ fn every_tauri_command_has_specta_specta() {
         "the following `#[tauri::command]` fns are missing `#[specta::specta]` \
          (add the attribute or extend EXEMPT_FNS in tests/specta_coverage.rs): {:#?}",
         all_missing
+    );
+
+    assert!(
+        all_double_wrapped.is_empty(),
+        "the following fns carry BOTH `#[mdr_command]` and `#[tauri::command]` — \
+         this double-wraps the body and corrupts the trace span. Drop the bare \
+         `#[tauri::command]` line: {:#?}",
+        all_double_wrapped
+    );
+
+    assert!(
+        total_mdr_count >= MIN_MDR_COMMAND_COUNT,
+        "found only {total_mdr_count} `#[mdr_command]`-annotated fns under {} — \
+         expected at least {MIN_MDR_COMMAND_COUNT}. A wholesale silent regression \
+         (e.g. mass-rename back to bare `#[tauri::command]`, or someone broke \
+         the `mdr_command` re-export) probably happened. Investigate before \
+         lowering the floor.",
+        src_dir.display()
     );
 }
