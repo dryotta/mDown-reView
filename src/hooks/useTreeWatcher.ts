@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { updateTreeWatchedDirs } from "@/lib/tauri-commands";
+
 import { computeWatchedDirs } from "@/lib/folder-tree";
+import { updateTreeWatchedDirs } from "@/lib/tauri-commands";
 import { warn, info } from "@/logger";
 
 const DEBOUNCE_MS = 100;
@@ -24,12 +25,20 @@ export function useTreeWatcher(
     const dirs = computeWatchedDirs(root, expanded);
     const key = dirs.join("\0");
     if (key === lastSentRef.current) return;
-    lastSentRef.current = key;
     // [badge-diag] temporary instrumentation — remove once race
     // hypothesis is confirmed/refuted.
     void info(`[badge-diag] useTreeWatcher schedule: dirs=${dirs.length} root=${root}`);
 
     const t = setTimeout(() => {
+      // Update lastSentRef INSIDE the timeout, not before it. Otherwise
+      // a StrictMode double-mount (or any cleanup-then-rerun cycle
+      // inside the debounce window) clears this timeout in cleanup, then
+      // the second effect run sees `key === lastSentRef.current` and
+      // skips scheduling — so the IPC is silently lost. With the
+      // assignment inside the callback, the re-mounted effect re-arms
+      // the timer harmlessly because `lastSentRef.current` still holds
+      // the previous (or empty) key.
+      lastSentRef.current = key;
       const t0 = performance.now();
       updateTreeWatchedDirs(root, dirs)
         .then(() => {

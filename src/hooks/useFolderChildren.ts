@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
 import { listenEvent } from "@/lib/tauri-events";
 import { warn, info } from "@/logger";

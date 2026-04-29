@@ -2,7 +2,7 @@
 //! Proves the end-to-end flow: config load → path resolve → sidecar I/O.
 
 use mdown_review_lib::commands::comments::{
-    get_file_comments_inner, get_file_badges_inner, mutate_sidecar_or_create,
+    get_file_comments_inner, get_file_badges_inner, mutate_sidecar_or_create, BadgeCache,
 };
 use mdown_review_lib::core::paths::{canonicalize_no_verbatim, ensure_sidecar_parent, load_mrsf_config, resolve_sidecar_for_file};
 use mdown_review_lib::core::sidecar::config::SidecarConfigState;
@@ -366,7 +366,8 @@ fn get_file_badges_inner_with_active_sidecar_root() {
     }).unwrap();
 
     // get_file_badges should find badge via sidecar_root
-    let badges = get_file_badges_inner(&watcher_state, &config_state, &[file_str.clone()]);
+    let cache = BadgeCache::new();
+    let badges = get_file_badges_inner(&watcher_state, &config_state, &cache, &[file_str.clone()]);
     assert!(badges.contains_key(&file_str), "badge should exist for file under sidecar_root");
     assert_eq!(badges[&file_str].count, 1);
 }
