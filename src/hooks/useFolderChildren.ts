@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+
 import { readDir, type DirEntry } from "@/lib/tauri-commands";
 import { listenEvent } from "@/lib/tauri-events";
-import { warn } from "@/logger";
+import { warn, info } from "@/logger";
 import { useStore } from "@/store";
 
 export type { DirEntry };
@@ -27,8 +28,16 @@ export function useFolderChildren(root: string | null) {
     async (path: string, limit?: number): Promise<DirEntry[]> => {
       const cached = childrenCacheRef.current[path];
       if (cached && limit === undefined) return cached.entries;
+      // [badge-diag] temporary instrumentation — remove once expand-hang
+      // hypothesis is confirmed/refuted.
+      const t0 = performance.now();
+      void info(`[badge-diag] loadChildren start: path=${path} limit=${limit ?? "-"}`);
       try {
         const result = await readDir(path, limit, showSidecarFiles || undefined);
+        const elapsed = Math.round(performance.now() - t0);
+        void info(
+          `[badge-diag] loadChildren done: path=${path} entries=${result.entries.length} total=${result.total} elapsed_ms=${elapsed}`,
+        );
         const value: CachedDir = {
           entries: result.entries,
           hasMore: result.has_more,
@@ -41,6 +50,8 @@ export function useFolderChildren(root: string | null) {
         });
         return result.entries;
       } catch {
+        const elapsed = Math.round(performance.now() - t0);
+        void info(`[badge-diag] loadChildren error: path=${path} elapsed_ms=${elapsed}`);
         return [];
       }
     },

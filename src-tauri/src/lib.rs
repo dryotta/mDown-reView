@@ -440,6 +440,7 @@ pub fn run() {
         .manage(watcher::SidecarConfigState::new())
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
         .manage(registry::WindowRegistry::default())
+        .manage(commands::comments::BadgeCache::new())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();

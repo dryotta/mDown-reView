@@ -65,6 +65,14 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", features = ["sync"] }
 unicode-segmentation = "1"
+# Data-parallel iterators for read-only Rust hot paths. Currently used
+# in `commands::comments::badges::get_file_badges_inner` so per-path
+# sidecar I/O fans out across the work-stealing thread pool — each
+# input is independent (load → match → group → severity), the
+# `WatcherState`/`SidecarConfigState` references are `Sync`, and there
+# is no shared mutable state in the loop body. See
+# `docs/performance.md` rule 18 and the "open-workspace race" audit.
+rayon = "1"
 # Pure-Rust path canonicalizer that strips Windows `\\?\` verbatim prefixes
 # whenever an equivalent non-verbatim form exists. Promoted from transitive
 # (tauri/open) to direct so `core::paths::canonicalize_no_verbatim` has a

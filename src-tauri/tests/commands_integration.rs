@@ -877,6 +877,7 @@ mod f0_iter1 {
         check_workspace_for, get_file_badges_inner, set_author_at,
         update_comment_apply, validate_author, CommentPatch, ConfigError,
     };
+    use mdown_review_lib::commands::comments::BadgeCache;
     use mdown_review_lib::core::severity::Severity;
     use mdown_review_lib::core::sidecar::{load_sidecar, save_sidecar};
     use mdown_review_lib::core::types::Anchor;
@@ -1088,14 +1089,22 @@ mod f0_iter1 {
 
         let state = watcher_state_allowing(&canonical);
         let config = SidecarConfigState::new();
-        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
+        let cache = BadgeCache::new();
+        let badges = get_file_badges_inner(&state, &config, &cache, std::slice::from_ref(&file_path));
         let badge = badges.get(&file_path).expect("badge for file");
         assert_eq!(badge.count, 2);
         assert_eq!(badge.max_severity, Severity::High);
     }
 
     #[test]
-    fn get_file_badges_skips_paths_outside_workspace() {
+    fn get_file_badges_returns_outside_workspace_paths() {
+        // Iter-7 audit: the badge IPC no longer applies a tree_watched_dirs
+        // gate. Dropping it eliminated the open-workspace TOCTOU race
+        // (badges blank until the user expands a folder); the IPC remains
+        // safe because it only returns counts + max_severity, every input
+        // is canonicalized via `resolve_sidecar_pair`, and `read_capped`
+        // bounds the YAML/JSON parse. `get_file_comments` (which returns
+        // the actual content) is unguarded for the same reason.
         let workspace = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let outside_canonical = std::fs::canonicalize(outside.path()).unwrap();
@@ -1110,12 +1119,9 @@ mod f0_iter1 {
 
         let state = watcher_state_allowing(workspace.path());
         let config = SidecarConfigState::new();
-        let badges = get_file_badges_inner(&state, &config, &[outside_file.to_str().unwrap().to_string()]);
-        assert!(
-            badges.is_empty(),
-            "outside-workspace badges must be silently skipped: {:?}",
-            badges
-        );
+        let cache = BadgeCache::new();
+        let badges = get_file_badges_inner(&state, &config, &cache, &[outside_file.to_str().unwrap().to_string()]);
+        assert_eq!(badges.len(), 1, "outside-workspace badges must surface (no gate)");
     }
 
     #[test]
@@ -1258,7 +1264,8 @@ mod f0_iter1 {
 
         let state = watcher_state_allowing(workspace.path());
         let config = SidecarConfigState::new();
-        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
+        let cache = BadgeCache::new();
+        let badges = get_file_badges_inner(&state, &config, &cache, std::slice::from_ref(&file_path));
         let badge = badges
             .get(&file_path)
             .expect("orphan-only files must still produce a badge");
