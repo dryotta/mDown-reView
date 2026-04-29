@@ -14,6 +14,17 @@ interface Props {
   onClose: () => void;
 }
 
+/** Render an IPC rejection (string | Error | unknown) as a user-facing string. */
+function formatErr(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 export function SidecarConfigDialog({ root, onClose }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [config, setConfig] = useState<SidecarConfigResult | null>(null);
@@ -23,6 +34,7 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
     moved: number;
     failed: string[];
   } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const showSidecarFiles = useStore((s) => s.showSidecarFiles);
   const toggleShowSidecarFiles = useStore((s) => s.toggleShowSidecarFiles);
@@ -52,7 +64,11 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
       .then((result) => {
         if (!cancelled) setConfig(result);
       })
-      .catch((err) => warn(`[SidecarConfigDialog] load failed: ${err}`))
+      .catch((err) => {
+        const msg = formatErr(err);
+        warn(`[SidecarConfigDialog] load failed: ${msg}`);
+        if (!cancelled) setError(`Failed to load sidecar config: ${msg}`);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -65,12 +81,15 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
   const handleToggleEnabled = async () => {
     if (!config) return;
     setLoading(true);
+    setError(null);
     try {
       const result = await setSidecarConfig(root, !config.enabled);
       setConfig(result);
       setMigrateResult(null);
     } catch (err) {
-      void warn(`[SidecarConfigDialog] toggle failed: ${err}`);
+      const msg = formatErr(err);
+      void warn(`[SidecarConfigDialog] toggle failed: ${msg}`);
+      setError(`Failed to update sidecar config: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -81,13 +100,20 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
     if (!config) return;
     setMigrating(true);
     setMigrateResult(null);
+    setError(null);
     try {
+      // Direction tracks the toggle: enabled means move co-located → folder,
+      // disabled means rescue stranded folder files → co-located. The
+      // backend now mirrors `count_sidecars`'s `.reviews/` fallback so the
+      // disabled-with-stranded-files rescue path works without re-enabling.
       const direction = config.enabled ? "to_folder" : "to_colocated";
       const result = await migrateSidecars(root, direction);
       setConfig(result.config);
       setMigrateResult({ moved: result.moved, failed: result.failed });
     } catch (err) {
-      void warn(`[SidecarConfigDialog] migrate failed: ${err}`);
+      const msg = formatErr(err);
+      void warn(`[SidecarConfigDialog] migrate failed: ${msg}`);
+      setError(`Migration failed: ${msg}`);
     } finally {
       setMigrating(false);
     }
@@ -140,6 +166,19 @@ export function SidecarConfigDialog({ root, onClose }: Props) {
         </div>
 
         <div className="sidecar-config-body">
+          {error && (
+            <div className="sidecar-config-error" role="alert">
+              <span className="sidecar-config-error-text">{error}</span>
+              <button
+                type="button"
+                className="sidecar-config-error-dismiss"
+                onClick={() => setError(null)}
+                aria-label="Dismiss error"
+              >
+                ×
+              </button>
+            </div>
+          )}
           {loading && !config ? (
             <div className="sidecar-config-loading">Loading…</div>
           ) : config ? (

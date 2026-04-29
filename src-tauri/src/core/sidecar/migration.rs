@@ -11,6 +11,34 @@ use std::path::{Path, PathBuf};
 /// Hard ceiling on sidecar files matched during a walk (performance.md rule 1).
 const MAX_FILES_SCANNED: usize = 10_000;
 
+/// Canonical default folder name used when no `sidecar_root` is configured
+/// in `.mrsf.yaml`. This is the same name written by `set_sidecar_config`
+/// when the dialog toggle is enabled, so users who flip the toggle off can
+/// still see (and rescue) any files left behind in `<root>/.reviews/`.
+pub const DEFAULT_SIDECAR_FOLDER: &str = ".reviews";
+
+/// Resolve the effective sidecar-root folder for both counting and migration.
+///
+/// * If `configured` is `Some`, it is returned as-is.
+/// * If `configured` is `None` and `<root>/.reviews/` exists as a directory,
+///   `Some(".reviews")` is returned so stranded files can be detected and
+///   migrated back to co-located positions even after the toggle has been
+///   disabled (or when the user opens a workspace whose `.reviews/` folder
+///   pre-dates `.mrsf.yaml`).
+/// * If `configured` is `None` and `.reviews/` does not exist, returns
+///   `None` — there is genuinely nothing to do.
+pub fn effective_sidecar_root(root: &Path, configured: Option<&Path>) -> Option<PathBuf> {
+    if let Some(sr) = configured {
+        return Some(sr.to_path_buf());
+    }
+    let p = root.join(DEFAULT_SIDECAR_FOLDER);
+    if p.is_dir() {
+        Some(PathBuf::from(DEFAULT_SIDECAR_FOLDER))
+    } else {
+        None
+    }
+}
+
 /// Create a walker for sidecar scanning. Respects `.gitignore` so heavy
 /// directories (`node_modules/`, `target/`, etc.) are skipped — but uses
 /// override whitelists so `.review.yaml` and `.review.json` files are
@@ -45,18 +73,13 @@ pub struct SidecarCounts {
 ///
 /// When `sidecar_root` is `Some`, sidecars whose path starts with
 /// `root/sidecar_root` are counted as *in-folder*; all others are
-/// *co-located*. When `None`, every sidecar is co-located.
+/// *co-located*. When `None`, the function still falls back to
+/// `<root>/.reviews/` (see [`effective_sidecar_root`]) so users can
+/// detect — and subsequently rescue — files stranded in the default
+/// folder after the toggle has been disabled.
 pub fn count_sidecars(root: &Path, sidecar_root: Option<&Path>) -> SidecarCounts {
-    let folder_prefix: Option<PathBuf> = sidecar_root.map(|sr| root.join(sr));
-    // When disabled, still detect files in the default .reviews/ dir so users
-    // can see stranded sidecars and re-enable to migrate them back.
-    let fallback_prefix: Option<PathBuf> = if folder_prefix.is_none() {
-        let p = root.join(".reviews");
-        if p.is_dir() { Some(p) } else { None }
-    } else {
-        None
-    };
-    let effective_prefix = folder_prefix.as_ref().or(fallback_prefix.as_ref());
+    let effective = effective_sidecar_root(root, sidecar_root);
+    let folder_prefix: Option<PathBuf> = effective.as_ref().map(|sr| root.join(sr));
     let mut counts = SidecarCounts::default();
     let mut visited: usize = 0;
 
@@ -68,7 +91,7 @@ pub fn count_sidecars(root: &Path, sidecar_root: Option<&Path>) -> SidecarCounts
         if visited > MAX_FILES_SCANNED {
             break;
         }
-        if let Some(prefix) = effective_prefix {
+        if let Some(prefix) = folder_prefix.as_ref() {
             if entry.path().starts_with(prefix) {
                 counts.count_in_folder += 1;
             } else {
@@ -349,5 +372,45 @@ mod tests {
 
         assert_eq!(result.moved, 1);
         assert!(root.join(".reviews/a/b/c/deep.rs.review.yaml").exists());
+    }
+
+    // ── effective_sidecar_root ─────────────────────────────────────────
+
+    #[test]
+    fn effective_returns_configured_when_some() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let custom = PathBuf::from("custom-folder");
+        let r = effective_sidecar_root(root, Some(&custom));
+        assert_eq!(r, Some(custom));
+    }
+
+    #[test]
+    fn effective_falls_back_to_dot_reviews_when_dir_exists() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir(root.join(".reviews")).unwrap();
+        let r = effective_sidecar_root(root, None);
+        assert_eq!(r, Some(PathBuf::from(".reviews")));
+    }
+
+    #[test]
+    fn effective_returns_none_when_no_config_and_no_dot_reviews() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let r = effective_sidecar_root(root, None);
+        assert_eq!(r, None);
+    }
+
+    /// `.reviews` may exist as a regular file (unusual but legal). Treat it
+    /// as "no folder" so the rescue path is a harmless no-op rather than an
+    /// error chasing a non-directory target.
+    #[test]
+    fn effective_returns_none_when_dot_reviews_is_a_file() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join(".reviews"), b"not a dir").unwrap();
+        let r = effective_sidecar_root(root, None);
+        assert_eq!(r, None);
     }
 }
