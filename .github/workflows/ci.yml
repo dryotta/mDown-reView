@@ -179,9 +179,9 @@ jobs:
           workspaces: src-tauri
           # Only the main branch publishes the cache; PR jobs restore-only.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Distinct cache key so the test build (incl. dev-deps like
-          # `specta-typescript`) does not evict the production rust-test
-          # artefacts.
+          # Distinct cache key so the `--features codegen` build (which
+          # pulls `specta-typescript` and tauri-specta's `typescript`
+          # sub-feature) does not evict the production rust-test artefacts.
           prefix-key: bindings-drift
 
       - name: Cache Linux system dependencies
@@ -189,6 +189,23 @@ jobs:
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # `tauri-build` validates `tauri.conf.json::externalBin` at compile time;
+      # without a staged CLI binary the build script aborts with
+      # `resource path \`binaries/mdownreview-cli-<triple>\` doesn't exist`.
+      # `stage:cli` writes a placeholder if the real binary isn't built yet,
+      # which is enough to satisfy the existence check for the codegen build.
+      - name: Stage CLI binary (needed by Tauri externalBin)
+        run: npm run stage:cli
 
       - name: Regenerate bindings.ts
         working-directory: src-tauri

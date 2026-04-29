@@ -111,11 +111,6 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 # Used by `tests/specta_coverage.rs` to walk the source tree and meta-test
 # that every `#[tauri::command]` carries a paired `#[specta::specta]`.
 syn = { version = "2", features = ["full", "extra-traits", "visit"] }
-# `specta-typescript` is feature-gated in [dependencies] (codegen feature, off
-# by default). Mirroring it here in [dev-dependencies] makes `cargo test`
-# work without `--features codegen` and without changing CI command-lines.
-# `tests/specta_codegen.rs` uses it for the export call.
-specta-typescript = "=0.0.9"
 
 [lints.clippy]
 # Deny — CI-blocking, never allow in production

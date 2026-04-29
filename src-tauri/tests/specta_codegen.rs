@@ -35,8 +35,17 @@
 // pulls webview2 imports that may fail at LoadLibrary time on dev hosts.
 // A windows-stub test exists below so `cargo test --test specta_codegen`
 // reports a meaningful skip message rather than 0 tests.
+//
+// The whole file is also gated on `feature = "codegen"`. Without that
+// feature, `tauri-specta` is built without its `typescript` sub-feature,
+// so `LanguageExt` is NOT implemented for `specta_typescript::Typescript`
+// and `.export(Typescript::default(), ...)` fails to compile (E0277).
+// That mirrors `lib.rs::run`'s `#[cfg(all(debug_assertions, feature =
+// "codegen"))]` export block exactly. CI's `bindings-drift` job runs
+// `cargo test --features codegen --test specta_codegen` (see ci.yml).
+// `cargo test` without the feature simply sees an empty test target.
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(feature = "codegen", not(target_os = "windows")))]
 mod codegen {
     use std::path::Path;
 
@@ -102,7 +111,7 @@ mod codegen {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "codegen", target_os = "windows"))]
 mod codegen {
     /// Stub on Windows so the test target still has at least one item
     /// to link. `mdown_review_lib::build_specta_builder` pulls webview2
