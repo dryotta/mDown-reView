@@ -536,8 +536,11 @@ export type DefaultHandlerStatus = "done" | "other" | "unknown" | "unsupported"
 export type DirEntry = { name: string; path: string; is_dir: boolean }
 /**
  * Per-file badge: count of unresolved threads + max severity across them.
+ * `file_level_count` is the subset of `count` whose root anchor is
+ * `Anchor::File` — surfaced separately so the viewer toolbar can show a
+ * dedicated file-anchored thread badge.
  */
-export type FileBadge = { count: number; max_severity: Severity }
+export type FileBadge = { count: number; max_severity: Severity; file_level_count: number }
 /**
  * Lightweight `stat`: returns just the byte size of a file, with no content
  * read. Used by viewers (BinaryPlaceholder, TooLargePlaceholder) that need
