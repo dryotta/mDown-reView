@@ -129,7 +129,7 @@ mod tests {
     use crate::core::severity::Severity;
 
     fn b(count: u32, sev: Severity) -> FileBadge {
-        FileBadge { count, max_severity: sev }
+        FileBadge { count, max_severity: sev, file_level_count: 0 }
     }
 
     #[test]

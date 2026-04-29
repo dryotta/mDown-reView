@@ -361,7 +361,8 @@ mod tests {
 
         let state = watcher_state_allowing(&canonical);
         let config = SidecarConfigState::new();
-        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
+        let cache = super::super::BadgeCache::new();
+        let badges = get_file_badges_inner(&state, &config, &cache, std::slice::from_ref(&file_path));
         let badge = badges.get(&file_path).expect("badge for file-only sidecar");
         assert_eq!(badge.count, 1, "one unresolved file-level thread");
         assert_eq!(badge.file_level_count, 1, "the unresolved thread is file-level");
@@ -386,7 +387,8 @@ mod tests {
 
         let state = watcher_state_allowing(&canonical);
         let config = SidecarConfigState::new();
-        let badges = get_file_badges_inner(&state, &config, std::slice::from_ref(&file_path));
+        let cache = super::super::BadgeCache::new();
+        let badges = get_file_badges_inner(&state, &config, &cache, std::slice::from_ref(&file_path));
         let badge = badges.get(&file_path).expect("badge for mixed file");
         assert_eq!(badge.count, 3);
         assert_eq!(badge.file_level_count, 2);
