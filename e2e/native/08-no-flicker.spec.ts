@@ -162,6 +162,13 @@ async function setPersistedTheme(page: Page, theme: "light" | "dark" | "system")
     const payload = { state: { theme: t }, version: 1 };
     window.localStorage.setItem("mdownreview-ui", JSON.stringify(payload));
   }, theme);
+  // Chromium debounces localStorage writes to leveldb; without a flush
+  // trigger the value can sit in memory and be lost when the process
+  // is killed. Navigating away fires beforeunload, which calls
+  // LocalStorageImpl::ScheduleImmediateCommit and persists the write.
+  await page.goto("about:blank").catch(() => {
+    /* page may already be detached */
+  });
 }
 
 test.describe("Flicker regression (issue #265)", () => {

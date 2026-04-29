@@ -3,7 +3,6 @@ import { spawnAppWithCdp } from "./global-setup";
 import { chromium, type Page, type Browser } from "@playwright/test";
 import * as path from "path";
 import * as fs from "fs";
-import * as os from "os";
 import { spawnSync, type ChildProcess } from "child_process";
 
 /**
@@ -12,10 +11,11 @@ import { spawnSync, type ChildProcess } from "child_process";
  * Closes the "no cold-startup benchmark" Gap #1 in
  * `docs/performance.md`. Launches the Tauri binary 5 times back-to-
  * back, each on a unique CDP port (the persistent harness in
- * `global-setup.ts` owns 9222), captures the [startup] events from
- * the rotating log file, then runs `mdownreview-cli analyze-log` to
- * extract `frontend-mounted` t_ms — the proxy for "fully ready"
- * since PR3 does not define a `startup-complete` phase.
+ * `global-setup.ts` owns 9222) and reads the `[startup]` phase
+ * events directly from the spawned process's stdout — debug builds
+ * emit them via the Stdout target in `lib.rs::run`. Reading from a
+ * shared log file races with the persistent harness on Windows, so
+ * stdout is the single source of truth here.
  *
  * Budget: 800 ms p95 (release builds; debug builds run un-optimized
  * code so the assertion is loosened — we still record the value but
@@ -23,9 +23,8 @@ import { spawnSync, type ChildProcess } from "child_process";
  * `docs/performance.md` (rule N) names this file as the canonical
  * gate.
  *
- * If `mdownreview-cli` is not installed, the test is skipped with a
- * descriptive message — CI builds the staged binary before this spec
- * runs (see `npm run test:e2e:native:build`).
+ * `mdownreview-cli` is still invoked elsewhere (release CI uses the
+ * `--phase-budget` flag) so the test skips when it isn't built.
  */
 
 const ITERATIONS = 5;
@@ -35,26 +34,6 @@ const DEBUG_BUILD_MULTIPLIER = 3;
 interface LaunchResult {
   frontendMountedMs: number;
   appInitMs: number;
-}
-
-function locateLogFile(): string {
-  // Mirrors `default_log_path()` in src-tauri/src/bin/cli.rs.
-  // Bundle ID is locked to tauri.conf.json's `identifier`.
-  const bundleId = "com.mdownreview.desktop";
-  if (process.platform === "win32") {
-    return path.join(
-      process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"),
-      bundleId,
-      "logs",
-      "mdownreview.log"
-    );
-  }
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Logs", bundleId, "mdownreview.log");
-  }
-  // Linux fallback — XDG_DATA_HOME or ~/.local/share
-  const xdg = process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share");
-  return path.join(xdg, bundleId, "logs", "mdownreview.log");
 }
 
 function locateCliBinary(): string {
@@ -87,54 +66,37 @@ async function killProcess(proc: ChildProcess): Promise<void> {
   await new Promise((r) => setTimeout(r, 500));
 }
 
-async function captureFrontendMountedFromLogs(
-  cliPath: string,
-  logPath: string
-): Promise<{ appInit: number; frontendMounted: number } | null> {
-  // Use the analyze-log subcommand to parse the log so we share schema
-  // logic with the Rust side instead of re-implementing the parser in
-  // TS. The CLI's exit code is 0 on success even when the budget is
-  // not specified.
-  const result = spawnSync(cliPath, ["analyze-log", logPath, "--json"], {
-    encoding: "utf8",
-  });
-  if (result.status !== 0) return null;
-  let parsed: { startup_phases?: Array<{ phase: string; t_ms: number }> } = {};
-  try {
-    parsed = JSON.parse(result.stdout) as typeof parsed;
-  } catch {
-    return null;
-  }
-  const phases = parsed.startup_phases ?? [];
-  const fm = phases.find((p) => p.phase === "frontend-mounted");
-  const ai = phases.find((p) => p.phase === "app-init");
-  if (!fm || !ai) return null;
-  return { appInit: ai.t_ms, frontendMounted: fm.t_ms };
-}
+// Pattern: `[startup] phase=<kebab-name> t_ms=<int>` — defined in
+// src-tauri/src/startup_recorder.rs and stable across PR3+ runtimes.
+const STARTUP_PHASE_RE = /\[startup\]\s+phase=([\w-]+)\s+t_ms=(\d+)/g;
 
-async function singleLaunch(
-  cdpPort: number,
-  cliPath: string,
-  logPath: string
-): Promise<LaunchResult | null> {
-  // The runtime appends to the log; capture file size BEFORE launch so
-  // we can find the new lines after the binary writes them. We don't
-  // truncate — multiple overlapping runs on a single dev machine could
-  // race, and `analyze-log` on the WHOLE file with first-observation
-  // semantics naturally yields the earliest cold-startup timeline.
-  // Instead: rotate by deleting the file before each launch (it's
-  // recreated on first log write).
-  if (fs.existsSync(logPath)) {
-    try {
-      fs.unlinkSync(logPath);
-    } catch {
-      /* ignore — best effort */
+function parseStartupPhases(buffer: string): Map<string, number> {
+  const phases = new Map<string, number>();
+  let match: RegExpExecArray | null;
+  STARTUP_PHASE_RE.lastIndex = 0;
+  while ((match = STARTUP_PHASE_RE.exec(buffer)) !== null) {
+    // First-observation wins so the timeline reflects this cold launch
+    // rather than late re-emits.
+    if (!phases.has(match[1])) {
+      phases.set(match[1], Number(match[2]));
     }
   }
+  return phases;
+}
 
+async function singleLaunch(cdpPort: number): Promise<LaunchResult | null> {
+  // Sharing the runtime log file with the persistent harness binary on
+  // port 9222 introduced file-locking races on Windows that swallowed
+  // the spawned binary's writes silently. Read the [startup] phases
+  // straight off the spawned process's stdout instead — debug builds
+  // emit them via the Stdout target (lib.rs::run) so this is the same
+  // data analyze-log would parse, without crossing a shared file.
   const { appProc } = await spawnAppWithCdp({ cdpPort, timeoutMs: 30_000 });
+  let stdoutBuf = "";
+  appProc.stdout?.on("data", (d: Buffer) => {
+    stdoutBuf += d.toString("utf8");
+  });
 
-  // Wait until both [startup] phases are present in the log.
   const deadline = Date.now() + 15_000;
   let captured: { appInit: number; frontendMounted: number } | null = null;
   let browser: Browser | null = null;
@@ -162,10 +124,14 @@ async function singleLaunch(
       { timeout: 15_000 }
     );
 
-    // Poll the log file until both required phases are present.
     while (Date.now() < deadline) {
-      captured = await captureFrontendMountedFromLogs(cliPath, logPath);
-      if (captured) break;
+      const phases = parseStartupPhases(stdoutBuf);
+      const ai = phases.get("app-init");
+      const fm = phases.get("frontend-mounted");
+      if (ai !== undefined && fm !== undefined) {
+        captured = { appInit: ai, frontendMounted: fm };
+        break;
+      }
       await new Promise((r) => setTimeout(r, 250));
     }
   } finally {
@@ -192,19 +158,18 @@ test.describe("Cold startup bench (issue #265)", () => {
       );
       return;
     }
-    const logPath = locateLogFile();
     const measurements: LaunchResult[] = [];
 
     // Use a CDP port range above the persistent harness's 9222 to
     // avoid contention. Each iteration gets a distinct port so a
     // half-killed previous process can't pollute the next launch.
     for (let i = 0; i < ITERATIONS; i++) {
-      const result = await singleLaunch(9223 + i, cliPath, logPath);
+      const result = await singleLaunch(9223 + i);
       if (!result) {
         // Treat any iteration that failed to capture as a fatal test
         // failure — silently swallowing here would mask a regression
         // in the recorder itself.
-        throw new Error(`launch ${i} produced no [startup] phases in ${logPath}`);
+        throw new Error(`launch ${i} produced no [startup] phases on stdout`);
       }
       measurements.push(result);
       console.log(
