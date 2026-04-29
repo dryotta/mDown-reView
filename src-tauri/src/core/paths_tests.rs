@@ -178,6 +178,224 @@ fn resolve_sidecar_rejects_symlink_escape_windows() {
     );
 }
 
+// ---- source_for_sidecar_with_config (.mrsf.yaml-aware reverse map)
+//
+// Shared between the scanner's folder-scan path and the CLI's
+// single-file path. Both modes (co-located and redirected) and the
+// conversion in each must produce the same source path so the GUI
+// folder pane, the CLI `read --file …`, and the CLI `read --folder …`
+// all report identical source locations for the same sidecar.
+
+#[test]
+fn source_with_config_no_redirect_strips_suffix() {
+    // Co-located mode: behaviour matches `source_for_sidecar`.
+    let workspace = PathBuf::from("/ws");
+    let sidecar = Path::new("/ws/foo.md.review.yaml");
+    let r = source_for_sidecar_with_config(sidecar, &workspace, None);
+    assert_eq!(r, Some(PathBuf::from("/ws/foo.md")));
+}
+
+#[test]
+fn source_with_config_redirected_remaps_to_real_location() {
+    // Redirected mode: sidecar under `<ws>/.reviews/` must resolve to
+    // `<ws>/foo.md`, not `<ws>/.reviews/foo.md` — the conversion the
+    // ghost-detection fix relies on.
+    let workspace = PathBuf::from("/ws");
+    let sidecar = Path::new("/ws/.reviews/foo.md.review.yaml");
+    let sr = PathBuf::from(".reviews");
+    let r = source_for_sidecar_with_config(sidecar, &workspace, Some(&sr));
+    assert_eq!(r, Some(PathBuf::from("/ws/foo.md")));
+}
+
+#[test]
+fn source_with_config_redirected_preserves_subdir_structure() {
+    // The redirect mirrors the source layout — sidecars under
+    // `.reviews/docs/guide.md.review.yaml` map to `<ws>/docs/guide.md`.
+    let workspace = PathBuf::from("/ws");
+    let sidecar = Path::new("/ws/.reviews/docs/guide.md.review.yaml");
+    let sr = PathBuf::from(".reviews");
+    let r = source_for_sidecar_with_config(sidecar, &workspace, Some(&sr));
+    assert_eq!(r, Some(PathBuf::from("/ws/docs/guide.md")));
+}
+
+#[test]
+fn source_with_config_passes_through_colocated_when_redirect_active() {
+    // Mid-migration: a stale co-located sidecar lives at the workspace
+    // root while a redirect is configured. The strip_prefix probe fails,
+    // so the function falls through to the suffix-strip default.
+    let workspace = PathBuf::from("/ws");
+    let sidecar = Path::new("/ws/legacy.md.review.yaml");
+    let sr = PathBuf::from(".reviews");
+    let r = source_for_sidecar_with_config(sidecar, &workspace, Some(&sr));
+    assert_eq!(r, Some(PathBuf::from("/ws/legacy.md")));
+}
+
+#[test]
+fn source_with_config_returns_none_for_non_sidecar_path() {
+    // Inputs that don't carry a sidecar suffix are not recoverable —
+    // the function preserves [`source_for_sidecar`]'s contract.
+    let workspace = PathBuf::from("/ws");
+    let sidecar = Path::new("/ws/foo.md");
+    let sr = PathBuf::from(".reviews");
+    assert_eq!(
+        source_for_sidecar_with_config(sidecar, &workspace, Some(&sr)),
+        None
+    );
+    assert_eq!(
+        source_for_sidecar_with_config(sidecar, &workspace, None),
+        None
+    );
+}
+
+// ---- resolve_sidecar_with_config (.mrsf.yaml redirect) ------------
+//
+// Single-file CLI/GUI sidecar resolution must work in both modes —
+// co-located (legacy / no .mrsf.yaml) and redirected (sidecars under
+// `<root>/<sidecar_root>/`). These tests cover both, plus the
+// migration overlap (both files exist) and the "input is a literal
+// sidecar path" short-circuit.
+
+#[test]
+fn resolve_with_config_no_redirect_matches_resolve_sidecar() {
+    let dir = tempdir().unwrap();
+    let folder = dir.path();
+    fs::write(folder.join("doc.md.review.yaml"), "y").unwrap();
+    let folder_s = folder.to_string_lossy().to_string();
+
+    let baseline = resolve_sidecar("doc.md", Some(&folder_s), folder).unwrap();
+    let with_cfg =
+        resolve_sidecar_with_config("doc.md", Some(&folder_s), folder, None).unwrap();
+    assert_eq!(baseline, with_cfg, "passing None must match resolve_sidecar");
+}
+
+#[test]
+fn resolve_with_config_finds_yaml_under_redirect_directory() {
+    let dir = tempdir().unwrap();
+    let folder = dir.path();
+    fs::write(folder.join("doc.md"), "# doc").unwrap();
+    fs::create_dir(folder.join(".reviews")).unwrap();
+    let yaml = folder.join(".reviews").join("doc.md.review.yaml");
+    fs::write(&yaml, "y").unwrap();
+    let folder_s = folder.to_string_lossy().to_string();
+    let sr = PathBuf::from(".reviews");
+    let r =
+        resolve_sidecar_with_config("doc.md", Some(&folder_s), folder, Some(&sr)).unwrap();
+    assert_eq!(r, canonicalize_no_verbatim(&yaml).unwrap());
+}
+
+#[test]
+fn resolve_with_config_finds_json_under_redirect_directory() {
+    let dir = tempdir().unwrap();
+    let folder = dir.path();
+    fs::write(folder.join("doc.md"), "# doc").unwrap();
+    fs::create_dir(folder.join(".reviews")).unwrap();
+    let json = folder.join(".reviews").join("doc.md.review.json");
+    fs::write(&json, "{}").unwrap();
+    let folder_s = folder.to_string_lossy().to_string();
+    let sr = PathBuf::from(".reviews");
+    let r =
+        resolve_sidecar_with_config("doc.md", Some(&folder_s), folder, Some(&sr)).unwrap();
+    assert_eq!(r, canonicalize_no_verbatim(&json).unwrap());
+}
+
+#[test]
+fn resolve_with_config_prefers_colocated_when_both_exist() {
+    // Mid-migration: a stale co-located sidecar lives next to the file
+    // AND a fresh one under .reviews/. The CLI/GUI must agree on the
+    // co-located one — it's what the file-watcher and folder pane
+    // surface, so writes targeting the "wrong" file would produce
+    // ghost edits invisible to the user.
+    let dir = tempdir().unwrap();
+    let folder = dir.path();
+    fs::write(folder.join("doc.md"), "# doc").unwrap();
+    let colocated = folder.join("doc.md.review.yaml");
+    fs::write(&colocated, "y").unwrap();
+    fs::create_dir(folder.join(".reviews")).unwrap();
+    fs::write(folder.join(".reviews").join("doc.md.review.yaml"), "y").unwrap();
+    let folder_s = folder.to_string_lossy().to_string();
+    let sr = PathBuf::from(".reviews");
+    let r =
+        resolve_sidecar_with_config("doc.md", Some(&folder_s), folder, Some(&sr)).unwrap();
+    assert_eq!(r, canonicalize_no_verbatim(&colocated).unwrap());
+}
+
+#[test]
+fn resolve_with_config_literal_sidecar_input_bypasses_redirect_probe() {
+    // When the user passes a literal `.review.{yaml,json}` filename, we
+    // use it as-is regardless of redirect — same contract as
+    // resolve_sidecar (write-friendly path for sidecars that don't
+    // exist yet).
+    let dir = tempdir().unwrap();
+    let folder = dir.path();
+    let folder_s = folder.to_string_lossy().to_string();
+    let sr = PathBuf::from(".reviews");
+    let r = resolve_sidecar_with_config(
+        "new.md.review.yaml",
+        Some(&folder_s),
+        folder,
+        Some(&sr),
+    )
+    .unwrap();
+    let expected = canonicalize_no_verbatim(folder).unwrap().join("new.md.review.yaml");
+    assert_eq!(r, expected);
+}
+
+#[test]
+fn resolve_with_config_missing_in_both_locations_errors() {
+    let dir = tempdir().unwrap();
+    let folder = dir.path();
+    fs::create_dir(folder.join(".reviews")).unwrap();
+    let folder_s = folder.to_string_lossy().to_string();
+    let sr = PathBuf::from(".reviews");
+    let err =
+        resolve_sidecar_with_config("nope.md", Some(&folder_s), folder, Some(&sr)).unwrap_err();
+    assert!(err.contains("nope.md"), "missing input in error: {err}");
+    assert!(err.contains("not found"), "unexpected error: {err}");
+}
+
+// ---- try_load_mrsf_config ----------------------------------------
+
+#[test]
+fn try_load_mrsf_config_returns_none_without_file() {
+    let dir = tempdir().unwrap();
+    assert_eq!(try_load_mrsf_config(dir.path()), None);
+}
+
+#[test]
+fn try_load_mrsf_config_returns_sidecar_root_when_configured() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+    let r = try_load_mrsf_config(dir.path());
+    assert_eq!(r, Some(PathBuf::from(".reviews")));
+}
+
+#[test]
+fn try_load_mrsf_config_silently_returns_none_on_malformed_yaml() {
+    // Malformed config must not propagate an error — CLI/scanner
+    // callers depend on the silent fallback so a single broken
+    // workspace doesn't kill the binary.
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), ":::not yaml:::\n").unwrap();
+    assert_eq!(try_load_mrsf_config(dir.path()), None);
+}
+
+#[test]
+fn try_load_mrsf_config_returns_none_on_empty_or_missing_key() {
+    // An empty `.mrsf.yaml` (or one with no sidecar_root key) parses
+    // successfully but signals "no redirect configured". The helper's
+    // contract is None in both that case and the error case.
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".mrsf.yaml"), "other_key: value\n").unwrap();
+    assert_eq!(try_load_mrsf_config(dir.path()), None);
+}
+
+#[test]
+fn try_load_mrsf_config_returns_none_for_nonexistent_root() {
+    // Root path that doesn't exist — canonicalize fails, returns None.
+    let bogus = PathBuf::from("/this/path/should/not/exist/zzz");
+    assert_eq!(try_load_mrsf_config(&bogus), None);
+}
+
 // ---- canonicalize_no_verbatim ------------------------------------
 
 #[test]

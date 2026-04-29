@@ -17,8 +17,13 @@ vi.mock("@/logger", () => ({
   trace: vi.fn(),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  // Reset Zustand store fields the hook reads — tests share the global
+  // store so leaked expandedFolders / showSidecarFiles would skew the
+  // per-test readDir call counts.
+  const { useStore } = await import("@/store");
+  useStore.setState({ expandedFolders: {}, showSidecarFiles: false });
 });
 
 /** Wrap DirEntry[] in the ReadDirResult shape returned by the Rust command. */
@@ -108,6 +113,61 @@ describe("useFolderChildren", () => {
       entries = await result.current.loadChildren("/other");
     });
     expect(entries).toEqual([]);
+  });
+
+  it("reloads root + expanded folders when showSidecarFiles toggles", async () => {
+    // Reproduces the "blank pane after toggle" + "default mismatch on
+    // persist rehydrate" bugs: when showSidecarFiles flips, the cache
+    // must be cleared AND every visible folder must be re-fetched with
+    // the new filter. Previously the load short-circuited on the stale
+    // cached entries and the tree rendered empty.
+    const { useStore } = await import("@/store");
+    useStore.setState({ expandedFolders: { "/root/sub": true } });
+
+    const rootHidden = [{ name: "a.md", path: "/root/a.md", is_dir: false }];
+    const subHidden = [{ name: "x.md", path: "/root/sub/x.md", is_dir: false }];
+    const rootShown = [
+      { name: "a.md", path: "/root/a.md", is_dir: false },
+      { name: "a.md.review.yaml", path: "/root/a.md.review.yaml", is_dir: false },
+    ];
+    const subShown = [
+      { name: "x.md", path: "/root/sub/x.md", is_dir: false },
+      { name: "x.md.review.yaml", path: "/root/sub/x.md.review.yaml", is_dir: false },
+    ];
+    vi.mocked(commands.readDir)
+      .mockResolvedValueOnce(wrapEntries(rootHidden)) // initial root (hidden)
+      .mockResolvedValueOnce(wrapEntries(subHidden))  // expanded sub (hidden)
+      .mockResolvedValueOnce(wrapEntries(rootShown))  // root reload after toggle
+      .mockResolvedValueOnce(wrapEntries(subShown));  // sub reload after toggle
+
+    useStore.setState({ showSidecarFiles: false });
+    const { result } = renderHook(() => useFolderChildren("/root"));
+    await act(async () => {});
+
+    // Trigger the expanded-sub fetch the same way the FolderTree would
+    await act(async () => {
+      await result.current.loadChildren("/root/sub");
+    });
+    expect(result.current.childrenCache["/root"]?.entries).toEqual(rootHidden);
+    expect(result.current.childrenCache["/root/sub"]?.entries).toEqual(subHidden);
+
+    // Flip the toggle — the hook must wipe the cache AND re-fetch root +
+    // every currently-expanded folder with show_sidecars=true.
+    await act(async () => {
+      useStore.setState({ showSidecarFiles: true });
+    });
+
+    expect(result.current.childrenCache["/root"]?.entries).toEqual(rootShown);
+    expect(result.current.childrenCache["/root/sub"]?.entries).toEqual(subShown);
+
+    // Verify the IPC was called with the new filter for both folders.
+    const calls = vi.mocked(commands.readDir).mock.calls;
+    const reloadCalls = calls.slice(2);
+    const reloadedPaths = reloadCalls.map((c) => c[0]).sort();
+    expect(reloadedPaths).toEqual(["/root", "/root/sub"]);
+    for (const c of reloadCalls) {
+      expect(c[2]).toBe(true); // show_sidecars
+    }
   });
 
   it("does not load when root is null", async () => {

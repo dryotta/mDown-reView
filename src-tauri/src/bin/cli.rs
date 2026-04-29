@@ -217,13 +217,31 @@ fn cmd_read(
 ) -> Result<(), String> {
     let cwd_path = cwd();
     let root = root_dir(folder.as_deref());
+    // Load `.mrsf.yaml` once for the workspace so single-file resolution
+    // (`resolve_sidecar_with_config`) and folder scanning agree on the
+    // sidecar redirect. Silent fallback on parse errors — a malformed
+    // `.mrsf.yaml` shouldn't make `mdownreview-cli read` exit non-zero
+    // for users on workspaces they didn't author.
+    let sidecar_root = paths::try_load_mrsf_config(&root);
 
     // Single-file mode: resolve and load exactly one sidecar; surface errors
     // (missing, outside-root, etc.) instead of silently skipping.
     if let Some(file_arg) = file.as_ref() {
-        let sidecar_path = paths::resolve_sidecar(file_arg, folder.as_deref(), &cwd_path)?;
-        let source_path = paths::source_for_sidecar(&sidecar_path)
-            .ok_or_else(|| format!("error: cannot derive source path from {:?}", sidecar_path))?;
+        let sidecar_path = paths::resolve_sidecar_with_config(
+            file_arg,
+            folder.as_deref(),
+            &cwd_path,
+            sidecar_root.as_deref(),
+        )?;
+        // Use the redirect-aware helper so a sidecar under `.reviews/`
+        // reports its real source location, not the non-existent path
+        // inside the redirect folder.
+        let source_path = paths::source_for_sidecar_with_config(
+            &sidecar_path,
+            &canonicalize_no_verbatim(&root).unwrap_or_else(|_| root.clone()),
+            sidecar_root.as_deref(),
+        )
+        .ok_or_else(|| format!("error: cannot derive source path from {:?}", sidecar_path))?;
         let raw = load_raw_sidecar(&sidecar_path)?;
         let filtered = filter_raw_comments(&raw, include_resolved);
         let entry = build_entry(&sidecar_path, &source_path, &root, &filtered);
@@ -237,17 +255,20 @@ fn cmd_read(
         return Ok(());
     }
 
-    // Folder scan mode.
+    // Folder scan mode — share the GUI's primitive so the two surfaces
+    // produce identical pairs and both honour `.mrsf.yaml`.
     let root_str = root.to_string_lossy().to_string();
-    let files = scanner::find_review_files(&root_str, 10_000);
+    let files = scanner::scan_workspace(&root_str, 10_000);
     let mut entries: Vec<(serde_json::Value, Vec<serde_json::Value>)> = Vec::new();
 
-    for (sidecar_str, _src_str) in &files {
+    for (sidecar_str, source_str) in &files {
         let sidecar_path = PathBuf::from(sidecar_str);
-        let source_path = match paths::source_for_sidecar(&sidecar_path) {
-            Some(p) => p,
-            None => continue,
-        };
+        // Trust the source path emitted by `scan_workspace`: when a
+        // `.mrsf.yaml` redirect is active it already maps `.reviews/`
+        // sidecars back to the real source location. Re-deriving via
+        // `paths::source_for_sidecar` would silently re-introduce the
+        // ghost-misclassification bug for redirected workspaces.
+        let source_path = PathBuf::from(source_str);
         let raw = match load_raw_sidecar(&sidecar_path) {
             Ok(r) => r,
             Err(e) => {
@@ -320,12 +341,30 @@ fn cmd_respond(
     }
 
     let cwd_path = cwd();
-    let sidecar_path = paths::resolve_sidecar(file, folder.as_deref(), &cwd_path)?;
-    let source_path = paths::source_for_sidecar(&sidecar_path)
-        .ok_or_else(|| format!("error: cannot derive source path from {:?}", sidecar_path))?;
-    let source_str = source_path
+    let root = root_dir(folder.as_deref());
+    let sidecar_root = paths::try_load_mrsf_config(&root);
+    let sidecar_path = paths::resolve_sidecar_with_config(
+        file,
+        folder.as_deref(),
+        &cwd_path,
+        sidecar_root.as_deref(),
+    )?;
+    // Drive `patch_comment_at` directly with the resolved YAML/JSON
+    // paths so writes follow the `.mrsf.yaml` redirect — `patch_comment`
+    // would synthesize co-located paths from the source file and miss
+    // sidecars stored under `.reviews/`.
+    let sidecar_str = sidecar_path
         .to_str()
-        .ok_or_else(|| "error: non-utf8 source path".to_string())?;
+        .ok_or_else(|| "error: non-utf8 sidecar path".to_string())?;
+    let (yaml_path, json_path) = if let Some(stem) = sidecar_str.strip_suffix(".review.yaml") {
+        (sidecar_str.to_string(), format!("{stem}.review.json"))
+    } else if let Some(stem) = sidecar_str.strip_suffix(".review.json") {
+        (format!("{stem}.review.yaml"), sidecar_str.to_string())
+    } else {
+        return Err(format!(
+            "error: resolved sidecar does not have a .review.{{yaml,json}} suffix: {sidecar_str}"
+        ));
+    };
 
     let mut mutations: Vec<CommentMutation> = Vec::new();
     if let Some(text) = response {
@@ -339,7 +378,8 @@ fn cmd_respond(
         mutations.push(CommentMutation::SetResolved(true));
     }
 
-    sidecar::patch_comment(source_str, comment_id, &mutations).map_err(|e| e.to_string())?;
+    sidecar::patch_comment_at(&yaml_path, &json_path, comment_id, &mutations)
+        .map_err(|e| e.to_string())?;
 
     let summary = match (response.is_some(), resolve) {
         (true, true) => format!("responded and resolved {}", comment_id),

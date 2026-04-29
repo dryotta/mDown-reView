@@ -39,6 +39,7 @@ import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
 import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import { useFindInPage } from "@/hooks/useFindInPage";
 import { FindInPageBar } from "@/components/FindInPageBar";
+import { isSidecarFile } from "@/lib/file-types";
 import "@/styles/markdown.css";
 import "@/styles/find-in-page.css";
 import "@/styles/viewer-banner.css";
@@ -99,6 +100,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const { zoom } = useZoom(".md");
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
+  // Sidecar files (.review.yaml/.review.json) are app-managed metadata,
+  // not commentable content. Suppress the gutter "+" affordance, the
+  // selection toolbar, and the right-click context menu so users can't
+  // attach comments to a comment-storage file.
+  const commentable = !isSidecarFile(filePath);
 
   const lines = useMemo(() => body.split("\n"), [body]);
 
@@ -327,9 +333,9 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
           <div
             className="markdown-body md-wrap-cascade"
             ref={bodyRef}
-            onClick={handleGutterClick}
-            onMouseUp={handleMouseUp}
-            onContextMenu={handleContextMenu}
+            onClick={commentable ? handleGutterClick : undefined}
+            onMouseUp={commentable ? handleMouseUp : undefined}
+            onContextMenu={commentable ? handleContextMenu : undefined}
             style={{ position: "relative" }}
           >
             <ReactMarkdown
@@ -339,31 +345,33 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
             >
               {body}
             </ReactMarkdown>
-            <MarkdownInteractionLayer
-              expandedLine={expandedLine}
-              commentingLine={commentingLine}
-              bodyRef={bodyRef}
-              threadsByLine={threadsByLine}
-              filePath={filePath}
-              lines={lines}
-              pendingSelectionAnchor={pendingSelectionAnchor}
-              addComment={addComment}
-              setCommentingLine={setCommentingLine}
-              setExpandedLine={setExpandedLine}
-              clearSelection={clearSelection}
-              selectionToolbar={selectionToolbar}
-              dismissSelectionToolbar={() => setSelectionToolbar(null)}
-              onAddSelectionComment={handleSelectionAdd}
-              contextMenu={{
-                open: ctxMenu.state.open,
-                x: ctxMenu.state.x,
-                y: ctxMenu.state.y,
-                hasSelection: ctxMenu.state.payload?.hasSelection ?? false,
-                hasLine: ctxMenu.state.payload?.line != null,
-              }}
-              onContextMenuAction={handleContextAction}
-              onContextMenuClose={closeContextMenu}
-            />
+            {commentable && (
+              <MarkdownInteractionLayer
+                expandedLine={expandedLine}
+                commentingLine={commentingLine}
+                bodyRef={bodyRef}
+                threadsByLine={threadsByLine}
+                filePath={filePath}
+                lines={lines}
+                pendingSelectionAnchor={pendingSelectionAnchor}
+                addComment={addComment}
+                setCommentingLine={setCommentingLine}
+                setExpandedLine={setExpandedLine}
+                clearSelection={clearSelection}
+                selectionToolbar={selectionToolbar}
+                dismissSelectionToolbar={() => setSelectionToolbar(null)}
+                onAddSelectionComment={handleSelectionAdd}
+                contextMenu={{
+                  open: ctxMenu.state.open,
+                  x: ctxMenu.state.x,
+                  y: ctxMenu.state.y,
+                  hasSelection: ctxMenu.state.payload?.hasSelection ?? false,
+                  hasLine: ctxMenu.state.payload?.line != null,
+                }}
+                onContextMenuAction={handleContextAction}
+                onContextMenuClose={closeContextMenu}
+              />
+            )}
           </div>
         </MdCommentContext.Provider>
         <ReadingWidthHandle containerRef={readingContainerRef} side="left" />

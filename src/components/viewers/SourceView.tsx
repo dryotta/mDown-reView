@@ -14,6 +14,7 @@ import { useViewerContextMenu } from "@/hooks/useViewerContextMenu";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
+import { isSidecarFile } from "@/lib/file-types";
 import "@/styles/source-viewer.css";
 
 interface Props {
@@ -29,6 +30,10 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
   const [commentingLine, setCommentingLine] = useState<number | null>(null);
   const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Sidecar files (.review.yaml/.review.json) are app-managed metadata,
+  // not commentable content. Disable every "add comment" affordance and
+  // suppress the selection toolbar / context menu while one is open.
+  const commentable = !isSidecarFile(filePath);
   // Zoom is owned by `EnhancedViewer` (single owner of `useZoom` for the
   // active sub-view) and forwarded as a prop. The `--source-zoom` CSS
   // custom property below scales `.source-lines` text in CSS itself,
@@ -169,7 +174,12 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
           This file is large ({Math.round((fileSize ?? 0) / 1024)} KB) — rendering may be slow
         </div>
       )}
-      <div className="source-lines" ref={sourceLinesRef} onMouseUp={handleMouseUp} onContextMenu={handleContextMenu}>
+      <div
+        className="source-lines"
+        ref={sourceLinesRef}
+        onMouseUp={commentable ? handleMouseUp : undefined}
+        onContextMenu={commentable ? handleContextMenu : undefined}
+      >
         {model.map((item) => {
           // Build the per-line save callback only for the currently-commenting
           // line; all other lines receive `undefined` (a stable reference) so
@@ -195,6 +205,7 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
               lineThreads={item.lineThreads}
               isCommenting={item.isCommenting}
               isExpanded={item.isExpanded}
+              commentable={commentable}
               onToggleFold={toggleFold}
               onCommentButtonClick={handleCommentButtonClick}
               onCloseInput={handleCloseInput}
@@ -204,22 +215,24 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
           );
         })}
       </div>
-      {selectionToolbar && (
+      {commentable && selectionToolbar && (
         <SelectionToolbar
           position={selectionToolbar.position}
           onAddComment={() => handleAddSelectionComment(setCommentingLine)}
           onDismiss={() => setSelectionToolbar(null)}
         />
       )}
-      <CommentContextMenu
-        open={ctxMenu.state.open}
-        x={ctxMenu.state.x}
-        y={ctxMenu.state.y}
-        hasSelection={ctxMenu.state.payload?.hasSelection ?? false}
-        hasLine={ctxMenu.state.payload?.line != null}
-        onAction={handleContextAction}
-        onClose={closeContextMenu}
-      />
+      {commentable && (
+        <CommentContextMenu
+          open={ctxMenu.state.open}
+          x={ctxMenu.state.x}
+          y={ctxMenu.state.y}
+          hasSelection={ctxMenu.state.payload?.hasSelection ?? false}
+          hasLine={ctxMenu.state.payload?.line != null}
+          onAction={handleContextAction}
+          onClose={closeContextMenu}
+        />
+      )}
     </div>
   );
 }

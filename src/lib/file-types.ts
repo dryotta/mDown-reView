@@ -73,6 +73,16 @@ export function getFileCategory(path: string): FileCategory {
 }
 
 /**
+ * True for `<file>.review.yaml` / `<file>.review.json` MRSF sidecar files.
+ * Mirrors `is_sidecar_file` in `src-tauri/src/commands/mod.rs`. Used by the
+ * UI to gate commenting affordances — sidecars are app-managed metadata
+ * about other files, not commentable content of their own.
+ */
+export function isSidecarFile(path: string): boolean {
+  return path.endsWith(".review.yaml") || path.endsWith(".review.json");
+}
+
+/**
  * Canonical filetype key used by the per-filetype zoom store
  * (`zoomByFiletype`). Several extensions collapse to one key (`.md` covers
  * both md/mdx; `.image` covers all bitmap/vector image extensions); the

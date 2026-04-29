@@ -93,9 +93,15 @@ pub fn get_log_path(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /// Scan a directory tree for MRSF sidecar files (delegates to core::scanner).
+///
+/// Honours the workspace's `.mrsf.yaml` redirect so sidecars stored
+/// under e.g. `.reviews/` are mapped back to their real source location
+/// instead of being incorrectly flagged as ghosts. Both the GUI IPC
+/// and the CLI go through [`crate::core::scanner::scan_workspace`] for
+/// identical `(sidecar, source)` output.
 #[tauri::command]
 pub fn scan_review_files(root: String) -> Result<Vec<(String, String)>, String> {
-    Ok(crate::core::scanner::find_review_files(&root, 10_000))
+    Ok(crate::core::scanner::scan_workspace(&root, 10_000))
 }
 
 /// Test-only command: open a folder and all its non-sidecar files via args-received.

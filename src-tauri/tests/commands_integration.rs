@@ -452,6 +452,104 @@ fn read_dir_hides_sidecar_root_dir() {
     );
 }
 
+/// `read_dir` with `show_sidecars=true` surfaces `.review.yaml` /
+/// `.review.json` files in their natural location so users can inspect
+/// the raw metadata when desired.
+#[test]
+fn read_dir_shows_review_sidecars_when_show_true() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("readme.md"), "hello").unwrap();
+    std::fs::write(
+        dir.path().join("readme.md.review.yaml"),
+        "mrsf_version: '1.0'\ndocument: readme.md\ncomments: []\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("main.rs.review.json"),
+        r#"{"mrsf_version":"1.0","document":"main.rs","comments":[]}"#,
+    )
+    .unwrap();
+
+    let state = SidecarConfigState::new();
+    let result =
+        read_dir_inner(dir.path().to_str().unwrap().to_string(), None, Some(true), &state)
+            .unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+
+    assert!(names.contains(&"readme.md"));
+    assert!(
+        names.contains(&"readme.md.review.yaml"),
+        "YAML sidecars must be visible when show_sidecars=true"
+    );
+    assert!(
+        names.contains(&"main.rs.review.json"),
+        "JSON sidecars must be visible when show_sidecars=true"
+    );
+}
+
+/// The "Show sidecar files in folder pane" toggle is a single switch
+/// over every sidecar artifact: when ON, both inline `.review.{yaml,json}`
+/// files AND the configured `sidecar_root` directory are surfaced so the
+/// user can browse the raw metadata they just opted into.
+#[test]
+fn read_dir_shows_sidecar_root_dir_when_show_true() {
+    use mdown_review_lib::core::paths::canonicalize_no_verbatim;
+
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path();
+    let canonical_ws = canonicalize_no_verbatim(ws).unwrap();
+    std::fs::write(ws.join("readme.md"), "hello").unwrap();
+    std::fs::create_dir(ws.join(".reviews")).unwrap();
+
+    let state = SidecarConfigState::new();
+    state.set_config(canonical_ws, Some(std::path::PathBuf::from(".reviews")));
+
+    // show=false (default): .reviews must be hidden.
+    let result =
+        read_dir_inner(ws.to_str().unwrap().to_string(), None, Some(false), &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        !names.contains(&".reviews"),
+        "show=false: sidecar_root must be hidden"
+    );
+
+    // show=true: .reviews must be visible so users can browse the redirect target.
+    let result =
+        read_dir_inner(ws.to_str().unwrap().to_string(), None, Some(true), &state).unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        names.contains(&".reviews"),
+        "show=true: sidecar_root must be visible — toggle controls all sidecar artifacts"
+    );
+    assert!(names.contains(&"readme.md"));
+}
+
+/// A directory whose name happens to end in `.review.yaml` (legal on
+/// every FS) must NOT be filtered out by the sidecar file rule, which
+/// only applies to files.
+#[test]
+fn read_dir_does_not_hide_directory_with_sidecar_suffix() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("notes.review.yaml")).unwrap();
+    std::fs::create_dir(dir.path().join("data.review.json")).unwrap();
+    std::fs::write(dir.path().join("readme.md"), "hello").unwrap();
+
+    let state = SidecarConfigState::new();
+    let result = read_dir_inner(dir.path().to_str().unwrap().to_string(), None, None, &state)
+        .unwrap();
+    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+
+    assert!(
+        names.contains(&"notes.review.yaml"),
+        "directories ending in .review.yaml must not be filtered as sidecar files"
+    );
+    assert!(
+        names.contains(&"data.review.json"),
+        "directories ending in .review.json must not be filtered as sidecar files"
+    );
+    assert!(names.contains(&"readme.md"));
+}
+
 // ── FileChangeEvent serialization ─────────────────────────────────────────
 
 #[test]

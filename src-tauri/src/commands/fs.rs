@@ -114,10 +114,17 @@ pub fn read_dir_inner(
             e.to_string()
         })?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !show && is_sidecar_file(&name) {
+        // Sidecar file filter — gate on is_file so a directory whose name
+        // ends in `.review.yaml` (legal on every FS) is never mistaken
+        // for a sidecar file.
+        if !show && !meta.is_dir() && is_sidecar_file(&name) {
             continue;
         }
-        // Hide the sidecar_root directory when it overlaps the workspace tree
+        // The "Show sidecar files in folder pane" toggle controls every
+        // sidecar artifact uniformly: when OFF (default) we hide both
+        // the inline `.review.{yaml,json}` files AND the `sidecar_root`
+        // directory configured by `.mrsf.yaml`. When ON, both surface so
+        // users can browse `.reviews/` and inspect the raw metadata.
         if !show {
             if let Some(ref hide) = hide_dir_name {
                 if name == *hide && meta.is_dir() {

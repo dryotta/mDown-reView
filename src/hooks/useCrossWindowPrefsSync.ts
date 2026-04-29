@@ -31,8 +31,10 @@ export function useCrossWindowPrefsSync(): void {
         if (!state) return;
 
         // Apply only global prefs — NOT per-window layout state.
-        // folderPaneWidth, commentsPaneVisible, showSidecarFiles are persisted
-        // as defaults for new windows but never synced cross-window (issue #248).
+        // folderPaneWidth, commentsPaneVisible are persisted as defaults
+        // for new windows but never synced cross-window (issue #248).
+        // showSidecarFiles is per-window AND not persisted — every fresh
+        // window starts with the toggle OFF.
         // zoomByFiletype is session-only (not persisted or synced).
         //
         // Equality guard: only include fields whose value actually changed to
