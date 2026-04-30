@@ -142,7 +142,7 @@ describe("useFileWatcher debounced deletion scan", () => {
     const callback = getFileChangedCallback();
 
     act(() => {
-      callback(fileChangedContent("/some/file.md.review.json"));
+      callback(fileChangedReviewJson("/some/file.md.review.json"));
     });
 
     act(() => { vi.advanceTimersByTime(500); });

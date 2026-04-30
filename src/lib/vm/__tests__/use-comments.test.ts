@@ -423,7 +423,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fileChangedCb!(fileChangedContent("/test.md.review.yaml"));
+      fileChangedCb!(fileChangedContent("/test.md"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(1);

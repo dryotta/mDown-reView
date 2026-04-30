@@ -27,6 +27,52 @@ export type CommentsChangedPayload = EventPayloads["comments-changed"];
  * `.review.json` per the classification at
  * `src-tauri/src/watcher.rs:489-496`.
  */
+/**
+ * Throws if `path` looks like a review sidecar. Used by factories whose
+ * production emit-site (the watcher's classification at
+ * `src-tauri/src/watcher.rs:489-496`, or the comment producers at
+ * `src-tauri/src/commands/comments/mod.rs:90-95`) would never carry a
+ * sidecar path under that event/kind. Catches the iter-1/iter-3 #298 bug
+ * class (and its #311 recurrence path) at fixture-construction time.
+ */
+function assertNonSidecarPath(path: string, factory: string): void {
+  if (path.endsWith(".review.yaml") || path.endsWith(".review.json")) {
+    throw new Error(
+      `${factory}: path "${path}" looks like a sidecar (.review.yaml/.review.json), ` +
+        `but the production watcher would never emit this kind for a sidecar path. ` +
+        `See src-tauri/src/watcher.rs:489-496 (kind classification). ` +
+        `Use fileChangedReview() or fileChangedReviewJson() instead.`,
+    );
+  }
+}
+
+/**
+ * Throws if `path` is not a review sidecar (or, when `expectedSuffix` is
+ * provided, not the specific sidecar variant). Mirrors the
+ * `path.ends_with(".review.yaml")` / `path.ends_with(".review.json")`
+ * arms of the watcher classification at
+ * `src-tauri/src/watcher.rs:489-496`.
+ */
+function assertSidecarPath(
+  path: string,
+  factory: string,
+  expectedSuffix?: ".review.yaml" | ".review.json",
+): void {
+  const isSidecar = expectedSuffix
+    ? path.endsWith(expectedSuffix)
+    : path.endsWith(".review.yaml") || path.endsWith(".review.json");
+  if (!isSidecar) {
+    throw new Error(
+      `${factory}: path "${path}" is not a sidecar path` +
+        (expectedSuffix
+          ? ` (must end with ${expectedSuffix}). `
+          : ` (must end with .review.yaml or .review.json). `) +
+        `The production watcher only emits kind="review" for sidecar paths. ` +
+        `See src-tauri/src/watcher.rs:489-496 (kind classification).`,
+    );
+  }
+}
+
 export const ipcEventFixturePaths = {
   folder: "/workspace",
   source: "/workspace/notes.md",
@@ -40,10 +86,15 @@ export const ipcEventFixturePaths = {
  * `src-tauri/src/watcher.rs:212` (`FileChangeEvent { path, kind }`);
  * classification at `src-tauri/src/watcher.rs:489-496`; emit site at
  * `src-tauri/src/watcher.rs:313` (per-window via `emit_to`).
+ *
+ * **Validation:** throws if `path` ends with `.review.yaml` or
+ * `.review.json` — the real watcher would have classified it as
+ * `kind="review"`, not `"content"`.
  */
 export function fileChangedContent(
   path: string = ipcEventFixturePaths.source,
 ): FileChangedPayload {
+  assertNonSidecarPath(path, "fileChangedContent");
   return { path, kind: "content" };
 }
 
@@ -55,10 +106,15 @@ export function fileChangedContent(
  * sidecar paths). See `src-tauri/src/watcher.rs:489-496` for the
  * classification (path ending with `.review.yaml` ⇒ kind="review").
  * Emit site: `src-tauri/src/watcher.rs:313`.
+ *
+ * **Validation:** throws if `path` does not end with `.review.yaml` or
+ * `.review.json` — anything else would have been classified as
+ * `kind="content"` by the watcher.
  */
 export function fileChangedReview(
   path: string = ipcEventFixturePaths.reviewYaml,
 ): FileChangedPayload {
+  assertSidecarPath(path, "fileChangedReview");
   return { path, kind: "review" };
 }
 
@@ -67,10 +123,13 @@ export function fileChangedReview(
  * Same contract as `fileChangedReview` but with the `.json` variant; the
  * classification at `src-tauri/src/watcher.rs:489-496` accepts either
  * extension.
+ *
+ * **Validation:** throws if `path` does not end with `.review.json`.
  */
 export function fileChangedReviewJson(
   path: string = ipcEventFixturePaths.reviewJson,
 ): FileChangedPayload {
+  assertSidecarPath(path, "fileChangedReviewJson", ".review.json");
   return { path, kind: "review" };
 }
 
@@ -109,9 +168,20 @@ export function folderChanged(
  * `src-tauri/src/commands/comments/mod.rs:90-95`. The carried path is
  * the SOURCE file path, not the sidecar — this is the contract producers
  * (commands) and consumers (`useComments`) agree on.
+ *
+ * **Validation:** throws if `filePath` ends with `.review.yaml` or
+ * `.review.json` — producers always emit the SOURCE path, never the
+ * sidecar path.
  */
 export function commentsChanged(
   filePath: string = ipcEventFixturePaths.source,
 ): CommentsChangedPayload {
+  if (filePath.endsWith(".review.yaml") || filePath.endsWith(".review.json")) {
+    throw new Error(
+      `commentsChanged: filePath "${filePath}" looks like a sidecar (.review.yaml/.review.json), ` +
+        `but production producers always emit the source file path. ` +
+        `See src-tauri/src/commands/comments/mod.rs:90-95.`,
+    );
+  }
   return { file_path: filePath };
 }

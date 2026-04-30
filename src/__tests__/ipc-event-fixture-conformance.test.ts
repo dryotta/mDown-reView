@@ -36,9 +36,11 @@ import {
 
 const repoRoot = resolve(__dirname, "..", "..");
 const srcRoot = resolve(repoRoot, "src");
+const e2eRoot = resolve(repoRoot, "e2e");
 
 const ALLOW_LIST = new Set<string>([
   "src/__tests__/fixtures/ipc-event-fixtures.ts",
+  "src/__tests__/fixtures/ipc-event-fixtures-validation.test.ts",
   "src/__tests__/ipc-event-fixture-conformance.test.ts",
   "src/__tests__/ipc-event-fixtures-vs-rust.test.ts",
   "src/lib/tauri-events.ts",
@@ -53,17 +55,21 @@ interface Hit {
 
 // All three regexes share the same call-site ident gate — only flag
 // invocations through identifiers that look like a captured listener
-// callback (cb / callback / *Cb / *Callback / *Changed / *Handler). This
-// is what eliminates false positives from anchor variants
-// (`canonicalizeAnchor({ kind: ... })`), error tagged unions
-// (`mockRejectedValueOnce({ kind: "PathOutsideWorkspace" })`), and
-// matchers (`toEqual({ kind: ... })`, `toHaveBeenCalledWith({ file_path:
-// ... })`). Each scan is additionally gated on the file mentioning the
-// matching event name (see `EVENT_NAME_GATE` checks below).
+// callback (cb / callback / listener / handler / fn / *Changed / *Cmd
+// and case variants). This is what eliminates false positives from
+// anchor variants (`canonicalizeAnchor({ kind: ... })`), error tagged
+// unions (`mockRejectedValueOnce({ kind: "PathOutsideWorkspace" })`),
+// and matchers (`toEqual({ kind: ... })`,
+// `toHaveBeenCalledWith({ file_path: ... })`). Each scan is
+// additionally gated on the file mentioning the matching event name
+// (see `EVENT_NAME_GATE` checks below).
 //
 // Negative-lookbehind `(?<![A-Za-z_$])` prevents matching inside method
-// names like `.fooBar(`.
-const CALLBACK_IDENT = String.raw`(?<![A-Za-z_$])(\w*(?:cb|Cb|callback|Callback|Changed|Handler))`;
+// names like `.fooBar(`. The suffix list is closed (no `\w*` tail) so
+// only identifiers that END in one of these tokens flag — `listener`
+// matches, `listenerSpy` does NOT (intentional: spies are wrapped, not
+// invoked).
+const CALLBACK_IDENT = String.raw`(?<![A-Za-z_$])(\w*?(?:cb|Cb|CB|callback|Callback|listener|Listener|handler|Handler|fn|Fn|Changed|Cmd))`;
 
 // File-changed payload: `{ ...kind: ... }` invoked through a callback.
 const FILE_CHANGED_RE = new RegExp(
@@ -95,6 +101,27 @@ function walkTestFiles(dir: string, acc: string[] = []): string[] {
       if (entry === "node_modules") continue;
       walkTestFiles(full, acc);
     } else if (/\.test\.tsx?$/.test(entry)) {
+      acc.push(full);
+    }
+  }
+  return acc;
+}
+
+/**
+ * Walks `e2e/**` and returns every `.ts`/`.tsx` file (not just `*.test.ts`).
+ * The browser e2e tests use spec/fixture filename conventions like
+ * `*.spec.ts` and `fixtures/*.ts`, and they MAY invoke captured
+ * listener callbacks directly (the bus-routed `__IPC_MOCK_EMIT` path
+ * goes through fixture factories, but ad-hoc test code could regress).
+ */
+function walkE2eSourceFiles(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) {
+      if (entry === "node_modules") continue;
+      walkE2eSourceFiles(full, acc);
+    } else if (/\.tsx?$/.test(entry)) {
       acc.push(full);
     }
   }
@@ -191,7 +218,8 @@ describe("IPC event fixture conformance (issue #311)", () => {
 
     it("rejects inline IPC event payload literals in test files", () => {
       const allHits: Hit[] = [];
-      for (const abs of testFiles) {
+      const filesToScan = [...testFiles, ...walkE2eSourceFiles(e2eRoot)];
+      for (const abs of filesToScan) {
         const rel = abs.slice(repoRoot.length + 1).split("\\").join("/");
         if (ALLOW_LIST.has(rel)) continue;
         const source = readFileSync(abs, "utf8");
@@ -211,6 +239,40 @@ describe("IPC event fixture conformance (issue #311)", () => {
             `must use the shared fixture factories.\n\n${formatted}`,
         );
       }
+    });
+
+    // SELF-TEST for the regex: synthesize a fake source string that
+    // mimics the bypass scenario from rubber-duck Finding 4a (a
+    // `listener({ path, kind })` invocation), and assert the scanner
+    // FLAGS it. This is the negative-control automated.
+    it("scanner flags `listener({ path, kind })` invocations (regression for #311 finding 4a)", () => {
+      const fakeSource = [
+        '// @ts-nocheck synthetic source for self-test',
+        'const listener = (_p) => {};',
+        'listenEvent("file-changed", listener);',
+        'listener({ path: "/x.md", kind: "review" });',
+      ].join("\n");
+      const hits = scanFile("synthetic.test.ts", fakeSource);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.some((h) => h.kind === "file-changed")).toBe(true);
+    });
+
+    it("scanner flags `handler({ file_path })` invocations (comments-changed)", () => {
+      const fakeSource = [
+        'listenEvent("comments-changed", handler);',
+        'handler({ file_path: "/x.md" });',
+      ].join("\n");
+      const hits = scanFile("synthetic.test.ts", fakeSource);
+      expect(hits.some((h) => h.kind === "comments-changed")).toBe(true);
+    });
+
+    it("scanner flags `fn({ path })` invocations (folder-changed)", () => {
+      const fakeSource = [
+        'listenEvent("folder-changed", fn);',
+        'fn({ path: "/dir" });',
+      ].join("\n");
+      const hits = scanFile("synthetic.test.ts", fakeSource);
+      expect(hits.some((h) => h.kind === "folder-changed")).toBe(true);
     });
   });
 });
