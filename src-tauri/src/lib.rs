@@ -28,8 +28,19 @@ use commands::{parse_launch_args, LaunchArgs};
 #[cfg(all(debug_assertions, feature = "codegen"))]
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri::menu::{Menu, MenuBuilder, MenuItem, SubmenuBuilder};
+use tauri::utils::config::Color;
 use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_log::{Target, TargetKind};
+
+/// Default window background color — #0d1117. Painted by the OS BEFORE
+/// WebView2 attaches, so a dark-theme cold start does not flash white.
+/// See PR #265 for the FOUC analysis. Applied to every window (main and
+/// secondary) via `WebviewWindowBuilder::background_color`; previously
+/// lived in `tauri.conf.json::app.windows[0].backgroundColor`, but moved
+/// to Rust when the main window's menu attachment forced programmatic
+/// construction (otherwise the menu attaches post-show, causing a
+/// client-rect reflow / re-render — the whole point of this refactor).
+const WINDOW_BG: Color = Color(0x0d, 0x11, 0x17, 0xff);
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the bindings.ts header literal. Both the
@@ -264,11 +275,52 @@ fn create_app_window(
         tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
             .title(title)
             .inner_size(1100.0, 750.0)
-            .min_inner_size(600.0, 400.0);
+            .min_inner_size(600.0, 400.0)
+            .background_color(WINDOW_BG);
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
         let menu = build_window_menu(handle, label)?;
+        builder.menu(menu)
+    };
+
+    builder.build()
+}
+
+/// Build the main window programmatically with its menu pre-attached
+/// (Windows/Linux) or with the menu installed app-wide via
+/// `AppHandle::set_menu` after build (macOS — see setup()).
+///
+/// Why not declare it in `tauri.conf.json` like a normal Tauri app?
+/// Because Tauri auto-creates config-declared windows BEFORE `setup()`
+/// runs, and there is no `WindowConfig::menu` field — menus must be built
+/// from a `Manager` handle. Calling `Window::set_menu` after the window
+/// is shown installs the native HMENU on a visible window, which on
+/// Windows shrinks the WebView2 client rect by the menu-bar height,
+/// firing `WM_SIZE` → resize observers → an unnecessary React re-render
+/// during cold start. Building the window here, with `.menu(menu)`
+/// before `.build()` on Windows/Linux, attaches the menu before the
+/// first paint so the WebView2 client rect is correct from the start.
+///
+/// On macOS, `WindowBuilder::menu` is a documented no-op (the menu bar
+/// belongs to NSApp, not NSWindow), so we skip `.menu()` here and let
+/// setup() install the global menu via `AppHandle::set_menu` instead.
+/// macOS does not exhibit the Windows HMENU client-rect-shrink behavior,
+/// so the post-build app.set_menu path is flicker-free there.
+///
+/// Sizes mirror the previous `tauri.conf.json::app.windows[0]` block.
+/// The `WINDOW_BG` constant preserves PR #265's cold-start FOUC fix.
+fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    let builder =
+        tauri::WebviewWindowBuilder::new(handle, "main", tauri::WebviewUrl::App("index.html".into()))
+            .title("mdownreview")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(800.0, 600.0)
+            .background_color(WINDOW_BG);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = {
+        let menu = build_window_menu(handle, "main")?;
         builder.menu(menu)
     };
 
@@ -663,29 +715,35 @@ pub fn run() {
             };
             reg.push_args("main", main_args);
 
-            // ── Application menu ─────────────────────────────────────────────
-            // Per-window vs app-wide menu is platform-specific:
-            //   - Windows/Linux: each window owns its menu bar →
-            //     `Window::set_menu` per window (and `WebviewWindowBuilder::menu`
-            //     for windows created later via `create_app_window`).
-            //   - macOS: the menu bar belongs to NSApp, not NSWindow.
-            //     `Window::set_menu` is documented as **Unsupported** on macOS
-            //     (tauri::window::Window::set_menu rustdoc says: "The menu on
-            //     macOS is app-wide and not specific to one window, if you
-            //     need to set it, use AppHandle::set_menu instead"). Calling
-            //     it silently no-ops, so we MUST go through `app.set_menu()`
-            //     which properly drives `init_app_menu` (tauri/src/app.rs).
+            // ── Build the main window ────────────────────────────────────────
+            // `tauri.conf.json` does NOT declare an `app.windows[]` entry — see
+            // the comment on `build_main_window` for why the main window is
+            // constructed here instead. On Windows/Linux, `.menu(menu)` is
+            // chained into the builder so the HMENU is in place from the very
+            // first attach and the WebView2 client rect never reflows post-show
+            // (the original cold-start menu-area flicker bug).
             //
-            // Either way, `WebviewReady` records that the renderer is loadable.
-            if let Some(main_win) = app.get_webview_window("main") {
+            // On macOS, `WindowBuilder::menu` is a no-op — the menu belongs to
+            // NSApp, not NSWindow. `build_main_window` skips `.menu()` there
+            // and we install the menu app-wide via `AppHandle::set_menu` after
+            // build. macOS doesn't have the Windows HMENU client-rect-shrink
+            // problem, so this post-build path is flicker-free.
+            //
+            // `push_args("main", …)` above runs BEFORE this build so pending
+            // args are queued before React mounts and calls `get_launch_args`.
+            build_main_window(app.handle())?;
+            #[cfg(target_os = "macos")]
+            {
                 let main_menu = build_window_menu(app, "main")?;
-                #[cfg(target_os = "macos")]
                 app.set_menu(main_menu)?;
-                #[cfg(not(target_os = "macos"))]
-                main_win.set_menu(main_menu)?;
-                let _ = main_win;
-                startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
             }
+            // Record `WebviewReady` AFTER `.build()` (and the macOS app.set_menu)
+            // returns successfully, so the phase bookmarks "user can see a stable
+            // frame" rather than the (now-eliminated) post-show menu-attach
+            // intermediate state. Frontend-side phases (`ThemeApplied`,
+            // `FrontendMounted`, `FirstFileLoaded`) are reported via
+            // `record_startup_phase` once React mounts.
+            startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
 
             // ── Menu event routing ───────────────────────────────────────────
             // Menu item IDs encode the originating window as `{label}:{action}`

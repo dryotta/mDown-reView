@@ -13,9 +13,7 @@
 import { test, expect } from "./fixtures";
 
 test.describe("Multi-window routing and lifecycle", () => {
-  test("05.1 - WindowRegistry is wired as managed state", async ({
-    nativePage,
-  }) => {
+  test("05.1 - WindowRegistry is wired as managed state", async ({ nativePage }) => {
     // Verify the registry is accessible by checking that the main window
     // is registered. The registry is Rust-side managed state — we can't
     // query it directly, but we can verify the app started with a window
@@ -24,13 +22,13 @@ test.describe("Multi-window routing and lifecycle", () => {
       // @ts-ignore — Tauri internals
       return window.__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
     });
-    // The default window label is "main" (from tauri.conf.json)
+    // The default window label is "main" (built programmatically in
+    // src-tauri/src/lib.rs::build_main_window — `tauri.conf.json` declares
+    // no `app.windows[]` entry; see that function's rustdoc for why).
     expect(windowLabel).toBe("main");
   });
 
-  test("05.2 - open-file-tab event listener is registered", async ({
-    nativePage,
-  }) => {
+  test("05.2 - open-file-tab event listener is registered", async ({ nativePage }) => {
     // Verify the useOpenFileTab hook registered a listener.
     // We can check by emitting a synthetic open-file-tab event and
     // verifying the app doesn't crash (graceful no-op for non-existent files).
@@ -50,9 +48,7 @@ test.describe("Multi-window routing and lifecycle", () => {
     expect(noError).toBe(true);
   });
 
-  test("05.3 - persistence excludes per-window state", async ({
-    nativePage,
-  }) => {
+  test("05.3 - persistence excludes per-window state", async ({ nativePage }) => {
     // Verify that the persisted store snapshot does NOT contain per-window
     // keys (tabs, activeTabPath, expandedFolders, root).
     const persistedKeys = await nativePage.evaluate(() => {
@@ -78,9 +74,7 @@ test.describe("Multi-window routing and lifecycle", () => {
     }
   });
 
-  test("05.4 - instance isolation: debug build skips single-instance", async ({
-    nativePage,
-  }) => {
+  test("05.4 - instance isolation: debug build skips single-instance", async ({ nativePage }) => {
     // In debug builds, instance_scope::is_isolated() returns true, so
     // the single-instance plugin is not registered. Verify by checking
     // that the app is running in debug mode (cfg!(debug_assertions)).
@@ -88,10 +82,7 @@ test.describe("Multi-window routing and lifecycle", () => {
     const hasDebugCommand = await nativePage.evaluate(async () => {
       try {
         // @ts-ignore — Tauri internals
-        const result = await window.__TAURI_INTERNALS__.invoke(
-          "set_root_via_test",
-          { path: "" },
-        );
+        const result = await window.__TAURI_INTERNALS__.invoke("set_root_via_test", { path: "" });
         // Command exists (may error on empty path, but doesn't reject as "unknown command")
         return true;
       } catch (e: unknown) {
@@ -103,9 +94,7 @@ test.describe("Multi-window routing and lifecycle", () => {
     expect(hasDebugCommand).toBe(true);
   });
 
-  test("05.5 - Window menu exists with Minimize item", async ({
-    nativePage,
-  }) => {
+  test("05.5 - Window menu exists with Minimize item", async ({ nativePage }) => {
     // We can't directly inspect native menus via CDP, but we can verify
     // the menu was built by checking that the menu event handler responds.
     // Emit a synthetic menu event for minimize and verify no crash.
@@ -122,9 +111,7 @@ test.describe("Multi-window routing and lifecycle", () => {
     expect(noError).toBe(true);
   });
 
-  test("05.6 - cross-window prefs sync listener is active", async ({
-    nativePage,
-  }) => {
+  test("05.6 - cross-window prefs sync listener is active", async ({ nativePage }) => {
     // Verify the useCrossWindowPrefsSync hook is active by simulating
     // a storage event with a theme change. In a single-window test we
     // can't fully test cross-window propagation, but we can verify the
@@ -140,7 +127,7 @@ test.describe("Multi-window routing and lifecycle", () => {
           key: "mdownreview-ui",
           newValue: JSON.stringify(newState),
           storageArea: localStorage,
-        }),
+        })
       );
       // Give React a tick to process
       return new Promise<string>((resolve) => {
