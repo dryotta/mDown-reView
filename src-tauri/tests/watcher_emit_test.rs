@@ -272,11 +272,26 @@ fn emit_config_changed_inner_emits_nothing_when_no_window_tracks_root() {
 
 /// Bug B regression guard (issue #304 / FLAKE-1): the production wrapper
 /// `emit_config_changed` MUST delegate to `emit_config_changed_inner` via
-/// the `WatcherEmitter` trait. A revert to broadcast (e.g. `app.emit(...)`
-/// or `for win in app.webview_windows().values()`) would bypass the
-/// `mrsf_targets` filter and re-introduce the N×N broadcast bug. Since
-/// `tauri::test::mock_app()` is unavailable on the dev Windows host, the
-/// next-best regression oracle is a structural assertion on the source.
+/// the `WatcherEmitter` trait. A revert of the wrapper to bypass the trait
+/// (e.g. `app.emit(...)` broadcast or
+/// `for win in app.webview_windows().values()`) would re-introduce Bug B.
+///
+/// Scope: assertions run against the BODY of `fn emit_config_changed(...)`
+/// only — not the whole file — so they're not satisfied by the helper's
+/// own definition (`fn emit_config_changed_inner(...)`).
+///
+/// `tauri::test::mock_app()` is unavailable on the dev Windows host
+/// (STATUS_ENTRYPOINT_NOT_FOUND, see `comments_emit_test.rs:17-19`);
+/// architecture.md rule 25 cites `src/__tests__/no-ts-sidecar-writes.test.ts`
+/// as the canonical precedent for source-level structural enforcement of
+/// chokepoint discipline when runtime oracles are unavailable.
+///
+/// Trade-off (acknowledged): this test is intentionally tightly coupled to
+/// the wrapper's current shape. A legitimate refactor (renaming
+/// `emit_config_changed_inner`, replacing the trait with a different
+/// abstraction, or moving the wrapper) requires updating this test in the
+/// same PR. Accepted vs the alternative: leaving the wrapper untested
+/// against revert.
 #[test]
 fn emit_config_changed_wrapper_routes_through_trait_seam() {
     let source_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -284,46 +299,98 @@ fn emit_config_changed_wrapper_routes_through_trait_seam() {
     let source = std::fs::read_to_string(&source_path)
         .expect("sidecar_config.rs must be readable for structural assertion");
 
-    // The wrapper MUST delegate to the inner helper.
+    // Locate `fn emit_config_changed(` (the wrapper). The trailing `(`
+    // distinguishes it from `fn emit_config_changed_inner(`. Allow optional
+    // visibility prefix (`pub`, `pub(crate)`).
+    let lines: Vec<&str> = source.lines().collect();
+    let wrapper_start_idx = lines
+        .iter()
+        .position(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with("fn emit_config_changed(")
+                || trimmed.starts_with("pub fn emit_config_changed(")
+                || trimmed.starts_with("pub(crate) fn emit_config_changed(")
+        })
+        .expect(
+            "fn emit_config_changed( wrapper not found in sidecar_config.rs — \
+             did the function get renamed? Update this test.",
+        );
+
+    // Brace-counter: scan forward from the wrapper signature line; depth goes
+    // 0 → 1 at the opening `{`, then back to 0 at the matching closing `}`.
+    // Robust to opening brace on same or following line; ignores braces in
+    // string/char literals and comments only at a level of fidelity that's
+    // fine for this file (no such literals appear in the wrapper).
+    let mut wrapper_body_lines: Vec<&str> = Vec::new();
+    let mut depth: i32 = 0;
+    let mut started = false;
+    for line in &lines[wrapper_start_idx..] {
+        wrapper_body_lines.push(line);
+        for ch in line.chars() {
+            match ch {
+                '{' => {
+                    depth += 1;
+                    started = true;
+                }
+                '}' => {
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+        if started && depth == 0 {
+            break;
+        }
+    }
     assert!(
-        source.contains("emit_config_changed_inner("),
-        "emit_config_changed must delegate to emit_config_changed_inner \
-         (Bug B regression guard — see {})",
-        source_path.display(),
+        started && depth == 0,
+        "could not parse wrapper body — brace counting failed for fn emit_config_changed(",
+    );
+    let body = wrapper_body_lines.join("\n");
+
+    // Helper: scan the wrapper body line-by-line, ignoring comment lines
+    // (the design-rationale comment on `emit_config_changed_inner` cites
+    // the old broken pattern when explaining what was fixed).
+    let body_non_comment_contains = |needle: &str| -> bool {
+        body.lines().any(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!")
+            {
+                return false;
+            }
+            trimmed.contains(needle)
+        })
+    };
+
+    // Assertion 1: wrapper MUST delegate to the inner helper. Scoped to the
+    // wrapper body so the helper's own signature line cannot satisfy it.
+    assert!(
+        body_non_comment_contains("emit_config_changed_inner("),
+        "fn emit_config_changed( wrapper must call emit_config_changed_inner( \
+         — Bug B regression guard. Body:\n{body}",
     );
 
-    // The wrapper MUST NOT iterate webview_windows for fan-out (Bug B revert).
-    // Skip comment lines: the file's design rationale comment naturally cites
-    // the old broken pattern when explaining what was fixed.
-    let webview_iter_in_code = source.lines().any(|line| {
-        let trimmed = line.trim();
-        if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
-            return false;
-        }
-        trimmed.contains("webview_windows().values()")
-    });
+    // Assertion 2: wrapper body MUST NOT iterate webview_windows (Bug B revert).
     assert!(
-        !webview_iter_in_code,
-        "emit_config_changed must not iterate app.webview_windows().values() \
+        !body_non_comment_contains("webview_windows().values()"),
+        "fn emit_config_changed( wrapper must not iterate webview_windows().values() \
          — that's the Bug B broadcast pattern. Use mrsf_targets via the \
-         WatcherEmitter trait.",
+         WatcherEmitter trait. Body:\n{body}",
     );
 
-    // The wrapper MUST NOT call app.emit() (broadcast) — only emit_to via the trait.
-    let suspicious = source.lines().enumerate().find(|(_, line)| {
+    // Assertion 3: wrapper body MUST NOT call app.emit() (broadcast). Allow
+    // `app.emit_to(...)` (per-window). Match `.emit(` not preceded by `_to`.
+    let calls_broadcast_emit = body.lines().any(|line| {
         let trimmed = line.trim();
-        // Skip comments
         if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
             return false;
         }
-        // Look for app.emit(...) (broadcast) but allow app.emit_to(...)
         trimmed.contains("app.emit(") || trimmed.contains(".emit(\"")
     });
     assert!(
-        suspicious.is_none(),
-        "emit_config_changed must not call app.emit() (broadcast) — use \
-         emit_to(label, ...) via the WatcherEmitter trait. Found: {:?}",
-        suspicious,
+        !calls_broadcast_emit,
+        "fn emit_config_changed( wrapper must not call app.emit() (broadcast) \
+         — use emit_config_changed_inner which routes through emit_to. Body:\n{body}",
     );
 }
 
