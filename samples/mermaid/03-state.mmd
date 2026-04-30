@@ -1,0 +1,19 @@
+stateDiagram-v2
+    [*] --> Draft
+
+    Draft --> Ready: gh pr ready
+    Ready --> Validating: release-gate dispatched
+    Validating --> Merging: gate green
+    Validating --> ForwardFix: gate failed
+    ForwardFix --> Validating: implementer commits fix
+    ForwardFix --> Blocked: forward-fix budget (5) exhausted
+    Merging --> Merged: gh pr merge
+    Merging --> Draft: merge conflict
+    Merged --> [*]
+    Blocked --> [*]: human intervention required
+
+    note right of ForwardFix
+      `iterate-one-issue --resume-pr`
+      drives this loop. Per-PR attempt
+      counter via PR-comment markers.
+    end note

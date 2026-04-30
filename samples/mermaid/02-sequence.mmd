@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant FE as Frontend
+    participant TC as tauri-commands.ts
+    participant BD as bindings.ts (auto-gen)
+    participant CM as Rust commands.rs
+    participant CO as core/sidecar
+    participant FS as Filesystem
+
+    U->>FE: Click "Add comment"
+    FE->>TC: addComment({ path, anchor, text })
+    TC->>BD: invoke('add_comment', args)
+    BD->>CM: dispatch
+    CM->>CO: with_sidecar_or_create(path, |s| { s.comments.push(c) })
+    CO->>FS: read_capped(yaml_path)
+    FS-->>CO: bytes
+    CO->>CO: reject_yaml_anchors(bytes)
+    CO->>CO: serde_saphyr::from_str(...)
+    CO->>CO: mutate sidecar
+    CO->>CO: emit_mrsf_yaml(&sidecar)
+    CO->>FS: write_atomic(yaml_path, bytes)
+    FS-->>CO: Ok
+    CO-->>CM: Result<MrsfSidecar>
+    CM-->>BD: Result<T, E>
+    BD-->>TC: Promise<T>
+    TC-->>FE: T
+    Note right of CM: also emits 'comments-changed'
+    CM-->>FE: event 'comments-changed'
+    FE->>FE: re-render

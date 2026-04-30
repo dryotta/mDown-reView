@@ -1,0 +1,25 @@
+// Multi-stage KQL with joins, projections, summarisation, and rendering.
+// Useful for exercising the KqlPlanView's tree depth.
+
+let recent_window = ago(7d);
+let high_severity = (level: string) {
+    level in ("Error", "Critical", "Fatal")
+};
+
+Heartbeat
+| where TimeGenerated > recent_window
+| join kind=leftouter (
+    Event
+    | where TimeGenerated > recent_window
+    | where high_severity(EventLevelName)
+    | summarize event_count = count(), max_event_id = max(EventID) by Computer
+) on Computer
+| extend has_errors = isnotnull(event_count) and event_count > 0
+| project Computer, OSType, OSName, has_errors, event_count = coalesce(event_count, 0), max_event_id
+| sort by event_count desc, Computer asc
+| take 100
+| render columnchart with (
+    title="Top 100 hosts by error count (last 7d)",
+    xcolumn=Computer,
+    ycolumns=event_count
+)

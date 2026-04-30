@@ -1,0 +1,8 @@
+// KQL — Kusto Query Language. The mdownreview KQL viewer renders
+// queries as a normalised tabular plan tree (see KqlPlanView).
+
+StormEvents
+| where StartTime between (datetime(2007-01-01) .. datetime(2007-12-31))
+| where EventType == "Tornado"
+| summarize event_count = count() by State
+| top 10 by event_count desc

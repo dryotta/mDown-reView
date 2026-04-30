@@ -1,0 +1,50 @@
+{
+  "repository": {
+    "name": "mdownreview",
+    "owner": {
+      "login": "dryotta",
+      "type": "User",
+      "profile": {
+        "name": "David",
+        "bio": "Building tools for AI-augmented engineering",
+        "social": {
+          "github": {
+            "url": "https://github.com/dryotta",
+            "followers": 42,
+            "following": {
+              "users": 12,
+              "organizations": 3,
+              "topics": ["rust", "tauri", "react", "markdown"]
+            }
+          }
+        }
+      }
+    },
+    "release": {
+      "channels": {
+        "stable": {
+          "version": "0.3.4",
+          "released": "2026-04-15",
+          "downloads": {
+            "windows": {
+              "x64": { "url": "https://example.com/win-x64.msi", "size_mb": 12.4 },
+              "arm64": { "url": "https://example.com/win-arm64.msi", "size_mb": 11.9 }
+            },
+            "macos": {
+              "universal": { "url": "https://example.com/mac.dmg", "size_mb": 24.1 }
+            }
+          }
+        },
+        "canary": {
+          "version": "0.4.0-canary.5",
+          "released": "2026-04-29",
+          "downloads": {
+            "windows": {
+              "x64": { "url": "https://example.com/canary-win-x64.msi", "size_mb": 12.5 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
