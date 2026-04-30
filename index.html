@@ -5,35 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mdownreview</title>
     <!--
-      FOUC mitigation (issue #265) — pairs with the `backgroundColor`
-      set on the main window in `tauri.conf.json` so neither the
-      OS-rendered window nor the in-page <html>/<body> surface paints
-      white before React mounts.
+      FOUC mitigation (issue #265). The inline <script> below MUST stay
+      synchronous (no defer/async) — it sets [data-theme] on <html> from
+      localStorage BEFORE the React module script executes, so app.css's
+      [data-theme]-keyed rules paint the right theme on first frame.
 
-      An inline <style> block previously paired this <script> to set
-      html/body backgrounds before the bundled CSS arrived, but it
-      was removed: per `docs/security.md` rule 17a, ANY inline <style>
-      element in this file triggers Tauri's `inject_nonce_token`
-      (tauri-utils html.rs) which appends a fresh nonce to the
-      `style-src` directive at runtime; CSP3 then ignores our
-      designed `'unsafe-inline'`, blocking every inline `style=` from
-      Shiki, KaTeX, Mermaid, and React `style={{...}}` props.
-
-      FOUC is now handled entirely by the bundled CSS (`src/styles/app.css`
-      defines `html, body { background-color: var(--color-bg) }` per
-      `[data-theme]`) which loads via the render-blocking <link> Vite
-      injects before the module script — first paint waits for the
-      stylesheet, so the correct theme background is applied before
-      anything is visible. Tauri's window `backgroundColor: '#0d1117'`
-      (`src-tauri/tauri.conf.json`) provides additional defense at the
-      OS-window layer.
-
-      The inline <script> below MUST stay — it runs synchronously to
-      set [data-theme] on <html> from localStorage BEFORE React mounts,
-      so app.css's `[data-theme]` rules paint the right theme on the
-      first frame. Tauri SHA-256-hashes inline <script>s into the
-      `script-src` directive (no nonce neutering issue) so this script
-      is allowed by the runtime CSP.
+      No inline <style> is allowed in this file — it would trigger
+      Tauri's runtime CSP nonce-injection on style-src and disable
+      'unsafe-inline' for every other inline-style consumer (Shiki,
+      KaTeX, Mermaid, React style props). See `docs/security.md` rule
+      17a for the full rationale and `src/__tests__/index-html-no-inline-style.test.ts`
+      for the regression guard.
     -->
     <script>
       try {

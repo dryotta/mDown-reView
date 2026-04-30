@@ -37,25 +37,62 @@ describe("index.html — CSP nonce-injection prevention (rule 17a)", () => {
     expect(styleElements.length).toBe(0);
   });
 
-  it("retains the inline data-theme bootstrap script (FOUC contract for issue #265)", () => {
+  it("retains the inline data-theme bootstrap script and writes [data-theme] before React mounts", () => {
     const inlineScripts = Array.from(
       parsedDocument.querySelectorAll<HTMLScriptElement>("script:not([src])"),
     );
     const themeBootstrap = inlineScripts.find((s) =>
       /localStorage\.getItem\(["']mdownreview-ui["']\)/.test(s.textContent ?? ""),
     );
-    expect(themeBootstrap).toBeDefined();
-  });
-
-  it("the bootstrap script writes [data-theme] before React mounts", () => {
-    const inlineScripts = Array.from(
-      parsedDocument.querySelectorAll<HTMLScriptElement>("script:not([src])"),
-    );
-    const themeBootstrap = inlineScripts.find((s) =>
-      /localStorage\.getItem\(["']mdownreview-ui["']\)/.test(s.textContent ?? ""),
-    );
+    expect(
+      themeBootstrap,
+      "FOUC bootstrap script (issue #265) must remain in index.html — it sets [data-theme] synchronously from localStorage before the React module script executes; deleting it re-introduces the first-paint flash this scenario was designed to prevent",
+    ).toBeDefined();
     expect(themeBootstrap?.textContent).toMatch(
       /setAttribute\(["']data-theme["']/,
     );
+  });
+});
+
+/**
+ * Build-output guard for `docs/security.md` rule 17a — the unit test on
+ * source `index.html` (above) catches developers who add an inline `<style>`
+ * to the source file, but it cannot catch a future Vite plugin /
+ * `transformIndexHtml` hook / vendor SDK that injects a `<style>` element
+ * into the bundled `dist/index.html` at build time. This second test parses
+ * the BUILT artefact and asserts the same invariant. It is gated on
+ * `dist/index.html` existing — if the working tree has not been built (e.g.
+ * fresh checkout, `npm test` before `npm run build`), the test is SKIPPED so
+ * unit-test runs do not require a full Vite build. CI runs `npm run build`
+ * before `npm test`'s entry point only in the `release-gate.yml` flow; the
+ * normal `ci.yml` ordering puts vitest before build, so this test will most
+ * commonly skip on PR runs and execute on release-gate runs. That is
+ * acceptable — the source-level test (above) is the primary fast-feedback
+ * gate; this dist-level test is the slower-but-comprehensive backstop for
+ * build-time injection vectors.
+ */
+describe("dist/index.html — CSP nonce-injection prevention (rule 17a, build-output)", () => {
+  const distIndexPath = resolve(__dirname, "..", "..", "dist", "index.html");
+  const distExists = (() => {
+    try {
+      readFileSync(distIndexPath, "utf-8");
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  describe.skipIf(!distExists)("when dist has been built", () => {
+    let parsedDist: Document;
+
+    beforeAll(() => {
+      const html = readFileSync(distIndexPath, "utf-8");
+      parsedDist = new DOMParser().parseFromString(html, "text/html");
+    });
+
+    it("contains zero <style> elements in the built artefact (catches build-time injection)", () => {
+      const styleElements = parsedDist.querySelectorAll("style");
+      expect(styleElements.length).toBe(0);
+    });
   });
 });
