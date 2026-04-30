@@ -322,7 +322,13 @@
 
 /* Hover affordance: faint `+` plus glyph at the left edge of every
  * commentable block. Hidden by default; revealed on hover. Suppressed
- * automatically on `.has-comments` blocks (the bubble marker takes over). */
+ * automatically on `.has-comments` blocks (the bubble marker takes over).
+ *
+ * Pointer-events stay enabled (default) so the pseudo-element is hit-
+ * tested as part of its parent — hovering the button keeps the block's
+ * `:hover` active, which prevents the "button disappears as the mouse
+ * approaches it" hover-gap. Clicks on the pseudo bubble up to the parent
+ * and route through `MarkdownViewer.handleGutterClick` (left ~28 px). */
 .md-commentable-block::before,
 .md-commentable-li::before,
 .md-commentable-cell::before {
@@ -345,7 +351,6 @@
   border: none;
   box-sizing: border-box;
   z-index: 5;
-  pointer-events: none;
 }
 
 .md-commentable-block:hover::before,
@@ -355,18 +360,17 @@
 }
 
 /* Speech-bubble marker for blocks with unresolved comments. Replaces the
- * pre-refactor numeric chip (`content: attr(data-comment-count)`) with a
- * bare blue Word-style bubble — single bubble for one thread, two stacked
- * for ≥2. Inline SVG-as-data-URL keeps the marker self-contained.
- *
- * One-bubble glyph (matches CommentMarker.tsx <Bubble />) — encoded for url():
- *   <svg viewBox='0 0 16 16'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>
- */
+ * pre-refactor numeric chip with a bare Word-style bubble — single bubble
+ * for one thread, two stacked for ≥2. The SVG silhouette is applied via
+ * `mask`, and the colour comes from `background-color: var(--color-accent)`
+ * so light/dark themes (and any future palette tweaks) recolour the
+ * marker without touching the data URL. Inline SVG path matches
+ * `CommentMarker.tsx <Bubble />`. */
 .md-commentable-block.has-comments::before,
 .md-commentable-li.has-comments::before,
 .md-commentable-cell.has-comments::before {
   content: "";
-  background: transparent;
+  background: var(--color-accent, #0969da);
   border: 0;
   border-radius: 0;
   width: 16px;
@@ -374,13 +378,15 @@
   left: 4px;
   top: 4px;
   opacity: 1;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%232563eb'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>");
-  background-repeat: no-repeat;
-  background-size: 16px 16px;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
 }
 
 /* Stacked bubbles for ≥2 comments: render the back bubble via ::after,
- * offset down-and-right behind the ::before front bubble. */
+ * offset down-and-right behind the ::before front bubble. Same mask
+ * trick + 55 % opacity so the back bubble is a translucent shadow. */
 .md-commentable-block.has-comments:not([data-comment-count="1"])::after,
 .md-commentable-li.has-comments:not([data-comment-count="1"])::after,
 .md-commentable-cell.has-comments:not([data-comment-count="1"])::after {
@@ -390,9 +396,12 @@
   top: 6px;
   width: 16px;
   height: 16px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%232563eb' fill-opacity='0.55'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>");
-  background-repeat: no-repeat;
-  background-size: 16px 16px;
+  background: var(--color-accent, #0969da);
+  opacity: 0.55;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
   z-index: 4;
   pointer-events: none;
 }
@@ -469,7 +478,7 @@
   margin: 0;
   border: 0;
   background: transparent;
-  color: #2563eb;
+  color: var(--color-accent, #0969da);
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
@@ -477,7 +486,7 @@
 }
 
 .comment-marker:hover {
-  color: #1d4ed8;
+  color: var(--color-accent-hover, #0860ca);
 }
 
 .comment-marker svg {
