@@ -2,11 +2,18 @@
 
 ## What it is
 
-A single rotating log file captures output from both the Rust backend and the React frontend, with frontend messages tagged `[web]` and Rust messages flowing through `tracing`. Unhandled exceptions on either side are caught and routed into the same file — production users can attach one file when reporting issues.
+A single rotating log file captures output from both the Rust backend and the React frontend, with frontend messages tagged `[web]` and Rust messages flowing through `tracing`. Unhandled exceptions on either side are caught and routed into the same file — production users can attach one file when reporting issues. Each app launch starts with a fresh `mdownreview.log`; the previous session's file is archived to a UTC-timestamped sibling, and the log directory is pruned to a bounded number of files so disk usage stays predictable.
 
 ## How it works
 
 Rust logging uses `tracing` + `tracing-subscriber` + `tauri-plugin-log` to route every `log::*` and `tracing::*` call to the rotating file. The same plugin exposes a frontend logger; `src/logger.ts` is the single frontend chokepoint (rule 2 in [`docs/architecture.md`](../architecture.md)) and prefixes every message with `[web]` before invoking the plugin.
+
+Before `tauri-plugin-log` initializes, a tiny custom plugin (`log-rotator`, `src-tauri/src/log_rotation.rs`) registered first in the plugin chain performs two pre-init tasks:
+
+1. **Per-launch archive.** If the previous session's `mdownreview.log` exists and is non-empty, it is renamed to `mdownreview.YYYY-MM-DDTHH-MM-SSZ.log` (UTC seconds, `:` replaced by `-` for cross-platform filename validity). On the rare collision (two launches within the same UTC second) a numeric suffix is appended (`.1`, `.2`, …). After the rename, the log plugin opens a fresh empty `mdownreview.log` for append.
+2. **Bounded retention.** The log directory is pruned to at most **10** files matching the `mdownreview*.log` family (active + archives combined), oldest mtime first. The active file is never deleted, even if it has the oldest mtime. Two archive naming patterns are pruned: our startup-archive form `mdownreview.<stamp>.log` (dot separator) and `tauri-plugin-log`'s own intra-session size-rotation form `mdownreview_<stamp>.log` (underscore separator). Unrelated files (`mdownreview-cli.log`, `notes.md`, `other.log`) are ignored.
+
+Plugin registration order is a stable Tauri v2 contract — the same guarantee `tauri-plugin-single-instance` relies on. The `tauri-plugin-log` 5 MB intra-session size cap and `RotationStrategy::KeepAll` remain in place as a secondary safety net inside a single long-running session; the startup pass is what bounds disk usage across launches.
 
 A panic hook installed in `lib.rs` converts Rust panics into logged error events before the process unwinds. On the React side, an `ErrorBoundary` component catches render-time errors and forwards them through `logger`; unhandled rejections on `window` are also captured. Tests install a `console.error` / `console.warn` spy at setup so a silent test failure that merely logs an error surfaces as a hard failure (principle 2 in [`docs/test-strategy.md`](../test-strategy.md)).
 
@@ -24,18 +31,21 @@ flowchart LR
       WinErr["window.onerror /<br/>unhandledrejection<br/>(installed pre-createRoot)"]
       Console["WebView console.warn / .error<br/>(release: forwarded only)"]
     end
+    Rotator["log-rotator plugin<br/>(archive prev .log + prune to 10)"]
     Panic --> Tracing
     Tracing --> Plugin["tauri-plugin-log"]
     Logger --> Plugin
     EB --> Logger
     WinErr --> Logger
     Console --> Plugin
-    Plugin --> File[("rotating log file<br/>5 MB cap, kept across rotations<br/>retrieved via get_log_path")]
+    Rotator -.->|runs before<br/>plugin init| Plugin
+    Plugin --> File[("fresh mdownreview.log per launch<br/>+ up to 9 archived siblings<br/>retrieved via get_log_path")]
 ```
 
 ## Key source
 
-- **Rust:** `src-tauri/src/lib.rs` (plugin registration, panic hook), any `tracing::*` calls throughout `src-tauri/src/`
+- **Rust:** `src-tauri/src/lib.rs` (plugin registration, panic hook, rotation summary), any `tracing::*` calls throughout `src-tauri/src/`
+- **Per-launch archive + retention:** `src-tauri/src/log_rotation.rs`
 - **Frontend chokepoint:** `src/logger.ts`
 - **Error capture:** `src/components/ErrorBoundary.tsx`
 - **Command:** `src-tauri/src/commands/launch.rs` — `get_log_path`

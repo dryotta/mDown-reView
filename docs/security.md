@@ -52,7 +52,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 
 ### Logging & crash capture
 24. Release builds forward only `warn`/`error` from WebView `console.*` to the log. (`lib.rs:75-77`.)
-25. Log rotation caps file size at 5 MB and keeps rotated files. (`lib.rs:55-56`.)
+25. Log retention is enforced by a pre-init `log-rotator` Tauri plugin (`src-tauri/src/log_rotation.rs`) registered before `tauri-plugin-log`: each app launch archives the previous `mdownreview.log` to `mdownreview.<UTC stamp>.log`, then prunes the log directory to at most 10 `mdownreview*.log` files (active + archives combined, oldest mtime first). The active file is never deleted. Pruning uses `fs::remove_file`, which removes a symlink as the link itself rather than following it — a malicious symlink dropped into the log dir cannot cause data loss outside the dir. The match pattern accepts both our startup-archive separator (`.`) and `tauri-plugin-log`'s intra-session size-rotation separator (`_`), so the plugin's 5 MB intra-session cap (`RotationStrategy::KeepAll`) does not leak unbounded archives.
 26. Rust panics are logged with location via a panic hook installed in `setup`. (`lib.rs:109-123`.)
 
 ### Remote asset fetching
