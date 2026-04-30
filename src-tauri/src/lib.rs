@@ -79,9 +79,17 @@ fn parse_menu_id(id: &str) -> Option<(&str, &str)> {
     id.split_once(':')
 }
 
-/// Build the application menu for a specific window. Each menu item ID is
-/// prefixed with the window label so `on_menu_event` can identify the
-/// originating window without heuristics.
+/// Build the application menu.
+///
+/// On Windows/Linux this is built once per window (each window's menu bar is
+/// independent) and `label` identifies the owning window in the menu IDs so
+/// `on_menu_event` routes to that exact window.
+///
+/// On macOS the menu bar is **app-wide** — `Window::set_menu` is documented
+/// as **Unsupported** on macOS, and the menu must be installed via
+/// `AppHandle::set_menu`. We still build with `label = "main"` and keep the
+/// `{label}:{action}` ID encoding for symmetry, but `on_menu_event` resolves
+/// to the focused window on macOS rather than the encoded label.
 ///
 /// On macOS the menu bar follows Apple conventions:
 ///   App (About · Settings · Services · Hide/Show · Quit) │ File │ Edit │ View │ Window │ Help
@@ -90,7 +98,7 @@ fn parse_menu_id(id: &str) -> Option<(&str, &str)> {
 ///
 /// PredefinedMenuItems (About, Edit shortcuts, Services, Hide, Quit) are
 /// OS-handled and never fire through `on_menu_event`; custom MenuItems keep
-/// the `{label}:{action}` encoding for per-window routing.
+/// the `{label}:{action}` encoding.
 fn build_window_menu<R: Runtime, M: Manager<R>>(
     handle: &M,
     label: &str,
@@ -239,19 +247,32 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     }
 }
 
-/// Create a new application window with its own per-window menu.
+/// Create a new application window.
+///
+/// On Windows the window gets its own menu via `WebviewWindowBuilder.menu()`.
+/// On macOS the menu bar is app-wide (set once in `setup()` via
+/// `AppHandle::set_menu`) so we deliberately do NOT call `.menu()` here —
+/// `Window::set_menu` and `WindowBuilder::menu` are documented no-ops on
+/// macOS (tauri::window::Window::set_menu rustdoc) and would just allocate a
+/// menu that never gets attached.
 fn create_app_window(
     handle: &tauri::AppHandle,
     label: &str,
     title: &str,
 ) -> tauri::Result<tauri::WebviewWindow> {
-    let menu = build_window_menu(handle, label)?;
-    tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
-        .title(title)
-        .inner_size(1100.0, 750.0)
-        .min_inner_size(600.0, 400.0)
-        .menu(menu)
-        .build()
+    let builder =
+        tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
+            .title(title)
+            .inner_size(1100.0, 750.0)
+            .min_inner_size(600.0, 400.0);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = {
+        let menu = build_window_menu(handle, label)?;
+        builder.menu(menu)
+    };
+
+    builder.build()
 }
 
 /// Shared logic for opening a new empty window. Used by the native menu handler.
@@ -642,29 +663,56 @@ pub fn run() {
             };
             reg.push_args("main", main_args);
 
-            // ── Per-window menu for main window ──────────────────────────────
-            // Main window is created by tauri.conf.json; set its menu here.
-            // The presence of the main webview window at this point is the
-            // best in-process signal that the renderer is loadable, so we
-            // record `WebviewReady` here. Frontend-side phases
-            // (`ThemeApplied`, `FrontendMounted`, `FirstFileLoaded`) are
-            // reported via `record_startup_phase` once React mounts.
+            // ── Application menu ─────────────────────────────────────────────
+            // Per-window vs app-wide menu is platform-specific:
+            //   - Windows/Linux: each window owns its menu bar →
+            //     `Window::set_menu` per window (and `WebviewWindowBuilder::menu`
+            //     for windows created later via `create_app_window`).
+            //   - macOS: the menu bar belongs to NSApp, not NSWindow.
+            //     `Window::set_menu` is documented as **Unsupported** on macOS
+            //     (tauri::window::Window::set_menu rustdoc says: "The menu on
+            //     macOS is app-wide and not specific to one window, if you
+            //     need to set it, use AppHandle::set_menu instead"). Calling
+            //     it silently no-ops, so we MUST go through `app.set_menu()`
+            //     which properly drives `init_app_menu` (tauri/src/app.rs).
+            //
+            // Either way, `WebviewReady` records that the renderer is loadable.
             if let Some(main_win) = app.get_webview_window("main") {
                 let main_menu = build_window_menu(app, "main")?;
+                #[cfg(target_os = "macos")]
+                app.set_menu(main_menu)?;
+                #[cfg(not(target_os = "macos"))]
                 main_win.set_menu(main_menu)?;
+                let _ = main_win;
                 startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
             }
 
             // ── Menu event routing ───────────────────────────────────────────
             // Menu item IDs encode the originating window as `{label}:{action}`
-            // (per rule `multiwin-per-window-menu`). All IDs are window-scoped.
+            // (per rule `multiwin-per-window-menu`). On Windows/Linux the
+            // encoded label IS the window that owns this menu bar. On macOS
+            // the menu bar is global, so the encoded label ("main") is just a
+            // placeholder — we resolve to the focused window so commands act
+            // on whatever window the user is actually looking at.
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
 
-                // Window-scoped actions: parse `{label}:{action}` from the menu item ID.
-                let Some((label, action)) = parse_menu_id(id) else {
+                let Some((encoded_label, action)) = parse_menu_id(id) else {
                     return;
                 };
+
+                #[cfg(target_os = "macos")]
+                let label_owned: String = app
+                    .webview_windows()
+                    .iter()
+                    .find(|(_, w)| w.is_focused().unwrap_or(false))
+                    .map(|(l, _)| l.clone())
+                    .unwrap_or_else(|| encoded_label.to_string());
+                #[cfg(target_os = "macos")]
+                let label: &str = label_owned.as_str();
+                #[cfg(not(target_os = "macos"))]
+                let label: &str = encoded_label;
+
                 let Some(window) = app.get_webview_window(label) else {
                     log::warn!("[menu] no window for label {label:?} (action {action:?})");
                     return;
