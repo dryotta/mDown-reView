@@ -10,31 +10,31 @@
       OS-rendered window nor the in-page <html>/<body> surface paints
       white before React mounts.
 
-      Reads the persisted Zustand state from localStorage (key
-      `mdownreview-ui` — see `src/store/index.ts`), resolves
-      `theme === "system"` via prefers-color-scheme, and writes the
-      result onto `<html data-theme>` so app.css's theme tokens are
-      already correct on the very first paint. Wrapped in try/catch
-      because parse failure / disabled localStorage MUST NOT block
-      React's hydration — the dark fallback ensures we never flash
-      white on a parse error.
+      An inline <style> block previously paired this <script> to set
+      html/body backgrounds before the bundled CSS arrived, but it
+      was removed: per `docs/security.md` rule 17a, ANY inline <style>
+      element in this file triggers Tauri's `inject_nonce_token`
+      (tauri-utils html.rs) which appends a fresh nonce to the
+      `style-src` directive at runtime; CSP3 then ignores our
+      designed `'unsafe-inline'`, blocking every inline `style=` from
+      Shiki, KaTeX, Mermaid, and React `style={{...}}` props.
 
-      Both the inline <style> and the <script> run synchronously
-      (the script has no defer/async and lives BEFORE the React
-      module script below) so the attribute is set before the
-      `<script type="module">` is even fetched.
+      FOUC is now handled entirely by the bundled CSS (`src/styles/app.css`
+      defines `html, body { background-color: var(--color-bg) }` per
+      `[data-theme]`) which loads via the render-blocking <link> Vite
+      injects before the module script — first paint waits for the
+      stylesheet, so the correct theme background is applied before
+      anything is visible. Tauri's window `backgroundColor: '#0d1117'`
+      (`src-tauri/tauri.conf.json`) provides additional defense at the
+      OS-window layer.
+
+      The inline <script> below MUST stay — it runs synchronously to
+      set [data-theme] on <html> from localStorage BEFORE React mounts,
+      so app.css's `[data-theme]` rules paint the right theme on the
+      first frame. Tauri SHA-256-hashes inline <script>s into the
+      `script-src` directive (no nonce neutering issue) so this script
+      is allowed by the runtime CSP.
     -->
-    <style>
-      html,
-      body {
-        background: #0d1117;
-        margin: 0;
-      }
-      html[data-theme="light"],
-      html[data-theme="light"] body {
-        background: #ffffff;
-      }
-    </style>
     <script>
       try {
         var raw = localStorage.getItem("mdownreview-ui");
