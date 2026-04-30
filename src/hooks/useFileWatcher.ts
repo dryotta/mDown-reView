@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { useShallow } from "zustand/shallow";
 import { listenEvent } from "@/lib/tauri-events";
 import { useStore } from "@/store";
 import { updateWatchedFiles, scanReviewFiles } from "@/lib/tauri-commands";
@@ -8,7 +9,13 @@ const SAVE_DEBOUNCE_MS = 1500;
 const SCAN_DEBOUNCE_MS = 500;
 
 export function useFileWatcher() {
-  const tabs = useStore((s) => s.tabs);
+  // RC2/P1.1 — subscribe to the set of tab paths only. Selecting the
+  // whole `tabs` array re-fires this hook (and its `updateWatchedFiles`
+  // effect) on every scroll-tick `setScrollTop`, because `setScrollTop`
+  // rebuilds the tabs array via `s.tabs.map(...)`. `useShallow` returns
+  // the previous array reference when the path set is element-wise
+  // unchanged, so the effect only fires on add/remove/reorder.
+  const tabPaths = useStore(useShallow((s) => s.tabs.map((t) => t.path)));
   const root = useStore((s) => s.root);
   const lastSaveByPath = useStore((s) => s.lastSaveByPath);
   const setGhostEntries = useStore((s) => s.setGhostEntries);
@@ -40,11 +47,10 @@ export function useFileWatcher() {
 
   // Sync open tabs to Rust watcher
   useEffect(() => {
-    const paths = tabs.map((t) => t.path);
-    updateWatchedFiles(paths).catch((err) =>
+    updateWatchedFiles(tabPaths).catch((err) =>
       warn(`[useFileWatcher] failed to update watched files: ${err}`)
     );
-  }, [tabs]);
+  }, [tabPaths]);
 
   // Listen for file-changed events from Rust
   useEffect(() => {

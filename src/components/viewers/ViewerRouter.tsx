@@ -12,12 +12,14 @@ import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
 import { FileActionsBar } from "./FileActionsBar";
 import { ViewerToolbar } from "./ViewerToolbar";
+import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 interface Props {
   path: string;
 }
 
 export function ViewerRouter({ path }: Props) {
+  useRenderCount("ViewerRouter");
   const { status, content, error, sizeBytes, mtimeMs } = useFileContent(path);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);

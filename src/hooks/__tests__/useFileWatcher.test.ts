@@ -3,7 +3,7 @@ import { useStore } from "@/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listenEvent } from "@/lib/tauri-events";
 import { useFileWatcher } from "../useFileWatcher";
-import { scanReviewFiles } from "@/lib/tauri-commands";
+import { scanReviewFiles, updateWatchedFiles } from "@/lib/tauri-commands";
 
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn((_eventName: string, _callback: unknown) =>
@@ -258,5 +258,74 @@ describe("useFileWatcher save-loop suppression", () => {
     expect(fileChangedEvents).toHaveLength(1);
 
     dispatchSpy.mockRestore();
+  });
+});
+
+describe("useFileWatcher tabPaths stability — RC2/P1.1", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useStore.setState({
+      root: "/workspace",
+      tabs: [{ path: "/a.md", scrollTop: 0 }],
+      lastSaveByPath: {},
+      ghostEntries: [],
+    });
+  });
+
+  it("scroll bursts do NOT fire updateWatchedFiles", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(updateWatchedFiles).mockClear();
+
+    for (let i = 1; i <= 50; i++) {
+      act(() => {
+        useStore.getState().setScrollTop("/a.md", i);
+      });
+    }
+    await act(async () => {});
+
+    expect(updateWatchedFiles).toHaveBeenCalledTimes(0);
+  });
+
+  it("opening a new tab fires updateWatchedFiles once with the new path list", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(updateWatchedFiles).mockClear();
+
+    act(() => {
+      useStore.getState().openFile("/b.md");
+    });
+    await act(async () => {});
+
+    expect(updateWatchedFiles).toHaveBeenCalledTimes(1);
+    const args = vi.mocked(updateWatchedFiles).mock.calls[0][0];
+    expect(args).toEqual(expect.arrayContaining(["/a.md", "/b.md"]));
+  });
+
+  it("closing a tab fires updateWatchedFiles once with the shrunken list", async () => {
+    useStore.setState({
+      root: "/workspace",
+      tabs: [
+        { path: "/a.md", scrollTop: 0 },
+        { path: "/b.md", scrollTop: 0 },
+      ],
+      lastSaveByPath: {},
+      ghostEntries: [],
+    });
+
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    vi.mocked(updateWatchedFiles).mockClear();
+
+    act(() => {
+      useStore.getState().closeTab("/b.md");
+    });
+    await act(async () => {});
+
+    expect(updateWatchedFiles).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateWatchedFiles).mock.calls[0][0]).toEqual(["/a.md"]);
   });
 });

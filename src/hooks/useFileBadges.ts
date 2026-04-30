@@ -17,16 +17,17 @@ const PATHS_DEBOUNCE_MS = 50;
 
 /**
  * Returns per-file unresolved-comment badge data (count + worst severity)
- * for a set of file paths. Reloads on `comments-changed` and on
- * `file-changed` events with `kind === "review"` (sidecar mutations).
+ * for a set of file paths. Reloads on `comments-changed` (emitted by every
+ * frontend-initiated sidecar mutation via `with_sidecar_mut` — rule 17,
+ * docs/architecture.md).
  *
  * Design notes:
  * - `pathsKey` changes (folder expand/collapse, ghost-set churn) are
  *   coalesced through a `PATHS_DEBOUNCE_MS` window so a burst of
  *   expansions produces a single IPC instead of one-per-event.
- * - Reload events (`comments-changed`, sidecar `file-changed`) bypass
- *   the debounce and fire immediately — these are user-visible state
- *   changes that must surface promptly.
+ * - Reload events (`comments-changed`) bypass the debounce and fire
+ *   immediately — these are user-visible state changes that must
+ *   surface promptly.
  * - When a new IPC starts, the previous in-flight call's `cancelled`
  *   flag is set so its result is discarded on arrival; this prevents a
  *   slower stale call from clobbering a fresher one out-of-order.
@@ -106,16 +107,6 @@ export function useFileBadges(filePaths: string[]): Record<string, FileBadge> {
     const p = listenEvent("comments-changed", () => {
       void info("[badge-diag] useFileBadges reload: comments-changed");
       setReloadKey((k) => k + 1);
-    });
-    return () => { p.then((fn) => fn()).catch(() => {}); };
-  }, []);
-
-  useEffect(() => {
-    const p = listenEvent("file-changed", (payload) => {
-      if (payload.kind === "review") {
-        void info(`[badge-diag] useFileBadges reload: file-changed review path=${payload.path}`);
-        setReloadKey((k) => k + 1);
-      }
     });
     return () => { p.then((fn) => fn()).catch(() => {}); };
   }, []);

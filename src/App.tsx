@@ -28,8 +28,10 @@ import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
 import { recordStartupPhase, unregisterWindowFolder } from "@/lib/tauri-commands";
+import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 export default function App() {
+  useRenderCount("App");
   const { theme, root, folderPaneWidth, commentsPaneVisible, activeTabPath } = useStore(
     useShallow((s) => ({
       theme: s.theme,

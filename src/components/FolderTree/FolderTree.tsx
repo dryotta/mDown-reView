@@ -22,6 +22,7 @@ import {
 } from "@/lib/folder-tree";
 import { IconFolder } from "@/components/Icons";
 import { SidecarConfigDialog } from "@/components/SidecarConfigDialog";
+import { useRenderCount } from "@/hooks/dev/useRenderCount";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -38,6 +39,7 @@ interface NavRow {
 const SEVERITY_ORDER: Record<Severity, number> = { none: 0, low: 1, medium: 2, high: 3 };
 
 export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
+  useRenderCount("FolderTree");
   const { root, expandedFolders, activeTabPath, ghostEntries, tabs, folderPaneWidth } = useStore(
     useShallow((s) => ({
       root: s.root,

@@ -80,27 +80,6 @@ describe("useFileBadges", () => {
     expect(result.current).toEqual({ "/a.md": { count: 7, max_severity: "medium", file_level_count: 0 } });
   });
 
-  it("refreshes on file-changed{kind:review} but ignores other kinds", async () => {
-    vi.mocked(getFileBadges)
-      .mockResolvedValueOnce({ "/a.md": A })
-      .mockResolvedValueOnce({ "/a.md": B });
-
-    const { result } = renderHook(() => useFileBadges(["/a.md"]));
-    await flushDebounce();
-
-    const call = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed");
-    const cb = call![1] as (payload: { kind: string }) => void;
-
-    await act(async () => { cb({ kind: "content" }); });
-    await flushDebounce();
-    expect(getFileBadges).toHaveBeenCalledTimes(1); // ignored
-
-    await act(async () => { cb({ kind: "review" }); });
-    await flushDebounce();
-    expect(getFileBadges).toHaveBeenCalledTimes(2);
-    expect(result.current).toEqual({ "/a.md": B });
-  });
-
   it("dedupes when the result is structurally equal", async () => {
     vi.mocked(getFileBadges)
       .mockResolvedValueOnce({ "/a.md": A })
@@ -193,5 +172,34 @@ describe("useFileBadges", () => {
     await act(async () => { resolveFresh({ "/a.md": A, "/b.md": B }); });
     await act(async () => {});
     expect(result.current).toEqual({ "/a.md": A, "/b.md": B });
+  });
+});
+
+describe("useFileBadges echo elimination — RC5/P1.4", () => {
+  it("does NOT register a file-changed listener (eliminates duplicate IPC on local sidecar writes)", async () => {
+    renderHook(() => useFileBadges(["/a.md"]));
+    await flushDebounce();
+
+    const fileChangedRegs = vi
+      .mocked(listenEvent)
+      .mock.calls.filter((c) => c[0] === "file-changed");
+    expect(fileChangedRegs).toHaveLength(0);
+  });
+
+  it("still refreshes exactly once on a single comments-changed event", async () => {
+    vi.mocked(getFileBadges).mockResolvedValue({ "/a.md": A });
+
+    renderHook(() => useFileBadges(["/a.md"]));
+    await flushDebounce();
+    vi.mocked(getFileBadges).mockClear();
+
+    const call = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "comments-changed");
+    expect(call).toBeDefined();
+    const cb = call![1] as (payload: { file_path: string }) => void;
+
+    await act(async () => { cb({ file_path: "/a.md" }); });
+    await flushDebounce();
+
+    expect(getFileBadges).toHaveBeenCalledTimes(1);
   });
 });
