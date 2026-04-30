@@ -14,7 +14,7 @@ description: Hunts confirmed defects with reproductions in mdownreview source di
 - `docs/test-strategy.md` (rule 26 — Test data fidelity) — fixtures consuming external library output must mirror the registered version's actual on-disk shape.
 
 **Always check:**
-- Does any failing-test fixture for code that consumes external-library output (filenames, paths, structured data) mirror the library's actual on-disk shape, verified by reading the registered version's source? If the fixture was hand-written from documentation, flag as a Rule 26 violation in [`docs/test-strategy.md`](../../docs/test-strategy.md). The PR #295 `prune_logs` underscore/dot regression is the canonical incident: the bug shipped because seven specialised reviewers reasoned about a fixture that didn't match what the library actually wrote to disk.
+- Hand-written fixture for code consuming external-library output (filenames, paths, structured data)? Flag as a Rule 26 violation in [`docs/test-strategy.md`](../../docs/test-strategy.md). Canonical incident: PR #295 prune_logs underscore/dot regression.
 
 **Out of scope (handoff):**
 - Vulnerabilities with attack vectors → `security-expert`.

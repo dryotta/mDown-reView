@@ -15,7 +15,7 @@ description: Reviews component boundaries, IPC contract, store design, and layer
 - `docs/test-strategy.md` (rule 26 — Test data fidelity) — cross-library boundaries must have regression tests that read the registered upstream version's actual on-disk shape.
 
 **Always check:**
-- For every cross-library boundary in the diff (IPC payload via `tauri-specta`, sidecar serde via `serde-saphyr`/`saphyr`, log emission via `tauri-plugin-log`, watcher events via `notify-debouncer-mini`), is the regression test fixture built from the library's actual on-disk shape — not from documentation or our own type definitions? If not, flag as a Rule 26 violation in [`docs/test-strategy.md`](../../docs/test-strategy.md).
+- For every cross-library boundary in the diff, is the regression test fixture built from the library's actual on-disk shape (not from documentation)? Flag as a Rule 26 violation in [`docs/test-strategy.md`](../../docs/test-strategy.md).
 
 **Out of scope (handoff):**
 - React 19/Tauri v2 API correctness without arch impact → `react-tauri-expert`.
