@@ -57,14 +57,21 @@ fn build_result(root: &PathBuf, sidecar_root: &Option<PathBuf>) -> SidecarConfig
     }
 }
 
-/// Emit `folder-changed` to ALL windows so every folder pane refreshes.
-/// Also emit `sidecar-config-changed` so the watcher hook rescans ghosts.
+/// Emit `folder-changed` and `sidecar-config-changed` to the windows whose
+/// tree-watched-dirs include `root` (window-scoped per design-patterns.md
+/// rule 4 — no app-wide broadcasts). Bug B (issue #304 / FLAKE-1): the
+/// previous implementation iterated `app.webview_windows().values()` and
+/// emitted to every window, producing N×N noise — windows that don't have
+/// `root` open would receive a refresh signal for an unrelated folder.
 fn emit_config_changed(app: &tauri::AppHandle, root: &std::path::Path) {
     let path_str = root.to_string_lossy().into_owned();
-    let event = crate::watcher::FolderChangeEvent { path: path_str };
-    for win in app.webview_windows().values() {
-        let _ = win.emit("folder-changed", event.clone());
-        let _ = win.emit("sidecar-config-changed", ());
+    let folder_event = crate::watcher::FolderChangeEvent { path: path_str.clone() };
+    let sidecar_event = crate::watcher::SidecarConfigChangedEvent { path: path_str };
+    let watcher_state = app.state::<crate::watcher::WatcherState>();
+    let snapshot = watcher_state.tree_watched_dirs_snapshot();
+    for label in crate::watcher::mrsf_targets(root, &snapshot) {
+        let _ = app.emit_to(label.as_str(), "folder-changed", folder_event.clone());
+        let _ = app.emit_to(label.as_str(), "sidecar-config-changed", sidecar_event.clone());
     }
 }
 
