@@ -166,10 +166,16 @@ describe("IPC event fixture / Rust struct parity", () => {
       expect(Object.keys(updateProgress()).sort()).toEqual([...rustFields].sort());
     });
 
-    it.each(["Started", "Progress", "Finished"] as const)(
-      "factory accepts production-emittable event value '%s'",
-      (event) => {
-        expect(updateProgress({ event }).event).toBe(event);
+    it.each([
+      { event: "Started", content_length: 1000, chunk_length: 0 },
+      { event: "Progress", content_length: null, chunk_length: 500 },
+      { event: "Finished", content_length: null, chunk_length: 0 },
+    ] as const)(
+      "factory accepts production-emittable event value '$event'",
+      ({ event, content_length, chunk_length }) => {
+        expect(
+          updateProgress({ event, content_length, chunk_length }).event,
+        ).toBe(event);
       },
     );
   });
