@@ -12,6 +12,7 @@ description: Reviews React 19 and Tauri v2 API usage — finds misused hooks, ou
 - `docs/best-practices-common/react/hooks-and-effects.md` — hook rules, effect lifecycle, refs, transitions.
 - `docs/best-practices-common/react/state-management.md` — derived state, lift-vs-collocate.
 - `docs/best-practices-common/tauri/v2-patterns.md` — IPC, events, capabilities, plugins, windows, fs.
+- `docs/best-practices-common/tauri/macos-platform.md` — macOS-specific: app menu, window lifecycle, WKWebView, distribution, keyboard.
 
 **Out of scope (handoff):**
 - Security implications → `security-expert`.
