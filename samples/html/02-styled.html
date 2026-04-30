@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Styled HTML Sample</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      color: #1f2937;
+      line-height: 1.6;
+    }
+    h1, h2 { color: #2563eb; }
+    .card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      background: #f9fafb;
+    }
+    .card.warning {
+      background: #fef3c7;
+      border-color: #fbbf24;
+      color: #78350f;
+    }
+    code {
+      background: #e5e7eb;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, monospace;
+    }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+    th { background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>Styled HTML</h1>
+  <p>This page has inline <code>&lt;style&gt;</code> rules. Inside the
+  sandbox iframe (<code>allow-same-origin</code> only), CSS is allowed
+  but JS is not — see <code>docs/security.md</code> rule 12a.</p>
+
+  <div class="card">
+    <h2>A regular card</h2>
+    <p>With <strong>bold</strong>, <em>italic</em>, and <code>inline code</code>.</p>
+  </div>
+
+  <div class="card warning">
+    <h2>A warning card</h2>
+    <p>Different background per CSS class.</p>
+  </div>
+
+  <h2>A small table</h2>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>App</td><td>mdownreview</td></tr>
+      <tr><td>Channel</td><td>stable</td></tr>
+      <tr><td>Version</td><td>0.3.4</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

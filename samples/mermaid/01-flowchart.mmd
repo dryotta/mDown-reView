@@ -1,0 +1,14 @@
+flowchart LR
+    A[Open folder] --> B{Has .review.yaml?}
+    B -- yes --> C[Load existing comments]
+    B -- no --> D[Create blank workspace]
+    C --> E[Render markdown]
+    D --> E
+    E --> F[User clicks → adds comment]
+    F --> G[Save sidecar atomically]
+    G --> H[Emit comments-changed event]
+    H --> I[Frontend re-renders comments]
+    I --> J([Done])
+
+    classDef gateway fill:#fef3c7,stroke:#f59e0b
+    class B gateway
