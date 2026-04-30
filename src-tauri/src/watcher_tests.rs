@@ -267,3 +267,73 @@ fn extra_watched_dirs_skips_nonexistent_sidecar_root() {
     assert!(dirs.contains(&ws));
     assert_eq!(dirs.len(), 1, "only the workspace root should be present");
 }
+
+/// Pins the JSON wire shape that the frontend's `EventPayloads` interface
+/// (`src/lib/tauri-events.ts`) and the shared fixtures
+/// (`src/__tests__/fixtures/ipc-event-fixtures.ts`) depend on. If a Rust
+/// refactor changes the field name, type, or `kind` value set, this test
+/// fails loudly  surfacing what would otherwise be a silent
+/// test-pass/production-fail gap (the bug class iter-1/iter-3 of #298 hit).
+///
+/// Cross-references:
+///  - `FileChangeEvent` struct at `src-tauri/src/watcher.rs:212`
+///  - `FolderChangeEvent` struct at `src-tauri/src/watcher.rs:219`
+///  - `kind` classification at `src-tauri/src/watcher.rs:489-496`
+///  - Emit sites: `:313` (file-changed) and `:333-337` (folder-changed)
+#[test]
+fn ipc_event_payloads_serialize_to_frontend_contract() {
+    use serde_json::json;
+
+    // file-changed { path, kind }  all three kind values from
+    // src-tauri/src/watcher.rs:489-496 ("content" | "review" | "deleted").
+    assert_eq!(
+        serde_json::to_value(FileChangeEvent {
+            path: "/workspace/notes.md".to_string(),
+            kind: "content".to_string(),
+        })
+        .unwrap(),
+        json!({ "path": "/workspace/notes.md", "kind": "content" }),
+        "FileChangeEvent kind=content wire shape drifted from frontend contract"
+    );
+
+    assert_eq!(
+        serde_json::to_value(FileChangeEvent {
+            path: "/workspace/notes.md.review.yaml".to_string(),
+            kind: "review".to_string(),
+        })
+        .unwrap(),
+        json!({ "path": "/workspace/notes.md.review.yaml", "kind": "review" }),
+        "FileChangeEvent kind=review (.yaml sidecar) wire shape drifted"
+    );
+
+    assert_eq!(
+        serde_json::to_value(FileChangeEvent {
+            path: "/workspace/notes.md.review.json".to_string(),
+            kind: "review".to_string(),
+        })
+        .unwrap(),
+        json!({ "path": "/workspace/notes.md.review.json", "kind": "review" }),
+        "FileChangeEvent kind=review (.json sidecar) wire shape drifted"
+    );
+
+    assert_eq!(
+        serde_json::to_value(FileChangeEvent {
+            path: "/workspace/notes.md".to_string(),
+            kind: "deleted".to_string(),
+        })
+        .unwrap(),
+        json!({ "path": "/workspace/notes.md", "kind": "deleted" }),
+        "FileChangeEvent kind=deleted wire shape drifted"
+    );
+
+    // folder-changed { path }  emit at watcher.rs:333-337 (per-window) and
+    // commands/sidecar_config.rs:64-66 (broadcast).
+    assert_eq!(
+        serde_json::to_value(FolderChangeEvent {
+            path: "/workspace".to_string(),
+        })
+        .unwrap(),
+        json!({ "path": "/workspace" }),
+        "FolderChangeEvent wire shape drifted from frontend contract"
+    );
+}

@@ -101,13 +101,51 @@ pub fn get_sidecar_config(
     config_state: tauri::State<'_, SidecarConfigState>,
 ) -> Result<SidecarConfigResult, String> {
     let root = canon(&root)?;
-
-    let sidecar_root = match config_state.resolve_for_file(&root) {
-        Some((_, sr)) => sr,
-        None => load_mrsf_config(&root)?,
-    };
-
+    let sidecar_root = resolve_sidecar_root_with_disk_fallback(&root, &config_state)?;
     Ok(build_result(&root, &sidecar_root))
+}
+
+/// Resolve the `sidecar_root` for `root`, with a disk-consistency fallback
+/// when the cache reports "no config configured".
+///
+/// Background (issue #281 / FLAKE-1 follow-up): `update_tree_watched_dirs`
+/// seeds [`SidecarConfigState`] with `(root, None)` when no `.mrsf.yaml`
+/// exists at workspace-open time. After that, the only mechanism that
+/// updates the cache is the watcher's `.mrsf.yaml` event handler in
+/// `watcher.rs`. On Windows under load, `notify` regularly drops file-create
+/// events (the documented #281 flake), which leaves the cache permanently
+/// stale: subsequent `get_sidecar_config` calls report `enabled: false`
+/// and `add_comment` writes sidecars to the wrong (colocated) location
+/// even though `.mrsf.yaml` exists on disk.
+///
+/// Fix: when the cache says `Some((root, None))`, re-read `.mrsf.yaml` from
+/// disk and refresh the cache if disk disagrees. This makes IPC reads
+/// eventually-consistent with disk on the very next call (~one poll on the
+/// frontend) without depending on watcher event delivery, and ensures
+/// downstream comment writes via `resolve_for_file` see the refreshed
+/// config too.
+///
+/// Asymmetry note: we only refresh on `None → Some`, not `Some → None`.
+/// Stale `Some` after an external `.mrsf.yaml` deletion is a much rarer
+/// case and would only cause sidecar writes to land in the previously
+/// configured folder (still inside the workspace), which is recoverable.
+/// The watcher's delete-event path remains the primary mechanism for that
+/// transition.
+fn resolve_sidecar_root_with_disk_fallback(
+    root: &std::path::Path,
+    config_state: &SidecarConfigState,
+) -> Result<Option<PathBuf>, String> {
+    match config_state.resolve_for_file(root) {
+        Some((_, Some(sr))) => Ok(Some(sr)),
+        Some((cached_root, None)) => {
+            let fresh = load_mrsf_config(root)?;
+            if fresh.is_some() {
+                config_state.set_config(cached_root, fresh.clone());
+            }
+            Ok(fresh)
+        }
+        None => load_mrsf_config(root),
+    }
 }
 
 #[mdr_command]
@@ -152,10 +190,7 @@ pub fn migrate_sidecars_cmd(
 ) -> Result<MigrateSidecarsResult, String> {
     let root = canon(&root)?;
 
-    let configured = match config_state.resolve_for_file(&root) {
-        Some((_, sr)) => sr,
-        None => load_mrsf_config(&root)?,
-    };
+    let configured = resolve_sidecar_root_with_disk_fallback(&root, &config_state)?;
 
     let result = migrate_sidecars_inner(&root, configured.as_deref(), direction)?;
     emit_config_changed(&window.app_handle(), &root);
@@ -314,5 +349,69 @@ mod tests {
 
         assert_eq!(result.moved, 1);
         assert!(root.join("a.rs.review.yaml").exists());
+    }
+
+    // ── resolve_sidecar_root_with_disk_fallback ────────────────────────
+
+    /// Regression for the Windows watcher-flake (issue #281 / FLAKE-1
+    /// follow-up): when `update_tree_watched_dirs` has seeded the
+    /// `SidecarConfigState` cache with `(root, None)` (no `.mrsf.yaml` at
+    /// open time) and a `.mrsf.yaml` is then dropped on disk, a dropped
+    /// notify event used to leave the cache permanently stale. The
+    /// fallback now re-reads disk on `None` and refreshes the cache so
+    /// the very next IPC call observes the new `sidecar_root`.
+    #[test]
+    fn disk_fallback_recovers_when_cache_is_stale_none() {
+        let tmp = TempDir::new().unwrap();
+        let root = canonicalize_no_verbatim(tmp.path()).unwrap();
+
+        let cache = SidecarConfigState::new();
+        // Simulate what `update_tree_watched_dirs` does at workspace open
+        // when no `.mrsf.yaml` exists yet.
+        cache.set_config(root.clone(), None);
+
+        // Drop `.mrsf.yaml` on disk (simulating an external editor or, in
+        // the e2e spec, the test harness writing it after the workspace
+        // has opened). No watcher event fires here — that is the bug.
+        std::fs::write(root.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+
+        // The fallback must observe the new value AND refresh the cache.
+        let resolved = resolve_sidecar_root_with_disk_fallback(&root, &cache).unwrap();
+        assert_eq!(resolved.as_deref(), Some(Path::new(".reviews")));
+
+        // Cache is now warm — subsequent reads must NOT need disk.
+        std::fs::remove_file(root.join(".mrsf.yaml")).unwrap();
+        let cached = cache.resolve_for_file(&root).unwrap().1;
+        assert_eq!(cached.as_deref(), Some(Path::new(".reviews")));
+    }
+
+    /// Cached `Some(...)` must short-circuit — the fallback must NOT
+    /// re-read disk every call (that would defeat the cache).
+    #[test]
+    fn disk_fallback_short_circuits_on_cached_some() {
+        let tmp = TempDir::new().unwrap();
+        let root = canonicalize_no_verbatim(tmp.path()).unwrap();
+
+        let cache = SidecarConfigState::new();
+        cache.set_config(root.clone(), Some(PathBuf::from(".cached")));
+
+        // Disk says something different — fallback must ignore it because
+        // the cache is authoritative for `Some`.
+        std::fs::write(root.join(".mrsf.yaml"), "sidecar_root: .different\n").unwrap();
+
+        let resolved = resolve_sidecar_root_with_disk_fallback(&root, &cache).unwrap();
+        assert_eq!(resolved.as_deref(), Some(Path::new(".cached")));
+    }
+
+    /// Truly-absent config (cache miss + no file on disk) returns `None`
+    /// without error — exercises the third branch of the match.
+    #[test]
+    fn disk_fallback_returns_none_when_no_cache_and_no_file() {
+        let tmp = TempDir::new().unwrap();
+        let root = canonicalize_no_verbatim(tmp.path()).unwrap();
+
+        let cache = SidecarConfigState::new();
+        let resolved = resolve_sidecar_root_with_disk_fallback(&root, &cache).unwrap();
+        assert!(resolved.is_none());
     }
 }

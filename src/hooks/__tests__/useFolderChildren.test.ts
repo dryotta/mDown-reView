@@ -4,6 +4,8 @@ import { useFolderChildren } from "@/hooks/useFolderChildren";
 import * as commands from "@/lib/tauri-commands";
 import type { ReadDirResult } from "@/lib/tauri-commands";
 import { listenEvent } from "@/lib/tauri-events";
+import type { EventPayloads } from "@/lib/tauri-events";
+import { folderChanged } from "@/__tests__/fixtures/ipc-event-fixtures";
 
 vi.mock("@/lib/tauri-commands");
 vi.mock("@/lib/tauri-events", () => ({
@@ -36,7 +38,7 @@ function getFolderChangedCallback() {
     .mocked(listenEvent)
     .mock.calls.find((c) => c[0] === "folder-changed");
   if (!call) throw new Error("listenEvent('folder-changed', ...) was never called");
-  return call[1] as (payload: { path: string }) => void;
+  return call[1] as (payload: EventPayloads["folder-changed"]) => void;
 }
 
 describe("useFolderChildren", () => {
@@ -237,7 +239,7 @@ describe("useFolderChildren folder-changed listener", () => {
 
     const cb = getFolderChangedCallback();
     await act(async () => {
-      cb({ path: "/root" });
+      cb(folderChanged("/root"));
     });
 
     expect(commands.readDir).toHaveBeenCalledTimes(2);
@@ -256,7 +258,7 @@ describe("useFolderChildren folder-changed listener", () => {
 
     const cb = getFolderChangedCallback();
     await act(async () => {
-      cb({ path: "/root/uncached-sub" });
+      cb(folderChanged("/root/uncached-sub"));
     });
 
     // Still only the initial root load — uncached dir was skipped
@@ -303,7 +305,7 @@ describe("useFolderChildren folder-changed listener", () => {
 
     // Fire folder-changed for rootA — starts the slow readDir
     const cb = getFolderChangedCallback();
-    await act(async () => { cb({ path: "/rootA" }); });
+    await act(async () => { cb(folderChanged("/rootA")); });
 
     // Switch root to rootB — clears cache, sets cancelled flag
     rerender({ root: "/rootB" });
