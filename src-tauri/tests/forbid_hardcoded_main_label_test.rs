@@ -22,6 +22,9 @@ use std::path::{Path, PathBuf};
 
 /// (file_relative_to_src_tauri, substring_on_the_line)
 const ALLOW: &[(&str, &str)] = &[
+    // lib.rs::build_main_window — bootstrap main-window builder (PR #318).
+    ("src/lib.rs", "tauri::WebviewWindowBuilder::new(handle, \"main\""),
+    ("src/lib.rs", "build_window_menu(handle, \"main\")"),
     // lib.rs::setup — bootstrap main-window registration (folder + file-only).
     ("src/lib.rs", "reg.register(\"main\".to_string(), registry::WindowKind::Folder"),
     ("src/lib.rs", "reg.register(\"main\".to_string(), registry::WindowKind::FileOnly"),
