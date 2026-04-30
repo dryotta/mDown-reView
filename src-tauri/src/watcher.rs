@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::mdr_command;
 
 /// Maximum number of tree-watched dirs across ALL windows (merged union).
@@ -150,6 +150,19 @@ impl WatcherState {
         out
     }
 
+    /// Clone the per-window tree-watched-dir map for callers that need to
+    /// compute targeted emit lists (e.g. `mrsf_targets`) without holding the
+    /// internal lock. Returns an empty map on lock poisoning so callers can
+    /// proceed with a clear "no targets" semantic instead of panicking — the
+    /// emit is best-effort and a poisoned lock has bigger problems to surface
+    /// elsewhere.
+    pub fn tree_watched_dirs_snapshot(&self) -> HashMap<String, HashSet<PathBuf>> {
+        self.tree_watched_dirs
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+
     /// Replace the set of tree-watched dirs after validating each entry.
     /// Inputs are canonicalized internally — frontend may pass any absolute
     /// form (Windows `C:\...` or Unix `/...`); we normalize to the OS canonical
@@ -218,6 +231,58 @@ pub struct FileChangeEvent {
 #[derive(Clone, serde::Serialize)]
 pub struct FolderChangeEvent {
     pub path: String,
+}
+
+/// Event payload for `sidecar-config-changed`: the canonical workspace root
+/// whose `.mrsf.yaml` was created / edited / deleted. Frontend uses this
+/// to rescan ghost panels (issue #304 / FLAKE-1).
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SidecarConfigChangedEvent {
+    pub path: String,
+}
+
+/// Test seam over the watcher's window-scoped emits. Production calls go
+/// through `Emitter::emit_to(self, label, …)` per design-patterns.md rule 4
+/// (window-scoped events, never app-wide broadcasts). The trait exists *only*
+/// so integration tests can substitute a mock — `tauri::test::mock_app()`
+/// pulls webview2/wry GUI DLLs that fail with STATUS_ENTRYPOINT_NOT_FOUND on
+/// the dev Windows host (mirrors `CommentsEmitter`).
+///
+/// Both events emitted by `commands::sidecar_config::emit_config_changed`
+/// (`folder-changed` + `sidecar-config-changed`) route through this seam so
+/// regressions of the IPC command path are catchable in unit tests. The
+/// inline `file-changed` / `folder-changed` emits inside `start_watcher`'s
+/// notify loop still call `app.emit_to(...)` directly — they have their own
+/// per-window filtering and don't need the seam.
+pub trait WatcherEmitter: Send + Sync {
+    fn emit_folder_changed(&self, label: &str, ev: &FolderChangeEvent);
+    fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent);
+}
+
+impl<R: Runtime> WatcherEmitter for AppHandle<R> {
+    fn emit_folder_changed(&self, label: &str, ev: &FolderChangeEvent) {
+        let _ = self.emit_to(label, "folder-changed", ev.clone());
+    }
+    fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent) {
+        let _ = self.emit_to(label, "sidecar-config-changed", ev.clone());
+    }
+}
+
+/// Pure helper: given a canonical workspace root and a per-window snapshot of
+/// `tree_watched_dirs`, return the labels of windows whose tree explicitly
+/// tracks that root. Exact-match (not prefix): only windows that opened
+/// exactly this folder receive `sidecar-config-changed` / `folder-changed`
+/// events for it. A child folder open in another window does NOT match — its
+/// `.mrsf.yaml` resolution is independent.
+pub fn mrsf_targets(
+    canonical_root: &Path,
+    per_window_tree: &HashMap<String, HashSet<PathBuf>>,
+) -> Vec<String> {
+    per_window_tree
+        .iter()
+        .filter(|(_, dirs)| dirs.contains(canonical_root))
+        .map(|(label, _)| label.clone())
+        .collect()
 }
 
 /// Wrapper so AppHandle can store the receiver end of the sync channel.
@@ -294,8 +359,21 @@ pub fn start_watcher(app: &AppHandle) {
                                         canonical_root.display(),
                                         config
                                     );
-                                    config_state.set_config(canonical_root, config);
+                                    config_state.set_config(canonical_root.clone(), config);
                                     mrsf_changed = true;
+                                    // Bug A (issue #304 / FLAKE-1): emit
+                                    // sidecar-config-changed so the renderer
+                                    // can rescan ghost panels when an external
+                                    // tool edits `.mrsf.yaml`. Window-scoped
+                                    // via `mrsf_targets` — only windows that
+                                    // explicitly opened this root get the
+                                    // event (design-patterns.md rule 4).
+                                    let event = SidecarConfigChangedEvent {
+                                        path: canonical_root.to_string_lossy().into_owned(),
+                                    };
+                                    for label in mrsf_targets(&canonical_root, &per_window_tree) {
+                                        app_handle.emit_sidecar_config_changed(&label, &event);
+                                    }
                                 }
                             }
                         }

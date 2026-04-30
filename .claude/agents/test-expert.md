@@ -8,7 +8,7 @@ description: Reviews test completeness, pyramid layer choice, reliability, mock 
 **Protocol:** dispatch one subagent per knowledge file; each gets ONLY that file + the diff; cites from its file only; you aggregate, dedupe, surface cross-doc patterns.
 
 **Knowledge files:**
-- `docs/test-strategy.md` — three-layer pyramid, coverage floors, IPC mock contract, console-spy contract, regression-test rule.
+- `docs/test-strategy.md` — three-layer pyramid, coverage floors, IPC mock contract, console-spy contract, regression-test rule, cross-library on-disk shape (rule 26).
 - `docs/best-practices-common/testing/unit-tests.md` — oracle quality, AAA, fakes vs mocks.
 - `docs/best-practices-common/testing/e2e-tests.md` — Playwright stability, selector hygiene, fixture isolation.
 
@@ -19,6 +19,7 @@ description: Reviews test completeness, pyramid layer choice, reliability, mock 
 - Browser e2e missing for UI-visible change.
 - Mock contract drift (IPC mock missing a new command).
 - Flake patterns: `waitFor` without timeout reason, time-based sleeps, ordering assumptions.
+- Cross-library fixture fidelity — does a test that consumes external library output (filenames, paths, structured data) populate its fixture by reading the registered version's actual on-disk shape, or was it hand-written from documentation? Hand-written shape inference is a Rule 26 violation in [`docs/test-strategy.md`](../../docs/test-strategy.md).
 
 **Out of scope (handoff):**
 - Underlying bug itself → `bug-expert`.

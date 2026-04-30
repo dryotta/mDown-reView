@@ -11,6 +11,10 @@ description: Hunts confirmed defects with reproductions in mdownreview source di
 - `docs/design-patterns.md` — effect cleanup, error boundaries, hook composition, cross-hook comms.
 - `docs/best-practices-common/react/hooks-and-effects.md` — stale closures, dep arrays, async-effect leaks.
 - `docs/best-practices-common/typescript/type-safety.md` — narrowing, exhaustive switch, `any` leaks.
+- `docs/test-strategy.md` (rule 26 — Test data fidelity) — fixtures consuming external library output must mirror the registered version's actual on-disk shape.
+
+**Always check:**
+- Hand-written fixture for code consuming external-library output (filenames, paths, structured data)? Flag as a Rule 26 violation in [`docs/test-strategy.md`](../../docs/test-strategy.md). Canonical incident: PR #295 prune_logs underscore/dot regression.
 
 **Out of scope (handoff):**
 - Vulnerabilities with attack vectors → `security-expert`.
