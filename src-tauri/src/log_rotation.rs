@@ -12,6 +12,13 @@
 //! guarantee. Registration order is enforced in `lib.rs::run` (this
 //! plugin must come before `log_plugin`).
 //!
+//! Pruning matches both our startup-archive naming
+//! (`mdownreview.<UTC stamp>.log`) and `tauri-plugin-log`'s own
+//! intra-session size-rotation naming (`mdownreview_<stamp>.log`, with
+//! an underscore — see `tauri-plugin-log` 2.x source). Without the
+//! underscore branch, long-running sessions that exceed the 5 MB
+//! intra-session cap would leak unbounded archives.
+//!
 //! See `docs/features/logging.md` for the user-facing description and
 //! `docs/architecture.md` rule 2 for the single-logging-chokepoint rule
 //! this complements.
@@ -33,10 +40,6 @@ const FILE_SUFFIX: &str = ".log";
 /// files (active + archives combined) in the log directory after each
 /// startup prune.
 pub(crate) const DEFAULT_KEEP: usize = 10;
-/// Hard ceiling on archive name collision suffixes within a single
-/// second. Far above any realistic restart cadence; primarily a guard
-/// against pathological filesystems.
-const MAX_COLLISION_SUFFIX: u32 = 999;
 
 /// Stamp format used for archived file names: ISO-8601 UTC with `:`
 /// replaced by `-` so the result is a valid filename on every supported
@@ -67,11 +70,37 @@ pub(crate) struct RotationOutcome {
 
 static OUTCOME: OnceLock<RotationOutcome> = OnceLock::new();
 
-/// Read the rotation outcome captured during plugin setup. Returns
-/// `None` if the rotator plugin was never registered (test isolation,
-/// CLI binary, etc.).
-pub(crate) fn outcome() -> Option<&'static RotationOutcome> {
-    OUTCOME.get()
+/// Surface the rotation outcome through the standard logging chokepoint.
+///
+/// Called from the main `.setup` hook in `lib.rs::run` AFTER
+/// `tauri-plugin-log` has initialized. Emits one `log::info!` summary
+/// line on `target: "log-rotation"` plus one `log::warn!` per error.
+///
+/// A separate `target` (not `"startup"`) is used because the line shape
+/// — `archived=<path> pruned_count=<n> errors=<n>` — does not match the
+/// `[startup] phase=<name> t_ms=<n>` schema documented in
+/// `docs/observability.md`. Analyzers filter by `target`, not by line
+/// prefix; routing this to `"log-rotation"` keeps `[startup]` schema-
+/// pure and lets log-aggregation tooling pull rotation events without
+/// substring-matching.
+pub(crate) fn surface_outcome() {
+    let Some(rotation) = OUTCOME.get() else {
+        return;
+    };
+    let archived = rotation
+        .archived
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "none".to_string());
+    log::info!(
+        target: "log-rotation",
+        "[log-rotation] archived={archived} pruned_count={} errors={}",
+        rotation.pruned.len(),
+        rotation.errors.len()
+    );
+    for err in &rotation.errors {
+        log::warn!(target: "log-rotation", "[log-rotation] error: {err}");
+    }
 }
 
 /// If `<log_dir>/mdownreview.log` exists and is non-empty, rename it to
@@ -106,12 +135,6 @@ pub(crate) fn archive_active_log(
     let mut suffix: u32 = 1;
     while candidate.exists() {
         candidate = log_dir.join(format!("{FILE_PREFIX}.{stamp}.{suffix}{FILE_SUFFIX}"));
-        if suffix > MAX_COLLISION_SUFFIX {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "log_rotation: exhausted archive collision suffixes",
-            ));
-        }
         suffix += 1;
     }
     fs::rename(&active, &candidate)?;
@@ -126,9 +149,11 @@ pub(crate) fn archive_active_log(
 /// changes. Returns the paths actually deleted; empty Vec when under
 /// cap or `log_dir` is missing.
 ///
-/// File-name match is exact: `mdownreview.log` (the active file) or
-/// `mdownreview.<anything>.log` (archives). Unrelated files such as
-/// `mdownreview-cli.log`, `notes.md`, or `other.log` are ignored.
+/// Two archive naming patterns are matched: our startup-archive form
+/// `mdownreview.<token>.log` AND `tauri-plugin-log`'s own
+/// intra-session size-rotation form `mdownreview_<token>.log` (note
+/// the underscore). Unrelated files such as `mdownreview-cli.log`
+/// (hyphen), `notes.md`, or `other.log` are ignored.
 pub(crate) fn prune_logs(log_dir: &Path, keep: usize) -> io::Result<Vec<PathBuf>> {
     if !log_dir.exists() {
         return Ok(Vec::new());
@@ -150,11 +175,13 @@ pub(crate) fn prune_logs(log_dir: &Path, keep: usize) -> io::Result<Vec<PathBuf>
         if !name.starts_with(FILE_PREFIX) || !name.ends_with(FILE_SUFFIX) {
             continue;
         }
-        // Reject anything where the segment after `mdownreview` is not a
-        // dot-prefixed token. E.g. `mdownreview-cli.log` has middle
-        // `-cli`, not `.something`, so it's filtered out.
+        // Accept both `.` (our startup-archive separator) and `_`
+        // (tauri-plugin-log's intra-session rotation separator).
+        // Reject `mdownreview-cli.log` (hyphen) and similar unrelated
+        // names whose middle is empty or otherwise begins with neither.
         let middle = &name[FILE_PREFIX.len()..name.len() - FILE_SUFFIX.len()];
-        if !middle.starts_with('.') {
+        let first = middle.chars().next();
+        if first != Some('.') && first != Some('_') {
             continue;
         }
         let metadata = dirent.metadata()?;
@@ -333,37 +360,14 @@ mod tests {
     }
 
     #[test]
-    fn archive_handles_collision_with_numeric_suffix() {
-        let dir = TempDir::new().unwrap();
-        let now = fake_now();
-        // Pre-place an archive with the same stamp the helper is about
-        // to compute — simulates two app launches within the same UTC
-        // second.
-        std::fs::write(
-            dir.path().join("mdownreview.2026-04-30T15-30-45Z.log"),
-            b"prev",
-        )
-        .unwrap();
-        std::fs::write(dir.path().join("mdownreview.log"), b"curr").unwrap();
-
-        let archived = archive_active_log(dir.path(), now).unwrap().unwrap();
-        assert_eq!(
-            archived.file_name().unwrap().to_str().unwrap(),
-            "mdownreview.2026-04-30T15-30-45Z.1.log"
-        );
-        // Both files preserved with their original content.
-        assert_eq!(std::fs::read(&archived).unwrap(), b"curr");
-        assert_eq!(
-            std::fs::read(dir.path().join("mdownreview.2026-04-30T15-30-45Z.log")).unwrap(),
-            b"prev"
-        );
-    }
-
-    #[test]
     fn archive_handles_double_collision() {
+        // Subsumes the single-collision case: this test pre-places both
+        // `mdownreview.<stamp>.log` AND `mdownreview.<stamp>.1.log`,
+        // forcing the helper to walk the suffix sequence twice and
+        // settle on `.2`. If single-collision regressed (helper used
+        // `.0` or didn't bump), this test would also fail.
         let dir = TempDir::new().unwrap();
         let now = fake_now();
-        // Simulate three launches all colliding on the same second.
         std::fs::write(
             dir.path().join("mdownreview.2026-04-30T15-30-45Z.log"),
             b"first",
@@ -381,9 +385,54 @@ mod tests {
             archived.file_name().unwrap().to_str().unwrap(),
             "mdownreview.2026-04-30T15-30-45Z.2.log"
         );
+        // Confirm the third launch's content went into the new archive.
+        assert_eq!(std::fs::read(&archived).unwrap(), b"third");
     }
 
     // ---- prune_logs ---------------------------------------------------------
+
+    #[test]
+    fn prune_includes_plugin_intra_session_archives() {
+        // Regression: tauri-plugin-log's intra-session size rotation
+        // produces files like `mdownreview_<timestamp>.log` (note the
+        // UNDERSCORE separator, not a dot). With `RotationStrategy::
+        // KeepAll` they accumulate forever unless prune covers them.
+        // See `tauri-plugin-log` 2.x source — the parser strips
+        // `"mdownreview"` then `"_"` to extract its rotation timestamp.
+        let dir = TempDir::new().unwrap();
+        let base = SystemTime::now() - Duration::from_secs(3600);
+        // 6 of our startup archives (dot-separator)
+        for i in 0..6u64 {
+            write_with_mtime(
+                &dir.path().join(format!("mdownreview.startup-{i:02}.log")),
+                b"x",
+                base + Duration::from_secs(i * 60),
+            );
+        }
+        // 5 plugin intra-session archives (underscore-separator)
+        for i in 0..5u64 {
+            write_with_mtime(
+                &dir.path()
+                    .join(format!("mdownreview_2026-01-{:02}_00-00-00.log", i + 1)),
+                b"x",
+                base + Duration::from_secs((i + 6) * 60),
+            );
+        }
+        // 11 archives total, keep=10 → must delete 1 oldest.
+        let deleted = prune_logs(dir.path(), 10).unwrap();
+        assert_eq!(deleted.len(), 1);
+        // The oldest is the first dot-archive (mtime = base + 0).
+        assert_eq!(
+            deleted[0].file_name().unwrap().to_str().unwrap(),
+            "mdownreview.startup-00.log"
+        );
+        // Sanity: 10 survivors remain (5 underscore + 5 dot).
+        let survivors: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(survivors.len(), 10);
+    }
 
     #[test]
     fn prune_noop_when_dir_missing() {

@@ -455,13 +455,9 @@ pub fn run() {
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
     let mut builder = tauri::Builder::default()
-        // The log-rotator MUST be registered before tauri-plugin-log:
-        // its setup hook archives the previous `mdownreview.log` (if any)
-        // and prunes the directory to log_rotation::DEFAULT_KEEP files,
-        // all before the log plugin opens the file for append. Plugin
-        // setup hooks fire in registration order — same contract that
-        // tauri-plugin-single-instance relies on. See
-        // `src-tauri/src/log_rotation.rs` for details.
+        // MUST precede log_plugin — the rotator's setup hook archives the
+        // previous mdownreview.log + prunes to log_rotation::DEFAULT_KEEP
+        // BEFORE tauri-plugin-log opens the file. See log_rotation.rs.
         .plugin(log_rotation::plugin())
         .plugin(log_plugin)
         .plugin(tauri_plugin_opener::init())
@@ -503,28 +499,10 @@ pub fn run() {
                 prev_hook(info);
             }));
 
-            // Surface the log-rotator's outcome as a structured
-            // `[startup]` line. The rotator runs BEFORE tauri-plugin-log
-            // is up so it cannot use `log::info!` itself (the call
-            // would land in a no-op default logger). Re-emitting from
-            // here — after every plugin's setup hook has fired —
-            // ensures the line lands in the freshly-opened log file.
-            if let Some(rotation) = log_rotation::outcome() {
-                let archived = rotation
-                    .archived
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "none".to_string());
-                log::info!(
-                    target: "startup",
-                    "[startup] phase=log-rotated archived={archived} pruned_count={} errors={}",
-                    rotation.pruned.len(),
-                    rotation.errors.len()
-                );
-                for err in &rotation.errors {
-                    log::warn!(target: "startup", "[startup] log-rotator error: {err}");
-                }
-            }
+            // Surface the log-rotator's outcome through the standard
+            // logging chokepoint now that tauri-plugin-log is up. See
+            // `log_rotation::surface_outcome` for the line schema.
+            log_rotation::surface_outcome();
 
             // Parse CLI args: support --folder <path> and --file <path> flags
             let raw_args: Vec<String> = std::env::args().skip(1).collect();
