@@ -2,7 +2,7 @@
 //! bootstrap allowlist.
 //!
 //! Per docs/best-practices-common/tauri/v2-patterns.md rule
-//! `multiwin-no-hardcoded-main-label`: secondary code paths must derive
+//! `multiwin-no-hardcoded-label`: secondary code paths must derive
 //! the window label from the call context (e.g. `window.label()`,
 //! registry lookups, menu-id encoding) rather than assume the bootstrap
 //! "main" window. Hardcoding `"main"` works at startup but routes events
@@ -139,7 +139,7 @@ fn no_hardcoded_main_label_outside_allowlist() {
         violations.is_empty(),
         "Hardcoded \"main\" window-label literal outside allowlist. \
          Derive the label from context (window.label(), registry lookups, menu-id encoding). \
-         See docs/best-practices-common/tauri/v2-patterns.md rule multiwin-no-hardcoded-main-label.\n  {}",
+         See docs/best-practices-common/tauri/v2-patterns.md rule multiwin-no-hardcoded-label.\n  {}",
         violations.join("\n  ")
     );
 }

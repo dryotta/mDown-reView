@@ -1,7 +1,7 @@
 //! Forbid iteration over `app.webview_windows()` outside `src/registry.rs`.
 //!
 //! Per docs/best-practices-common/tauri/v2-patterns.md rule
-//! `multiwin-registry-is-iteration-chokepoint`: iterating the runtime
+//! `multiwin-lifecycle-registry`: iterating the runtime
 //! window map (`app.webview_windows().{values, iter, keys, into_iter}()`)
 //! produces N×N noise — every consumer that loops gets every window
 //! regardless of relevance. Routing through `WindowRegistry` lookups
@@ -31,14 +31,14 @@ const ALLOW_FILES: &[&str] = &[
 /// a debt marker — when the migration lands the entry is removed and
 /// the gate enforces the new shape.
 const ALLOW_LINES: &[(&str, &str)] = &[
-    // TODO: removed by issue #315 C2 fix — `win-bring-all` macOS menu
+    // TODO: removed by issue #315 Medium-section win-bring-all + lifecycle handlers fix — `win-bring-all` macOS menu
     // handler in lib.rs::on_menu_event. Should consult the registry
     // instead of iterating the runtime map.
     ("src/lib.rs", "for w in app.webview_windows().values()"),
-    // TODO: removed by issue #315 C2 fix — macOS CloseRequested
+    // TODO: removed by issue #315 Medium-section win-bring-all + lifecycle handlers fix — macOS CloseRequested
     // last-visible-window check in lib.rs::on_window_event.
     ("src/lib.rs", ".webview_windows()"),
-    // TODO: removed by issue #315 C2 fix — RunEvent::Reopen on macOS
+    // TODO: removed by issue #315 Medium-section win-bring-all + lifecycle handlers fix — RunEvent::Reopen on macOS
     // re-shows hidden windows in lib.rs::run.
     ("src/lib.rs", "app_handle.webview_windows()"),
 ];
@@ -138,7 +138,7 @@ fn no_webview_windows_iteration_outside_allowlist() {
         violations.is_empty(),
         "Iteration over `app.webview_windows()` outside the registry. \
          Use `WindowRegistry::find_by_folder` / `find_ancestor_folder` / `find_file_only`. \
-         See docs/best-practices-common/tauri/v2-patterns.md rule multiwin-registry-is-iteration-chokepoint.\n  {}",
+         See docs/best-practices-common/tauri/v2-patterns.md rule multiwin-lifecycle-registry.\n  {}",
         violations.join("\n  ")
     );
 }

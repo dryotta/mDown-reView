@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 
 /**
  * Per docs/best-practices-common/tauri/v2-patterns.md rule
- * `multiwin-capability-explicit-window-scope`: every Tauri capability
+ * `caps-window-scope`: every Tauri capability
  * file under `src-tauri/capabilities/` MUST declare an explicit
  * `windows: [...]` array enumerating exactly which window labels (or
  * label patterns) the capability applies to.
@@ -81,7 +81,7 @@ describe("capability files declare explicit window scope", () => {
         expect(
           parsed.windows,
           `capabilities/${name} is missing a top-level "windows" field. ` +
-            `Per multiwin-capability-explicit-window-scope, every capability ` +
+            `Per caps-window-scope, every capability ` +
             `file must enumerate the window labels it applies to.`
         ).toBeDefined();
       });
@@ -118,7 +118,7 @@ describe("capability files declare explicit window scope", () => {
         expect(
           violators,
           `capabilities/${name} contains wildcard window scope(s) not in EXPECTED_VIOLATORS. ` +
-            `Per multiwin-capability-explicit-window-scope, capabilities must enumerate ` +
+            `Per caps-window-scope, capabilities must enumerate ` +
             `concrete window labels (or label-prefix globs that are pre-tracked here):\n  ${violators.join("\n  ")}`
         ).toEqual([]);
       });
