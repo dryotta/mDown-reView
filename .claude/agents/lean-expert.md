@@ -18,6 +18,7 @@ description: Pushes for fewer lines, fewer abstractions, fewer dependencies, sma
 - Duplicated logic across React + Rust → consolidate (Rust-First per AGENTS.md).
 - Dead code created by the diff but not removed in the same diff → flag.
 - Bundle/binary growth → flag if a smaller alternative exists.
+- **Type-surface proof for literal code suggestions (issue #320):** every literal code or assertion snippet you emit (e.g. `assert_eq!(loaded.comments[0].field, ...)`, a TypeScript expression, a regex asserted against output) MUST cite the struct/function/type definition (file:line) that makes it type-valid — e.g. `MrsfComment fields per src-tauri/src/core/types/mod.rs:192-212`. If you cannot or will not verify the surface, label the snippet `pseudocode` and add a one-line note saying what surface still needs verification. Snippets that name a non-existent field/method/type impose adaptation cost on implementers and erode review trust — they are themselves a CUT (worse-than-nothing) and must be revised or withdrawn.
 
 **Out of scope (handoff):**
 - Layer-boundary violations → `architect-expert`.
@@ -29,6 +30,11 @@ description: Pushes for fewer lines, fewer abstractions, fewer dependencies, sma
 ## Lean review
 ### Cuts (high impact)
 - [file:line] what to delete/inline — saving — cite rule
+  ```rust
+  // verified against MrsfComment at src-tauri/src/core/types/mod.rs:192-212
+  // OR: pseudocode — needs verification against <surface>
+  <snippet>
+  ```
 ### Cuts (medium/low)
 - ...
 ### Watchlist
