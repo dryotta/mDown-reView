@@ -390,6 +390,22 @@ Every implementer reports "no changes" → log `SKIPPED — no-op: <reason>` to 
 ### Step 6 — Push, classify diff, race local + CI + experts
 
 #### 6a. Push
+
+##### 6a-pre. Scope-diff guard (issue #302) — block workspace-wide formatter churn
+
+Implementers report their changed files in their Implementation Summary's `**Files changed:**` block. **Before staging anything**, run a scope-diff guard so workspace-wide `cargo fmt` (or any other off-scope edit) cannot leak into the iteration commit:
+
+1. Compute `EXPECTED_FILES` = the union of every implementer's reported `Files changed` paths from this iteration's Step 5 wave (and any earlier 6d wave on the same iter, see below).
+2. Compute `ACTUAL_FILES = git diff --name-only` (working tree against `HEAD`).
+3. `UNEXPECTED = ACTUAL_FILES − EXPECTED_FILES`.
+4. For each `path` in `UNEXPECTED`:
+   - If `path` ends in `.rs` AND `git diff -w -- "$path"` is empty (whitespace-only churn — the exact failure mode from issue #302): revert with `git checkout HEAD -- "$path"` and log `[scope-guard] reverted format-only churn: $path`.
+   - Else: do NOT auto-revert (the file may carry load-bearing edits the implementer forgot to report). Log `[scope-guard] BLOCK: unexpected file outside reported scope: $path` and surface it to 6d's forward-fix wave alongside validator/CI failures. Wave a single `exe-task-implementer` to either (a) add the file to the implementation scope by reporting it explicitly + justifying it, or (b) revert it. Re-run this guard until clean.
+5. Only after `UNEXPECTED` is empty do we proceed to the staging block below. Never `git add -A`.
+
+The implementer prompt forbids `cargo fmt`/`cargo fmt --all`/`cargo fmt -p` directly (see `.claude/agents/exe-task-implementer.md`); this guard is the second line of defence in case an agent (or a manual fix-up commit) violates that rule.
+
+##### 6a-stage. Stage and commit
 ```bash
 git add <specific files reported by implementers — NEVER git add -A blindly>
 git commit -m "$COMMIT_MESSAGE"
@@ -482,7 +498,8 @@ Repeat until A, B, AND C are all green/APPROVE, or 5 attempts:
    Minimal change per failure. Tighten existing code over new abstractions. Do NOT reopen approved concerns.
    Return Implementation Summary.
    ```
-3. ```bash
+3. **Re-apply the scope-diff guard from 6a-pre** against the forward-fix implementer's reported `Files changed` (treat its summary as the new `EXPECTED_FILES`; the original Step 5 `EXPECTED_FILES` from this iteration still counts as in-scope). Then:
+   ```bash
    git add <specific files>
    git commit -m "fix(iter-<iteration>): <summary>"
    git push

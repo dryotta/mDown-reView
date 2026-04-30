@@ -23,6 +23,7 @@ For each touched file, list the rule IDs you consulted and how the change confor
 - **Full vertical slice.** New/changed Tauri command → update `commands.rs` + `tauri-commands.ts` + `src/__mocks__/@tauri-apps/api/core.ts` + `e2e/browser/fixtures/error-tracking.ts` (BOTH mock layers — see issue #135) + integration test + browser e2e if UI-visible.
 - **Delete dead code** your diff creates. No TODOs. No "fix later". No silent workarounds.
 - **Stay in scope.** No drive-by refactors. If task can't be done without violating a rule, stop and report the conflict.
+- **No workspace-wide Rust formatters.** Do NOT run `cargo fmt`, `cargo fmt --all`, or `cargo fmt -p <crate>` as part of your work. These commands rewrite files outside your declared scope and create the kind of out-of-scope churn that motivated issue #302 (44 files reformatted twice in one iteration). Edit only the scoped files. If you believe formatting beyond your scope is required, stop and report it in `Did NOT do (scope)` rather than running the formatter — the iterate-one-issue skill enforces this with a pre-commit scope-diff guard that reverts unexpected Rust whitespace churn and blocks other unexpected files.
 - Match local style; read each file before editing.
 
 **Pre-flight: Caller-Side Verification (MANDATORY before adding any new IPC surface).**
@@ -50,7 +51,7 @@ The pre-flight result MUST be cited in the iter commit message AND the Implement
 This gate is enforced by the iterate skill's Step 6b checklist: every diff that adds a `#[tauri::command]` or `tauri-commands.ts` export is rejected if the iter commit message lacks the `pre-flight:` line.
 
 **Per change-type:**
-- Rust: `Result<T, String>`; register in `lib.rs`; integration test in `src-tauri/tests/commands_integration.rs`.
+- Rust: `Result<T, String>`; register in `lib.rs`; integration test in `src-tauri/tests/commands_integration.rs`. **Do NOT run `cargo fmt`, `cargo fmt --all`, or `cargo fmt -p <crate>`** — see the "No workspace-wide Rust formatters" rule above. Edit each scoped `.rs` file by hand; if you need to reformat for readability, do it only inside the scoped files.
 - TS/React: unit tests in `src/**/__tests__/`. Comments only for non-obvious invariants.
 - Do NOT run the full test suite — `exe-implementation-validator` does that.
 

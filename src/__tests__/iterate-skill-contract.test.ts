@@ -29,6 +29,12 @@ const DONE_HANDLERS_PATH = resolve(
 );
 const DONE_HANDLERS = readFileSync(DONE_HANDLERS_PATH, "utf8");
 
+const EXE_TASK_IMPLEMENTER_PATH = resolve(
+  __dirname,
+  "../../.claude/agents/exe-task-implementer.md",
+);
+const EXE_TASK_IMPLEMENTER = readFileSync(EXE_TASK_IMPLEMENTER_PATH, "utf8");
+
 describe("iterate-one-issue skill — DIFF_CLASS scoping (issue #122)", () => {
   it("Step 6b classifies the diff into code | prompt-only | docs-only | none", () => {
     expect(SKILL).toMatch(/####\s+6b\.?\s+Classify diff/i);
@@ -138,5 +144,83 @@ describe("iterate-one-issue skill — bug-mode behavioural verification (issue #
     expect(verifyIdx).toBeGreaterThan(-1);
     expect(readyIdx).toBeGreaterThan(-1);
     expect(verifyIdx).toBeLessThan(readyIdx);
+  });
+});
+
+describe("iterate-one-issue skill — scope guard against workspace-wide formatters (issue #302)", () => {
+  // Issue #302 — implementer runs of `cargo fmt` (workspace-wide) created 44 files
+  // of out-of-scope churn twice in a single iteration. The fix is two-pronged:
+  //   1. The implementer agent prompt forbids `cargo fmt` / `cargo fmt --all` /
+  //      `cargo fmt -p` outright.
+  //   2. The iterate-one-issue skill's Step 6 has a pre-commit scope-diff guard
+  //      that compares `git diff --name-only` against the implementer-reported
+  //      file set and reverts/blocks unexpected files BEFORE `git commit`.
+  //      The same guard is applied in the forward-fix path (6d).
+  // These tests lock the contract so the prompt cannot silently regress.
+
+  it("implementer agent prompt contains the literal `Do NOT run cargo fmt` rule", () => {
+    expect(EXE_TASK_IMPLEMENTER).toMatch(/Do NOT run\s+`?cargo fmt`?/);
+  });
+
+  it("implementer agent prompt names all three forbidden invocations", () => {
+    expect(EXE_TASK_IMPLEMENTER).toMatch(/cargo fmt --all/);
+    expect(EXE_TASK_IMPLEMENTER).toMatch(/cargo fmt -p/);
+  });
+
+  it("implementer agent prompt instructs to report rather than run the formatter", () => {
+    // The rule must explicitly tell the implementer what to do INSTEAD of running fmt.
+    expect(EXE_TASK_IMPLEMENTER).toMatch(/report\b[\s\S]{0,160}\bformat/i);
+  });
+
+  it("Step 6 contains a `git diff --name-only` based scope-diff guard", () => {
+    expect(SKILL).toMatch(/####\s+6a\.?\s+Push/);
+    expect(SKILL).toMatch(/git diff --name-only/);
+    expect(SKILL).toMatch(/scope.diff guard/i);
+  });
+
+  it("Step 6 scope-diff guard appears BEFORE the `git commit` line in 6a", () => {
+    // The whole point: revert/block unexpected files BEFORE the commit, not after.
+    const sixA = SKILL.indexOf("#### 6a. Push");
+    expect(sixA, "Step 6a not found").toBeGreaterThan(-1);
+    const sixB = SKILL.indexOf("#### 6b.");
+    expect(sixB, "Step 6b not found").toBeGreaterThan(sixA);
+
+    const sixABlock = SKILL.slice(sixA, sixB);
+    const guardIdx = sixABlock.search(/git diff --name-only/);
+    const commitIdx = sixABlock.indexOf("git commit");
+    expect(guardIdx, "scope-diff guard missing in Step 6a block").toBeGreaterThan(-1);
+    expect(commitIdx, "git commit reference missing in Step 6a block").toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(commitIdx);
+  });
+
+  it("Step 6 scope-diff guard reverts whitespace-only `.rs` churn (the issue #302 failure mode)", () => {
+    // The guard's revert branch must be triggered by a `git diff -w` whitespace-only check.
+    expect(SKILL).toMatch(/git diff -w/);
+    expect(SKILL).toMatch(/git checkout HEAD --/);
+    expect(SKILL).toMatch(/whitespace.only|format.only/i);
+  });
+
+  it("forward-fix path (6d) re-applies the same scope-diff guard before its own commit", () => {
+    const sixD = SKILL.indexOf("#### 6d.");
+    expect(sixD, "Step 6d not found").toBeGreaterThan(-1);
+    const stepSeven = SKILL.indexOf("### Step 7");
+    expect(stepSeven, "Step 7 header not found").toBeGreaterThan(sixD);
+
+    const sixDBlock = SKILL.slice(sixD, stepSeven);
+    // Must reference the 6a-pre guard (or restate it) before its own commit.
+    expect(sixDBlock).toMatch(/scope.diff guard|6a.pre/i);
+    const guardRefIdx = sixDBlock.search(/scope.diff guard|6a.pre/i);
+    const commitIdx = sixDBlock.indexOf("git commit");
+    expect(commitIdx, "git commit missing in Step 6d block").toBeGreaterThan(-1);
+    expect(guardRefIdx).toBeLessThan(commitIdx);
+  });
+
+  it("neither skill nor implementer prompt instructs running a workspace-wide Rust formatter", () => {
+    // Belt-and-braces: no positive instruction to run any of the forbidden commands.
+    // Allow mentions inside `Do NOT run ...` / forbidden-list contexts; flag any standalone
+    // imperative line that asks the implementer to run them.
+    const positiveRunPattern = /(?:^|\n)\s*[-*\d.]?\s*(?:Run|Execute|Apply|Use)\s+`?cargo fmt[^`\n]*`?/i;
+    expect(EXE_TASK_IMPLEMENTER).not.toMatch(positiveRunPattern);
+    expect(SKILL).not.toMatch(positiveRunPattern);
   });
 });
