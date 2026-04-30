@@ -549,16 +549,18 @@ CI is path-filtered (`.github/workflows/ci.yml`); on `prompt-only`/`docs-only` d
 
 #### 6d.0. Environmental retry (one-shot, pre-loop) — issue #316
 
-Before entering the forward-fix loop, check whether the validator (A from 6c) returned an environmental classification. The validator emits `<!-- iterate-validator-classification -->` followed by `classification: ENVIRONMENTAL` and `suite: native-e2e` when a native-E2E failure matches the host-state signatures (`0x8007139F`, `ERROR_SERVICE_NOT_ACTIVE`, `CDP HTTP did not become ready`) AND the diff has no changes under `e2e/native/` or to `src-tauri/src/lib.rs`/`src-tauri/src/main.rs`/`src-tauri/tauri.conf.json`. Per rule 27 in `docs/test-strategy.md`, this classification triggers a free retry:
+Before entering the forward-fix loop, check whether the validator (A from 6c) returned an environmental classification. The validator emits `<!-- iterate-validator-classification -->` followed by `classification: ENVIRONMENTAL`, `suite: native-e2e`, and `environmental_failure: true` when a native-E2E failure matches the host-state signatures (`0x8007139F`, `ERROR_SERVICE_NOT_ACTIVE`, `CDP HTTP did not become ready`) AND the diff has no changes under `e2e/native/` or to `src-tauri/src/lib.rs` / `src-tauri/src/main.rs` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` / `src-tauri/build.rs` / `playwright.native.config.ts`. Per rule 27 in `docs/test-strategy.md`, this classification triggers a free retry:
 
 1. **Detection.** Grep validator output for `^classification: ENVIRONMENTAL$` AND `^suite: native-e2e$`. If absent, skip 6d.0 entirely and proceed to 6d.
-2. **Retry constraints.** Re-run only the native-E2E suite (`npm run test:e2e:native`) — NOT validator A's full suite, NOT CI poller B, NOT expert panel C. The diff is unchanged; expert verdicts from 6c-C still apply (per the existing "Reuse SAME expert set unless DIFF_CLASS changed" rule below).
+1.5. **Wait for B.** If CI poller B (6c-B) is still `in_progress`, wait for it to complete before evaluating outcomes. The env-retry decision depends on B's terminal state.
+2. **Retry constraints.** Re-run only the native-E2E suite (`npm run test:e2e:native`) — NOT validator A's full suite, NOT CI poller B, NOT expert panel C. The diff is unchanged; expert verdicts from 6c-C still apply (per the existing "Reuse SAME expert set unless DIFF_CLASS changed" rule below). Do NOT re-spawn the expert panel; DIFF_CLASS is unchanged because the diff is unchanged.
 3. **Retry cap.** One retry total. Does NOT consume the 5-attempt forward-fix budget.
 4. **Outcomes:**
    - **Retry passes** → the env-flake cleared. Treat A as PASS for this iteration. Proceed normally.
-   - **Retry repeats the same `ENVIRONMENTAL` classification AND no expert from 6c-C is BLOCKing AND CI poller B is green/skipped** → record env-flake warning (see step 5 below). Treat A as soft-PASS for this iteration's outcome calculation; do NOT enter the forward-fix loop solely for this host-state failure. Proceed to Step 7 disposition.
-   - **Retry repeats ENVIRONMENTAL but other 6c signals (B fail or C BLOCK) need addressing** → record env-flake warning AND enter the regular forward-fix loop (6d) for the OTHER failures only. The implementer prompt should NOT mention the env-flake (it's not actionable in code).
+   - **Retry repeats the same `ENVIRONMENTAL` classification AND no expert from 6c-C is BLOCKing AND CI poller B is green/skipped AND no scope-guard BLOCK from 6a-pre** → record env-flake warning (see step 5 below). Treat A as soft-PASS for this iteration's outcome calculation; do NOT enter the forward-fix loop solely for this host-state failure. Proceed to Step 7 disposition.
+   - **Retry repeats ENVIRONMENTAL but other 6c signals (B fail or C BLOCK or scope-guard BLOCK from 6a-pre) need addressing** → record env-flake warning AND enter the regular forward-fix loop (6d) for the OTHER failures only. The implementer prompt should NOT mention the env-flake (it's not actionable in code).
    - **Retry produces a different verdict (PASS or hard FAIL)** → use that verdict directly; no env-flake special-casing.
+   - **Retry produces malformed output (no `<!-- iterate-validator-classification -->` marker, no `### Native E2E:` header, or both signals contradict each other)** → treat as hard FAIL. Do NOT trust the retry; surface the malformed output to the operator via stdout log + state-file warning, then enter the regular forward-fix loop (6d) treating the env-flake as a hard FAIL for this iteration.
 5. **Warning mechanism.** Log `[env-flake] retry $RESULT — suite: native-e2e — <verbatim trigger token from validator>` to stdout AND append the same line to the state file's current iteration block (mirrors the scope-guard precedent at 6a-pre). Step 8-record's iteration block (see template below) gains an `Env-flake retries:` field for retro consumption.
 
 Concurrent forward-fix and env-retry: when validator A says ENVIRONMENTAL but expert panel C also has BLOCKs, run the env-retry in parallel with normal 6d attempt 1's forward-fix wave. The env-retry is independent — it exonerates (or doesn't) the validator's A failure; the implementer addresses the C BLOCKs unrelated to native E2E.
@@ -567,7 +569,7 @@ Concurrent forward-fix and env-retry: when validator A says ENVIRONMENTAL but ex
 
 Repeat until A, B, AND C are all green/APPROVE, or 5 attempts:
 
-1. Collect every failure: validator failures (A) + CI check failures (B) + every BLOCK from the expert panel (C) + every **scope-guard BLOCK** from 6a-pre (issue #302). Scope-guard BLOCKs are a distinct category from A/B/C — they have a justify-or-revert carve-out documented in step 2 below.
+1. Collect every failure: validator failures (A) + CI check failures (B) + every BLOCK from the expert panel (C) + every **scope-guard BLOCK** from 6a-pre (issue #302). **Exclude validator A from the failure bundle when its classification is `ENVIRONMENTAL` (per 6d.0 above) — that signal is not actionable as a code fix.** Scope-guard BLOCKs are a distinct category from A/B/C — they have a justify-or-revert carve-out documented in step 2 below.
 2. ONE `exe-task-implementer`:
    ```
    Fix all of the failures below in one pass.

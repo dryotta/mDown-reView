@@ -298,7 +298,7 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
   //   4. 6d step 3 explicitly re-runs 6a-noaction against forward-fix Implementation Summaries.
   //   5. Step 8.5 retro context block + the PR comment include scope non-action data so
   //      Phase 2 synthesis can consume it as cross-run pattern signal.
-  //   6. State file frontmatter carries `state_schema_version: 1` for forward compatibility.
+  //   6. State file frontmatter carries `state_schema_version: 2` for forward compatibility.
 
   it("Step 6 has a 6a-noaction sub-step that parses Did NOT do (scope) from implementer summaries", () => {
     expect(SKILL).toMatch(/#####\s+6a-noaction/);
@@ -952,12 +952,17 @@ describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native
     expect(VALIDATOR).toContain("src-tauri/src/lib.rs");
     expect(VALIDATOR).toContain("src-tauri/src/main.rs");
     expect(VALIDATOR).toContain("src-tauri/tauri.conf.json");
+    expect(VALIDATOR).toContain("src-tauri/Cargo.toml");
+    expect(VALIDATOR).toContain("src-tauri/Cargo.lock");
+    expect(VALIDATOR).toContain("src-tauri/build.rs");
+    expect(VALIDATOR).toContain("playwright.native.config.ts");
   });
 
   it("validator doc declares the structured YAML output marker", () => {
     expect(VALIDATOR).toContain("<!-- iterate-validator-classification -->");
     expect(VALIDATOR).toContain("classification: ENVIRONMENTAL");
     expect(VALIDATOR).toContain("suite: native-e2e");
+    expect(VALIDATOR).toContain("environmental_failure: true");
     expect(VALIDATOR).toContain("retry_recommended: true");
   });
 
@@ -1035,5 +1040,36 @@ describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native
     expect(TEST_STRATEGY).toContain("ERROR_SERVICE_NOT_ACTIVE");
     expect(TEST_STRATEGY).toContain("CDP HTTP did not become ready");
     expect(TEST_STRATEGY).toContain("6d.0");
+    // Expanded path list (issue #316 wave-1 forward-fix): all 8 disqualifying paths.
+    expect(TEST_STRATEGY).toContain("e2e/native/");
+    expect(TEST_STRATEGY).toContain("src-tauri/src/lib.rs");
+    expect(TEST_STRATEGY).toContain("src-tauri/src/main.rs");
+    expect(TEST_STRATEGY).toContain("src-tauri/tauri.conf.json");
+    expect(TEST_STRATEGY).toContain("src-tauri/Cargo.toml");
+    expect(TEST_STRATEGY).toContain("src-tauri/Cargo.lock");
+    expect(TEST_STRATEGY).toContain("src-tauri/build.rs");
+    expect(TEST_STRATEGY).toContain("playwright.native.config.ts");
+  });
+
+  it("SKILL.md 6d step 1 excludes A from the failure bundle when ENVIRONMENTAL", () => {
+    // Wave-1 forward-fix (architect medium NIT + rubber-duck #3): without this carve-out,
+    // the forward-fix loop would treat the env-flake as an actionable A failure and pressure
+    // the implementer to "fix" host-state issues it cannot address from code.
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop");
+    expect(sixD, "Step 6d header not found").toBeGreaterThan(-1);
+    const stepSeven = SKILL.indexOf("### Step 7");
+    const sixDBlock = SKILL.slice(sixD, stepSeven);
+    expect(sixDBlock).toContain("Exclude validator A from the failure bundle when its classification is `ENVIRONMENTAL`");
+  });
+
+  it("SKILL.md 6d.0 outcomes enumerate scope-guard BLOCK as a 4th signal", () => {
+    // Wave-1 forward-fix (architect High BLOCK + bug-expert + rubber-duck): the env-retry
+    // outcome state machine must consider scope-guard BLOCKs alongside A/B/C; otherwise a
+    // scope-guard BLOCK would be silently dropped when validator A is ENVIRONMENTAL.
+    const sixD0 = SKILL.indexOf("#### 6d.0");
+    expect(sixD0, "Step 6d.0 header not found").toBeGreaterThan(-1);
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
+    const sixD0Block = SKILL.slice(sixD0, sixD);
+    expect(sixD0Block).toMatch(/scope-guard BLOCK from 6a-pre/);
   });
 });
