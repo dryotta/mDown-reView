@@ -87,6 +87,9 @@ Tests pick the lowest layer that can prove the claim — the pyramid widens down
 24. A bug-fix PR without a failing-then-passing regression test is rejected by review. (Charter: Zero Bug Policy.)
 25. `cargo test`, `npm test`, `npm run lint`, and `npm run test:e2e` all pass before a PR merges.
 
+### Test data fidelity
+26. Regression tests for code that consumes filenames, paths, or structured data produced by an external library MUST populate the fixture using the library's actual on-disk shape, verified by reading the registered version's source (`cargo tree`, `Cargo.lock`, or `node_modules`). Inferring shape from documentation, README examples, or our own type definitions is insufficient. Canonical implementation: `src-tauri/src/core/sidecar/tests.rs` (`regression_serde_saphyr_emit_round_trips_through_load_sidecar`) reads `Cargo.lock` for the pinned version, locates the registered crate via `cargo metadata`, then builds the fixture by invoking the library's actual emitter (`serde_saphyr::to_string`) so the test bytes match what production produces — not what an author guessed from the docs. Cross-references: rule 7 in [`docs/architecture.md`](architecture.md), rule 8 in [`docs/security.md`](security.md), [`docs/observability.md`](observability.md) `## On-disk schemas`. Background: PR #295 (`prune_logs` underscore-vs-dot regression) — the only expert to catch the bug was the one whose checklist required reading the registered library's source.
+
 ## Gaps
 
 - **No CI grep-audit** verifying every browser spec mocks the eleven canonical commands.

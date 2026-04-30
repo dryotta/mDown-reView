@@ -1018,3 +1018,132 @@ fn emit_mrsf_yaml_round_trip_validates_structural_equality() {
         "structural round-trip mismatch: yaml=\n{yaml}"
     );
 }
+
+
+/// Canonical regression test for **rule 26 in `docs/test-strategy.md`**
+/// (`### Test data fidelity`). Born from the PR #295 `prune_logs`
+/// underscore/dot incident, where a hand-written fixture diverged
+/// from the library's actual on-disk shape and let a real bug ship.
+/// Rule 26 formalises the defense pattern: build the fixture by
+/// invoking the registered version of the upstream library's own
+/// emitter, then feed the result through the production consumer.
+/// The rule's prose in `docs/test-strategy.md` names this test by
+/// symbol  keep them in sync.
+fn registered_serde_saphyr_source_dir() -> std::path::PathBuf {
+    // Locate the on-disk source of the *registered* serde-saphyr
+    // crate via `cargo metadata` so the shape assertion below reads
+    // the bytes the build is actually compiling against, not a
+    // hand-cached path or vendored copy. Panicking (never
+    // silent-skipping) is mandatory: a silent skip would defeat
+    // rule 26's reason for existing.
+    let output = std::process::Command::new(env!("CARGO"))
+        .args(["metadata", "--format-version", "1", "--manifest-path", "Cargo.toml"])
+        .output()
+        .expect("cargo metadata must spawn");
+    assert!(
+        output.status.success(),
+        "cargo metadata exited non-zero: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let meta: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("cargo metadata stdout must be valid JSON");
+    let pkgs = meta
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .expect("cargo metadata must contain a packages array");
+    let pkg = pkgs
+        .iter()
+        .find(|p| {
+            p.get("name").and_then(|n| n.as_str()) == Some("serde-saphyr")
+                && p.get("version").and_then(|v| v.as_str()) == Some("0.0.25")
+        })
+        .expect(
+            "serde-saphyr 0.0.25 must appear in `cargo metadata` packages  \
+             Cargo.lock pin and registered crate are out of sync",
+        );
+    let manifest_path = pkg
+        .get("manifest_path")
+        .and_then(|m| m.as_str())
+        .expect("serde-saphyr package must have manifest_path");
+    let src_dir = std::path::PathBuf::from(manifest_path)
+        .parent()
+        .expect("manifest_path must have a parent")
+        .join("src");
+    assert!(
+        src_dir.is_dir(),
+        "registered serde-saphyr src dir does not exist: {}",
+        src_dir.display()
+    );
+    src_dir
+}
+
+fn assert_registered_serde_saphyr_public_shape(src_dir: &std::path::Path) {
+    // Read the registered source's lib.rs and confirm the two
+    // entry points our production consumers depend on still exist
+    // under the names we call them by. If upstream renames either,
+    // we want a loud, named failure  not a downstream type error
+    // three layers deep.
+    let lib_rs = src_dir.join("lib.rs");
+    let contents = std::fs::read_to_string(&lib_rs)
+        .unwrap_or_else(|e| panic!("must read {}: {}", lib_rs.display(), e));
+    assert!(
+        contents.contains("pub fn from_str"),
+        "registered serde-saphyr lib.rs is missing `pub fn from_str`  \
+         consumer at src/core/sidecar/mod.rs:157 will break"
+    );
+    assert!(
+        contents.contains("pub fn to_string"),
+        "registered serde-saphyr lib.rs is missing `pub fn to_string`  \
+         consumer at src/core/sidecar/io_guards.rs:122 will break"
+    );
+}
+
+#[test]
+fn regression_serde_saphyr_emit_round_trips_through_load_sidecar() {
+    // --- Rule 26 step 1: Cargo.lock pin verification -----------------
+    // CWD is `src-tauri/` under `cargo test`.
+    let lockfile = std::fs::read_to_string("Cargo.lock")
+        .expect("Cargo.lock must be readable from src-tauri/ during cargo test");
+    // Normalize line endings: Cargo.lock is CRLF on Windows, LF on Unix.
+    let lockfile_lf = lockfile.replace("\r\n", "\n");
+    assert!(
+        lockfile_lf.contains("name = \"serde-saphyr\"\nversion = \"0.0.25\""),
+        "serde-saphyr pin in Cargo.lock has changed  re-validate this fixture's \
+         on-disk shape against the new version's emitter before bumping the pin \
+         (rule 26 in docs/test-strategy.md)"
+    );
+
+    // --- Rule 26 step 2 + 3: resolve registered source + assert API shape ---
+    let src_dir = registered_serde_saphyr_source_dir();
+    assert_registered_serde_saphyr_public_shape(&src_dir);
+
+    // --- Rule 26 step 4: build the fixture via the library's actual emitter ---
+    // Text fields deliberately have NO leading whitespace: the saphyr-0.0.25
+    // block-scalar indent bug from #293 is repaired in `emit_mrsf_yaml`, NOT
+    // in raw `serde_saphyr::to_string`. Using leading whitespace here would
+    // exercise that known bug and obscure rule 26's actual intent.
+    let payload = MrsfSidecar {
+        mrsf_version: "1.0".to_string(),
+        document: "fidelity.md".to_string(),
+        comments: vec![sample_comment_with("rule26", |b| {
+            b.text = "rule 26 fidelity probe".to_string();
+            b.line = Some(1);
+        })],
+    };
+    let yaml = serde_saphyr::to_string(&payload)
+        .expect("serde_saphyr::to_string must succeed for a simple MrsfSidecar");
+
+    // --- Rule 26 step 5: feed the upstream-shaped fixture through the consumer ---
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("fidelity.md");
+    let sidecar_path = tmp.path().join("fidelity.md.review.yaml");
+    std::fs::write(&file_path, "# fidelity").unwrap();
+    std::fs::write(&sidecar_path, yaml.as_bytes()).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap())
+        .expect("load_sidecar must accept the registered emitter's output")
+        .expect("sidecar file we just wrote must be Some");
+
+    // --- Rule 26 step 6: byte-exact round-trip ---
+    assert_sidecar_eq(&loaded, &payload);
+}

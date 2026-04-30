@@ -2,6 +2,8 @@
 
 Internal runtime instrumentation for the mdownreview Tauri shell. This document is the canonical home for the on-disk log schemas produced by the `[ipc]`, `[startup]`, and `[log-rotation]` event surfaces (the first two shipped in issue #264 / PR3 of the engineering-excellence plan; the third in PR #295). All instrumentation is **internal-only** — end-user behavior is unchanged. Output flows into the rotating log file already managed by `tauri-plugin-log` (see [`docs/features/logging.md`](features/logging.md) and [`docs/architecture.md`](architecture.md) rule 6).
 
+> **Cross-library shape contract.** The `[ipc]`, `[startup]`, and `[log-rotation]` schemas described below are produced via `tauri-plugin-log`'s on-disk filename and rotation conventions. Tests that consume these on-disk artifacts (e.g. log-rotation pruning, log-discovery scans) MUST follow rule 26 in [`docs/test-strategy.md`](test-strategy.md): build fixtures from the library's actual on-disk shape (verified via `cargo tree`/`Cargo.lock`/registry inspection), not from documentation. Background: PR #295 shipped a prune-logs regex that matched only the dot-separator filenames our docs assumed, missing `tauri-plugin-log`'s underscore-separator intra-session rotation files — caught only because the rubber-duck reviewer's checklist required reading the registered library's actual source.
+
 ## On-disk schemas
 
 Three stable line schemas, all emitted via `log::info!`/`log::warn!` against named `target` strings so log analyzers can filter cheaply.
