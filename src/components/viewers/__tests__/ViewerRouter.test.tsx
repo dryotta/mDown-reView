@@ -495,11 +495,14 @@ describe("ViewerRouter scroll-restore vs pendingScrollTarget", () => {
     expect(useStore.getState().pendingScrollTarget!.filePath).toBe("/other.txt");
   });
 
-  // Iter 11 re-fix (carryover HIGH bug): the child `useScrollToLine` consumes
-  // pendingScrollTarget on mount, setting it to null. That re-renders
-  // ViewerRouter with `pendingScrollTarget === null`. If the restore effect's
-  // early-return is keyed on the live store value, it would then fire
-  // UNGUARDED and overwrite the just-applied comment scroll.
+  // RC4/P1.2 (#298): with the `pendingScrollTarget` subscription removed
+  // from ViewerRouter, the child `useScrollToLine` consume (which clears
+  // the store) no longer re-renders the parent. The restore effect's
+  // early-return reads via `useStore.getState()` at effect time, and
+  // because the deps `[path, status, content]` do not change, the effect
+  // does not re-fire after the consume. This test still asserts the
+  // observable invariant: the comment-anchored scroll the child applied
+  // is not overwritten.
   //
   // The mock below clears the store synchronously to simulate the real
   // child consume path — we cannot use the real `useScrollToLine` here
@@ -532,13 +535,65 @@ describe("ViewerRouter scroll-restore vs pendingScrollTarget", () => {
       container.scrollTop = 500; // pretend comment-anchored scroll value
     });
 
-    // With the bug (early-return keyed on live store value), the re-render
-    // re-fires the restore effect with pendingScrollTarget=null and snaps
-    // scrollTop back to 1234. With the latched-ref fix, suppression
-    // persists across the re-render and scrollTop stays at 500.
+    // With the original B1 bug, the re-render after the child consume would
+    // re-fire the restore effect and snap scrollTop back to 1234. With
+    // RC4/P1.2 (#298) — the subscription is dropped — no re-render fires
+    // at all, the deps don't change, and scrollTop stays at 500.
     expect(container.scrollTop).toBe(500);
     expect(container.scrollTop).not.toBe(1234);
 
     rafSpy.mockRestore();
+  });
+});
+
+// RC4/P1.2 (#298) — rerender invariant. ViewerRouter must NOT subscribe
+// to `pendingScrollTarget`; otherwise the child's `useScrollToLine`
+// consume (which clears the slot to null) re-renders the parent and
+// re-fires its restore effect.
+import { resetRenderCounts, getRenderCount } from "@/hooks/dev/useRenderCount";
+
+describe("ViewerRouter — RC4/P1.2 rerender invariants", () => {
+  beforeEach(() => {
+    resetRenderCounts();
+  });
+
+  it("does not re-render when setPendingScrollTarget fires for the current file", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "x" });
+    useStore.setState({
+      tabs: [{ path: "/a.md", scrollTop: 0 }],
+      activeTabPath: "/a.md",
+      pendingScrollTarget: null,
+    });
+
+    render(<ViewerRouter path="/a.md" />);
+    const before = getRenderCount("ViewerRouter");
+    expect(before).toBeGreaterThan(0);
+
+    act(() => {
+      useStore.getState().setPendingScrollTarget({ filePath: "/a.md", line: 42 });
+    });
+
+    // No re-render: `setPendingScrollTarget` mutated the store but
+    // ViewerRouter does not subscribe to that slice.
+    expect(getRenderCount("ViewerRouter")).toBe(before);
+  });
+
+  it("does not re-render when pendingScrollTarget is consumed (cleared to null)", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "x" });
+    useStore.setState({
+      tabs: [{ path: "/a.md", scrollTop: 0 }],
+      activeTabPath: "/a.md",
+      pendingScrollTarget: { filePath: "/a.md", line: 42 },
+    });
+
+    render(<ViewerRouter path="/a.md" />);
+    const before = getRenderCount("ViewerRouter");
+
+    act(() => {
+      useStore.getState().consumePendingScrollTarget("/a.md");
+    });
+
+    expect(useStore.getState().pendingScrollTarget).toBeNull();
+    expect(getRenderCount("ViewerRouter")).toBe(before);
   });
 });

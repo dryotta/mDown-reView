@@ -10,7 +10,8 @@ import { useRef } from "react";
  *   `import.meta.env.DEV` with a literal boolean at build time so the
  *   guarded block is dead code in production. The prod cost is one
  *   `useRef(0)` allocation per mount of an instrumented component
- *   (currently App, FolderTree, ViewerRouter — three sites total).
+ *   (currently App, FolderTree, ViewerRouter, FolderPaneShell —
+ *   four sites total).
  * - Exposes counts via `window.__RENDER_COUNTS__` so Playwright e2e
  *   specs can read them through `page.evaluate`. Counts persist across
  *   the lifetime of the page until `resetRenderCounts()` is called.
