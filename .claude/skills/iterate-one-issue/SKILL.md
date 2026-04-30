@@ -151,7 +151,7 @@ Capture `PR_NUMBER`, `PR_URL`.
 
 ```markdown
 ---
-state_schema_version: 1
+state_schema_version: 2
 mode: <issue | goal>
 goal: "<GOAL_FOR_ASSESSOR>"
 issue_number: <ISSUE_NUMBER or null>
@@ -174,7 +174,7 @@ iteration_cap: 30
 <!-- empty initially -->
 ```
 
-`state_schema_version` is bumped on any structured-block shape change (the YAML frontmatter or the named markdown sections above are part of the schema). Today's shape is version `1`.
+`state_schema_version` is bumped on any structured-block shape change (the YAML frontmatter or the named markdown sections above are part of the schema). Today's shape is version `2` (issue #316 added `Env-flake retries:` to Step 8-record's iteration block).
 
 This file is the source of truth for iteration history; only Step 1 writes `iter_base_sha`. Release-gate validation is **not** performed by this skill (see [Non-goals](#non-goals)) — `merge-pr-loop` owns that lifecycle and tracks its own state on the PR itself.
 
@@ -547,6 +547,22 @@ CI is path-filtered (`.github/workflows/ci.yml`); on `prompt-only`/`docs-only` d
 
 **C — Expert diff review panel (diff-scoped, see Step 7).** Launched in the SAME parallel message as A and B; details in Step 7.
 
+#### 6d.0. Environmental retry (one-shot, pre-loop) — issue #316
+
+Before entering the forward-fix loop, check whether the validator (A from 6c) returned an environmental classification. The validator emits `<!-- iterate-validator-classification -->` followed by `classification: ENVIRONMENTAL` and `suite: native-e2e` when a native-E2E failure matches the host-state signatures (`0x8007139F`, `ERROR_SERVICE_NOT_ACTIVE`, `CDP HTTP did not become ready`) AND the diff has no changes under `e2e/native/` or to `src-tauri/src/lib.rs`/`src-tauri/src/main.rs`/`src-tauri/tauri.conf.json`. Per rule 27 in `docs/test-strategy.md`, this classification triggers a free retry:
+
+1. **Detection.** Grep validator output for `^classification: ENVIRONMENTAL$` AND `^suite: native-e2e$`. If absent, skip 6d.0 entirely and proceed to 6d.
+2. **Retry constraints.** Re-run only the native-E2E suite (`npm run test:e2e:native`) — NOT validator A's full suite, NOT CI poller B, NOT expert panel C. The diff is unchanged; expert verdicts from 6c-C still apply (per the existing "Reuse SAME expert set unless DIFF_CLASS changed" rule below).
+3. **Retry cap.** One retry total. Does NOT consume the 5-attempt forward-fix budget.
+4. **Outcomes:**
+   - **Retry passes** → the env-flake cleared. Treat A as PASS for this iteration. Proceed normally.
+   - **Retry repeats the same `ENVIRONMENTAL` classification AND no expert from 6c-C is BLOCKing AND CI poller B is green/skipped** → record env-flake warning (see step 5 below). Treat A as soft-PASS for this iteration's outcome calculation; do NOT enter the forward-fix loop solely for this host-state failure. Proceed to Step 7 disposition.
+   - **Retry repeats ENVIRONMENTAL but other 6c signals (B fail or C BLOCK) need addressing** → record env-flake warning AND enter the regular forward-fix loop (6d) for the OTHER failures only. The implementer prompt should NOT mention the env-flake (it's not actionable in code).
+   - **Retry produces a different verdict (PASS or hard FAIL)** → use that verdict directly; no env-flake special-casing.
+5. **Warning mechanism.** Log `[env-flake] retry $RESULT — suite: native-e2e — <verbatim trigger token from validator>` to stdout AND append the same line to the state file's current iteration block (mirrors the scope-guard precedent at 6a-pre). Step 8-record's iteration block (see template below) gains an `Env-flake retries:` field for retro consumption.
+
+Concurrent forward-fix and env-retry: when validator A says ENVIRONMENTAL but expert panel C also has BLOCKs, run the env-retry in parallel with normal 6d attempt 1's forward-fix wave. The env-retry is independent — it exonerates (or doesn't) the validator's A failure; the implementer addresses the C BLOCKs unrelated to native E2E.
+
 #### 6d. Forward-fix loop (max 5 attempts) — merges A/B/C failures
 
 Repeat until A, B, AND C are all green/APPROVE, or 5 attempts:
@@ -661,6 +677,7 @@ This gate ensures implementer-reported scope deferrals never silently disappear:
 - Validate+CI+Experts: <converged in K | degraded after 5>
 - Scope-guard: <K reverted, M blocked | clean>   <!-- issue #302: K = whitespace-only .rs files auto-reverted by 6a-pre; M = unexpected files surfaced as scope-guard BLOCKs into 6d. "clean" if both zero. -->
 - Scope-non-actions: <list of (task_id → disposition + disposition_note) | none>   <!-- issue #309: items captured by 6a-noaction with their 8-pre dispositions. "none" if every implementer reported empty Did NOT do (scope). -->
+- Env-flake retries: <native-e2e=K, cleared M, warned N | none>   <!-- issue #316: K = total env-flake retries triggered by 6d.0; M = retries that cleared (validator went green); N = retries that repeated ENVIRONMENTAL (warning recorded). "none" if 6d.0 didn't fire this iteration. -->
 - Expert review: <A approved / B blocked — list>
 - Goal assessor confidence: <%>
 - Summary: <one sentence>
