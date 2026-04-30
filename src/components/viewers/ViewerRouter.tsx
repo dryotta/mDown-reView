@@ -12,34 +12,36 @@ import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
 import { FileActionsBar } from "./FileActionsBar";
 import { ViewerToolbar } from "./ViewerToolbar";
+import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 interface Props {
   path: string;
 }
 
 export function ViewerRouter({ path }: Props) {
+  useRenderCount("ViewerRouter");
   const { status, content, error, sizeBytes, mtimeMs } = useFileContent(path);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const setScrollTop = useStore((s) => s.setScrollTop);
   const ghostEntries = useStore((s) => s.ghostEntries);
   const isGhost = ghostEntries.some((g) => g.sourcePath === path);
-  // B1 forward-fix: when a cross-file scroll target is queued for THIS
-  // viewer, suppress saved-scroll restore so the child's `useScrollToLine`
-  // mount-effect (which runs first) is not overwritten by the parent's
-  // restore (which runs second). React passive effects run child→parent.
-  const pendingScrollTarget = useStore((s) => s.pendingScrollTarget);
 
-  // Iter 11 re-fix: latch the suppression independently of the live store
-  // value. The child `useScrollToLine` consumes the pending target on mount
-  // (sets it to null), which re-renders ViewerRouter with
-  // `pendingScrollTarget === null`. If we keyed the early-return on the
-  // live store value, the restore effect would then re-fire UNGUARDED and
-  // overwrite the just-applied comment scroll. The ref records "I observed
-  // a matching pending target during this mount cycle" and stays set even
-  // after the child clears the store. Captured in a layout effect (runs
-  // before passive effects) so the latch is set before the child's mount
-  // useEffect consumes the store value. Reset on path change via cleanup.
+  // RC4/P1.2 (#298) — layout-effect latch handles the child→parent
+  // passive-effect ordering: when content arrives and ViewerRouter
+  // re-renders with status="ready", the child viewer's useScrollToLine
+  // mount-effect (which runs FIRST, child→parent) consumes the pending
+  // target and applies the comment-anchored scroll. Without this latch,
+  // the parent's restore effect would later read getState() and see
+  // pendingScrollTarget cleared, missing the guard and overwriting the
+  // scroll. Layout effects fire BEFORE passive effects, so the latch is
+  // set synchronously after each commit and survives the child's consume.
+  //
+  // We dropped the useStore selector subscription (not the latch): the
+  // subscription was a separate concern (writer→clear churn re-rendered
+  // ViewerRouter twice per nav). With no subscription, the parent does
+  // not re-render when the slot clears; with the latch, the parent's
+  // passive effect still sees the slot was set during the mount cycle.
   const suppressRestoreRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const t = useStore.getState().pendingScrollTarget;
@@ -51,7 +53,7 @@ export function ViewerRouter({ path }: Props) {
     };
   }, [path]);
 
-  // Iter 5 Group B — every viewer surfaces a file-anchored authoring entry
+  // Iter 5 Group B— every viewer surfaces a file-anchored authoring entry
   // point. Reading through `useStore.getState()` at click time (not via a
   // selector) keeps this off the render path; the action itself is a stable
   // store reference so callers don't need to re-render when it changes.
@@ -78,11 +80,6 @@ export function ViewerRouter({ path }: Props) {
   // Guard flag: suppresses scroll-save during programmatic scroll restore
   const restoringRef = useRef(false);
 
-  const fileSize = useMemo(
-    () => content ? new TextEncoder().encode(content).length : undefined,
-    [content],
-  );
-
   // Restore scroll position after content renders.
   // Uses a rAF retry loop because async syntax highlighting (Shiki) and
   // images can change layout after the initial React render.
@@ -94,12 +91,12 @@ export function ViewerRouter({ path }: Props) {
   useEffect(() => {
     if (!scrollRef.current || status !== "ready") return;
 
-    // B1 forward-fix: skip the saved-scroll restore when a cross-file
-    // scroll target is/was queued for THIS file. The latch is set during
-    // render (see `suppressRestoreRef` above) and stays set even after
-    // `useScrollToLine` consumes the store value, which would otherwise
-    // re-fire this effect (deps include `pendingScrollTarget`) with
-    // `pendingScrollTarget === null` and undo the comment-anchored scroll.
+    // RC4/P1.2 (#298) — skip saved-scroll restore when a cross-file
+    // scroll target was/is queued for THIS file. The layout-effect latch
+    // above captures the slot state synchronously during the mount cycle
+    // so the child `useScrollToLine` passive-effect consume cannot blank
+    // our view of it. (Reading via `useStore.getState()` here would race
+    // the child's consume because passive effects fire child→parent.)
     if (suppressRestoreRef.current === path) return;
 
     const target = useStore.getState().tabs.find((t) => t.path === path)?.scrollTop ?? 0;
@@ -134,7 +131,7 @@ export function ViewerRouter({ path }: Props) {
       cancelled = true;
       restoringRef.current = false;
     };
-  }, [path, status, content, pendingScrollTarget]);
+  }, [path, status, content]);
 
   useEffect(() => {
     return () => {
@@ -252,7 +249,7 @@ export function ViewerRouter({ path }: Props) {
         content={content!}
         path={path}
         filePath={path}
-        fileSize={fileSize}
+        fileSize={sizeBytes}
         onCommentOnFile={commentOnFile}
         fileCommentCount={fileCommentCount}
         fileCommentSeverity={fileCommentSeverity}

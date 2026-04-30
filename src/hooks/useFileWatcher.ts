@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { useShallow } from "zustand/shallow";
 import { listenEvent } from "@/lib/tauri-events";
 import { useStore } from "@/store";
 import { updateWatchedFiles, scanReviewFiles } from "@/lib/tauri-commands";
@@ -7,17 +8,40 @@ import { warn, debug } from "@/logger";
 const SAVE_DEBOUNCE_MS = 1500;
 const SCAN_DEBOUNCE_MS = 500;
 
+/**
+ * Convert a `file-changed` event path to the source-file path used as
+ * the `lastSaveByPath` key. The watcher emits the sidecar path for
+ * `kind=review` (e.g. `/ws/foo.md.review.yaml`), so we must strip the
+ * suffix before looking up the per-source save timestamp — otherwise
+ * the suppression silently no-ops because the sidecar key never matches
+ * the source-keyed timestamp recorded by `recordSave`.
+ *
+ * Same shape as `sourcePathFromEvent` in `useFileBadges.ts:40-44`;
+ * flag for shared consolidation if a third consumer materializes.
+ */
+function sourcePathFromEvent(p: string): string {
+  if (p.endsWith(".review.yaml")) return p.slice(0, -".review.yaml".length);
+  if (p.endsWith(".review.json")) return p.slice(0, -".review.json".length);
+  return p;
+}
+
 export function useFileWatcher() {
-  const tabs = useStore((s) => s.tabs);
+  // RC2/P1.1 — subscribe to the set of tab paths only. Selecting the
+  // whole `tabs` array re-fires this hook (and its `updateWatchedFiles`
+  // effect) on every scroll-tick `setScrollTop`, because `setScrollTop`
+  // rebuilds the tabs array via `s.tabs.map(...)`. `useShallow` returns
+  // the previous array reference when the path set is element-wise
+  // unchanged, so the effect only fires on add/remove/reorder.
+  const tabPaths = useStore(useShallow((s) => s.tabs.map((t) => t.path)));
   const root = useStore((s) => s.root);
-  const lastSaveByPath = useStore((s) => s.lastSaveByPath);
   const setGhostEntries = useStore((s) => s.setGhostEntries);
-  const lastSaveByPathRef = useRef(lastSaveByPath);
   const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    lastSaveByPathRef.current = lastSaveByPath;
-  }, [lastSaveByPath]);
+  // RC2/P1.5 (#298) — `lastSaveByPath` is read imperatively inside the
+  // `file-changed` listener via `useStore.getState()` (Rule 30 Hot-tier
+  // discipline in docs/architecture.md). Subscribing via selector would
+  // re-render this hook whenever any save fires, with no benefit since
+  // the listener body re-reads anyway.
 
   // Debounced scan coalesces rapid deletions into a single scanReviewFiles call
   const debouncedScan = useCallback(() => {
@@ -40,18 +64,22 @@ export function useFileWatcher() {
 
   // Sync open tabs to Rust watcher
   useEffect(() => {
-    const paths = tabs.map((t) => t.path);
-    updateWatchedFiles(paths).catch((err) =>
+    updateWatchedFiles(tabPaths).catch((err) =>
       warn(`[useFileWatcher] failed to update watched files: ${err}`)
     );
-  }, [tabs]);
+  }, [tabPaths]);
 
   // Listen for file-changed events from Rust
   useEffect(() => {
     const unlisten = listenEvent("file-changed", (payload) => {
       const { path, kind } = payload;
       const now = Date.now();
-      const lastSave = lastSaveByPathRef.current[path] ?? 0;
+      // Normalize sidecar→source path: `lastSaveByPath` is keyed by
+      // source path, but the watcher emits the sidecar path for
+      // `kind=review` events. Without this strip the suppression
+      // silently no-ops on every external sidecar edit.
+      const sourcePath = sourcePathFromEvent(path);
+      const lastSave = useStore.getState().lastSaveByPath[sourcePath] ?? 0;
 
       if (now - lastSave < SAVE_DEBOUNCE_MS) {
         void debug(`[useFileWatcher] ignoring event within save debounce window: ${path}`); // fire-and-forget log inside sync event handler

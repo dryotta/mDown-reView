@@ -1,0 +1,18 @@
+{
+  "_doc": "Render-count budgets for issue #298 AC1-3 (re-render reduction). Captured against the live dev build and locked as upper bounds. Values are StrictMode-doubled per src/hooks/dev/useRenderCount.ts (StrictMode is on in src/main.tsx). Headroom: +2 for App (more async fan-out), +1 for other components. Tighten only with a code change that reduces renders. Loosening (raising a number) is a regression and must come with an explicit reason in the commit body.",
+  "coldStartup": {
+    "App": 6,
+    "FolderPaneShell": 5
+  },
+  "openFolder50": {
+    "App": 6,
+    "FolderPaneShell": 5,
+    "FolderTree": 9
+  },
+  "openFile100kb": {
+    "App": 8,
+    "FolderPaneShell": 7,
+    "FolderTree": 9,
+    "ViewerRouter": 5
+  }
+}

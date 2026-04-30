@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useStore } from "@/store";
 import { useShallow } from "zustand/shallow";
 import { useUpdateActions, useUpdateProgress } from "@/lib/vm/use-update-actions";
@@ -20,6 +20,7 @@ import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { AboutDialog } from "@/components/AboutDialog";
 import { SettingsView } from "@/components/SettingsView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { FolderPaneShell } from "@/components/FolderPaneShell";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { basename } from "@/lib/path-utils";
@@ -28,19 +29,19 @@ import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
 import { recordStartupPhase, unregisterWindowFolder } from "@/lib/tauri-commands";
+import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 export default function App() {
-  const { theme, root, folderPaneWidth, commentsPaneVisible, activeTabPath } = useStore(
+  useRenderCount("App");
+  const { theme, root, commentsPaneVisible, activeTabPath } = useStore(
     useShallow((s) => ({
       theme: s.theme,
       root: s.root,
-      folderPaneWidth: s.folderPaneWidth,
       commentsPaneVisible: s.commentsPaneVisible,
       activeTabPath: s.activeTabPath,
     }))
   );
   const setTheme = useStore((s) => s.setTheme);
-  const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
   const { checkForUpdate } = useUpdateActions();
@@ -78,7 +79,6 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const settingsDialogOpen = useStore((s) => s.settingsDialogOpen);
   const closeSettings = useStore((s) => s.closeSettings);
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
 
@@ -155,31 +155,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [checkForUpdate]);
 
-  // Drag handle for resizing folder pane
-  const onDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      dragRef.current = { startX: e.clientX, startWidth: folderPaneWidth };
-      const onMove = (e: MouseEvent) => {
-        if (!dragRef.current) return;
-        const delta = e.clientX - dragRef.current.startX;
-        const newWidth = Math.max(
-          160,
-          Math.min(window.innerWidth * 0.5, dragRef.current.startWidth + delta)
-        );
-        setFolderPaneWidth(newWidth);
-      };
-      const onUp = () => {
-        dragRef.current = null;
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [folderPaneWidth, setFolderPaneWidth]
-  );
-
   return (
     <div className="app-layout">
       <ErrorBoundary>
@@ -213,19 +188,13 @@ export default function App() {
       </ErrorBoundary>
 
       <div className="main-area">
-        <div
-          className={`folder-pane-wrapper${root === null ? " folder-pane-hidden" : ""}`}
-          style={{ "--folder-pane-width": `${folderPaneWidth}px` } as React.CSSProperties}
-        >
+        <FolderPaneShell hideDragHandle={root === null}>
           {root !== null && (
-            <>
-              <ErrorBoundary>
-                <FolderTree onFileOpen={openFile} onCloseFolder={handleCloseFolder} />
-              </ErrorBoundary>
-              <div className="drag-handle" onMouseDown={onDragStart} />
-            </>
+            <ErrorBoundary>
+              <FolderTree onFileOpen={openFile} onCloseFolder={handleCloseFolder} />
+            </ErrorBoundary>
           )}
-        </div>
+        </FolderPaneShell>
 
         <div className="viewer-area">
           <ErrorBoundary>

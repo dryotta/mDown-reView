@@ -22,6 +22,7 @@ import {
 } from "@/lib/folder-tree";
 import { IconFolder } from "@/components/Icons";
 import { SidecarConfigDialog } from "@/components/SidecarConfigDialog";
+import { useRenderCount } from "@/hooks/dev/useRenderCount";
 import "@/styles/folder-tree.css";
 
 interface FolderTreeProps {
@@ -38,14 +39,14 @@ interface NavRow {
 const SEVERITY_ORDER: Record<Severity, number> = { none: 0, low: 1, medium: 2, high: 3 };
 
 export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
-  const { root, expandedFolders, activeTabPath, ghostEntries, tabs, folderPaneWidth } = useStore(
+  useRenderCount("FolderTree");
+  const { root, expandedFolders, activeTabPath, ghostEntries, tabs } = useStore(
     useShallow((s) => ({
       root: s.root,
       expandedFolders: s.expandedFolders,
       activeTabPath: s.activeTabPath,
       ghostEntries: s.ghostEntries,
       tabs: s.tabs,
-      folderPaneWidth: s.folderPaneWidth,
     }))
   );
   const sidecarConfigDialogOpen = useStore((s) => s.sidecarConfigDialogOpen);
@@ -302,7 +303,7 @@ export function FolderTree({ onFileOpen, onCloseFolder }: FolderTreeProps) {
     : treeList.length === 0 && !showOtherFiles;
 
   return (
-    <div className="folder-tree" style={{ width: folderPaneWidth }}>
+    <div className="folder-tree" style={{ width: "100%" }}>
       <div className="folder-tree-toolbar folder-tree-header">
         <span className="folder-tree-title" title={root ?? ""}>
           <IconFolder /> {root ? root.split(/[/\\]/).pop() : ""}

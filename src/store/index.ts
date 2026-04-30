@@ -285,7 +285,8 @@ export const useStore = create<Store>()(
       pendingLineCompose: null,
       pendingFragment: null,
       setTheme: (theme) => set({ theme }),
-      setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
+      setFolderPaneWidth: (width) =>
+        set((s) => (s.folderPaneWidth === width ? s : { folderPaneWidth: width })),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
