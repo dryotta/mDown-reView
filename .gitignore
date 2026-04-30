@@ -58,3 +58,6 @@ src-tauri/binaries/mdownreview-cli-*
 .claude/iterate-loop/runs/
 .claude/retrospectives/
 
+# Scheduling system runtime lock — regenerated automatically
+.claude/scheduled_tasks.lock
+
