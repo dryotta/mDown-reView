@@ -132,6 +132,34 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 
 **Pattern:** The Rust side (watcher, command handler) must know which window(s) care about a given file/folder path. The `WindowRegistry` already tracks this — use it to look up the target label, then `emit_to(label, ...)`.
 
+**Per-event target & emit method.** Every event in `src/lib/tauri-events.ts::EventPayloads` MUST be emitted via the method in this table. Drift between this table and Rust call sites is enforced by the `event-emit-target-test.ts` lint.
+
+| Event | Target | Rust API | Reference site |
+|---|---|---|---|
+| `file-changed` | set (windows watching the path) | `emit_filter` | `watcher.rs:313` |
+| `folder-changed` | one (watching window) | `emit_to(label, …)` | `watcher.rs:333` |
+| `args-received` | one (target window) | `emit_to(label, …)` | `lib.rs`, `commands/launch.rs:191` |
+| `open-file-tab` | one (routed window) | `emit_to(label, …)` | registry router |
+| `comments-changed` | set (windows with the file open) | `emit_filter` | `commands/comments/mod.rs:90` |
+| `update-progress` | one (`"main"`) | `emit_to("main", …)` | `update.rs:115,123` |
+| `sidecar-config-changed` | all | `emit` | `commands/sidecar_config.rs` |
+| `menu-open-file` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-open-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-close-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-close-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-close-all-tabs` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-toggle-comments-pane` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-next-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-prev-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-theme-system` | all | `emit` | `lib.rs::on_menu_event` |
+| `menu-theme-light` | all | `emit` | `lib.rs::on_menu_event` |
+| `menu-theme-dark` | all | `emit` | `lib.rs::on_menu_event` |
+| `menu-about` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+| `menu-check-updates` | one (`"main"`) | `emit_to("main", …)` | `lib.rs::on_menu_event` |
+| `menu-help-settings` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+
+Legend: **one** = exactly one window (`emit_to(label, …)`), **set** = subset of windows determined by registry predicate (`emit_filter`), **all** = every window must react (`emit`); use `emit` only for genuinely global state changes.
+
 ### `multiwin-emit-filter`
 
 When an event may be relevant to a *subset* of windows (not exactly one, not all), use `emit_filter()` with a predicate rather than looping over labels manually.
@@ -154,6 +182,22 @@ Every window MUST be tracked in a Rust-side registry from creation to destructio
 
 **Pattern:** `WindowRegistry` is managed state. `on_window_event(WindowEvent::Destroyed)` MUST call `registry.unregister(label)`. New windows MUST call `registry.register(label, kind)` immediately after `builder.build()`. No window may exist without a registry entry.
 
+### `multiwin-atomic-registry-mutations`
+
+`WindowKind::Folder(path)` MUST be reached only via `WindowRegistry::try_claim_folder`, never via a separate `find_by_folder` check followed by `register`. The decision-and-claim pair must be atomic under the entries lock; the lock MUST be dropped before the subsequent `WebviewWindowBuilder::build()` (rule `multiwin-window-creation-nonblocking`).
+
+**Why:** A read-then-register pattern lets two concurrent CLI launches (single-instance forwarding + macOS `RunEvent::Opened`) both decide `CreateFolder` for the same canonical path and both register, breaking the one-folder-one-window invariant. The atomic claim API exists at `src-tauri/src/registry.rs:152` precisely to prevent this; bypassing it is a Zero-Bug-Policy violation (`docs/principles.md`).
+
+**Pattern:**
+```rust
+// BAD — src-tauri/src/lib.rs (route_args_through_registry): two-step
+// register after a non-atomic route_folder read.
+reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
+
+// GOOD — atomic claim that rejects duplicates with the existing label.
+reg.try_claim_folder(&label, path.clone())?;
+```
+
 ### `multiwin-args-delivery`
 
 When creating a new window and pushing launch args into the registry for it to drain, ALWAYS emit a signal event (`args-received`) to the new window **after** `push_args`. The reason: the webview's React mount may issue its initial `get_launch_args` drain before `push_args` completes (race). The signal event triggers a re-drain that picks up any args that arrived late.
@@ -170,13 +214,119 @@ match builder.build() {
 }
 ```
 
+### `multiwin-managed-state-cleanup`
+
+Every `app.manage()`'d state with **per-window or per-path keying** MUST register cleanup in `on_window_event(WindowEvent::Destroyed)`. Process-global state (`PendingUpdate`, theme) is exempt; everything else (registry, watcher, BadgeCache, file-viewer prefs cache, future per-window caches) MUST declare its cleanup discipline.
+
+**Why:** A keyed cache that never evicts grows monotonically across window churn. Long-lived sessions across many windows leak memory (Lean pillar, `docs/principles.md`); the destroyed window's per-path entries also wrongly grant `is_path_allowed` privileges (rule `multiwin-allowlist-scope`).
+
+**Pattern:**
+```rust
+// In on_window_event(Destroyed):
+if let Some(reg) = window.try_state::<registry::WindowRegistry>() {
+    reg.unregister(&label);
+}
+if let Some(ws) = window.try_state::<watcher::WatcherState>() {
+    ws.remove_window(&label);
+}
+// REQUIRED — every keyed managed state must be evicted here.
+if let Some(badges) = window.try_state::<commands::comments::BadgeCache>() {
+    badges.remove_window(&label);
+}
+```
+
+PRs adding `app.manage(X)` MUST include a `// Cleanup: …` rustdoc comment on the manage call describing Destroyed behavior. Enforced by `managed-state-cleanup-doc-test.rs`.
+
 ### `multiwin-no-focused-fallback`
 
 Do NOT use `is_focused()` polling or `focused_or_main()` helpers to route events to a window. Focus state is unreliable during native menu interaction (the menu dropdown takes focus on Windows) and during rapid window switching. If you need to know which window originated an action, the action's dispatch path must carry the window identity — not query it after the fact.
 
 ### `multiwin-state-isolation`
 
-Each window MUST have its own frontend state instance. Per-window state (tabs, active file, folder tree expansion, scroll position) is NEVER shared or persisted cross-window. Only global preferences (theme, author name, reading width) may be synchronized — via `localStorage` events or a dedicated IPC channel, never by sharing a store reference.
+Each window MUST have its own frontend state instance.
+
+**MUST be cross-window** (synchronized via `useCrossWindowPrefsSync` `storage` events; declared in the exported `CROSS_WINDOW_SYNCED_KEYS` constant per rule `multiwin-cross-window-state-whitelist`):
+
+- `theme`, `authorName`, `updateChannel`, `readingWidth`, `recentItems`
+
+**MUST be persisted-but-NOT-synced** (per-window seed for new windows; ping-pong-prone):
+
+- `folderPaneWidth`, `commentsPaneVisible` — persisted as defaults for new windows but never propagated to other open windows.
+
+**MUST be per-window only** (NEVER persisted, NEVER synced):
+
+- `tabs`, `activeTabPath`, `tabHistory`, `expandedFolders`, `root`
+- `viewModeByTab`, `fileMetaByPath`, `ghostEntries`, `lastSaveByPath`
+- `pendingFileLevelInputFor`, `pendingLineCompose`, `pendingFragment`
+- `showSidecarFiles`, `sidecarConfigDialogOpen`, `settingsDialogOpen`, `aboutOpen`
+- `updateStatus`, `updateVersion`, `updateProgress` (updater UI is main-window-only)
+- `allowedRemoteImageDocs`, `zoomByFiletype`
+
+**MUST never be in a shared store at all** (re-derive per call):
+
+- File contents (lazy via `read_text_file` IPC), comment lists per file (re-fetched on demand).
+
+A new persisted key without explicit classification in one of the three lists above is a defect. Enforced by `cross-window-whitelist-meta-test.ts`.
+
+### `multiwin-cross-window-state-whitelist`
+
+Cross-window-synced state MUST be declared in a single exported `CROSS_WINDOW_SYNCED_KEYS` constant in `src/store/index.ts`. The persist `partialize` and the `useCrossWindowPrefsSync` patch builder BOTH consume it. Hard-coded inline allowlists in either place are a violation.
+
+**Why:** Two opaque allowlists (one in persist config, one in the sync hook) drift the moment a developer adds a new persisted key without updating both. The single constant is the source of truth; runtime and lints reference it identically. Cross-references `docs/architecture.md` rule 15.
+
+**Pattern:**
+```typescript
+// In src/store/index.ts:
+export const CROSS_WINDOW_SYNCED_KEYS = [
+  "theme", "authorName", "updateChannel", "readingWidth", "recentItems",
+] as const;
+
+partialize: (state) => Object.fromEntries(
+  CROSS_WINDOW_SYNCED_KEYS.map((k) => [k, state[k]])
+);
+
+// In src/hooks/useCrossWindowPrefsSync.ts:
+for (const key of CROSS_WINDOW_SYNCED_KEYS) {
+  if (state[key] !== undefined && state[key] !== cur[key]) patch[key] = state[key];
+}
+```
+
+### `multiwin-rejection-affects-store`
+
+When a Rust IPC rejects a state-affecting action, the renderer MUST `await` the IPC and reconcile its store before proceeding. Treating an IPC rejection as a `void warn(...)` log while the store has already optimistically updated leaves a "ghost" state — the renderer believes a folder is open while the registry says otherwise.
+
+**Why:** Optimistic update + fire-and-forget IPC violates the **Reliable** pillar (`docs/principles.md`). A `registerWindowFolder` rejection (folder already open in another window) must NOT leave `store.root` set; otherwise the FolderTree populates, the user adds a comment, and `enforce_workspace_path` rejects with a confusing "path not in workspace" error.
+
+**Pattern:**
+```typescript
+// BAD — ghost state survives the IPC failure
+useStore.getState().setRoot(folder);
+registerWindowFolder(folder).catch((e) => warn(`failed: ${e}`));
+
+// GOOD — reconcile on rejection
+try {
+  await registerWindowFolder(folder);
+  useStore.getState().setRoot(folder);
+} catch (e) {
+  showError(`Folder already open in another window: ${e}`);
+  // store.root remains null
+}
+```
+
+### `multiwin-rehydrate-clamp`
+
+Persisted per-window UI state (`folderPaneWidth`, future pane sizes, scroll positions) MUST be clamped against the current viewport on rehydrate. Persisted state from an ultra-wide monitor must not break the layout when the user opens the app on a 1080p screen.
+
+**Why:** A 1200 px folder pane persisted on 4K and rehydrated on 1366×768 covers the entire viewport; the drag handle is offscreen and the app appears broken until the user clears localStorage. Clamping on the writer is not enough — viewport size is a property of the rehydrate moment.
+
+**Pattern:**
+```typescript
+// In Zustand persist config:
+onRehydrateStorage: () => (state) => {
+  if (!state || typeof window === "undefined") return;
+  state.folderPaneWidth = Math.max(160, Math.min(state.folderPaneWidth, window.innerWidth * 0.4));
+}
+```
 
 ### `multiwin-window-creation-nonblocking`
 
@@ -184,6 +334,88 @@ Window creation (`WebviewWindowBuilder::build()`) runs on the main thread and ma
 - Do NOT acquire locks that IPC handlers also need
 - Do NOT perform I/O (file scanning, canonicalization) synchronously before or after `build()`
 - Move any post-creation setup (arg pushing, event emission) to be as fast as possible
+
+### `multiwin-per-window-startup-recorder`
+
+Every `WebviewWindowBuilder::build()` success MUST record a per-window startup phase keyed by label. The `StartupRecorder` (`docs/observability.md`) is per-process today, which makes secondary-window startup invisible in `[startup]` logs.
+
+**Why:** A multi-window app's startup ladder lies if `WebviewReady` is recorded only for `"main"`. Telemetry that depends on per-window first-paint cannot tell whether window N took 50 ms or 5 s.
+
+**Pattern:**
+```rust
+match builder.build() {
+    Ok(win) => {
+        startup_recorder::record_window_phase(win.label(), StartupPhase::WebviewBuilt);
+        // … rest of post-build setup
+    }
+    Err(e) => log::error!("…"),
+}
+```
+
+### `multiwin-allowlist-scope`
+
+`WatcherState::is_path_allowed` and `is_path_or_parent_allowed` MUST scope to the calling window's label, not union across all windows. A renderer in window B must not gain mutation rights for paths only window A has watched.
+
+**Why:** Combined with `update_tree_watched_dirs` accepting an arbitrary `root` from any window, the global union becomes a sandbox-escape primitive: a renderer can extend the union to `~/.ssh` and then write `id_rsa.review.yaml` next to a private key. Per-window scope plus a registry-equality check on the supplied `root` closes this hole. Cross-references `docs/security.md`'s workspace-allowlist rule.
+
+**Pattern:**
+```rust
+// BAD — src-tauri/src/watcher.rs:60: union across all windows.
+for set in watched.values() { if set.contains(&canonical) { return true; } }
+
+// GOOD — scope to the calling window's label (threaded from window.label()
+// at the IPC command boundary).
+if let Some(set) = watched.get(window_label) { return set.contains(&canonical); }
+```
+
+### `multiwin-canonicalize-at-ingest`
+
+Strengthens `fs-canonicalize-once`: every path entering the multi-window subsystem (CLI argv via `parse_launch_args`, macOS `RunEvent::Opened`, IPC commands receiving a path) is canonicalized exactly **once** at ingest. Downstream code (registry, watcher, command handlers) trusts the boundary and MUST NOT re-canonicalize. Renderer-side intake (`openFilesFromArgs`, `useOpenFileTab`, drop handlers) shares this contract — both consumer paths into the store must canonicalize symmetrically.
+
+**Why:** Three syscalls per launched folder (route_args_through_registry, register_window_folder, set_tree_watched_dirs all canonicalize the same path) wastes the cold-startup budget (`docs/performance.md`). Asymmetric renderer-side canonicalization (`useOpenFileTab` skips, `openFilesFromArgs` doesn't) causes duplicate-tab bugs when the two intakes disagree on path form.
+
+**Pattern:**
+```rust
+// At ingest only:
+let canonical = canonicalize_no_verbatim(&raw_path)?;
+
+// Downstream: no further canonicalize calls; pass the canonical PathBuf around.
+```
+
+### `multiwin-no-hardcoded-label`
+
+The literal `"main"` MUST appear only in:
+1. `src-tauri/tauri.conf.json` window config
+2. The bootstrap registration in `lib.rs::setup` (the unique unprefixed label)
+
+Anywhere else (`reg.push_args("main", …)`, `app.get_webview_window("main")`, mocks, tests) is a multi-window bug. Use `window.label()` (in IPC handlers; Tauri-injected) or registry queries.
+
+**Why:** The `next_label()` counter starts at `win-1`, making `"main"` a sentinel only in the bootstrap. Hardcoding `"main"` in routing code (e.g. `set_root_via_test`, debug-only test commands, mocks) breaks multi-window scenarios silently — the test populates the wrong window. Fixing this is also a precondition for native E2E that creates multiple windows.
+
+**Pattern:**
+```rust
+// BAD — hardcoded label in non-bootstrap code:
+let main = app.get_webview_window("main").unwrap();
+
+// GOOD — derive from registry or from the IPC's injected Window:
+let label = registry.bootstrap_label();
+let win = app.get_webview_window(&label);
+```
+
+### `multiwin-renderer-window-context`
+
+Every renderer hook, test, or mock that affects per-window state via IPC MUST be Tauri-window-aware. Hooks running in a webview implicitly use `window.label()` for IPCs that take `window: tauri::Window` (injected by Tauri runtime), but tests, mocks, and any future "send IPC to a different window from this window" pattern MUST go through an explicit label parameter — never assume the calling webview's label is correct.
+
+**Why:** The IPC mock at `src/__mocks__/@tauri-apps/api/core.ts` hard-codes `"main"` in its window-label seam, which makes second-window unit tests impossible. The `set_root_via_test` debug IPC has the same shape on the Rust side. Both need parametrized window context for multi-window tests to be writable.
+
+**Pattern:**
+```typescript
+// BAD — implicit "current window" via global mock state:
+mockInvoke({ command: "register_window_folder", returns: ok });
+
+// GOOD — explicit window label seam:
+mockInvoke({ windowLabel: "win-1", command: "register_window_folder", returns: ok });
+```
 
 ## Platform-Specific Cross-References
 
