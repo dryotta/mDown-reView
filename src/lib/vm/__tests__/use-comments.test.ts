@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { listenEvent } from "@/lib/tauri-events";
+import type { EventPayloads } from "@/lib/tauri-events";
 import { useComments } from "../use-comments";
 import {
   getFileComments,
@@ -8,6 +9,13 @@ import {
   type GetFileCommentsResult,
   type MatchedComment,
 } from "@/lib/tauri-commands";
+import {
+  fileChangedContent,
+  fileChangedReview,
+  fileChangedReviewJson,
+  fileChangedDeleted,
+  commentsChanged,
+} from "@/__tests__/fixtures/ipc-event-fixtures";
 
 // Test-only thread shape: extends the wire `MatchedComment` with the
 // optional in-memory `anchor` field so fixtures can drive
@@ -342,8 +350,8 @@ describe("useComments reload", () => {
 // ── Event subscription tests ─────────────────────────────────────────────────
 
 describe("useComments event subscriptions", () => {
-  let commentsChangedCb: ((payload: { file_path: string }) => void) | null;
-  let fileChangedCb: ((payload: { path: string; kind: string }) => void) | null;
+  let commentsChangedCb: ((payload: EventPayloads["comments-changed"]) => void) | null;
+  let fileChangedCb: ((payload: EventPayloads["file-changed"]) => void) | null;
 
   beforeEach(() => {
     commentsChangedCb = null;
@@ -367,7 +375,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      commentsChangedCb!({ file_path: "/test.md" });
+      commentsChangedCb!(commentsChanged("/test.md"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(2);
@@ -379,7 +387,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      commentsChangedCb!({ file_path: "/other.md" });
+      commentsChangedCb!(commentsChanged("/other.md"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(1);
@@ -391,7 +399,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fileChangedCb!({ path: "/test.md.review.yaml", kind: "review" });
+      fileChangedCb!(fileChangedReview("/test.md.review.yaml"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(2);
@@ -403,7 +411,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fileChangedCb!({ path: "/test.md.review.json", kind: "review" });
+      fileChangedCb!(fileChangedReviewJson("/test.md.review.json"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(2);
@@ -415,7 +423,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fileChangedCb!({ path: "/test.md.review.yaml", kind: "content" });
+      fileChangedCb!(fileChangedContent("/test.md.review.yaml"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(1);
@@ -427,7 +435,7 @@ describe("useComments event subscriptions", () => {
     expect(getFileComments).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fileChangedCb!({ path: "/other.md.review.yaml", kind: "review" });
+      fileChangedCb!(fileChangedReview("/other.md.review.yaml"));
     });
 
     expect(getFileComments).toHaveBeenCalledTimes(1);
@@ -445,7 +453,7 @@ describe("useComments event subscriptions", () => {
 
     // Simulate watcher firing a deletion for the YAML sidecar.
     await act(async () => {
-      fileChangedCb!({ path: "/test.md.review.yaml", kind: "deleted" });
+      fileChangedCb!(fileChangedDeleted("/test.md.review.yaml"));
     });
 
     expect(result.current.threads).toEqual([]);
@@ -461,7 +469,7 @@ describe("useComments event subscriptions", () => {
     await flushPromises();
 
     await act(async () => {
-      fileChangedCb!({ path: "/other.md.review.yaml", kind: "deleted" });
+      fileChangedCb!(fileChangedDeleted("/other.md.review.yaml"));
     });
 
     expect(result.current.threads).toHaveLength(1);
@@ -539,7 +547,7 @@ describe("useComments stale response handling", () => {
     // Race: the watcher fires twice for the same path; the FIRST reload
     // resolves AFTER the second. Without a generation guard the stale
     // first response would clobber the fresh threads. See issue #96 race fix.
-    let commentsChangedCb: ((p: { file_path: string }) => void) | null = null;
+    let commentsChangedCb: ((p: EventPayloads["comments-changed"]) => void) | null = null;
     vi.mocked(listenEvent).mockImplementation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (eventName: string, callback: any) => {
@@ -598,10 +606,10 @@ describe("useComments stale response handling", () => {
 
     // Fire two reloads for the same path.
     await act(async () => {
-      commentsChangedCb!({ file_path: "/test.md" });
+      commentsChangedCb!(commentsChanged("/test.md"));
     });
     await act(async () => {
-      commentsChangedCb!({ file_path: "/test.md" });
+      commentsChangedCb!(commentsChanged("/test.md"));
     });
     // Second reload resolves first → fresh threads in store.
     await flushPromises();
@@ -618,8 +626,8 @@ describe("useComments stale response handling", () => {
     // Sequence: load is in flight → user/watcher deletes sidecar → load
     // resolves with the just-deleted threads. The delete handler must bump
     // the load generation BEFORE clearing so the late resolution is dropped.
-    let fileChangedCb: ((p: { path: string; kind: string }) => void) | null = null;
-    let commentsChangedCb: ((p: { file_path: string }) => void) | null = null;
+    let fileChangedCb: ((p: EventPayloads["file-changed"]) => void) | null = null;
+    let commentsChangedCb: ((p: EventPayloads["comments-changed"]) => void) | null = null;
     vi.mocked(listenEvent).mockImplementation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (eventName: string, callback: any) => {
@@ -663,12 +671,12 @@ describe("useComments stale response handling", () => {
 
     // Kick off a slow reload (e.g. via comments-changed).
     await act(async () => {
-      commentsChangedCb!({ file_path: "/test.md" });
+      commentsChangedCb!(commentsChanged("/test.md"));
     });
 
     // Watcher reports the sidecar was deleted → handler clears state synchronously.
     await act(async () => {
-      fileChangedCb!({ path: "/test.md.review.yaml", kind: "deleted" });
+      fileChangedCb!(fileChangedDeleted("/test.md.review.yaml"));
     });
     expect(result.current.threads).toEqual([]);
     expect(useStore.getState().fileMetaByPath["/test.md"]?.commentsMtime).toBe(null);

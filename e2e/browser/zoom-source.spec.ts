@@ -36,7 +36,7 @@ async function fontSize(page: Page, selector: string): Promise<number> {
 
 test.describe("Source viewer zoom (#92)", () => {
   // `.source-view .source-lines` is the canonical zoomed-text container —
-  // see docs/best-practices-project/test-patterns.md §6 and the production
+  // see docs/best-practices-project/test-patterns.md §7 and the production
   // rule `font-size: calc(13px * var(--source-zoom))` in source-viewer.css.
   const SELECTOR = ".source-view .source-lines";
 

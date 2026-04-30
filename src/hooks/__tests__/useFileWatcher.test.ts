@@ -2,8 +2,16 @@ import { renderHook, act } from "@testing-library/react";
 import { useStore } from "@/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listenEvent } from "@/lib/tauri-events";
+import type { EventPayloads } from "@/lib/tauri-events";
 import { useFileWatcher } from "../useFileWatcher";
 import { scanReviewFiles, updateWatchedFiles } from "@/lib/tauri-commands";
+import {
+  fileChangedContent,
+  fileChangedDeleted,
+  fileChangedReview,
+  fileChangedReviewJson,
+  ipcEventFixturePaths,
+} from "@/__tests__/fixtures/ipc-event-fixtures";
 
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn((_eventName: string, _callback: unknown) =>
@@ -55,7 +63,7 @@ describe("WatcherSlice", () => {
 function getFileChangedCallback() {
   const call = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed");
   if (!call) throw new Error("listenEvent('file-changed', ...) was never called");
-  return call[1] as (payload: { path: string; kind: string }) => void;
+  return call[1] as (payload: EventPayloads["file-changed"]) => void;
 }
 
 describe("useFileWatcher debounced deletion scan", () => {
@@ -82,7 +90,7 @@ describe("useFileWatcher debounced deletion scan", () => {
     const callback = getFileChangedCallback();
 
     act(() => {
-      callback({ path: "/some/file.ts", kind: "deleted" });
+      callback(fileChangedDeleted("/some/file.ts"));
     });
 
     // Scan is debounced — not called immediately
@@ -102,7 +110,7 @@ describe("useFileWatcher debounced deletion scan", () => {
     const callback = getFileChangedCallback();
 
     act(() => {
-      callback({ path: "/some/file.md.review.yaml", kind: "deleted" });
+      callback(fileChangedDeleted("/some/file.md.review.yaml"));
     });
 
     act(() => { vi.advanceTimersByTime(500); });
@@ -118,7 +126,7 @@ describe("useFileWatcher debounced deletion scan", () => {
     const callback = getFileChangedCallback();
 
     act(() => {
-      callback({ path: "/some/file.md.review.json", kind: "deleted" });
+      callback(fileChangedDeleted("/some/file.md.review.json"));
     });
 
     act(() => { vi.advanceTimersByTime(500); });
@@ -134,7 +142,7 @@ describe("useFileWatcher debounced deletion scan", () => {
     const callback = getFileChangedCallback();
 
     act(() => {
-      callback({ path: "/some/file.md.review.json", kind: "content" });
+      callback(fileChangedContent("/some/file.md.review.json"));
     });
 
     act(() => { vi.advanceTimersByTime(500); });
@@ -151,11 +159,11 @@ describe("useFileWatcher debounced deletion scan", () => {
 
     // Fire 5 deletions in quick succession
     act(() => {
-      callback({ path: "/some/a.ts", kind: "deleted" });
-      callback({ path: "/some/b.md", kind: "deleted" });
-      callback({ path: "/some/c.review.yaml", kind: "deleted" });
-      callback({ path: "/some/d.ts", kind: "deleted" });
-      callback({ path: "/some/e.review.json", kind: "deleted" });
+      callback(fileChangedDeleted("/some/a.ts"));
+      callback(fileChangedDeleted("/some/b.md"));
+      callback(fileChangedDeleted("/some/c.review.yaml"));
+      callback(fileChangedDeleted("/some/d.ts"));
+      callback(fileChangedDeleted("/some/e.review.json"));
     });
 
     act(() => { vi.advanceTimersByTime(500); });
@@ -238,7 +246,7 @@ describe("useFileWatcher save-loop suppression", () => {
 
     // File-changed event arrives for the same path within the debounce window
     act(() => {
-      callback({ path: "/workspace/file.md", kind: "content" });
+      callback(fileChangedContent("/workspace/file.md"));
     });
 
     // CustomEvent should NOT have been dispatched (save-loop suppression)
@@ -267,7 +275,7 @@ describe("useFileWatcher save-loop suppression", () => {
 
     // File-changed event arrives after the debounce window
     act(() => {
-      callback({ path: "/workspace/file.md", kind: "content" });
+      callback(fileChangedContent("/workspace/file.md"));
     });
 
     const fileChangedEvents = dispatchSpy.mock.calls.filter(
@@ -292,7 +300,7 @@ describe("useFileWatcher save-loop suppression", () => {
 
     // File-changed event for a file with no save record
     act(() => {
-      callback({ path: "/workspace/file.md", kind: "content" });
+      callback(fileChangedContent("/workspace/file.md"));
     });
 
     const fileChangedEvents = dispatchSpy.mock.calls.filter(
@@ -323,7 +331,7 @@ describe("useFileWatcher save-loop suppression", () => {
     // …but the watcher fires with the SIDECAR path (the real shape
     // for kind=review events).
     act(() => {
-      callback({ path: "/workspace/file.md.review.yaml", kind: "review" });
+      callback(fileChangedReview("/workspace/file.md.review.yaml"));
     });
 
     const fileChangedEvents = dispatchSpy.mock.calls.filter(
@@ -345,7 +353,7 @@ describe("useFileWatcher save-loop suppression", () => {
       useStore.getState().recordSave("/workspace/file.md");
     });
     act(() => {
-      callback({ path: "/workspace/file.md.review.json", kind: "review" });
+      callback(fileChangedReviewJson("/workspace/file.md.review.json"));
     });
 
     const fileChangedEvents = dispatchSpy.mock.calls.filter(
@@ -423,5 +431,61 @@ describe("useFileWatcher tabPaths stability — RC2/P1.1", () => {
 
     expect(updateWatchedFiles).toHaveBeenCalledTimes(1);
     expect(vi.mocked(updateWatchedFiles).mock.calls[0][0]).toEqual(["/a.md"]);
+  });
+});
+
+describe("useFileWatcher  review-event regression (issue #311)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    useStore.setState({
+      root: "/workspace",
+      tabs: [{ path: ipcEventFixturePaths.source, scrollTop: 0 }],
+      lastSaveByPath: {},
+      ghostEntries: [],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not suppress kind=review for a sidecar path even when a save was just recorded for the source", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    act(() => { useStore.getState().recordSave(ipcEventFixturePaths.source); });
+
+    act(() => { callback(fileChangedReview(ipcEventFixturePaths.reviewYaml)); });
+
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed",
+    );
+    expect(fileChangedEvents).toHaveLength(1);
+    const detail = (fileChangedEvents[0]![0] as CustomEvent).detail as EventPayloads["file-changed"];
+    expect(detail.path).toBe(ipcEventFixturePaths.reviewYaml);
+    expect(detail.kind).toBe("review");
+
+    dispatchSpy.mockRestore();
+  });
+
+  it("dispatches kind=review even when no save was recorded (positive control)", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    act(() => { callback(fileChangedReview(ipcEventFixturePaths.reviewYaml)); });
+
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed",
+    );
+    expect(fileChangedEvents).toHaveLength(1);
+
+    dispatchSpy.mockRestore();
   });
 });

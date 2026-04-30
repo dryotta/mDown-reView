@@ -527,3 +527,26 @@ pub fn compute_anchor_hash(text: String) -> String {
 // (see `update.rs::CommentPatch`). The frontend uses
 // `updateComment(...)` with `{ kind: "set_resolved", ... }`
 // rather than a dedicated IPC command.
+
+#[cfg(test)]
+mod event_payload_tests {
+    use super::*;
+
+    /// Pins the JSON wire shape of `CommentsChangedEvent`. Mirror of the
+    /// `ipc_event_payloads_serialize_to_frontend_contract` test in
+    /// `src-tauri/src/watcher_tests.rs`. See `EventPayloads["comments-changed"]`
+    /// in `src/lib/tauri-events.ts` and the `commentsChanged` fixture in
+    /// `src/__tests__/fixtures/ipc-event-fixtures.ts`.
+    #[test]
+    fn comments_changed_event_serializes_to_frontend_contract() {
+        use serde_json::json;
+        assert_eq!(
+            serde_json::to_value(CommentsChangedEvent {
+                file_path: "/workspace/notes.md".to_string(),
+            })
+            .unwrap(),
+            json!({ "file_path": "/workspace/notes.md" }),
+            "CommentsChangedEvent wire shape drifted (note snake_case file_path)"
+        );
+    }
+}
