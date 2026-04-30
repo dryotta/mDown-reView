@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
-import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { useSearch } from "@/hooks/useSearch";
 import { useSourceHighlighting } from "@/hooks/useSourceHighlighting";
@@ -11,8 +11,9 @@ import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSourceLineModel, type SearchMatchInLine } from "@/hooks/useSourceLineModel";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
-import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
+import { SIZE_WARN_THRESHOLD, truncateSelectedText } from "@/lib/comment-utils";
 import { isSidecarFile } from "@/lib/file-types";
+import { emitCommentFlash, flashElement, onCommentFlash } from "@/lib/comment-flash";
 import "@/styles/source-viewer.css";
 
 interface Props {
@@ -25,8 +26,6 @@ interface Props {
 }
 
 export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }: Props) {
-  const [commentingLine, setCommentingLine] = useState<number | null>(null);
-  const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   // Sidecar files (.review.yaml/.review.json) are app-managed metadata,
   // not commentable content. Disable every "add comment" affordance and
@@ -41,24 +40,13 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
   const sourceLinesRef = useRef<HTMLDivElement>(null);
 
   const { threads } = useComments(filePath);
-  const { addComment } = useCommentActions();
 
   const lines = useMemo(() => content.split("\n"), [content]);
 
   const { highlightedLines } = useSourceHighlighting(content, path);
-  const {
-    selectionToolbar,
-    setSelectionToolbar,
-    pendingSelectionAnchor,
-    highlightedSelectionLines,
-    handleMouseUp,
-    handleAddSelectionComment,
-    clearSelection,
-  } = useSelectionToolbar();
+  const { selectionToolbar, handleMouseUp, handleAddSelectionComment, dismissToolbar } =
+    useSelectionToolbar();
   const { collapsedLines, foldStartMap, toggleFold } = useFolding(content, filePath);
-
-  // Reset selection when file changes
-  useEffect(() => { clearSelection(); }, [filePath, clearSelection]);
 
   // Ctrl+F keyboard handler
   useEffect(() => {
@@ -93,38 +81,55 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
     lineEl?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [currentIndex, matches]);
 
-  // Scroll-to-line from CommentsPanel click
+  // Scroll-to-line from CommentsPanel click. Panel sends a `comment-flash`
+  // event for the visual highlight; this hook owns the scroll only.
   const scrollToLineTransform = useCallback((line: number) => line - 1, []);
-  const handleScrollTo = useCallback((line: number) => {
-    setExpandedLine(line);
-    setCommentingLine(null);
-  }, []);
-  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, handleScrollTo, filePath);
+  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, undefined, filePath);
+
+  // Listen for cross-surface flash events. When the panel (or another
+  // marker) emits a flash for a line in this file, find the matching
+  // `[data-line-idx]` rows and run the keyframe animation imperatively
+  // so re-clicking re-fires.
+  useEffect(() => {
+    return onCommentFlash((detail) => {
+      if (detail.filePath !== filePath) return;
+      const startLine = detail.line;
+      const endLine = detail.endLine ?? detail.line;
+      const root = sourceLinesRef.current;
+      if (!root) return;
+      for (let ln = startLine; ln <= endLine; ln++) {
+        const el = root.querySelector(`[data-line-idx="${ln - 1}"]`) as HTMLElement | null;
+        if (el) flashElement(el);
+      }
+    });
+  }, [filePath]);
 
   // Stable handlers — recompute identity only when their dependencies actually
   // change. This is what allows `React.memo` on `SourceLine` to skip re-renders
   // for the other ~4999 lines while the user types in the search bar.
-  const handleCommentButtonClick = useCallback((ln: number) => {
-    const lt = threadsByLine.get(ln) ?? [];
-    if (lt.length > 0 && expandedLine !== ln) {
-      setExpandedLine(ln);
-      setCommentingLine(null);
-      clearSelection();
-    } else {
-      clearSelection();
-      setCommentingLine((prev) => (prev === ln ? null : ln));
-    }
-  }, [expandedLine, threadsByLine, clearSelection]);
+  const handleAddCommentClick = useCallback(
+    (ln: number) => {
+      const lineText = lines[ln - 1] ?? "";
+      // MRSF §6.2: line-only comments SHOULD include full line as selected_text.
+      const selected = truncateSelectedText(lineText);
+      useStore.getState().requestLineCompose({
+        filePath,
+        anchor: { line: ln, selected_text: selected },
+      });
+    },
+    [filePath, lines]
+  );
 
-  const handleCloseInput = useCallback(() => {
-    setCommentingLine(null);
-    setExpandedLine(null);
-    clearSelection();
-  }, [clearSelection]);
+  const handleMarkerClick = useCallback(
+    (ln: number) => {
+      emitCommentFlash({ filePath, line: ln });
+    },
+    [filePath]
+  );
 
-  const handleRequestInput = useCallback((ln: number) => {
-    setCommentingLine(ln);
-  }, []);
+  const handleSelectionAdd = useCallback(() => {
+    void handleAddSelectionComment(filePath);
+  }, [handleAddSelectionComment, filePath]);
 
   const model = useSourceLineModel({
     lines,
@@ -134,14 +139,16 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
     query,
     matchesByLine,
     highlightedLines,
-    expandedLine,
-    commentingLine,
   });
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
   return (
-    <div className={`source-view${wordWrap ? " wrap-enabled" : ""}`} data-zoom={zoom} style={{ position: "relative", "--source-zoom": zoom } as React.CSSProperties}>
+    <div
+      className={`source-view${wordWrap ? " wrap-enabled" : ""}`}
+      data-zoom={zoom}
+      style={{ position: "relative", "--source-zoom": zoom } as React.CSSProperties}
+    >
       {searchOpen && (
         <SearchBar
           query={query}
@@ -150,7 +157,10 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
           onQueryChange={setQuery}
           onNext={next}
           onPrev={prev}
-          onClose={() => { setSearchOpen(false); setQuery(""); }}
+          onClose={() => {
+            setSearchOpen(false);
+            setQuery("");
+          }}
         />
       )}
       {showSizeWarning && (
@@ -163,46 +173,29 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
         ref={sourceLinesRef}
         onMouseUp={commentable ? handleMouseUp : undefined}
       >
-        {model.map((item) => {
-          // Build the per-line save callback only for the currently-commenting
-          // line; all other lines receive `undefined` (a stable reference) so
-          // React.memo continues to skip them on unrelated re-renders.
-          const onSaveComment =
-            pendingSelectionAnchor && item.isCommenting
-              ? (text: string) => {
-                  addComment(filePath, text, pendingSelectionAnchor).catch(() => {});
-                  clearSelection();
-                }
-              : undefined;
-          return (
-            <SourceLine
-              key={item.idx}
-              idx={item.idx}
-              lineNum={item.lineNum}
-              line={item.line}
-              filePath={filePath}
-              contentHtml={item.contentHtml}
-              isSelectionActive={highlightedSelectionLines.has(item.lineNum)}
-              foldRegion={item.foldRegion}
-              isCollapsed={item.isCollapsed}
-              lineThreads={item.lineThreads}
-              isCommenting={item.isCommenting}
-              isExpanded={item.isExpanded}
-              commentable={commentable}
-              onToggleFold={toggleFold}
-              onCommentButtonClick={handleCommentButtonClick}
-              onCloseInput={handleCloseInput}
-              onRequestInput={handleRequestInput}
-              onSaveComment={onSaveComment}
-            />
-          );
-        })}
+        {model.map((item) => (
+          <SourceLine
+            key={item.idx}
+            idx={item.idx}
+            lineNum={item.lineNum}
+            filePath={filePath}
+            contentHtml={item.contentHtml}
+            isSelectionActive={false}
+            foldRegion={item.foldRegion}
+            isCollapsed={item.isCollapsed}
+            lineThreads={item.lineThreads}
+            commentable={commentable}
+            onToggleFold={toggleFold}
+            onAddCommentClick={handleAddCommentClick}
+            onMarkerClick={handleMarkerClick}
+          />
+        ))}
       </div>
       {commentable && selectionToolbar && (
         <SelectionToolbar
           position={selectionToolbar.position}
-          onAddComment={() => handleAddSelectionComment(setCommentingLine)}
-          onDismiss={() => setSelectionToolbar(null)}
+          onAddComment={handleSelectionAdd}
+          onDismiss={dismissToolbar}
         />
       )}
     </div>

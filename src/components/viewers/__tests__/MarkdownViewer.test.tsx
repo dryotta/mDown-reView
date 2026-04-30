@@ -89,10 +89,6 @@ vi.mock("../TableOfContents", () => ({
   },
 }));
 
-vi.mock("@/components/comments/LineCommentMargin", () => ({
-  LineCommentMargin: () => null,
-}));
-
 const FILE_PATH = "/docs/README.md";
 
 beforeEach(() => {
@@ -175,9 +171,7 @@ describe("10.1 – headings and code blocks", () => {
 
   it("mermaid code blocks do NOT render a copy button", async () => {
     const content = "```mermaid\ngraph TD; A-->B;\n```";
-    const { container } = render(
-      <MarkdownViewer content={content} filePath={FILE_PATH} />,
-    );
+    const { container } = render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
     await waitFor(() => {
       expect(document.querySelector(".markdown-body")).toBeInTheDocument();
     });
@@ -188,9 +182,7 @@ describe("10.1 – headings and code blocks", () => {
   it("plain ``` blocks (no language tag) DO render a copy button", async () => {
     const content = "```\nplain text\n```";
     render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
-    expect(
-      await screen.findByRole("button", { name: /copy code/i }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /copy code/i })).toBeInTheDocument();
   });
 });
 

@@ -1,7 +1,7 @@
 //! `update_comment` — consolidated patch surface for per-comment mutations.
 
 use super::{enforce_workspace_path, CommentsEmitter};
-use crate::core::types::{Anchor, Reaction};
+use crate::core::types::Reaction;
 use crate::watcher::{SidecarConfigState, WatcherState};
 use tauri::{AppHandle, Runtime, State};
 use crate::mdr_command;
@@ -25,18 +25,6 @@ pub enum CommentPatch {
     /// legacy `set_comment_resolved` IPC command was removed in iter 2 to
     /// keep `update_comment` as the single per-comment mutation entry.
     SetResolved { resolved: bool },
-    /// Replace the canonical `anchor` and push the prior value through the
-    /// `push_anchor_history` chokepoint (FIFO-clamped at 3). Equal-anchor
-    /// applies are a no-op so re-anchoring with the same value doesn't
-    /// pollute history or fire `comments-changed`. Reuses the tagged
-    /// `AnchorRepr` wire format via `{ new_anchor: Anchor }`.
-    MoveAnchor {
-        // `Anchor` rides serde try_from/into over `AnchorRepr` (hand-rolled
-        // wire); forward TS codegen to the shadow `AnchorWire` so the
-        // bindings reflect the on-the-wire `{anchor_kind, anchor_data}`.
-        #[specta(type = crate::core::types::wire::AnchorWire)]
-        new_anchor: Anchor,
-    },
 }
 
 /// Apply a [`CommentPatch`] to a single comment.
@@ -73,7 +61,7 @@ pub fn update_comment_inner<E: CommentsEmitter>(
 
 /// Pure helper for [`update_comment`] — no `AppHandle`, no event emission.
 /// **Does NOT emit `comments-changed`** — only call from a wrapper that
-/// does (e.g. `update_comment`, `resolve_comment`, `move_anchor`).
+/// does (e.g. `update_comment`, `resolve_comment`).
 /// Returns `true` if the sidecar was actually mutated, `false` for no-ops
 /// (e.g. `SetResolved { resolved }` matching the comment's current state)
 /// so the IPC entry point can skip both the save and the event emission.
@@ -113,18 +101,6 @@ pub fn update_comment_apply(
                 false
             } else {
                 comment.resolved = resolved;
-                true
-            }
-        }
-        CommentPatch::MoveAnchor { new_anchor } => {
-            // Equal-anchor no-op: skip both the history push and the
-            // save+emit cycle. Otherwise swap and route the prior value
-            // through `push_anchor_history` (single FIFO-clamp chokepoint).
-            if comment.anchor == new_anchor {
-                false
-            } else {
-                let prev = std::mem::replace(&mut comment.anchor, new_anchor);
-                comment.push_anchor_history(prev);
                 true
             }
         }

@@ -11,8 +11,10 @@ function scrollToLineInContainer(
   const el = container?.querySelector(`[${lineAttribute}="${attrValue}"]`);
   if (!el) return false;
   el.scrollIntoView({ behavior: "smooth", block: "center" });
-  el.classList.add("comment-flash");
-  setTimeout(() => el.classList.remove("comment-flash"), 1500);
+  // The cross-surface flash is owned by `lib/comment-flash.ts` and
+  // dispatched explicitly by the panel / marker click sites; keep the
+  // scroll path focused on movement only so the two effects compose
+  // independently.
   return true;
 }
 

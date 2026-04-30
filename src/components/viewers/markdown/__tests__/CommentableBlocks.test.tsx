@@ -1,29 +1,6 @@
-import React, { useRef } from "react";
-import { describe, it, expect, vi } from "vitest";
-import { render, renderHook, screen, fireEvent, act } from "@testing-library/react";
-
-vi.mock("@/components/comments/CommentThread", () => ({
-  CommentThread: ({ rootComment }: { rootComment: { id: string } }) => (
-    <div data-testid="thread-mock">{rootComment.id}</div>
-  ),
-}));
-
-vi.mock("@/components/comments/LineCommentMargin", () => ({
-  LineCommentMargin: ({
-    onCloseInput,
-    onSaveComment,
-  }: {
-    onCloseInput: () => void;
-    onSaveComment?: (text: string) => void;
-  }) => (
-    <div data-testid="line-comment-margin">
-      <button data-testid="lcm-close" onClick={onCloseInput}>close</button>
-      {onSaveComment && (
-        <button data-testid="lcm-save" onClick={() => onSaveComment("hi")}>save</button>
-      )}
-    </div>
-  ),
-}));
+import React from "react";
+import { describe, it, expect } from "vitest";
+import { render, renderHook } from "@testing-library/react";
 
 import {
   MdCommentContext,
@@ -31,39 +8,18 @@ import {
   CommentableLi,
   CommentableTableCell,
   CommentableWrapper,
-  MdCommentPopover,
 } from "../CommentableBlocks";
-import type { CommentThread as CommentThreadType, CommentAnchor } from "@/lib/tauri-commands";
 
 // react-markdown's ExtraProps `node` shape we rely on. Cast to bypass strict typing.
 const nodeAt = (line: number) =>
-  ({ position: { start: { line, column: 1, offset: 0 }, end: { line, column: 1, offset: 0 } } }) as never;
-
-// Helper: render a popover whose bodyRef is wired to a div containing a
-// `[data-source-line]` element so the internal effect can resolve a position.
-function PopoverHarness(
-  props: Omit<React.ComponentProps<typeof MdCommentPopover>, "bodyRef"> & {
-    targetLine?: number;
-  }
-) {
-  const ref = useRef<HTMLDivElement>(null);
-  const { targetLine, ...rest } = props;
-  return (
-    <div ref={ref}>
-      {targetLine !== undefined && (
-        <span data-source-line={targetLine}>line</span>
-      )}
-      <MdCommentPopover {...rest} bodyRef={ref} />
-    </div>
-  );
-}
+  ({
+    position: { start: { line, column: 1, offset: 0 }, end: { line, column: 1, offset: 0 } },
+  }) as never;
 
 describe("makeCommentableBlock", () => {
   it("renders the requested tag inside a wrapper div with data-source-line", () => {
     const Block = makeCommentableBlock("p");
-    const { container } = render(
-      <Block node={nodeAt(7)}>hello world</Block>
-    );
+    const { container } = render(<Block node={nodeAt(7)}>hello world</Block>);
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper).not.toBeNull();
     expect(wrapper?.getAttribute("data-source-line")).toBe("7");
@@ -103,7 +59,7 @@ describe("makeCommentableBlock", () => {
     const { container } = render(
       <MdCommentContext.Provider value={{ commentCountByLine: counts }}>
         <Block node={nodeAt(5)}>inner</Block>
-      </MdCommentContext.Provider>,
+      </MdCommentContext.Provider>
     );
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper?.getAttribute("data-source-line")).toBe("5");
@@ -120,7 +76,7 @@ describe("makeCommentableBlock", () => {
             <td>1</td>
           </tr>
         </tbody>
-      </Block>,
+      </Block>
     );
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper?.getAttribute("data-source-line")).toBe("2");
@@ -130,9 +86,7 @@ describe("makeCommentableBlock", () => {
 
   it("wraps a void <img> with data-source-line (no children passed)", () => {
     const Block = makeCommentableBlock("img");
-    const { container } = render(
-      <Block node={nodeAt(3)} />,
-    );
+    const { container } = render(<Block node={nodeAt(3)} />);
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper?.getAttribute("data-source-line")).toBe("3");
     expect(wrapper?.querySelector("img")).not.toBeNull();
@@ -144,7 +98,7 @@ describe("makeCommentableBlock", () => {
     const { container } = render(
       <MdCommentContext.Provider value={{ commentCountByLine: counts }}>
         <Block node={nodeAt(8)} />
-      </MdCommentContext.Provider>,
+      </MdCommentContext.Provider>
     );
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper?.getAttribute("data-source-line")).toBe("8");
@@ -169,7 +123,7 @@ describe("CommentableTableCell", () => {
               </tr>
             </tbody>
           </table>
-        </MdCommentContext.Provider>,
+        </MdCommentContext.Provider>
       );
       const cell = container.querySelector(tag);
       expect(cell).not.toBeNull();
@@ -182,7 +136,7 @@ describe("CommentableTableCell", () => {
       // No extra wrapper div was inserted around the cell — the cell sits
       // directly under <tr>.
       expect(cell?.parentElement?.tagName.toLowerCase()).toBe("tr");
-    },
+    }
   );
 
   it("omits has-comments and data-comment-count when count is 0", () => {
@@ -194,7 +148,7 @@ describe("CommentableTableCell", () => {
             <Cell node={nodeAt(2)}>plain</Cell>
           </tr>
         </tbody>
-      </table>,
+      </table>
     );
     const cell = container.querySelector("td");
     expect(cell?.getAttribute("data-source-line")).toBe("2");
@@ -213,7 +167,7 @@ describe("CommentableTableCell", () => {
             </Cell>
           </tr>
         </tbody>
-      </table>,
+      </table>
     );
     const cell = container.querySelector("td");
     expect(cell?.classList.contains("user-cls")).toBe(true);
@@ -229,7 +183,7 @@ describe("CommentableWrapper", () => {
         <CommentableWrapper node={nodeAt(4)}>
           <pre data-testid="inner-pre">code</pre>
         </CommentableWrapper>
-      </MdCommentContext.Provider>,
+      </MdCommentContext.Provider>
     );
     const wrapper = container.querySelector(".md-commentable-block");
     expect(wrapper).not.toBeNull();
@@ -262,9 +216,7 @@ describe("MdCommentContext", () => {
 
 describe("CommentableLi", () => {
   it("renders an <li> with children and no has-comments class when count is 0", () => {
-    const { container } = render(
-      <CommentableLi node={nodeAt(2)}>item text</CommentableLi>
-    );
+    const { container } = render(<CommentableLi node={nodeAt(2)}>item text</CommentableLi>);
     const li = container.querySelector("li");
     expect(li).not.toBeNull();
     expect(li?.textContent).toBe("item text");
@@ -283,129 +235,5 @@ describe("CommentableLi", () => {
     const li = container.querySelector("li");
     expect(li?.classList.contains("has-comments")).toBe(true);
     expect(li?.getAttribute("data-comment-count")).toBe("1");
-  });
-});
-
-describe("MdCommentPopover", () => {
-  const baseProps = {
-    expandedLine: null as number | null,
-    commentingLine: null as number | null,
-    threadsByLine: new Map<number, CommentThreadType[]>(),
-    filePath: "/tmp/foo.md",
-    lines: ["line one", "line two", "line three"],
-    pendingSelectionAnchor: null as CommentAnchor | null,
-    addComment: vi.fn(async () => {}),
-    setCommentingLine: vi.fn(),
-    setExpandedLine: vi.fn(),
-    clearSelection: vi.fn(),
-  };
-
-  it("renders nothing when both expandedLine and commentingLine are null", () => {
-    const { container } = render(<PopoverHarness {...baseProps} />);
-    expect(container.querySelector(".md-comment-popover")).toBeNull();
-  });
-
-  it("renders nothing when no DOM element matches the active line", () => {
-    const { container } = render(
-      <PopoverHarness {...baseProps} expandedLine={9} /* no targetLine */ />
-    );
-    expect(container.querySelector(".md-comment-popover")).toBeNull();
-  });
-
-  it("renders an Add comment button (and no threads) when there are no threads for the active line", () => {
-    render(
-      <PopoverHarness
-        {...baseProps}
-        expandedLine={2}
-        targetLine={2}
-      />
-    );
-    expect(screen.queryByTestId("thread-mock")).toBeNull();
-    const btn = screen.getByRole("button", { name: /add comment/i });
-    expect(btn).toBeInTheDocument();
-  });
-
-  it("renders thread mocks when threadsByLine has entries for the active line", () => {
-    const threadsByLine = new Map<number, CommentThreadType[]>([
-      [
-        2,
-        [
-          {
-            root: { id: "c1" } as never,
-            replies: [],
-          } as CommentThreadType,
-        ],
-      ],
-    ]);
-    render(
-      <PopoverHarness
-        {...baseProps}
-        expandedLine={2}
-        targetLine={2}
-        threadsByLine={threadsByLine}
-      />
-    );
-    expect(screen.getByTestId("thread-mock")).toHaveTextContent("c1");
-  });
-
-  it("clicking Add comment calls setCommentingLine with the active line", () => {
-    const setCommentingLine = vi.fn();
-    render(
-      <PopoverHarness
-        {...baseProps}
-        expandedLine={2}
-        targetLine={2}
-        setCommentingLine={setCommentingLine}
-      />
-    );
-    fireEvent.click(screen.getByRole("button", { name: /add comment/i }));
-    expect(setCommentingLine).toHaveBeenCalledWith(2);
-  });
-
-  it("when commentingLine === activeLine, renders LineCommentMargin and its close calls setCommentingLine(null) + setExpandedLine(null) + clearSelection", () => {
-    const setCommentingLine = vi.fn();
-    const setExpandedLine = vi.fn();
-    const clearSelection = vi.fn();
-    render(
-      <PopoverHarness
-        {...baseProps}
-        commentingLine={2}
-        targetLine={2}
-        setCommentingLine={setCommentingLine}
-        setExpandedLine={setExpandedLine}
-        clearSelection={clearSelection}
-      />
-    );
-    expect(screen.getByTestId("line-comment-margin")).toBeInTheDocument();
-    act(() => {
-      fireEvent.click(screen.getByTestId("lcm-close"));
-    });
-    expect(setCommentingLine).toHaveBeenCalledWith(null);
-    expect(setExpandedLine).toHaveBeenCalledWith(null);
-    expect(clearSelection).toHaveBeenCalledTimes(1);
-  });
-
-  it("passes onSaveComment that calls addComment + clearSelection when pendingSelectionAnchor is set", () => {
-    const addComment = vi.fn(async () => {});
-    const clearSelection = vi.fn();
-    const anchor = {
-      contextLines: ["line two"],
-      contextStart: 1,
-      matchedLineNumber: 2,
-      lineText: "line two",
-    } as unknown as CommentAnchor;
-    render(
-      <PopoverHarness
-        {...baseProps}
-        commentingLine={2}
-        targetLine={2}
-        pendingSelectionAnchor={anchor}
-        addComment={addComment}
-        clearSelection={clearSelection}
-      />
-    );
-    fireEvent.click(screen.getByTestId("lcm-save"));
-    expect(addComment).toHaveBeenCalledWith("/tmp/foo.md", "hi", anchor);
-    expect(clearSelection).toHaveBeenCalledTimes(1);
   });
 });

@@ -52,8 +52,11 @@ describe("useScrollToLine", () => {
     expect(el.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
   });
 
-  it("adds and removes comment-flash class", () => {
-    vi.useFakeTimers();
+  it("does not paint a flash class — flash is owned by lib/comment-flash", () => {
+    // The cross-surface flash is dispatched separately via
+    // `emitCommentFlash` from the panel/marker click sites; the scroll
+    // hook is responsible for movement only so the two effects compose
+    // independently and re-clicks re-fire the animation cleanly.
     const container = document.createElement("div");
     const el = document.createElement("div");
     el.setAttribute("data-source-line", "5");
@@ -64,11 +67,8 @@ describe("useScrollToLine", () => {
     renderHook(() => useScrollToLine(ref, "data-source-line"));
 
     window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line: 5 } }));
-    expect(el.classList.contains("comment-flash")).toBe(true);
-
-    vi.advanceTimersByTime(1500);
     expect(el.classList.contains("comment-flash")).toBe(false);
-    vi.useRealTimers();
+    expect(el.classList.contains("comment-flashing")).toBe(false);
   });
 
   it("applies lineTransform before querying", () => {
@@ -109,9 +109,7 @@ describe("useScrollToLine", () => {
       container.appendChild(el);
       const ref = { current: container };
 
-      renderHook(() =>
-        useScrollToLine(ref, "data-source-line", undefined, undefined, "/a.md"),
-      );
+      renderHook(() => useScrollToLine(ref, "data-source-line", undefined, undefined, "/a.md"));
       expect(el.scrollIntoView).not.toHaveBeenCalled();
       // store still empty (no consume happened)
       expect(useStore.getState().pendingScrollTarget).toBeNull();
@@ -125,13 +123,9 @@ describe("useScrollToLine", () => {
       container.appendChild(el);
       const ref = { current: container };
 
-      useStore
-        .getState()
-        .setPendingScrollTarget({ filePath: "/a.md", line: 7, commentId: "c1" });
+      useStore.getState().setPendingScrollTarget({ filePath: "/a.md", line: 7, commentId: "c1" });
 
-      renderHook(() =>
-        useScrollToLine(ref, "data-source-line", undefined, undefined, "/a.md"),
-      );
+      renderHook(() => useScrollToLine(ref, "data-source-line", undefined, undefined, "/a.md"));
 
       expect(el.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
       expect(useStore.getState().pendingScrollTarget).toBeNull();
@@ -148,9 +142,7 @@ describe("useScrollToLine", () => {
 
       useStore.getState().setPendingScrollTarget({ filePath: "/other.md", line: 7 });
 
-      renderHook(() =>
-        useScrollToLine(ref, "data-source-line", undefined, undefined, "/a.md"),
-      );
+      renderHook(() => useScrollToLine(ref, "data-source-line", undefined, undefined, "/a.md"));
 
       expect(el.scrollIntoView).not.toHaveBeenCalled();
       const remaining = useStore.getState().pendingScrollTarget;

@@ -308,51 +308,27 @@
   opacity: 1;
 }
 
-/* Floating comment popover used in markdown visual mode (CommentableBlocks) */
+/* Inline comment gutter for visual (markdown) mode.
+ * The hover `+` and the comment-marker bubble both render as ::before
+ * pseudo-elements so the markdown body stays a single click-target — the
+ * left ~28 px of any commentable block is the gutter, routed via
+ * MarkdownViewer's onClick. The pseudo-element is purely visual.
+ */
 
-.md-comment-popover {
-  min-width: 280px;
-  max-width: 400px;
-  z-index: 20;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  padding: 6px;
+/* Cells need their own positioning context for the ::before badge. */
+.md-commentable-cell {
+  position: relative;
 }
 
-/* A1 (iter 7) — full-width inline variant. Replaces the historical `left: 24px`
- * inline-style hardcode. The popover stretches across its (relatively
- * positioned) parent column rather than offsetting by a magic pixel value. */
-.md-comment-popover-inline {
-  left: 0;
-  right: 0;
-}
-
-/* Remove nested frame from comment input inside popover */
-.md-comment-popover .comment-input {
-  padding: 0;
-  border: none;
-  margin: 0;
-  background: none;
-}
-
-/* In visual mode, line-comment-section doesn't need source-view's 82px left indent */
-.md-comment-popover .line-comment-section {
-  padding-left: 4px;
-  padding-right: 4px;
-}
-
-/* Inline comment gutter for visual (markdown) mode */
-.md-commentable-block {
-  /* Wrapper div — no special positioning so ::before positions relative to .markdown-body */
-}
-
-.md-commentable-li {
-  /* Styled li — no special positioning */
-}
-
-/* Gutter button as ::before pseudo-element — always at left edge */
+/* Hover affordance: faint `+` plus glyph at the left edge of every
+ * commentable block. Hidden by default; revealed on hover. Suppressed
+ * automatically on `.has-comments` blocks (the bubble marker takes over).
+ *
+ * Pointer-events stay enabled (default) so the pseudo-element is hit-
+ * tested as part of its parent — hovering the button keeps the block's
+ * `:hover` active, which prevents the "button disappears as the mouse
+ * approaches it" hover-gap. Clicks on the pseudo bubble up to the parent
+ * and route through `MarkdownViewer.handleGutterClick` (left ~28 px). */
 .md-commentable-block::before,
 .md-commentable-li::before,
 .md-commentable-cell::before {
@@ -377,38 +353,57 @@
   z-index: 5;
 }
 
-/* Cells need their own positioning context for the ::before badge. */
-.md-commentable-cell {
-  position: relative;
-}
-
-/* Show on hover */
 .md-commentable-block:hover::before,
 .md-commentable-li:hover::before,
 .md-commentable-cell:hover::before {
   opacity: 0.6;
 }
 
-/* Lines with comments — always visible badge */
+/* Speech-bubble marker for blocks with unresolved comments. Replaces the
+ * pre-refactor numeric chip with a bare Word-style bubble — single bubble
+ * for one thread, two stacked for ≥2. The SVG silhouette is applied via
+ * `mask`, and the colour comes from `background-color: var(--color-accent)`
+ * so light/dark themes (and any future palette tweaks) recolour the
+ * marker without touching the data URL. Inline SVG path matches
+ * `CommentMarker.tsx <Bubble />`. */
 .md-commentable-block.has-comments::before,
 .md-commentable-li.has-comments::before,
 .md-commentable-cell.has-comments::before {
-  content: attr(data-comment-count);
-  opacity: 0.8;
+  content: "";
   background: var(--color-accent, #0969da);
-  color: white;
-  border-color: transparent;
-  font-size: 11px;
-}
-
-.md-commentable-block.has-comments:hover::before,
-.md-commentable-li.has-comments:hover::before,
-.md-commentable-cell.has-comments:hover::before {
+  border: 0;
+  border-radius: 0;
+  width: 16px;
+  height: 16px;
+  left: 4px;
+  top: 4px;
   opacity: 1;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
 }
 
-.md-comment-threads {
-  margin-bottom: 4px;
+/* Stacked bubbles for ≥2 comments: render the back bubble via ::after,
+ * offset down-and-right behind the ::before front bubble. Same mask
+ * trick + 55 % opacity so the back bubble is a translucent shadow. */
+.md-commentable-block.has-comments:not([data-comment-count="1"])::after,
+.md-commentable-li.has-comments:not([data-comment-count="1"])::after,
+.md-commentable-cell.has-comments:not([data-comment-count="1"])::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-accent, #0969da);
+  opacity: 0.55;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
+    no-repeat center / 16px 16px;
+  z-index: 4;
+  pointer-events: none;
 }
 
 .comment-edit {
@@ -422,7 +417,7 @@
   background: var(--color-bg-elevated, #fff);
   border: 1px solid var(--color-border, #d0d7de);
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   padding: 4px 8px;
 }
 
@@ -452,14 +447,70 @@
   border-bottom-color: rgba(0, 180, 0, 0.3);
 }
 
-/* Flash animation for scroll-to-comment */
+/* Cross-surface flash effect — applied imperatively (see
+ * `lib/comment-flash.ts::flashElement`) when a marker or panel row is
+ * clicked. Both the viewer and the panel highlight matching anchors;
+ * the fade is purely visual and leaves no trace once it ends. */
 @keyframes comment-flash {
-  0% { background: rgba(255, 186, 0, 0.3); }
-  100% { background: transparent; }
+  0% {
+    background-color: rgba(255, 186, 0, 0.6);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
-.comment-flash {
-  animation: comment-flash 1.5s ease-out;
+.comment-flashing {
+  animation: comment-flash 1s ease-out forwards;
+}
+
+/* Speech-bubble marker rendered in the source-view gutter (see
+ * `components/comments/CommentMarker.tsx`). Bare blue glyph — no chip,
+ * no border, no halo. The markdown side uses a CSS-only ::before
+ * variant on `.md-commentable-block.has-comments`. */
+.comment-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent, #0969da);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.comment-marker:hover {
+  color: var(--color-accent-hover, #0860ca);
+}
+
+.comment-marker svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  display: block;
+}
+
+.comment-marker .comment-marker-front {
+  display: inline-flex;
+  position: relative;
+  z-index: 2;
+}
+
+.comment-marker--stacked .comment-marker-back {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(2px, 2px);
+  opacity: 0.55;
+  z-index: 1;
 }
 
 /* Comment responses (replaced by .comment-thread-replies) */
@@ -499,19 +550,56 @@
 /* Reply area (replaced by .comment-thread-reply-input) */
 
 /* Type badges */
-.comment-type-badge { font-size: 0.7em; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
-.comment-type-badge--suggestion { background: #dbeafe; color: #1d4ed8; }
-.comment-type-badge--issue { background: #fee2e2; color: #dc2626; }
-.comment-type-badge--question { background: #fef9c3; color: #a16207; }
-.comment-type-badge--accuracy { background: #ffedd5; color: #c2410c; }
-.comment-type-badge--style { background: #f3e8ff; color: #7c3aed; }
-.comment-type-badge--clarity { background: #dcfce7; color: #16a34a; }
+.comment-type-badge {
+  font-size: 0.7em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.comment-type-badge--suggestion {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.comment-type-badge--issue {
+  background: #fee2e2;
+  color: #dc2626;
+}
+.comment-type-badge--question {
+  background: #fef9c3;
+  color: #a16207;
+}
+.comment-type-badge--accuracy {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.comment-type-badge--style {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+.comment-type-badge--clarity {
+  background: #dcfce7;
+  color: #16a34a;
+}
 
 /* Severity badges */
-.comment-severity-badge { font-size: 0.65em; padding: 1px 5px; border-radius: 8px; font-weight: 600; }
-.comment-severity-badge--high { background: #dc2626; color: white; }
-.comment-severity-badge--medium { background: #ea580c; color: white; }
-.comment-severity-badge--low { background: #9ca3af; color: white; }
+.comment-severity-badge {
+  font-size: 0.65em;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.comment-severity-badge--high {
+  background: #dc2626;
+  color: white;
+}
+.comment-severity-badge--medium {
+  background: #ea580c;
+  color: white;
+}
+.comment-severity-badge--low {
+  background: #9ca3af;
+  color: white;
+}
 
 /* Reply indent (replaced by .comment-thread-replies) */
 
@@ -526,7 +614,6 @@
   color: var(--error-color, #d32f2f);
   font-weight: 600;
 }
-
 
 /* Iter 9 F3  filter row (search + severity chips + workspace toggle) */
 .comments-panel-filters {
@@ -561,11 +648,23 @@
   cursor: pointer;
   text-transform: capitalize;
 }
-.comments-filter-chip[aria-pressed="true"] { color: white; border-color: transparent; font-weight: 600; }
-.comments-filter-chip--high[aria-pressed="true"]   { background: #dc2626; }
-.comments-filter-chip--medium[aria-pressed="true"] { background: #ea580c; }
-.comments-filter-chip--low[aria-pressed="true"]    { background: #9ca3af; }
-.comments-filter-chip--none[aria-pressed="true"]   { background: #4b5563; }
+.comments-filter-chip[aria-pressed="true"] {
+  color: white;
+  border-color: transparent;
+  font-weight: 600;
+}
+.comments-filter-chip--high[aria-pressed="true"] {
+  background: #dc2626;
+}
+.comments-filter-chip--medium[aria-pressed="true"] {
+  background: #ea580c;
+}
+.comments-filter-chip--low[aria-pressed="true"] {
+  background: #9ca3af;
+}
+.comments-filter-chip--none[aria-pressed="true"] {
+  background: #4b5563;
+}
 .comments-filter-workspace {
   display: flex;
   align-items: center;

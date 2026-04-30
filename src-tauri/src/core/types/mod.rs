@@ -25,10 +25,9 @@ pub struct LaunchArgs {
 // every other variant is emitted as `anchor_kind` + matching payload object.
 //
 // `Serialize`/`Deserialize` are routed through `wire::AnchorRepr` (tagged
-// `anchor_kind` + `anchor_data`) so standalone `Anchor` payloads — e.g. the
-// `CommentPatch::MoveAnchor { new_anchor }` IPC field — share the exact
-// same on-the-wire shape that `anchor_history` entries use. The comment-
-// level flat-line representation lives in `wire::MrsfCommentRepr`.
+// `anchor_kind` + `anchor_data`) so the on-wire shape stays uniform across
+// `anchor_history` entries and any future standalone `Anchor` payloads.
+// The comment-level flat-line representation lives in `wire::MrsfCommentRepr`.
 //
 // Intentionally NOT `Default` — every construction site must pick a variant
 // explicitly. Use [`MrsfComment::new_legacy_line`] for legacy line callers.

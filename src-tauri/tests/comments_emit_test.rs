@@ -267,35 +267,6 @@ fn update_comment_set_resolved_no_op_does_not_emit() {
     );
 }
 
-#[test]
-fn update_comment_move_anchor_no_op_does_not_emit() {
-    // MoveAnchor with the SAME anchor as the existing one → no-op.
-    let dir = TempDir::new().unwrap();
-    let state = watcher_allowing(dir.path());
-    let emitter = MockEmitter::default();
-    let file_path = seed_with_comment(dir.path(), "doc.md", "c1");
-
-    let same = Anchor::Line {
-        line: 1,
-        end_line: None,
-        start_column: None,
-        end_column: None,
-        selected_text: None,
-        selected_text_hash: None,
-    };
-    update_comment_inner(
-        &emitter,
-        &state,
-        &SidecarConfigState::new(),
-        file_path,
-        "c1".into(),
-        CommentPatch::MoveAnchor { new_anchor: same },
-    )
-    .unwrap();
-
-    assert_eq!(emitter.count(), 0, "equal-anchor MoveAnchor must not emit");
-}
-
 // ── File-anchored on binary source ─────────────────────────────────────────
 
 /// User-reported (2026-04-28): file-level comments added to a binary file

@@ -1,11 +1,10 @@
 import { memo } from "react";
-import { LineCommentMargin } from "@/components/comments/LineCommentMargin";
+import { CommentMarker } from "@/components/comments/CommentMarker";
 import type { CommentThread, FoldRegion } from "@/lib/tauri-commands";
 
 export interface SourceLineProps {
   idx: number;
   lineNum: number;
-  line: string;
   filePath: string;
   /** Pre-rendered HTML for the line content (search-highlighted, syntax-highlighted, or escaped). */
   contentHtml: string;
@@ -13,67 +12,79 @@ export interface SourceLineProps {
   foldRegion: FoldRegion | undefined;
   isCollapsed: boolean;
   lineThreads: CommentThread[];
-  isCommenting: boolean;
-  isExpanded: boolean;
   /**
-   * When false, the per-line "+" add-comment button is hidden and the
-   * comment-input margin is suppressed. Used for sidecar files where
-   * the user cannot add comments. Defaults to true so callers that
-   * don't pass this prop keep the previous behaviour.
+   * When false, the per-line "+" add-comment button is hidden. Used for
+   * sidecar files where the user cannot add comments. Defaults to true so
+   * callers that don't pass this prop keep the previous behaviour.
    */
   commentable?: boolean;
   onToggleFold: (lineNum: number) => void;
-  onCommentButtonClick: (lineNum: number) => void;
-  onCloseInput: () => void;
-  onRequestInput: (lineNum: number) => void;
-  onSaveComment?: (text: string) => void;
+  /**
+   * Click handler for the gutter `+` button (line has no comments yet).
+   * Should seed a panel composer for this line — the source view never
+   * mounts an inline composer.
+   */
+  onAddCommentClick: (lineNum: number) => void;
+  /**
+   * Click handler for the bubble marker (line has unresolved comments).
+   * Should fire the cross-surface flash so the panel scrolls + flashes
+   * the matching threads and the line itself flashes too.
+   */
+  onMarkerClick: (lineNum: number) => void;
 }
 
 /**
- * Renders a single line of source code with its gutter (add-comment button,
- * fold toggle, line number), the line content, an optional inline comment
- * margin, and an optional collapsed-fold placeholder beneath it.
+ * Renders a single line of source code with its gutter (add-comment button
+ * OR speech-bubble marker, fold toggle, line number), the line content,
+ * and an optional collapsed-fold placeholder beneath it.
  *
  * Pure presentation: all per-line state is passed in via props; the parent
- * `SourceView` owns iteration, fold-skip logic, and all data-fetching hooks.
+ * `SourceView` owns iteration, fold-skip logic, and all data-fetching
+ * hooks. Inline comments + composers were removed in the panel-only
+ * authoring refactor — every authoring entry point seeds a composer in
+ * the right-side `CommentsPanel` instead.
  */
 function SourceLineImpl({
   idx,
   lineNum,
-  line,
-  filePath,
   contentHtml,
   isSelectionActive,
   foldRegion,
   isCollapsed,
   lineThreads,
-  isCommenting,
-  isExpanded,
   commentable = true,
   onToggleFold,
-  onCommentButtonClick,
-  onCloseInput,
-  onRequestInput,
-  onSaveComment,
+  onAddCommentClick,
+  onMarkerClick,
 }: SourceLineProps) {
-  const showMargin = commentable && (isCommenting || isExpanded || lineThreads.length > 0);
+  const unresolvedCount = lineThreads.reduce((acc, t) => {
+    let count = t.root.resolved ? 0 : 1;
+    count += t.replies.filter((r) => !r.resolved).length;
+    return acc + count;
+  }, 0);
+  const hasMarker = unresolvedCount > 0;
 
   return (
     <>
       <div
         className={`source-line${isSelectionActive ? " selection-active" : ""}`}
         data-line-idx={idx}
+        data-source-line={lineNum}
       >
         <span className="source-line-gutter">
           <span className="source-line-comment-zone">
-            {commentable && (
-              <button
-                className="comment-plus-btn"
-                aria-label="Add comment"
-                onClick={() => onCommentButtonClick(lineNum)}
-              >
-                +
-              </button>
+            {hasMarker ? (
+              <CommentMarker count={unresolvedCount} onClick={() => onMarkerClick(lineNum)} />
+            ) : (
+              commentable && (
+                <button
+                  className="comment-plus-btn"
+                  aria-label="Add comment"
+                  onClick={() => onAddCommentClick(lineNum)}
+                >
+                  +
+                </button>
+              )
             )}
           </span>
           <span className="source-line-fold-zone">
@@ -89,29 +100,10 @@ function SourceLineImpl({
           </span>
           <span className="source-line-number-zone">{lineNum}</span>
         </span>
-        <span
-          className="source-line-content"
-          dangerouslySetInnerHTML={{ __html: contentHtml }}
-        />
+        <span className="source-line-content" dangerouslySetInnerHTML={{ __html: contentHtml }} />
       </div>
-      {showMargin && (
-        <LineCommentMargin
-          filePath={filePath}
-          lineNumber={lineNum}
-          lineText={line}
-          threads={lineThreads}
-          showInput={isCommenting}
-          forceExpanded={isExpanded}
-          onCloseInput={onCloseInput}
-          onRequestInput={() => onRequestInput(lineNum)}
-          onSaveComment={onSaveComment}
-        />
-      )}
       {isCollapsed && foldRegion && (
-        <div
-          className="source-fold-placeholder"
-          onClick={() => onToggleFold(lineNum)}
-        >
+        <div className="source-fold-placeholder" onClick={() => onToggleFold(lineNum)}>
           ⋯ {foldRegion.endLine - lineNum - 1} lines hidden
         </div>
       )}

@@ -11,25 +11,25 @@ import { sanitizeSchema } from "./markdown/sanitizeSchema";
 import { rehypeFootnotePrefix } from "./markdown/rehype-footnote-prefix";
 import { rehypeKatexStyle } from "./markdown/rehype-katex-style";
 import { hasRemoteImageReferences, useImgResolver } from "./markdown/useImgResolver";
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useEffect, useRef, useMemo, useCallback } from "react";
 import { FrontmatterBlock } from "./FrontmatterBlock";
 import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { MdCommentContext } from "./markdown/CommentableBlocks";
 import { buildMarkdownComponents } from "./markdown/MarkdownComponentsMap";
-import { MarkdownInteractionLayer } from "./markdown/MarkdownInteractionLayer";
+import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { useComments } from "@/lib/vm/use-comments";
-import { useCommentActions } from "@/lib/vm/use-comment-actions";
 import { ReadingWidthHandle } from "./ReadingWidthHandle";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { parseFrontmatter } from "@/lib/frontmatter";
-import { SIZE_WARN_THRESHOLD } from "@/lib/comment-utils";
+import { SIZE_WARN_THRESHOLD, truncateSelectedText } from "@/lib/comment-utils";
 import { useThreadsByLine } from "@/hooks/useThreadsByLine";
 import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSelectionToolbar } from "@/hooks/useSelectionToolbar";
 import { useFindInPage } from "@/hooks/useFindInPage";
 import { FindInPageBar } from "@/components/FindInPageBar";
 import { isSidecarFile } from "@/lib/file-types";
+import { emitCommentFlash, flashElement, onCommentFlash } from "@/lib/comment-flash";
 import "@/styles/markdown.css";
 import "@/styles/find-in-page.css";
 import "@/styles/viewer-banner.css";
@@ -88,8 +88,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // Per-filetype zoom (#65 D1/D2/D3). Same `.md` key shared by source-mode
   // and visual-mode viewers so the EnhancedViewer toolbar drives both.
   const { zoom } = useZoom(".md");
-  const [commentingLine, setCommentingLine] = useState<number | null>(null);
-  const [expandedLine, setExpandedLine] = useState<number | null>(null);
   // Sidecar files (.review.yaml/.review.json) are app-managed metadata,
   // not commentable content. Suppress the gutter "+" affordance, the
   // selection toolbar, and the right-click context menu so users can't
@@ -99,18 +97,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const lines = useMemo(() => body.split("\n"), [body]);
 
   const { threads } = useComments(filePath);
-  const { addComment } = useCommentActions();
 
   const { threadsByLine, commentCountByLine } = useThreadsByLine(threads);
 
-  const {
-    selectionToolbar,
-    setSelectionToolbar,
-    pendingSelectionAnchor,
-    handleMouseUp,
-    handleAddSelectionComment,
-    clearSelection,
-  } = useSelectionToolbar("data-source-line", 0);
+  const { selectionToolbar, handleMouseUp, handleAddSelectionComment, dismissToolbar } =
+    useSelectionToolbar("data-source-line", 0);
 
   // Stable img resolver — only changes when filePath/allowance changes.
   const { img } = useImgResolver(filePath);
@@ -137,7 +128,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const hasMath = useMemo(() => HAS_MATH_RE.test(body), [body]);
   // L4: lazy-load `rehype-katex` so its ~200 KB JS lands in a separate chunk
   // and only when a doc actually uses math. Plugin is `null` until loaded.
-  const [rehypeKatexPlugin, setRehypeKatexPlugin] = useState<unknown | null>(null);
+  const [rehypeKatexPlugin, setRehypeKatexPlugin] = React.useState<unknown | null>(null);
   useEffect(() => {
     if (!hasMath) return;
     void ensureKatexCssLoaded();
@@ -180,12 +171,28 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     return plugins;
   }, [rehypeKatexPlugin]);
 
-  // Scroll-to-line from CommentsPanel click
-  const handleScrollTo = useCallback((line: number) => {
-    setExpandedLine(line);
-    setCommentingLine(null);
-  }, []);
-  useScrollToLine(bodyRef, "data-source-line", undefined, handleScrollTo, filePath);
+  // Scroll-to-line from CommentsPanel click — handled by useScrollToLine
+  // below. The panel separately emits a `comment-flash` event for the
+  // visual highlight; the listener below picks that up.
+  useScrollToLine(bodyRef, "data-source-line", undefined, undefined, filePath);
+
+  // Cross-surface flash listener: paint matching block(s) yellow→transparent
+  // when a marker or panel row is clicked. Imperative class restart defeats
+  // the browser's "same animation already running" no-op so re-clicking
+  // re-fires the fade.
+  useEffect(() => {
+    return onCommentFlash((detail) => {
+      if (detail.filePath !== filePath) return;
+      const root = bodyRef.current;
+      if (!root) return;
+      const startLine = detail.line;
+      const endLine = detail.endLine ?? detail.line;
+      for (let ln = startLine; ln <= endLine; ln++) {
+        const el = root.querySelector(`[data-source-line="${ln}"]`) as HTMLElement | null;
+        if (el) flashElement(el);
+      }
+    });
+  }, [filePath]);
 
   // Consume cross-file fragment requests left by anchor clicks. The link
   // handler stashes `{path, fragment}` in the store, then `openFile` swaps
@@ -199,7 +206,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     const fragment = useStore.getState().consumePendingFragment(filePath);
     if (!fragment) return;
     let id = fragment;
-    try { id = decodeURIComponent(fragment); } catch { /* keep raw */ }
+    try {
+      id = decodeURIComponent(fragment);
+    } catch {
+      /* keep raw */
+    }
     const handle = requestAnimationFrame(() => {
       const el = document.getElementById(id);
       el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -208,20 +219,6 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   }, [filePath, body]);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
-
-  const handleLineClick = useCallback(
-    (line: number) => {
-      const lineThreads = threadsByLine.get(line) ?? [];
-      if (lineThreads.length > 0) {
-        setExpandedLine(expandedLine === line ? null : line);
-        setCommentingLine(null);
-      } else {
-        setCommentingLine(commentingLine === line ? null : line);
-        setExpandedLine(null);
-      }
-    },
-    [threadsByLine, expandedLine, commentingLine]
-  );
 
   const contextValue = useMemo(
     () => ({
@@ -246,17 +243,27 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       if (line <= 0) return;
 
       e.stopPropagation();
-      handleLineClick(line);
+      const lineThreads = threadsByLine.get(line) ?? [];
+      if (lineThreads.length > 0) {
+        // Block has comments → flash both surfaces, scroll panel to row(s).
+        emitCommentFlash({ filePath, line });
+      } else {
+        // Empty block → seed a panel composer with the block's source line
+        // text as the selected_text (MRSF §6.2 line-only convention).
+        const lineText = lines[line - 1] ?? "";
+        const selected = truncateSelectedText(lineText);
+        useStore.getState().requestLineCompose({
+          filePath,
+          anchor: { line, selected_text: selected },
+        });
+      }
     },
-    [handleLineClick]
+    [filePath, lines, threadsByLine]
   );
 
   const handleSelectionAdd = useCallback(() => {
-    void handleAddSelectionComment((line) => {
-      setCommentingLine(line);
-      setExpandedLine(null);
-    });
-  }, [handleAddSelectionComment]);
+    void handleAddSelectionComment(filePath);
+  }, [handleAddSelectionComment, filePath]);
 
   // F6 — right-click context menu. Markdown nodes carry `data-source-line`
   // (1-indexed). Selection-toolbar priming so "Comment on selection" routes
@@ -344,22 +351,11 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
             >
               {body}
             </ReactMarkdown>
-            {commentable && (
-              <MarkdownInteractionLayer
-                expandedLine={expandedLine}
-                commentingLine={commentingLine}
-                bodyRef={bodyRef}
-                threadsByLine={threadsByLine}
-                filePath={filePath}
-                lines={lines}
-                pendingSelectionAnchor={pendingSelectionAnchor}
-                addComment={addComment}
-                setCommentingLine={setCommentingLine}
-                setExpandedLine={setExpandedLine}
-                clearSelection={clearSelection}
-                selectionToolbar={selectionToolbar}
-                dismissSelectionToolbar={() => setSelectionToolbar(null)}
-                onAddSelectionComment={handleSelectionAdd}
+            {commentable && selectionToolbar && (
+              <SelectionToolbar
+                position={selectionToolbar.position}
+                onAddComment={handleSelectionAdd}
+                onDismiss={dismissToolbar}
               />
             )}
           </div>

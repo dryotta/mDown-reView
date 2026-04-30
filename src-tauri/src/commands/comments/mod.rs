@@ -523,7 +523,7 @@ pub fn compute_anchor_hash(text: String) -> String {
     crate::core::anchors::compute_selected_text_hash(&text)
 }
 
-// Note: `set_resolved` and `move_anchor` are exposed via `update_comment` patch
-// kinds (see `update.rs::CommentPatch`). The frontend uses
-// `updateComment(...)` with `{ kind: "set_resolved" | "move_anchor", ... }`
-// rather than dedicated IPC commands.
+// Note: `set_resolved` is exposed via the `update_comment` patch kind
+// (see `update.rs::CommentPatch`). The frontend uses
+// `updateComment(...)` with `{ kind: "set_resolved", ... }`
+// rather than a dedicated IPC command.

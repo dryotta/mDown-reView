@@ -125,26 +125,6 @@
   font-family: inherit;
 }
 
-.line-comment-section {
-  padding: 4px 12px 4px 82px;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-
-.line-comment-count {
-  font-size: 12px; /* zoom-cascade: chrome */
-  color: var(--color-accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 2px 0;
-}
-
-.line-comment-count:hover {
-  text-decoration: underline;
-}
-
 /* ── Code folding ──────────────────────────────────────────────── */
 
 .source-line-fold-zone {

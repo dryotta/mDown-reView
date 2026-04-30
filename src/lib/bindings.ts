@@ -511,15 +511,7 @@ export type CommentPatch =
  * legacy `set_comment_resolved` IPC command was removed in iter 2 to
  * keep `update_comment` as the single per-comment mutation entry.
  */
-{ kind: "set_resolved"; data: { resolved: boolean } } | 
-/**
- * Replace the canonical `anchor` and push the prior value through the
- * `push_anchor_history` chokepoint (FIFO-clamped at 3). Equal-anchor
- * applies are a no-op so re-anchoring with the same value doesn't
- * pollute history or fire `comments-changed`. Reuses the tagged
- * `AnchorRepr` wire format via `{ new_anchor: Anchor }`.
- */
-{ kind: "move_anchor"; data: { new_anchor: AnchorWire } }
+{ kind: "set_resolved"; data: { resolved: boolean } }
 /**
  * A thread: root comment with replies sorted by timestamp.
  */
