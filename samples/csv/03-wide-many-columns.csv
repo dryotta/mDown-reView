@@ -1,0 +1,11 @@
+id,sku,name,category,subcategory,price_usd,price_eur,price_jpy,stock,reorder_threshold,supplier,supplier_country,lead_time_days,weight_g,length_mm,width_mm,height_mm,color,material,warranty_months,rating,review_count,launched
+1,SKU-0001,Widget A,Gadgets,Electronic,19.99,18.50,2200,150,50,Acme Corp,US,7,450,100,50,30,red,plastic,12,4.5,127,2024-01-15
+2,SKU-0002,Widget B,Gadgets,Electronic,24.99,23.10,2750,89,40,Acme Corp,US,7,520,110,55,32,blue,plastic,12,4.3,98,2024-02-03
+3,SKU-0003,Sprocket Pro,Tools,Hand,49.99,46.20,5500,42,20,Beta Inc,DE,14,1200,200,80,40,silver,steel,24,4.7,210,2024-03-21
+4,SKU-0004,Sprocket Lite,Tools,Hand,29.99,27.70,3300,67,25,Beta Inc,DE,14,800,180,70,35,silver,aluminum,12,4.2,156,2024-04-10
+5,SKU-0005,Premium Wrench,Tools,Hand,149.99,138.70,16500,15,5,Gamma Ltd,UK,21,2400,300,100,50,chrome,steel,60,4.9,89,2024-05-07
+6,SKU-0006,Basic Hammer,Tools,Striking,9.99,9.20,1100,200,80,Acme Corp,US,7,650,250,30,30,wood,wood-steel,12,4.0,67,2024-06-19
+7,SKU-0007,Heavy Hammer,Tools,Striking,19.99,18.50,2200,80,30,Acme Corp,US,7,1200,300,40,40,wood,wood-steel,24,4.4,124,2024-07-04
+8,SKU-0008,LED Bulb 9W,Electric,Lighting,4.99,4.60,550,500,200,Delta Co,CN,28,40,60,60,110,white,glass-aluminum,36,4.6,2410,2024-08-25
+9,SKU-0009,LED Bulb 12W,Electric,Lighting,6.99,6.45,770,400,150,Delta Co,CN,28,50,65,65,115,white,glass-aluminum,36,4.5,1980,2024-09-13
+10,SKU-0010,Smart Bulb,Electric,Lighting,24.99,23.10,2750,120,40,Delta Co,CN,28,60,65,65,115,multi,glass-aluminum,24,4.3,789,2024-10-02

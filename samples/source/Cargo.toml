@@ -1,0 +1,45 @@
+# Sample TOML — exercises Shiki toml.
+
+[package]
+name = "mdownreview"
+version = "0.3.4"
+description = "A desktop markdown reviewer for developers"
+license = "MIT"
+authors = ["David <david@example.com>"]
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "devtools"] }
+tauri-plugin-log = { version = "2", features = ["colored"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-saphyr = "=0.0.25"
+saphyr = "=0.0.6"
+notify = "7"
+notify-debouncer-mini = "0.5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = []
+codegen = ["dep:specta-typescript", "tauri-specta/typescript"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[[bin]]
+name = "mdownreview-cli"
+path = "src/bin/cli.rs"
+
+[workspace]
+members = ["mdr-macros"]

@@ -1,0 +1,9 @@
+name,email,role,active,joined
+Alice,alice@example.com,admin,true,2025-01-15
+Bob,bob@example.com,editor,true,2025-02-03
+Charlie,charlie@example.com,viewer,false,2025-03-21
+Diana,diana@example.com,editor,true,2025-04-10
+Eve,eve@example.com,viewer,true,2025-05-07
+Frank,frank@example.com,admin,false,2025-06-19
+Grace,grace@example.com,editor,true,2025-07-04
+Henry,henry@example.com,viewer,true,2025-08-25

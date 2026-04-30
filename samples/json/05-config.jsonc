@@ -1,0 +1,20 @@
+{
+  // .jsonc supports comments — useful for config files like tsconfig.json.
+  // The mdownreview JSON viewer should highlight these as comments in source view.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,            // strict-null-checks AND no-implicit-any AND friends
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/*"]       // alias @/ → src/
+    }
+  },
+  /* Block-style comment also supported in JSONC. */
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "src-tauri/target"]
+}

@@ -1,0 +1,18 @@
+{
+  "edge_cases": {
+    "long_unicode": "𝕄𝕒𝕥𝕙𝕖𝕞𝕒𝕥𝕚𝕔𝕒𝕝 𝔻𝕠𝕦𝕓𝕝𝕖-𝕊𝕥𝕣𝕦𝕔𝕜",
+    "emoji": "👋 🎉 🌍 🚀 ⭐ ❤️",
+    "rtl_text": "العربية مرحبا",
+    "mixed_scripts": "Hello العالم 世界 🌍",
+    "control_characters": "tab\there backslash\\here quote\"here",
+    "very_large_number": 9007199254740991,
+    "very_negative_number": -9007199254740991,
+    "scientific_notation": [1e10, 1.5e-10, -2.7e15],
+    "deeply_nested_array": [[[[[[["deep"]]]]]]],
+    "url_string": "https://example.com/path?query=value&other=stuff#fragment",
+    "ipv6_string": "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+    "json_string_inside_string": "{\"this\": \"is escaped JSON\"}",
+    "html_inside_string": "<script>alert('xss')</script>",
+    "very_long_string": "the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog."
+  }
+}

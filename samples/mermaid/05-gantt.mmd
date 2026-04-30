@@ -1,0 +1,21 @@
+gantt
+    title  Iterate-loop: end-to-end timeline for one PR
+    dateFormat  HH:mm
+    axisFormat  %H:%M
+
+    section Setup
+    Pre-flight + branch       :done,    a1, 13:26, 1m
+    Draft PR + state file     :done,    a2, after a1, 1m
+
+    section Iteration 1
+    Step 1 rebase + sanity    :done,    b1, after a2, 2m
+    Step 2 assess             :done,    b2, after b1, 1m
+    Step 3 pre-consult        :done,    b3, after b2, 2m
+    Step 5 implement          :done,    b4, after b3, 5m
+    Step 6 validate + CI      :done,    b5, after b4, 12m
+    Step 6d forward-fix       :done,    b6, after b5, 4m
+    Re-validate + experts     :done,    b7, after b6, 13m
+
+    section Iteration 2
+    Re-rebase + assess        :done,    c1, after b7, 2m
+    Done-Achieved + Phase 2   :active,  c2, after c1, 2m

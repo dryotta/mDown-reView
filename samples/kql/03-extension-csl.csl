@@ -1,0 +1,14 @@
+// .csl is the same query language as .kql — both extensions render
+// through the same KqlPlanView.
+
+SecurityEvent
+| where TimeGenerated > ago(1h)
+| where EventID in (4624, 4625)              // logon success / failure
+| extend logon_outcome = iff(EventID == 4624, "success", "failure")
+| summarize 
+    count_success = countif(logon_outcome == "success"),
+    count_failure = countif(logon_outcome == "failure")
+    by Account, Computer
+| extend failure_ratio = todouble(count_failure) / (count_success + count_failure)
+| where failure_ratio > 0.1
+| sort by failure_ratio desc

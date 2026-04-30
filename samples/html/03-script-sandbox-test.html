@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sandbox Test — JavaScript MUST NOT execute</title>
+</head>
+<body>
+  <h1>JavaScript Sandbox Test</h1>
+  <p>
+    The HTML preview iframe is hard-locked to <code>sandbox="allow-same-origin"</code>
+    (rule 12a in <code>docs/security.md</code>). Combining <code>allow-same-origin</code>
+    with <code>allow-scripts</code> would re-grant the iframe full host access — the
+    toggle does not exist.
+  </p>
+  <p>If any of the following script blocks ACTUALLY run, that's a security regression.</p>
+
+  <div id="result">No script ran. ✓ (this is the expected, correct state)</div>
+
+  <script>
+    // Inline script — must NOT run.
+    document.getElementById('result').textContent = '❌ REGRESSION: inline <script> ran!';
+    document.getElementById('result').style.background = 'red';
+    document.getElementById('result').style.color = 'white';
+    alert('REGRESSION: inline script ran');
+  </script>
+
+  <button onclick="alert('REGRESSION: onclick ran')">Click me</button>
+
+  <a href="javascript:alert('REGRESSION: javascript: link ran')">javascript: link</a>
+
+  <iframe src="javascript:alert('REGRESSION: nested iframe ran')"></iframe>
+
+  <script src="https://example.com/external.js"></script>
+
+  <p>
+    Expected: the <code>#result</code> div above still says
+    "No script ran. ✓"; no alerts pop; no network requests for external
+    JS show up in DevTools.
+  </p>
+</body>
+</html>
