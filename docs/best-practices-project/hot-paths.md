@@ -98,6 +98,13 @@ Sensitive to:
 
 First-look checks: confirm anchoring runs in Rust (Rust-First); confirm batched recompute on file change, not per keystroke.
 
+### `hot-path: index-html-csp-trigger`
+
+**File:** `index.html`
+
+Sensitive to:
+- This file is the SOLE input to Tauri's `inject_nonce_token` (`tauri-utils html.rs`). Any inline `<style>` element added here propagates a fresh nonce to the production `style-src` directive, which (per CSP3) disables `'unsafe-inline'` and breaks every inline `style=` consumer in the renderer. Adding inline CSS for any reason — vendor snippets, debug overlays, FOUC mitigation, font-face declarations — must instead route through `src/styles/`. Canonical: rule 17a in [`../security.md`](../security.md). Regression test: `src/__tests__/index-html-no-inline-style.test.ts`.
+
 ## Rust-first prompt
 
 For any flagged hotspot, ask: does this computation need to happen in React, or can Rust do it and return a result? Text search, anchor matching, hash computation, path manipulation, CRLF normalization, file-size checks — all default to Rust.

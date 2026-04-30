@@ -51,7 +51,7 @@ Every rule is numbered and citable as "violates rule N in `docs/X.md`". Each doc
 | [`docs/principles.md`](docs/principles.md) | Charter — 5 pillars, 5 meta-principles, Non-Goals |
 | [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC/logger chokepoints, state stratification, file-size budgets, MRSF v1.0 + v1.1 schema, 4-step re-anchoring |
 | [`docs/performance.md`](docs/performance.md) | Numeric budgets, debounce windows, scan caps, render rules, Shiki singleton, Rust hot paths |
-| [`docs/security.md`](docs/security.md) | File-read bounds, path canonicalization, sidecar atomicity, CSP, capability ACL, markdown XSS posture |
+| [`docs/security.md`](docs/security.md) | File-read bounds, path canonicalization, sidecar atomicity, CSP (incl. no-inline-style index.html), capability ACL, markdown XSS posture |
 | [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture, cross-hook communication |
 | [`docs/test-strategy.md`](docs/test-strategy.md) | Three-layer pyramid, coverage floors, IPC mock hygiene, console-spy contract |
 | [`docs/observability.md`](docs/observability.md) | `[ipc]` + `[startup]` log schemas, `#[mdr_command]` macro contract, `StartupRecorder` phases, `--trace` launch flag + `MDR_IPC_TRACE` gating |
