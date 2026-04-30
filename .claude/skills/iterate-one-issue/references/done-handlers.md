@@ -165,9 +165,12 @@ Then exit cleanly.
 
 ### Done-ForwardFixed
 
-Reached only from **Phase R** (`--resume-pr` mode). The forward-fix wave produced a new commit on the PR branch; merge-pr-loop should re-dispatch the release gate against `commit=<sha>`.
+Reached only from **Phase R** (`--resume-pr` mode), in either of two sub-modes:
 
-Phase R already wrote the `<!-- iterate-forward-fix-attempt -->` comment and pushed. No banner beyond the outcome marker. **Phase 2 is skipped** — single-pass forward-fixes lack signal density, and the eventual merge-pr-loop merge or its own Done-Blocked emits a retro.
+- **forward-fix sub-mode** — the forward-fix wave produced a new commit on the PR branch (gate logs informed an `exe-task-implementer` fix); merge-pr-loop should re-dispatch the release gate against `commit=<sha>`.
+- **rebase-only sub-mode** — no failed gate run was found but the branch was behind `origin/main`; Phase R rebased the branch (clean or via the per-file conflict resolver) and force-pushed. `commit=<sha>` is the rebased HEAD. merge-pr-loop should re-dispatch the gate on the rebased commit.
+
+In both cases Phase R already wrote the `<!-- iterate-forward-fix-attempt -->` comment and pushed. No banner beyond the outcome marker. **Phase 2 is skipped** — single-pass forward-fixes lack signal density, and the eventual merge-pr-loop merge or its own Done-Blocked emits a retro.
 
 ```
 ITERATE_OUTCOME: Done-ForwardFixed issue=n/a branch=<BRANCH> pr=<URL> commit=<NEW_HEAD>

@@ -1,11 +1,11 @@
 ---
 name: merge-pr-loop
-description: Use when the user wants the agent to ship the iterate PR backlog autonomously — phrases like "merge the ready PRs", "ship the iterate PRs", "run the release gate on everything ready", or an empty `/merge-pr-loop`. Continuous (default) or single-pass (`--once`). Picks the next open ready-for-review PR labelled `iterate-pr`, dispatches the Release Gate, polls to completion, drives forward-fixes via `/iterate-one-issue --resume-pr <PR>` on failure (cap 5/PR), squash-merges on green. Never prompts. Never writes app source. Pair with `/iterate-loop` in another terminal — that loop produces the PRs this one ships.
+description: Use when the user wants the agent to ship the iterate PR backlog autonomously — phrases like "merge the ready PRs", "ship the iterate PRs", "run the release gate on everything ready", or an empty `/merge-pr-loop`. Continuous (default) or single-pass (`--once`). Picks the next open ready-for-review PR labelled `iterate-pr`, **rebases stale PR branches onto `origin/main` (clean rebases inline; conflicts delegate to `/iterate-one-issue --resume-pr`)**, dispatches the Release Gate, polls to completion, drives forward-fixes via `/iterate-one-issue --resume-pr <PR>` on failure (cap 5/PR), squash-merges on green. Never prompts. Never writes app source. Pair with `/iterate-loop` in another terminal — that loop produces the PRs this one ships.
 ---
 
-**RIGID. Fully autonomous — never calls `ask_user`.** Owns the **release-gate + merge** lifecycle for PRs opened by `iterate-one-issue`. Picks ready-for-review PRs labelled `iterate-pr`, validates each via the signed-installer Release Gate, drives forward-fixes when the gate fails, squash-merges on green.
+**RIGID. Fully autonomous — never calls `ask_user`.** Owns the **release-gate + merge** lifecycle for PRs opened by `iterate-one-issue`. Picks ready-for-review PRs labelled `iterate-pr`, rebases them onto `origin/main` if behind, validates each via the signed-installer Release Gate, drives forward-fixes when the gate fails, squash-merges on green.
 
-This skill never writes app source — every fix is delegated to `/iterate-one-issue --resume-pr <PR>`.
+This skill never writes app source — every code fix is delegated to `/iterate-one-issue --resume-pr <PR>`. The skill *does* perform `git rebase origin/main` + `git push --force-with-lease` on PR branches when they are behind main and the rebase is conflict-free; conflict resolution is also delegated to `/iterate-one-issue --resume-pr` (which has a per-file conflict-resolver loop). A clean rebase rewrites commit metadata only — it never modifies file contents.
 
 ---
 
@@ -104,12 +104,13 @@ gh pr edit $PICK --add-label "merge-pr-in-progress"
 
 If the label add fails (race with another agent or label removed mid-flight), log `[merge-pr-loop] failed to claim PR #$PICK — skipping this round` and loop back to Step 1.
 
-Capture PR metadata (used throughout the round):
+Capture PR metadata + per-PR counters (used throughout the round):
 ```bash
 gh pr view "$PICK" --json number,headRefName,headRefOid,url > /tmp/merge-pr-$PICK.json
 BRANCH=$(jq -r '.headRefName' /tmp/merge-pr-$PICK.json)
 PR_URL=$(jq -r '.url'         /tmp/merge-pr-$PICK.json)
 HEAD_SHA=$(jq -r '.headRefOid' /tmp/merge-pr-$PICK.json)
+MERGE_RACE_RETRIES=0   # cap=1; bumped each time we re-enter Step 3.5 from a Step 5 race-detect
 ```
 
 ### Step 3 — Pre-flight `main` (re-sync between rounds)
@@ -122,6 +123,56 @@ If pull fails (local main diverged from origin), STOP `[merge-pr-loop] main has 
 ```bash
 gh pr edit $PICK --remove-label "merge-pr-in-progress"
 ```
+
+### Step 3.5 — Rebase if behind (proactive)
+
+GitHub branch protection often requires `head branch is up to date with base` before merge. If main moved between PR creation and now, dispatching the gate on the unrebased SHA wastes a ~30 min run only to fail at Step 5. So rebase first, then dispatch on the rebased commit.
+
+```bash
+git fetch origin "$BRANCH" main
+PR_BEHIND=$(git rev-list --count "origin/$BRANCH..origin/main")
+```
+
+If `PR_BEHIND -eq 0`: skip to Step 4.
+
+If `PR_BEHIND -gt 0`: attempt a **clean** rebase inline (no conflict resolver — that's iterate-one-issue's job):
+
+```bash
+OLD_REMOTE_SHA=$(git rev-parse "origin/$BRANCH")     # used for SHA-bound --force-with-lease below
+git checkout -B "$BRANCH" "origin/$BRANCH"
+if git rebase origin/main; then
+  # Clean rebase. Push the rebased branch with an explicit SHA-bound lease so a concurrent fetch can't relax the safety check.
+  git push --force-with-lease="$BRANCH:$OLD_REMOTE_SHA" origin "HEAD:refs/heads/$BRANCH"
+  HEAD_SHA=$(git rev-parse HEAD)
+  git checkout main
+  gh pr comment "$PICK" --body "<!-- merge-pr-rebased -->
+🔄 Rebased onto main (was $PR_BEHIND commit(s) behind). New head: \`$(git rev-parse --short "$HEAD_SHA")\`. Dispatching release-gate."
+  # Continue to Step 4 with refreshed HEAD_SHA.
+else
+  # Conflict — abort and delegate to iterate-one-issue --resume-pr,
+  # which has a per-file conflict-resolver loop (subagents) and pushes the rebased branch on success.
+  git rebase --abort 2>/dev/null
+  git checkout main
+
+  # Per-PR forward-fix budget applies (same 5/PR cap as Step 4).
+  ATTEMPTS=$(gh pr view "$PICK" --json comments --jq '[.comments[].body | select(contains("<!-- iterate-forward-fix-attempt -->"))] | length')
+  if [ "$ATTEMPTS" -ge 5 ]; then
+    # Step 6 — block, reason `rebase conflict and forward-fix budget exhausted (5 attempts)`.
+  fi
+
+  # Spawn `iterate-one-issue --resume-pr "$PICK"` synchronously in the foreground.
+  # Detect path: iterate-one-issue's Phase R sees no failed gate at the current HEAD but a behind branch
+  # and runs in rebase-only mode — R5 rebase + conflict resolver, R7 SHA-bound force-push, R8 marker,
+  # exit Done-ForwardFixed. Phase R always rebases against the freshest origin/main visible at R5,
+  # so a race between this abort and R5 is benign.
+  # Routing mirrors Step 4.3:
+  # - Done-ForwardFixed commit=<sha>: refresh HEAD_SHA, PRS_FORWARD_FIXED += 1, continue to Step 4.
+  # - Done-Blocked: Step 6 — block (reason from inner skill, e.g. `forward-fix rebase against origin/main failed`).
+  # - Other / parse failure: Step 6 — block, reason `unrecognised outcome from iterate-one-issue --resume-pr (rebase-only)`.
+fi
+```
+
+Detailed routing of the inner-skill outcome marker is identical to Step 4.3 — see [references/release-gate.md](references/release-gate.md).
 
 ### Step 4 — Release-gate + forward-fix loop
 
@@ -141,6 +192,21 @@ Detailed flow: [references/release-gate.md](references/release-gate.md). High le
 
 When the release-gate run completes with `conclusion=success`:
 
+0. **Pre-merge race check** — main may have moved while the ~30 min gate was running. If the PR is now behind, the squash-merge will fail with `head branch is not up to date`:
+   ```bash
+   git fetch origin "$BRANCH" main
+   PR_BEHIND_NOW=$(git rev-list --count "origin/$BRANCH..origin/main")
+   ```
+   - `PR_BEHIND_NOW -eq 0`: branch is current, proceed to step 1 below.
+   - `PR_BEHIND_NOW -gt 0` and `MERGE_RACE_RETRIES -lt 1`:
+     ```bash
+     MERGE_RACE_RETRIES=$((MERGE_RACE_RETRIES + 1))
+     gh pr comment "$PICK" --body "<!-- merge-pr-race-retry -->
+     ⚠️ Main moved during the release-gate run. Rebasing + re-dispatching ($MERGE_RACE_RETRIES/1)."
+     ```
+     Loop back to **Step 3.5** (rebase + re-dispatch the gate on the rebased commit + re-poll). The rebase counter is independent of the forward-fix budget — race-retries don't write `<!-- iterate-forward-fix-attempt -->` markers unless a conflict triggers iterate-one-issue.
+   - `PR_BEHIND_NOW -gt 0` and `MERGE_RACE_RETRIES -ge 1`: halt this PR (Step 6 — block, reason `main moved during release-gate run; merge race retries exhausted (1)`).
+
 1. **Refresh PR body** — preserve `Closes #<N>` trailer; replace summary with `Ready to merge — release gate passed.`:
    ```bash
    gh pr edit "$PICK" --body "<refreshed body>"
@@ -153,8 +219,16 @@ When the release-gate run completes with `conclusion=success`:
 3. **Squash-merge**:
    ```bash
    gh pr merge "$PICK" --squash --delete-branch
+   MERGE_EXIT=$?
    ```
-   On non-zero exit (race, branch-protection regressed): log + halt this PR (Step 6 — block, reason `gh pr merge failed: <stderr first line>`). Do **not** retry mid-loop.
+   On non-zero exit:
+   - **If `MERGE_RACE_RETRIES -lt 1`**: a third-party race likely landed a commit on main between Step 5.0's check and `gh pr merge` (or branch-protection produced an "out of date" error Step 5.0 missed). Increment `MERGE_RACE_RETRIES`, comment, and **loop back to Step 3.5** — Step 5.0 on the retry will confirm the actual state.
+     ```bash
+     MERGE_RACE_RETRIES=$((MERGE_RACE_RETRIES + 1))
+     gh pr comment "$PICK" --body "<!-- merge-pr-race-retry -->
+     ⚠️ \`gh pr merge\` failed (third-party race after Step 5.0 check). Rebasing + re-dispatching ($MERGE_RACE_RETRIES/1)."
+     ```
+   - **If `MERGE_RACE_RETRIES -ge 1`**: log + halt this PR (Step 6 — block, reason `gh pr merge failed: <stderr first line>`). Do **not** retry mid-loop.
 4. **Cleanup labels** (defensive — branch deletion already cascaded most state):
    ```bash
    gh pr edit "$PICK" --remove-label "merge-pr-in-progress" 2>/dev/null || true
@@ -259,8 +333,11 @@ Retrospective: $RETRO_FILE
 
 **Per-PR soft skips / blocks (loop continues):**
 - Claim label add fails at Step 2 (race — log + skip).
+- Step 3.5 rebase conflict + forward-fix budget exhausted (5/5) → block this PR, continue.
+- Step 3.5 `iterate-one-issue --resume-pr` returns `Done-Blocked` (e.g. `forward-fix rebase against origin/main failed`) → block this PR with the inner reason, continue.
 - Release-gate dispatch fails (Step 4) → block this PR, continue.
 - Forward-fix budget exhausted (Step 4) → block this PR, continue.
+- Step 5 merge race retries exhausted (`MERGE_RACE_RETRIES >= 1`) → block this PR, continue.
 - `gh pr merge` fails (Step 5) → block this PR, continue.
 - Inner `iterate-one-issue --resume-pr` returns `Done-Blocked` → block this PR with the inner reason, continue.
 
@@ -289,7 +366,7 @@ Each loop re-syncs to `origin/main` between rounds. The full pipeline is: bug �
 
 ## Non-goals
 
-- This skill never opens issues, never opens PRs, and never modifies app source. Forward-fixes are delegated to `iterate-one-issue --resume-pr <PR>`.
+- This skill never opens issues, never opens PRs, and never modifies app source. Forward-fixes (including rebase-conflict resolution) are delegated to `iterate-one-issue --resume-pr <PR>`. Inline rebases (Step 3.5 clean path) rewrite commit metadata only — file contents are unchanged.
 - This skill never picks issues from the backlog (that's `iterate-loop`'s job).
 - This skill never enables GitHub's `--auto` merge queue (would require repo-level "Allow auto-merge" setting). It polls + merges directly so it works on any repo the agent can push to and merge on.
-- This skill never bypasses the release gate. Every merged PR was validated against the signed-installer build on the exact commit it merged.
+- This skill never bypasses the release gate. Every merged PR was validated against the signed-installer build on the exact commit it merged. (Step 5.0's race-retry re-dispatches the gate on the rebased commit — it does not skip validation.)

@@ -10,6 +10,7 @@ extern crate self as mdown_review_lib;
 pub mod commands;
 pub mod core;
 pub mod instance_scope;
+pub mod log_rotation;
 pub mod macros;
 pub mod registry;
 pub mod startup_recorder;
@@ -454,6 +455,10 @@ pub fn run() {
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
     let mut builder = tauri::Builder::default()
+        // MUST precede log_plugin — the rotator's setup hook archives the
+        // previous mdownreview.log + prunes to log_rotation::DEFAULT_KEEP
+        // BEFORE tauri-plugin-log opens the file. See log_rotation.rs.
+        .plugin(log_rotation::plugin())
         .plugin(log_plugin)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -493,6 +498,11 @@ pub fn run() {
                 log::error!("[rust] PANIC{loc}: {msg}");
                 prev_hook(info);
             }));
+
+            // Surface the log-rotator's outcome through the standard
+            // logging chokepoint now that tauri-plugin-log is up. See
+            // `log_rotation::surface_outcome` for the line schema.
+            log_rotation::surface_outcome();
 
             // Parse CLI args: support --folder <path> and --file <path> flags
             let raw_args: Vec<String> = std::env::args().skip(1).collect();

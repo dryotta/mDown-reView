@@ -16,7 +16,13 @@ export default [
     // `/* eslint-disable */` header in the codegen template covers most
     // lint rules but not all (e.g. some plugins ignore the file-level
     // disable). Skip outright. Issue #263.
-    ignores: ["src/lib/bindings.ts"],
+    //
+    // Cargo build output — `cargo check`/`cargo test`/`cargo build` populate
+    // `src-tauri/target/debug/build/.../tauri-codegen-assets/*.js` with
+    // base64-decoded binary asset shims that ESLint would otherwise try to
+    // parse as JS. These never ship and never need linting. ESLint flat
+    // config does not auto-ignore based on .gitignore, so list it here.
+    ignores: ["src/lib/bindings.ts", "src-tauri/target/**"],
   },
   {
     files: ["src/**/*.{ts,tsx}"],
