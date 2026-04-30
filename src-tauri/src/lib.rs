@@ -79,15 +79,34 @@ fn parse_menu_id(id: &str) -> Option<(&str, &str)> {
     id.split_once(':')
 }
 
-/// Build the application menu for a specific window. Each menu item ID is
-/// prefixed with the window label so `on_menu_event` can identify the
-/// originating window without heuristics.
+/// Build the application menu.
+///
+/// On Windows/Linux this is built once per window (each window's menu bar is
+/// independent) and `label` identifies the owning window in the menu IDs so
+/// `on_menu_event` routes to that exact window.
+///
+/// On macOS the menu bar is **app-wide** — `Window::set_menu` is documented
+/// as **Unsupported** on macOS, and the menu must be installed via
+/// `AppHandle::set_menu`. We still build with `label = "main"` and keep the
+/// `{label}:{action}` ID encoding for symmetry, but `on_menu_event` resolves
+/// to the focused window on macOS rather than the encoded label.
+///
+/// On macOS the menu bar follows Apple conventions:
+///   App (About · Settings · Services · Hide/Show · Quit) │ File │ Edit │ View │ Window │ Help
+/// On Windows the layout is unchanged from the pre-macOS-support era:
+///   File (incl. Settings · Quit) │ View │ Window │ Help (incl. About)
+///
+/// PredefinedMenuItems (About, Edit shortcuts, Services, Hide, Quit) are
+/// OS-handled and never fire through `on_menu_event`; custom MenuItems keep
+/// the `{label}:{action}` encoding.
 fn build_window_menu<R: Runtime, M: Manager<R>>(
     handle: &M,
     label: &str,
 ) -> tauri::Result<Menu<R>> {
     let id = |action: &str| encode_menu_id(label, action);
 
+    // ── Items shared across platforms ────────────────────────────────────
+    let new_window = MenuItem::with_id(handle, id("new-window"), "New Window", true, None::<&str>)?;
     let open_file =
         MenuItem::with_id(handle, id("open-file"), "Open File…", true, Some("CmdOrCtrl+O"))?;
     let open_folder = MenuItem::with_id(
@@ -95,29 +114,12 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     )?;
     let close_folder =
         MenuItem::with_id(handle, id("close-folder"), "Close Folder", true, None::<&str>)?;
-    let new_window = MenuItem::with_id(
-        handle, id("new-window"), "New Window", true, None::<&str>,
-    )?;
     let close_tab =
         MenuItem::with_id(handle, id("close-tab"), "Close Tab", true, Some("CmdOrCtrl+W"))?;
     let close_all_tabs = MenuItem::with_id(
         handle, id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
     let help_settings = MenuItem::with_id(handle, id("help-settings"), "Settings…", true, Some("CmdOrCtrl+,"))?;
-    let file_menu = SubmenuBuilder::new(handle, "File")
-        .item(&new_window)
-        .separator()
-        .item(&open_file)
-        .item(&open_folder)
-        .item(&close_folder)
-        .separator()
-        .item(&close_tab)
-        .item(&close_all_tabs)
-        .separator()
-        .item(&help_settings)
-        .separator()
-        .quit()
-        .build()?;
 
     let toggle_comments_pane = MenuItem::with_id(
         handle, id("toggle-comments-pane"), "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"),
@@ -134,44 +136,143 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
         .item(&next_tab).item(&prev_tab).separator()
         .item(&theme_menu).build()?;
 
-    let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
-    let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
-    // Developer Tools — available in BOTH debug and release builds. Enabled by
-    // the `devtools` Cargo feature on the `tauri` crate (see Cargo.toml). F12
-    // is the universal cross-platform accelerator (also accepted natively by
-    // WebView2/WKWebView in dev builds, so users get muscle-memory parity in
-    // production via this menu item). Rust-handled in `on_menu_event` like the
-    // other window-frame actions (`win-minimize`, `win-bring-all`).
+    let check_updates = MenuItem::with_id(handle, id("check-updates"), "Check for Updates…", true, None::<&str>)?;
+
+    // Developer Tools — available in BOTH debug and release builds via the
+    // `devtools` Cargo feature (see Cargo.toml). F12 is the cross-platform
+    // accelerator. Rust-handled in `on_menu_event`.
     let toggle_devtools = MenuItem::with_id(
         handle, id("toggle-devtools"), "Toggle Developer Tools", true, Some("F12"),
     )?;
-    let window_menu = SubmenuBuilder::new(handle, "Window")
-        .item(&win_minimize).separator().item(&win_bring_all)
-        .separator().item(&toggle_devtools).build()?;
 
-    let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;
-    let check_updates = MenuItem::with_id(handle, id("check-updates"), "Check for Updates…", true, None::<&str>)?;
-    let help_menu = SubmenuBuilder::new(handle, "Help")
-        .item(&check_updates).separator().item(&about_item).build()?;
+    // ── macOS menu bar ──────────────────────────────────────────────────
+    // Rule mac-menu-app-submenu-first: first submenu is the app menu.
+    // Rule mac-menu-edit-submenu / mac-webview-clipboard-requires-edit-menu:
+    //   Edit menu enables Cmd+C/V/X in WKWebView inputs.
+    // Rule mac-menu-no-quit-in-file: Quit is in the app menu, not File.
+    // Rule mac-menu-settings-placement: Settings is in the app menu.
+    // Rule mac-menu-window-submenu: Window has Minimize + Zoom.
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = SubmenuBuilder::new(handle, "mdownreview")
+            .about(None)
+            .separator()
+            .item(&help_settings)
+            .separator()
+            .services()
+            .separator()
+            .hide()
+            .hide_others()
+            .show_all()
+            .separator()
+            .quit()
+            .build()?;
 
-    MenuBuilder::new(handle)
-        .item(&file_menu).item(&view_menu).item(&window_menu).item(&help_menu)
-        .build()
+        let file_menu = SubmenuBuilder::new(handle, "File")
+            .item(&new_window)
+            .separator()
+            .item(&open_file)
+            .item(&open_folder)
+            .item(&close_folder)
+            .separator()
+            .item(&close_tab)
+            .item(&close_all_tabs)
+            .build()?;
+
+        let edit_menu = SubmenuBuilder::new(handle, "Edit")
+            .undo()
+            .redo()
+            .separator()
+            .cut()
+            .copy()
+            .paste()
+            .select_all()
+            .build()?;
+
+        let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
+        let window_menu = SubmenuBuilder::new(handle, "Window")
+            .minimize()
+            .maximize()
+            .separator()
+            .item(&win_bring_all)
+            .separator()
+            .item(&toggle_devtools)
+            .build()?;
+
+        let help_menu = SubmenuBuilder::new(handle, "Help")
+            .item(&check_updates)
+            .build()?;
+
+        return MenuBuilder::new(handle)
+            .item(&app_menu)
+            .item(&file_menu)
+            .item(&edit_menu)
+            .item(&view_menu)
+            .item(&window_menu)
+            .item(&help_menu)
+            .build();
+    }
+
+    // ── Windows menu bar (unchanged from pre-macOS-support) ─────────────
+    #[cfg(not(target_os = "macos"))]
+    {
+        let file_menu = SubmenuBuilder::new(handle, "File")
+            .item(&new_window)
+            .separator()
+            .item(&open_file)
+            .item(&open_folder)
+            .item(&close_folder)
+            .separator()
+            .item(&close_tab)
+            .item(&close_all_tabs)
+            .separator()
+            .item(&help_settings)
+            .separator()
+            .quit()
+            .build()?;
+
+        let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
+        let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
+        let window_menu = SubmenuBuilder::new(handle, "Window")
+            .item(&win_minimize).separator().item(&win_bring_all)
+            .separator().item(&toggle_devtools).build()?;
+
+        let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;
+        let help_menu = SubmenuBuilder::new(handle, "Help")
+            .item(&check_updates).separator().item(&about_item).build()?;
+
+        MenuBuilder::new(handle)
+            .item(&file_menu).item(&view_menu).item(&window_menu).item(&help_menu)
+            .build()
+    }
 }
 
-/// Create a new application window with its own per-window menu.
+/// Create a new application window.
+///
+/// On Windows the window gets its own menu via `WebviewWindowBuilder.menu()`.
+/// On macOS the menu bar is app-wide (set once in `setup()` via
+/// `AppHandle::set_menu`) so we deliberately do NOT call `.menu()` here —
+/// `Window::set_menu` and `WindowBuilder::menu` are documented no-ops on
+/// macOS (tauri::window::Window::set_menu rustdoc) and would just allocate a
+/// menu that never gets attached.
 fn create_app_window(
     handle: &tauri::AppHandle,
     label: &str,
     title: &str,
 ) -> tauri::Result<tauri::WebviewWindow> {
-    let menu = build_window_menu(handle, label)?;
-    tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
-        .title(title)
-        .inner_size(1100.0, 750.0)
-        .min_inner_size(600.0, 400.0)
-        .menu(menu)
-        .build()
+    let builder =
+        tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
+            .title(title)
+            .inner_size(1100.0, 750.0)
+            .min_inner_size(600.0, 400.0);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = {
+        let menu = build_window_menu(handle, label)?;
+        builder.menu(menu)
+    };
+
+    builder.build()
 }
 
 /// Shared logic for opening a new empty window. Used by the native menu handler.
@@ -562,29 +663,56 @@ pub fn run() {
             };
             reg.push_args("main", main_args);
 
-            // ── Per-window menu for main window ──────────────────────────────
-            // Main window is created by tauri.conf.json; set its menu here.
-            // The presence of the main webview window at this point is the
-            // best in-process signal that the renderer is loadable, so we
-            // record `WebviewReady` here. Frontend-side phases
-            // (`ThemeApplied`, `FrontendMounted`, `FirstFileLoaded`) are
-            // reported via `record_startup_phase` once React mounts.
+            // ── Application menu ─────────────────────────────────────────────
+            // Per-window vs app-wide menu is platform-specific:
+            //   - Windows/Linux: each window owns its menu bar →
+            //     `Window::set_menu` per window (and `WebviewWindowBuilder::menu`
+            //     for windows created later via `create_app_window`).
+            //   - macOS: the menu bar belongs to NSApp, not NSWindow.
+            //     `Window::set_menu` is documented as **Unsupported** on macOS
+            //     (tauri::window::Window::set_menu rustdoc says: "The menu on
+            //     macOS is app-wide and not specific to one window, if you
+            //     need to set it, use AppHandle::set_menu instead"). Calling
+            //     it silently no-ops, so we MUST go through `app.set_menu()`
+            //     which properly drives `init_app_menu` (tauri/src/app.rs).
+            //
+            // Either way, `WebviewReady` records that the renderer is loadable.
             if let Some(main_win) = app.get_webview_window("main") {
                 let main_menu = build_window_menu(app, "main")?;
+                #[cfg(target_os = "macos")]
+                app.set_menu(main_menu)?;
+                #[cfg(not(target_os = "macos"))]
                 main_win.set_menu(main_menu)?;
+                let _ = main_win;
                 startup_recorder::record_phase(startup_recorder::StartupPhase::WebviewReady);
             }
 
             // ── Menu event routing ───────────────────────────────────────────
             // Menu item IDs encode the originating window as `{label}:{action}`
-            // (per rule `multiwin-per-window-menu`). All IDs are window-scoped.
+            // (per rule `multiwin-per-window-menu`). On Windows/Linux the
+            // encoded label IS the window that owns this menu bar. On macOS
+            // the menu bar is global, so the encoded label ("main") is just a
+            // placeholder — we resolve to the focused window so commands act
+            // on whatever window the user is actually looking at.
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
 
-                // Window-scoped actions: parse `{label}:{action}` from the menu item ID.
-                let Some((label, action)) = parse_menu_id(id) else {
+                let Some((encoded_label, action)) = parse_menu_id(id) else {
                     return;
                 };
+
+                #[cfg(target_os = "macos")]
+                let label_owned: String = app
+                    .webview_windows()
+                    .iter()
+                    .find(|(_, w)| w.is_focused().unwrap_or(false))
+                    .map(|(l, _)| l.clone())
+                    .unwrap_or_else(|| encoded_label.to_string());
+                #[cfg(target_os = "macos")]
+                let label: &str = label_owned.as_str();
+                #[cfg(not(target_os = "macos"))]
+                let label: &str = encoded_label;
+
                 let Some(window) = app.get_webview_window(label) else {
                     log::warn!("[menu] no window for label {label:?} (action {action:?})");
                     return;
@@ -597,8 +725,12 @@ pub fn run() {
                 }
                 if action == "win-bring-all" {
                     for w in app.webview_windows().values() {
-                        let _ = w.unminimize();
-                        let _ = w.show();
+                        // On macOS, skip windows hidden by the CloseRequested
+                        // handler — "Bring All to Front" should not resurrect
+                        // windows the user already closed.
+                        if w.is_visible().unwrap_or(false) {
+                            let _ = w.unminimize();
+                        }
                     }
                     return;
                 }
@@ -646,6 +778,27 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Rule mac-lifecycle-close-hides: on macOS, closing the last
+            // visible window hides it (app stays in Dock). Cmd+Q is the
+            // only exit path. Non-last windows close normally.
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let visible_count = window
+                    .app_handle()
+                    .webview_windows()
+                    .values()
+                    .filter(|w| w.is_visible().unwrap_or(false))
+                    .count();
+                if visible_count <= 1 {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    log::info!(
+                        "[window] CloseRequested on {}: hidden (last visible window)",
+                        window.label()
+                    );
+                }
+            }
+
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
                 if let Some(reg) = window.try_state::<registry::WindowRegistry>() {
@@ -744,6 +897,29 @@ pub fn run() {
                 route_args_through_registry(app_handle, &args, "macOS-open");
             }
         }
+
+        // Rule mac-lifecycle-reopen-on-activate: clicking the Dock icon
+        // when all windows are hidden re-shows them.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows, ..
+        } = &event
+        {
+            if !has_visible_windows {
+                let windows = app_handle.webview_windows();
+                for win in windows.values() {
+                    let _ = win.show();
+                }
+                // Focus main if it exists; otherwise focus any window.
+                if let Some(win) = windows
+                    .get("main")
+                    .or_else(|| windows.values().next())
+                {
+                    let _ = win.set_focus();
+                }
+            }
+        }
+
         let _ = (app_handle, event);
     });
 }
