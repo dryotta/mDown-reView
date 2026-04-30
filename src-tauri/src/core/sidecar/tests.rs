@@ -259,19 +259,25 @@ fn patch_comment_add_response() {
     let comments = vec![sample_comment("c1")];
     save_sidecar(file_path.to_str().unwrap(), "test.md", &comments).unwrap();
 
+    // Multi-line response text — regression for #297 (silent LF folding in
+    // the YAML surgery fast-path's `quote_if_needed`).
     patch_comment(
         file_path.to_str().unwrap(),
         "c1",
         &[CommentMutation::AddResponse {
             author: "agent".to_string(),
-            text: "fixed it".to_string(),
+            text: "fixed it\nacross\nmultiple lines".to_string(),
             timestamp: "2025-01-02T00:00:00Z".to_string(),
         }],
     )
     .unwrap();
 
     let content = std::fs::read_to_string(tmp.path().join("test.md.review.yaml")).unwrap();
-    assert!(content.contains("fixed it"));
+    // The on-disk YAML must carry the escaped form, not a folded LF.
+    assert!(
+        content.contains(r#"text: "fixed it\nacross\nmultiple lines""#),
+        "expected escaped multi-line text on disk, got:\n{content}"
+    );
     assert!(content.contains("responses"));
 }
 

@@ -230,6 +230,53 @@ fn quote_if_needed_quotes_special_chars() {
     assert_eq!(quote_if_needed("a # b"), "\"a # b\"");
 }
 
+#[test]
+fn quote_if_needed_preserves_multiline_text_in_response() {
+    // Regression test for issue #297. Before the fix, the multi-line `text`
+    // field was emitted with a literal LF inside `"..."`, which YAML 1.2
+    // §7.3.1 folds to a space on read — silent corruption.
+    let mutation = CommentMutation::AddResponse {
+        author: "bob".to_string(),
+        text: "line one\nline two\nline three".to_string(),
+        timestamp: "2025-01-01T00:00:00Z".to_string(),
+    };
+    let patched = try_patch(SAMPLE_YAML, "c1", &[mutation]).unwrap();
+
+    // Lock the on-disk escape shape so a future "fix" cannot silently switch
+    // to a representation that round-trips by accident (e.g. block scalar `|`).
+    assert!(
+        patched.contains(r#"text: "line one\nline two\nline three""#),
+        "expected escaped form on disk, got:\n{patched}"
+    );
+
+    // Lock the round-trip semantics: the parsed text must equal the input
+    // byte-exact.
+    let parsed: serde_json::Value =
+        serde_saphyr::from_str(&patched).expect("patched YAML must parse");
+    assert_eq!(
+        parsed["comments"][0]["responses"][0]["text"],
+        "line one\nline two\nline three"
+    );
+}
+
+#[test]
+fn quote_if_needed_escapes_control_chars_and_preserves_backslashes() {
+    // Pure LF — the primary bug fixed by #297.
+    assert_eq!(quote_if_needed("a\nb"), "\"a\\nb\"");
+    // Pure CR + LF (Windows line endings).
+    assert_eq!(quote_if_needed("win\r\nline"), "\"win\\r\\nline\"");
+    // Pure TAB.
+    assert_eq!(quote_if_needed("col1\tcol2"), "\"col1\\tcol2\"");
+    // Backslash adjacent to LF — order-of-replacement catcher. If `\n` were
+    // escaped before `\\`, the backslashes introduced by `\n` → `\\n` would
+    // themselves be doubled, producing `"a\\\\\\\\nb"` and decoding back to
+    // `a\\\\nb` instead of the original `a\\<LF>b`.
+    //
+    // Input bytes:   a, \, LF, b
+    // Expected on-disk after both escapes: "a\\\n b" (a, \, \, \, n, b)
+    assert_eq!(quote_if_needed("a\\\nb"), "\"a\\\\\\nb\"");
+}
+
 // ── Edge-case tests (AC18) ───────────────────────────────────────────────────
 
 #[test]
