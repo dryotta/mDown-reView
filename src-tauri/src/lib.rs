@@ -677,8 +677,12 @@ pub fn run() {
                 }
                 if action == "win-bring-all" {
                     for w in app.webview_windows().values() {
-                        let _ = w.unminimize();
-                        let _ = w.show();
+                        // On macOS, skip windows hidden by the CloseRequested
+                        // handler — "Bring All to Front" should not resurrect
+                        // windows the user already closed.
+                        if w.is_visible().unwrap_or(false) {
+                            let _ = w.unminimize();
+                        }
                     }
                     return;
                 }
@@ -854,10 +858,15 @@ pub fn run() {
         } = &event
         {
             if !has_visible_windows {
-                for win in app_handle.webview_windows().values() {
+                let windows = app_handle.webview_windows();
+                for win in windows.values() {
                     let _ = win.show();
                 }
-                if let Some(win) = app_handle.get_webview_window("main") {
+                // Focus main if it exists; otherwise focus any window.
+                if let Some(win) = windows
+                    .get("main")
+                    .or_else(|| windows.values().next())
+                {
                     let _ = win.set_focus();
                 }
             }
