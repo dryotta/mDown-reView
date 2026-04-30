@@ -20,6 +20,7 @@ import {
   fileChangedDeleted,
   folderChanged,
   commentsChanged,
+  updateProgress,
 } from "./fixtures/ipc-event-fixtures";
 
 const repoRoot = resolve(__dirname, "..", "..");
@@ -32,13 +33,16 @@ const commentsModRsPath = resolve(
   "comments",
   "mod.rs",
 );
+const updateRsPath = resolve(repoRoot, "src-tauri", "src", "update.rs");
 
 function parseStructFields(src: string, structName: string): string[] {
-  // Match `pub struct <Name> { ...fields... }` allowing leading derive(s)
-  // on prior lines. Capture the body, then strip line comments and
-  // extract `pub <name>:` declarations in source order.
+  // Match `[pub] struct <Name> { ...fields... }` allowing leading derive(s)
+  // on prior lines. `pub` is optional so we can also parse crate-private
+  // event structs like `UpdateProgressEvent` in `update.rs`. Capture the
+  // body, then strip line comments and extract `[pub] <name>:` declarations
+  // in source order — `pub` on fields is also optional for the same reason.
   const pattern = new RegExp(
-    String.raw`pub\s+struct\s+${structName}\s*\{([^}]+)\}`,
+    String.raw`(?:pub\s+)?struct\s+${structName}\s*\{([^}]+)\}`,
     "s",
   );
   const match = src.match(pattern);
@@ -49,11 +53,11 @@ function parseStructFields(src: string, structName: string): string[] {
   const lines = body.split("\n").map((l) => l.replace(/\/\/.*$/, "").trim());
   const fields: string[] = [];
   for (const line of lines) {
-    const f = line.match(/pub\s+(\w+)\s*:/);
+    const f = line.match(/(?:pub\s+)?(\w+)\s*:/);
     if (f) fields.push(f[1]);
   }
   if (fields.length === 0) {
-    throw new Error(`struct ${structName} parsed body has no pub fields`);
+    throw new Error(`struct ${structName} parsed body has no fields`);
   }
   return fields;
 }
@@ -146,5 +150,27 @@ describe("IPC event fixture / Rust struct parity", () => {
         [...rustFields].sort(),
       );
     });
+  });
+
+  describe("UpdateProgressEvent (src-tauri/src/update.rs)", () => {
+    const rustFields = parseStructFields(
+      readFileSync(updateRsPath, "utf8"),
+      "UpdateProgressEvent",
+    );
+
+    it("Rust struct exposes event + content_length + chunk_length, in that order", () => {
+      expect(rustFields).toEqual(["event", "content_length", "chunk_length"]);
+    });
+
+    it("updateProgress factory keys match Rust fields", () => {
+      expect(Object.keys(updateProgress()).sort()).toEqual([...rustFields].sort());
+    });
+
+    it.each(["Started", "Progress", "Finished"] as const)(
+      "factory accepts production-emittable event value '%s'",
+      (event) => {
+        expect(updateProgress({ event }).event).toBe(event);
+      },
+    );
   });
 });

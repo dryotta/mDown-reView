@@ -3,6 +3,8 @@ import { renderHook, act } from "@testing-library/react";
 import { useUpdateActions, useUpdateProgress } from "../use-update-actions";
 import { installUpdate, checkUpdate } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
+import { updateProgress } from "@/__tests__/fixtures/ipc-event-fixtures";
+import type { EventPayloads } from "@/lib/tauri-events";
 
 vi.mock("@/lib/tauri-commands", () => ({
   installUpdate: vi.fn().mockResolvedValue(undefined),
@@ -19,9 +21,9 @@ vi.mock("@/logger", () => ({
 
 // Mock @/lib/tauri-events
 const mockUnlisten = vi.fn();
-let listenCallback: ((payload: unknown) => void) | null = null;
+let listenCallback: ((payload: EventPayloads["update-progress"]) => void) | null = null;
 vi.mock("@/lib/tauri-events", () => ({
-  listenEvent: vi.fn((_event: string, cb: (payload: unknown) => void) => {
+  listenEvent: vi.fn((_event: string, cb: (payload: EventPayloads["update-progress"]) => void) => {
     listenCallback = cb;
     return Promise.resolve(mockUnlisten);
   }),
@@ -117,15 +119,15 @@ describe("useUpdateActions", () => {
 
       // Simulate progress events
       act(() => {
-        listenCallback?.({ event: "Started", content_length: 1000, chunk_length: 0 });
+        listenCallback?.(updateProgress({ event: "Started", content_length: 1000 }));
       });
       act(() => {
-        listenCallback?.({ event: "Progress", content_length: null, chunk_length: 500 });
+        listenCallback?.(updateProgress({ event: "Progress", chunk_length: 500 }));
       });
       expect(useStore.getState().updateProgress).toBe(50);
 
       act(() => {
-        listenCallback?.({ event: "Finished", content_length: null, chunk_length: 0 });
+        listenCallback?.(updateProgress({ event: "Finished" }));
       });
       expect(useStore.getState().updateStatus).toBe("ready");
     });

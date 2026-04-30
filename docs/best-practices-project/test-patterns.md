@@ -50,7 +50,7 @@ The contract for this event lives in `useFileWatcher.ts:51-73` and rule 13 in [`
 In Vitest tests, import the typed factory rather than typing the payload literal — the factory's return type is `EventPayloads[K]` from `src/lib/tauri-events.ts`, which is the single source of truth for what Rust emits:
 
 ```ts
-import { fileChangedReview, commentsChanged } from "@/__tests__/fixtures/ipc-event-fixtures";
+import { fileChangedReview, commentsChanged, updateProgress } from "@/__tests__/fixtures/ipc-event-fixtures";
 
 // Capture the listener registered by the hook under test
 const cb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed")![1];
