@@ -132,33 +132,35 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 
 **Pattern:** The Rust side (watcher, command handler) must know which window(s) care about a given file/folder path. The `WindowRegistry` already tracks this — use it to look up the target label, then `emit_to(label, ...)`.
 
-**Per-event target & emit method.** Every event in `src/lib/tauri-events.ts::EventPayloads` MUST be emitted via the method in this table. Drift between this table and Rust call sites is enforced by the `event-emit-target-test.ts` lint.
+**Per-event target & emit method.** Every event in `src/lib/tauri-events.ts::EventPayloads` MUST be emitted via the method in the "Required emit method" column. The "Target (rule)" column is the rule's prescription; the "Current call site" + "Current state" columns document today's reality so the table cannot lie about shipped code (Docs Reflect Shipped Code, `docs/principles.md`). Enforcement: planned in `event-emit-target-test.ts` (iter-2 of #315).
 
-| Event | Target | Rust API | Reference site |
-|---|---|---|---|
-| `file-changed` | set (windows watching the path) | `emit_filter` | `watcher.rs:313` |
-| `folder-changed` | one (watching window) | `emit_to(label, …)` | `watcher.rs:333` |
-| `args-received` | one (target window) | `emit_to(label, …)` | `lib.rs`, `commands/launch.rs:191` |
-| `open-file-tab` | one (routed window) | `emit_to(label, …)` | registry router |
-| `comments-changed` | set (windows with the file open) | `emit_filter` | `commands/comments/mod.rs:90` |
-| `update-progress` | one (`"main"`) | `emit_to("main", …)` | `update.rs:115,123` |
-| `sidecar-config-changed` | all | `emit` | `commands/sidecar_config.rs` |
-| `menu-open-file` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-open-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-close-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-close-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-close-all-tabs` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-toggle-comments-pane` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-next-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-prev-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-theme-system` | all | `emit` | `lib.rs::on_menu_event` |
-| `menu-theme-light` | all | `emit` | `lib.rs::on_menu_event` |
-| `menu-theme-dark` | all | `emit` | `lib.rs::on_menu_event` |
-| `menu-about` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
-| `menu-check-updates` | one (`"main"`) | `emit_to("main", …)` | `lib.rs::on_menu_event` |
-| `menu-help-settings` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` |
+`emit_to(label, …)` (on `AppHandle`) and `WebviewWindow::emit(…)` (on a target window handle) are functionally equivalent for window-scoped delivery — both fire the listener only in that one webview. Either is accepted where the rule prescribes "one".
 
-Legend: **one** = exactly one window (`emit_to(label, …)`), **set** = subset of windows determined by registry predicate (`emit_filter`), **all** = every window must react (`emit`); use `emit` only for genuinely global state changes.
+| Event | Target (rule) | Required emit method | Current call site | Current state |
+|---|---|---|---|---|
+| `file-changed` | set (windows watching the path) | `emit_filter` | `watcher.rs:313` | ✅ |
+| `folder-changed` | one (watching window) | `emit_to(label, …)` | `watcher.rs:333` | ✅ |
+| `args-received` | one (target window) | `emit_to(label, …)` OR `webview.emit(…)` on the target window | `lib.rs:362,389,648,772`, `commands/launch.rs:193` (`WebviewWindow::emit`) | ✅ |
+| `open-file-tab` | one (routed window) | `emit_to(label, …)` | registry router | ✅ |
+| `comments-changed` | set (windows with the file open) | `emit_filter` (registry-owns-path predicate) | `commands/comments/mod.rs:90` (`Emitter::emit` on `AppHandle`) | ❌ violates `multiwin-window-scoped-events` — global emit; should be `emit_filter` on registry-owns-path predicate. Future C2 fix. |
+| `update-progress` | one (`"main"`) | `emit_to("main", …)` | `update.rs:115,123` (`Emitter::emit` on `AppHandle`) | ❌ violates `multiwin-window-scoped-events` — broadcast; should be `emit_to("main", …)`. Future H2 fix. |
+| `sidecar-config-changed` | all | `app.emit(…)` | `commands/sidecar_config.rs:65-67` (manual `for win in app.webview_windows().values()` loop) | ❌ violates `multiwin-emit-filter` — manual loop over `app.webview_windows()`; should be `app.emit(…)`. Future C2 fix. |
+| `menu-open-file` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-open-folder` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-close-folder` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-close-tab` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-close-all-tabs` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-toggle-comments-pane` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-next-tab` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-prev-tab` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-theme-system` | all | `app.emit(…)` | `lib.rs::on_menu_event` | ✅ |
+| `menu-theme-light` | all | `app.emit(…)` | `lib.rs::on_menu_event` | ✅ |
+| `menu-theme-dark` | all | `app.emit(…)` | `lib.rs::on_menu_event` | ✅ |
+| `menu-about` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-check-updates` | one (`"main"`) | `emit_to("main", …)` OR `webview.emit(…)` on the main window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+| `menu-help-settings` | one (firing window) | `emit_to(label, …)` OR `webview.emit(…)` on the firing window | `lib.rs::on_menu_event` (`WebviewWindow::emit`) | ✅ |
+
+Legend: **one** = exactly one window (`emit_to(label, …)` or `WebviewWindow::emit(…)` on that window), **set** = subset of windows determined by registry predicate (`emit_filter`), **all** = every window must react (`app.emit(…)` — never a manual loop, which violates `multiwin-emit-filter`); use **all** only for genuinely global state changes.
 
 ### `multiwin-emit-filter`
 
@@ -235,7 +237,7 @@ if let Some(badges) = window.try_state::<commands::comments::BadgeCache>() {
 }
 ```
 
-PRs adding `app.manage(X)` MUST include a `// Cleanup: …` rustdoc comment on the manage call describing Destroyed behavior. Enforced by `managed-state-cleanup-doc-test.rs`.
+PRs adding `app.manage(X)` MUST include a `// Cleanup: …` rustdoc comment on the manage call describing Destroyed behavior. Enforcement: planned in `managed-state-cleanup-doc-test.rs` (iter-2 of #315). Cites the meta-principle "Docs Reflect Shipped Code" (`docs/principles.md`) — the test does not exist yet.
 
 ### `multiwin-no-focused-fallback`
 
@@ -266,7 +268,7 @@ Each window MUST have its own frontend state instance.
 
 - File contents (lazy via `read_text_file` IPC), comment lists per file (re-fetched on demand).
 
-A new persisted key without explicit classification in one of the three lists above is a defect. Enforced by `cross-window-whitelist-meta-test.ts`.
+A new persisted key without explicit classification in one of the three lists above is a defect. Enforcement: planned in `cross-window-whitelist-meta-test.ts` (iter-2 of #315). Cites the meta-principle "Docs Reflect Shipped Code" (`docs/principles.md`) — the test does not exist yet.
 
 ### `multiwin-cross-window-state-whitelist`
 
@@ -357,6 +359,8 @@ match builder.build() {
 `WatcherState::is_path_allowed` and `is_path_or_parent_allowed` MUST scope to the calling window's label, not union across all windows. A renderer in window B must not gain mutation rights for paths only window A has watched.
 
 **Why:** Combined with `update_tree_watched_dirs` accepting an arbitrary `root` from any window, the global union becomes a sandbox-escape primitive: a renderer can extend the union to `~/.ssh` and then write `id_rsa.review.yaml` next to a private key. Per-window scope plus a registry-equality check on the supplied `root` closes this hole. Cross-references `docs/security.md`'s workspace-allowlist rule.
+
+Applies to the family of allowlist methods: `is_path_allowed` AND `is_path_or_parent_allowed` at `watcher.rs:54-76, 90-112`.
 
 **Pattern:**
 ```rust
