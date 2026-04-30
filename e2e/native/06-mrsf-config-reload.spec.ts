@@ -32,26 +32,23 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
         timeout: 5_000,
       });
 
-      // Phase 1: register the listener BEFORE writing .mrsf.yaml. The helper
-      // returns a Promise that resolves when the watcher emits the
-      // window-scoped `sidecar-config-changed` event (or rejects on timeout).
-      const eventPromise = waitForTauriEvent<{ path: string }>(
+      // Register the listener and trigger the .mrsf.yaml drop atomically:
+      // the helper guarantees the listener is live before fs.writeFileSync
+      // runs (callback-trigger pattern eliminates the registration race).
+      // The watcher's 300 ms debouncer detects the create, reloads the
+      // config, and emits sidecar-config-changed. If the watcher or
+      // emit_config_changed regresses, this rejects at 10 s.
+      const payload = await waitForTauriEvent<{ path: string }>(
         nativePage,
         "sidecar-config-changed",
+        () => {
+          fs.writeFileSync(
+            path.join(tmpDir, ".mrsf.yaml"),
+            "sidecar_root: .reviews\n",
+          );
+        },
         10_000,
       );
-
-      // Phase 2: drop .mrsf.yaml — the watcher's 300 ms debouncer detects
-      // the create, reloads the config, and emits sidecar-config-changed.
-      fs.writeFileSync(
-        path.join(tmpDir, ".mrsf.yaml"),
-        "sidecar_root: .reviews\n",
-      );
-
-      // Phase 3: deterministic await — fail loudly if no event arrives.
-      // If the watcher or emit_config_changed regresses, this rejects at
-      // 10 s with `timeout waiting for sidecar-config-changed`.
-      const payload = await eventPromise;
       expect(payload.path).toBe(tmpDir);
 
       // Phase 4: verify cache state via the IPC oracle.

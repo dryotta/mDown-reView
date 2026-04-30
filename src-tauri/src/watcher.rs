@@ -236,30 +236,24 @@ pub struct FolderChangeEvent {
 /// Event payload for `sidecar-config-changed`: the canonical workspace root
 /// whose `.mrsf.yaml` was created / edited / deleted. Frontend uses this
 /// to rescan ghost panels (issue #304 / FLAKE-1).
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct SidecarConfigChangedEvent {
     pub path: String,
 }
 
-/// Test seam over the watcher's renderer-event channel. Production calls go
-/// through `Emitter::emit_to(self, label, …)` per design-patterns.md rule 4
-/// (window-scoped events, never app-wide broadcasts). The trait exists *only*
-/// so integration tests can substitute a mock — `tauri::test::mock_app()`
-/// pulls webview2/wry GUI DLLs that fail with STATUS_ENTRYPOINT_NOT_FOUND on
-/// the dev Windows host (mirrors `CommentsEmitter`).
+/// Test seam over the watcher's `sidecar-config-changed` emit. Production
+/// calls go through `Emitter::emit_to(self, label, …)` per
+/// design-patterns.md rule 4 (window-scoped events, never app-wide
+/// broadcasts). The trait exists *only* so integration tests can substitute
+/// a mock — `tauri::test::mock_app()` pulls webview2/wry GUI DLLs that fail
+/// with STATUS_ENTRYPOINT_NOT_FOUND on the dev Windows host (mirrors
+/// `CommentsEmitter`). `file-changed` / `folder-changed` are emitted
+/// inline via `app.emit_to(...)` — they do not need the seam.
 pub trait WatcherEmitter: Send + Sync {
-    fn emit_file_changed(&self, label: &str, ev: &FileChangeEvent);
-    fn emit_folder_changed(&self, label: &str, ev: &FolderChangeEvent);
     fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent);
 }
 
 impl<R: Runtime> WatcherEmitter for AppHandle<R> {
-    fn emit_file_changed(&self, label: &str, ev: &FileChangeEvent) {
-        let _ = self.emit_to(label, "file-changed", ev.clone());
-    }
-    fn emit_folder_changed(&self, label: &str, ev: &FolderChangeEvent) {
-        let _ = self.emit_to(label, "folder-changed", ev.clone());
-    }
     fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent) {
         let _ = self.emit_to(label, "sidecar-config-changed", ev.clone());
     }

@@ -24,8 +24,8 @@ differently from the spec).
 |---|---|---|
 | Co-located `<doc>.review.yaml` naming (§3.1) | ✅ Conformant | `load_sidecar` in `core/sidecar/mod.rs` appends `.review.yaml` then falls back to `.review.json`. |
 | `.review.json` as alternate serialization | ✅ Conformant | JSON fallback is read-only; new sidecars always written as YAML. |
-| `.mrsf.yaml` alternate sidecar location (§3.2) | ❌ Gap | `sidecar_root` configuration is not implemented. Sidecars are always co-located. |
-| Discovery order (§3.3) — `.mrsf.yaml` before co-location | ❌ Gap | No `.mrsf.yaml` lookup is attempted. |
+| `.mrsf.yaml` alternate sidecar location (§3.2) | ✅ Conformant | `sidecar_root` is loaded by `commands/sidecar_config.rs` and consumed by the sidecar resolver; external edits to `.mrsf.yaml` are hot-reloaded by the watcher and announced via the window-scoped `sidecar-config-changed` event. |
+| Discovery order (§3.3) — `.mrsf.yaml` before co-location | ✅ Conformant | Resolver checks `sidecar_root` first, then falls back to co-location. |
 
 ### §4 — Top-Level Structure
 
@@ -120,7 +120,7 @@ differently from the spec).
 
 | # | Gap | Spec section | Status |
 |---|---|---|---|
-| 1 | No `.mrsf.yaml` / `sidecar_root` alternate location | §3.2–3.3 | Open — MAY-level feature, tracked for future work |
+| 1 | ~~No `.mrsf.yaml` / `sidecar_root` alternate location~~ | §3.2–3.3 | ✅ Fixed — resolver supports `sidecar_root`; external edits hot-reloaded via `sidecar-config-changed` (issue #304) |
 | 2 | ~~No `mrsf_version` major-version rejection~~ | §5 | ✅ Fixed — `reject_unsupported_version` in `sidecar/mod.rs` |
 | 3 | ~~No `text` length limit (16384 char SHOULD)~~ | §6.1 | ✅ Fixed — `clamp_text` in `comments.rs`, also covers edit path |
 | 4 | ~~No `selected_text_hash` ↔ `selected_text` integrity check~~ | §6.2 | ✅ Fixed — `validate_sidecar_warnings` checks on load |

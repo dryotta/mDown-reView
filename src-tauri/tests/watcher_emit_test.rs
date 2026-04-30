@@ -1,36 +1,21 @@
-//! Regression suite for issue #304 / FLAKE-1 — the watcher MUST emit
-//! `sidecar-config-changed` to the renderer's window-scoped listener
-//! channel via `Emitter::emit_to(self, label, …)` per
-//! `docs/design-patterns.md` rule 4 (Rust emits window-scoped events,
-//! never app-wide broadcasts).
+//! Regression tests for the watcher's `sidecar-config-changed` emit
+//! (issue #304 / FLAKE-1).
 //!
-//! Two production bugs the trait + helper exercised here are designed
-//! to prevent:
+//! Two production call sites route through the same `mrsf_targets` helper
+//! and `WatcherEmitter` trait:
+//!   1. `start_watcher`'s `.mrsf.yaml` reload branch in `watcher.rs` (Bug A)
+//!   2. `emit_config_changed` in `commands/sidecar_config.rs` (Bug B)
 //!
-//! * Bug A — `start_watcher`'s `.mrsf.yaml` branch reloaded the in-memory
-//!   `SidecarConfigState` but never told the renderer, leaving ghost
-//!   panels stale on external edits.
-//! * Bug B — `commands::sidecar_config::emit_config_changed` used
-//!   `for win in app.webview_windows().values()` (global broadcast) and
-//!   sent a `()` payload to `sidecar-config-changed`. Should be
-//!   `emit_to(label, …)` filtered by `tree_watched_dirs`.
+//! These tests exercise the trait composition (helper output + per-label
+//! fan-out) — the contract that both call sites depend on. The end-to-end
+//! production wiring (start_watcher → trait → AppHandle::emit_to → renderer)
+//! is the responsibility of `e2e/native/06-mrsf-config-reload.spec.ts`.
 //!
-//! Why not `tauri::test::mock_app()` — same reason as
-//! `comments_emit_test.rs:19-23`: the `tauri = features = ["test"]`
-//! dev-dep pulls webview2/wry GUI DLLs that fail with
-//! STATUS_ENTRYPOINT_NOT_FOUND on the dev Windows host. The trait seam
-//! keeps these tests fast and platform-portable.
-//!
-//! Verification command (revert + re-run to confirm fail-then-pass):
-//!   # In src/watcher.rs comment out the `emit_sidecar_config_changed`
-//!   # call inside the `.mrsf.yaml` branch.
-//!   cargo test --test watcher_emit_test
-//!   # `simulated_mrsf_change_emits_only_to_tracking_windows` fails;
-//!   # re-apply the emit; cargo test → green.
+//! tauri::test::mock_app() is unusable here: it pulls webview2/wry GUI DLLs
+//! that fail with STATUS_ENTRYPOINT_NOT_FOUND on the dev Windows host (see
+//! src-tauri/tests/comments_emit_test.rs for precedent).
 
-use mdown_review_lib::watcher::{
-    mrsf_targets, FileChangeEvent, FolderChangeEvent, SidecarConfigChangedEvent, WatcherEmitter,
-};
+use mdown_review_lib::watcher::{mrsf_targets, SidecarConfigChangedEvent, WatcherEmitter};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -39,34 +24,24 @@ use std::sync::Mutex;
 
 #[derive(Default)]
 struct MockWatcherEmitter {
-    events: Mutex<Vec<(String, String, String)>>, // (label, event_name, json_payload)
+    events: Mutex<Vec<(String, SidecarConfigChangedEvent)>>, // (label, payload)
 }
 
 impl MockWatcherEmitter {
-    fn entries(&self) -> Vec<(String, String, String)> {
+    fn entries(&self) -> Vec<(String, SidecarConfigChangedEvent)> {
         self.events.lock().unwrap().clone()
     }
     fn count(&self) -> usize {
         self.events.lock().unwrap().len()
     }
-    fn record(&self, label: &str, event_name: &str, payload: &impl serde::Serialize) {
-        let json = serde_json::to_string(payload).unwrap();
-        self.events
-            .lock()
-            .unwrap()
-            .push((label.to_string(), event_name.to_string(), json));
-    }
 }
 
 impl WatcherEmitter for MockWatcherEmitter {
-    fn emit_file_changed(&self, label: &str, ev: &FileChangeEvent) {
-        self.record(label, "file-changed", ev);
-    }
-    fn emit_folder_changed(&self, label: &str, ev: &FolderChangeEvent) {
-        self.record(label, "folder-changed", ev);
-    }
     fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent) {
-        self.record(label, "sidecar-config-changed", ev);
+        self.events
+            .lock()
+            .unwrap()
+            .push((label.to_string(), ev.clone()));
     }
 }
 
@@ -167,16 +142,14 @@ fn simulated_mrsf_change_emits_only_to_tracking_windows() {
 
     // No bystander leak — the negative half of the contract.
     assert!(
-        !entries.iter().any(|(label, _, _)| label == "window-bystander"),
+        !entries.iter().any(|(label, _)| label == "window-bystander"),
         "non-tracking window must receive ZERO events; got {entries:?}"
     );
 
-    let expected_payload = serde_json::to_string(&event).unwrap();
     let mut labels: Vec<String> = entries
         .iter()
-        .map(|(label, name, payload)| {
-            assert_eq!(name, "sidecar-config-changed");
-            assert_eq!(payload, &expected_payload);
+        .map(|(label, payload)| {
+            assert_eq!(payload.path, event.path);
             label.clone()
         })
         .collect();
