@@ -263,6 +263,10 @@ fn quote_if_needed_preserves_multiline_text_in_response() {
 fn quote_if_needed_escapes_control_chars_and_preserves_backslashes() {
     // Pure LF — the primary bug fixed by #297.
     assert_eq!(quote_if_needed("a\nb"), "\"a\\nb\"");
+    // Bare CR (without LF) — proves the `\r` predicate branch is reachable.
+    // (CRLF would also enter the quoted branch via `\n`, which is why we
+    // need a CR-only case here.)
+    assert_eq!(quote_if_needed("a\rb"), "\"a\\rb\"");
     // Pure CR + LF (Windows line endings).
     assert_eq!(quote_if_needed("win\r\nline"), "\"win\\r\\nline\"");
     // Pure TAB.
@@ -273,7 +277,7 @@ fn quote_if_needed_escapes_control_chars_and_preserves_backslashes() {
     // `a\\\\nb` instead of the original `a\\<LF>b`.
     //
     // Input bytes:   a, \, LF, b
-    // Expected on-disk after both escapes: "a\\\n b" (a, \, \, \, n, b)
+    // Expected on-disk after both escapes: "a\\\nb" (a, \, \, \, n, b)
     assert_eq!(quote_if_needed("a\\\nb"), "\"a\\\\\\nb\"");
 }
 

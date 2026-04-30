@@ -273,12 +273,19 @@ fn patch_comment_add_response() {
     .unwrap();
 
     let content = std::fs::read_to_string(tmp.path().join("test.md.review.yaml")).unwrap();
-    // The on-disk YAML must carry the escaped form, not a folded LF.
-    assert!(
-        content.contains(r#"text: "fixed it\nacross\nmultiple lines""#),
-        "expected escaped multi-line text on disk, got:\n{content}"
-    );
     assert!(content.contains("responses"));
+    // Round-trip via the YAML parser: the on-disk file must decode back to
+    // the original multi-line text byte-exact. This proves the user-visible
+    // property (no LF folding) without coupling to a specific escape style —
+    // a future fix that switched to block scalars would still pass this
+    // test. The escape-shape contract is locked by the unit-level
+    // `quote_if_needed_preserves_multiline_text_in_response` test.
+    let parsed: serde_json::Value =
+        serde_saphyr::from_str(&content).expect("sidecar must parse as YAML");
+    assert_eq!(
+        parsed["comments"][0]["responses"][0]["text"],
+        "fixed it\nacross\nmultiple lines"
+    );
 }
 
 #[test]

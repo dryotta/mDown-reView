@@ -363,12 +363,9 @@ fn quote_if_needed(s: &str) -> String {
         || s.starts_with(' ')
         || s.ends_with(' ')
     {
-        // Use double quotes with escaped inner double quotes and control chars.
-        // Order is load-bearing: `\\` MUST be replaced first so the backslashes
-        // introduced by the later `\n` / `\r` / `\t` escapes are not themselves
-        // double-escaped. Without `\n` / `\r` / `\t` escapes, YAML 1.2 §7.3.1
-        // folds literal line breaks inside `"..."` to a space and consumes
-        // continuation-line whitespace — silent corruption of multi-line text.
+        // Order is load-bearing: replace `\\` first so backslashes introduced
+        // by the later `\n` / `\r` / `\t` escapes are not themselves
+        // double-escaped.
         format!(
             "\"{}\"",
             s.replace('\\', "\\\\")
