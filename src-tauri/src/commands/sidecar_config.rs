@@ -7,7 +7,7 @@ use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::sidecar::config::{load_mrsf_config, SidecarConfigState};
 use crate::core::sidecar::migration::{self, MigrateDirection, SidecarCounts};
 use std::path::PathBuf;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use crate::mdr_command;
 
 // ── Result types ─────────────────────────────────────────────────────
@@ -57,22 +57,40 @@ fn build_result(root: &PathBuf, sidecar_root: &Option<PathBuf>) -> SidecarConfig
     }
 }
 
-/// Emit `folder-changed` and `sidecar-config-changed` to the windows whose
-/// tree-watched-dirs include `root` (window-scoped per design-patterns.md
-/// rule 4 — no app-wide broadcasts). Bug B (issue #304 / FLAKE-1): the
-/// previous implementation iterated `app.webview_windows().values()` and
-/// emitted to every window, producing N×N noise — windows that don't have
-/// `root` open would receive a refresh signal for an unrelated folder.
-fn emit_config_changed(app: &tauri::AppHandle, root: &std::path::Path) {
+/// Pure helper: per-window-scoped fan-out of `folder-changed` +
+/// `sidecar-config-changed` for the given workspace `root`. Pass any
+/// `WatcherEmitter` (production: `&AppHandle`, tests: `&MockWatcherEmitter`).
+///
+/// Bug B (issue #304 / FLAKE-1): the previous implementation iterated
+/// `app.webview_windows().values()` and emitted to every window, producing
+/// N×N noise — windows that don't have `root` open would receive a refresh
+/// signal for an unrelated folder. Routing through `mrsf_targets` confines
+/// the fan-out to windows that explicitly track this root. Routing through
+/// the `WatcherEmitter` trait (instead of calling `app.emit_to(...)` here)
+/// makes the per-window filter testable at the unit level — see
+/// `tests/watcher_emit_test.rs::emit_config_changed_inner_*`.
+pub fn emit_config_changed_inner<E: crate::watcher::WatcherEmitter>(
+    emitter: &E,
+    snapshot: &std::collections::HashMap<String, std::collections::HashSet<PathBuf>>,
+    root: &std::path::Path,
+) {
     let path_str = root.to_string_lossy().into_owned();
     let folder_event = crate::watcher::FolderChangeEvent { path: path_str.clone() };
     let sidecar_event = crate::watcher::SidecarConfigChangedEvent { path: path_str };
-    let watcher_state = app.state::<crate::watcher::WatcherState>();
-    let snapshot = watcher_state.tree_watched_dirs_snapshot();
-    for label in crate::watcher::mrsf_targets(root, &snapshot) {
-        let _ = app.emit_to(label.as_str(), "folder-changed", folder_event.clone());
-        let _ = app.emit_to(label.as_str(), "sidecar-config-changed", sidecar_event.clone());
+    for label in crate::watcher::mrsf_targets(root, snapshot) {
+        emitter.emit_folder_changed(&label, &folder_event);
+        emitter.emit_sidecar_config_changed(&label, &sidecar_event);
     }
+}
+
+/// Production wrapper: snapshot `WatcherState`'s per-window tree map and
+/// delegate to `emit_config_changed_inner`. See that function's docstring
+/// for the design rationale.
+fn emit_config_changed(app: &tauri::AppHandle, root: &std::path::Path) {
+    let snapshot = app
+        .state::<crate::watcher::WatcherState>()
+        .tree_watched_dirs_snapshot();
+    emit_config_changed_inner(app, &snapshot, root);
 }
 
 // ── Commands ─────────────────────────────────────────────────────────

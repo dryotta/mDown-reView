@@ -1,13 +1,16 @@
 //! Regression tests for the watcher's `sidecar-config-changed` emit
 //! (issue #304 / FLAKE-1).
 //!
-//! Two production call sites route through the same `mrsf_targets` helper
-//! and `WatcherEmitter` trait:
+//! Both production call sites route through the `WatcherEmitter` trait:
 //!   1. `start_watcher`'s `.mrsf.yaml` reload branch in `watcher.rs` (Bug A)
-//!   2. `emit_config_changed` in `commands/sidecar_config.rs` (Bug B)
+//!      — calls `mrsf_targets` + `emit_sidecar_config_changed` directly.
+//!   2. `commands::sidecar_config::emit_config_changed` (Bug B) — delegates
+//!      to `emit_config_changed_inner` which fans out
+//!      `folder-changed` + `sidecar-config-changed` for each label returned
+//!      by `mrsf_targets`.
 //!
-//! These tests exercise the trait composition (helper output + per-label
-//! fan-out) — the contract that both call sites depend on. The end-to-end
+//! These tests exercise both the trait composition (helper output + per-
+//! label fan-out) AND the IPC command path's inner helper. The end-to-end
 //! production wiring (start_watcher → trait → AppHandle::emit_to → renderer)
 //! is the responsibility of `e2e/native/06-mrsf-config-reload.spec.ts`.
 //!
@@ -15,7 +18,10 @@
 //! that fail with STATUS_ENTRYPOINT_NOT_FOUND on the dev Windows host (see
 //! src-tauri/tests/comments_emit_test.rs for precedent).
 
-use mdown_review_lib::watcher::{mrsf_targets, SidecarConfigChangedEvent, WatcherEmitter};
+use mdown_review_lib::commands::sidecar_config::emit_config_changed_inner;
+use mdown_review_lib::watcher::{
+    mrsf_targets, FolderChangeEvent, SidecarConfigChangedEvent, WatcherEmitter,
+};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -24,24 +30,33 @@ use std::sync::Mutex;
 
 #[derive(Default)]
 struct MockWatcherEmitter {
-    events: Mutex<Vec<(String, SidecarConfigChangedEvent)>>, // (label, payload)
+    /// `(label, event_name, json_path)` per emit. Records BOTH event types so
+    /// the IPC command's inner helper can be unit-tested without smuggling
+    /// two separate mocks.
+    entries: Mutex<Vec<(String, &'static str, String)>>,
 }
 
 impl MockWatcherEmitter {
-    fn entries(&self) -> Vec<(String, SidecarConfigChangedEvent)> {
-        self.events.lock().unwrap().clone()
+    fn entries(&self) -> Vec<(String, &'static str, String)> {
+        self.entries.lock().unwrap().clone()
     }
     fn count(&self) -> usize {
-        self.events.lock().unwrap().len()
+        self.entries.lock().unwrap().len()
     }
 }
 
 impl WatcherEmitter for MockWatcherEmitter {
-    fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent) {
-        self.events
+    fn emit_folder_changed(&self, label: &str, ev: &FolderChangeEvent) {
+        self.entries
             .lock()
             .unwrap()
-            .push((label.to_string(), ev.clone()));
+            .push((label.to_string(), "folder-changed", ev.path.clone()));
+    }
+    fn emit_sidecar_config_changed(&self, label: &str, ev: &SidecarConfigChangedEvent) {
+        self.entries
+            .lock()
+            .unwrap()
+            .push((label.to_string(), "sidecar-config-changed", ev.path.clone()));
     }
 }
 
@@ -105,7 +120,7 @@ fn mrsf_targets_uses_exact_match_not_prefix() {
     );
 }
 
-// ── Trait-level emit fan-out ───────────────────────────────────────────────
+// ── Trait-level emit fan-out (start_watcher branch — Bug A) ────────────────
 
 /// Integration-style: simulate the `start_watcher` `.mrsf.yaml` branch by
 /// computing `mrsf_targets` and calling `emit_sidecar_config_changed` for
@@ -142,14 +157,15 @@ fn simulated_mrsf_change_emits_only_to_tracking_windows() {
 
     // No bystander leak — the negative half of the contract.
     assert!(
-        !entries.iter().any(|(label, _)| label == "window-bystander"),
+        !entries.iter().any(|(label, _, _)| label == "window-bystander"),
         "non-tracking window must receive ZERO events; got {entries:?}"
     );
 
     let mut labels: Vec<String> = entries
         .iter()
-        .map(|(label, payload)| {
-            assert_eq!(payload.path, event.path);
+        .map(|(label, name, payload_path)| {
+            assert_eq!(*name, "sidecar-config-changed");
+            assert_eq!(payload_path, &event.path);
             label.clone()
         })
         .collect();
@@ -181,4 +197,95 @@ fn simulated_mrsf_change_with_no_targets_emits_nothing() {
     }
 
     assert_eq!(emitter.count(), 0);
+}
+
+// ── IPC command emit_config_changed_inner (Bug B) ──────────────────────────
+
+/// Bug B regression at the IPC command boundary: each tracking window must
+/// receive BOTH `folder-changed` and `sidecar-config-changed` for the
+/// changed root, and the non-tracking bystander must receive ZERO events.
+/// If a future refactor reverts `emit_config_changed` to iterating
+/// `webview_windows()` and broadcasting via `app.emit(...)`, the bystander
+/// assertion fails.
+#[test]
+fn emit_config_changed_inner_emits_both_events_to_tracking_windows() {
+    let root = PathBuf::from("/work/proj");
+    let unrelated = PathBuf::from("/elsewhere");
+
+    let tree = tree_with(&[
+        ("window-tracker-a", &[root.as_path()]),
+        ("window-tracker-b", &[root.as_path()]),
+        ("window-bystander", &[unrelated.as_path()]),
+    ]);
+
+    let emitter = MockWatcherEmitter::default();
+    emit_config_changed_inner(&emitter, &tree, &root);
+
+    let entries = emitter.entries();
+    // 2 events × 2 tracking windows = 4 entries; bystander = 0.
+    assert_eq!(
+        entries.len(),
+        4,
+        "expected 4 entries (2 events × 2 tracking windows); got {entries:?}"
+    );
+    assert!(
+        !entries.iter().any(|(label, _, _)| label == "window-bystander"),
+        "bystander must receive ZERO events; got {entries:?}"
+    );
+
+    // Each tracking window receives both event types.
+    for tracker in ["window-tracker-a", "window-tracker-b"] {
+        let names: Vec<&'static str> = entries
+            .iter()
+            .filter(|(label, _, _)| label == tracker)
+            .map(|(_, name, _)| *name)
+            .collect();
+        assert!(
+            names.contains(&"folder-changed"),
+            "{tracker} missing folder-changed; got {names:?}"
+        );
+        assert!(
+            names.contains(&"sidecar-config-changed"),
+            "{tracker} missing sidecar-config-changed; got {names:?}"
+        );
+    }
+}
+
+/// Symmetric negative: when no window tracks the root, the inner helper
+/// must emit nothing at all (zero `folder-changed`, zero
+/// `sidecar-config-changed`).
+#[test]
+fn emit_config_changed_inner_emits_nothing_when_no_window_tracks_root() {
+    let root = PathBuf::from("/work/proj");
+    let a = PathBuf::from("/elsewhere/a");
+    let b = PathBuf::from("/elsewhere/b");
+    let tree = tree_with(&[
+        ("window-1", &[a.as_path()]),
+        ("window-2", &[b.as_path()]),
+    ]);
+
+    let emitter = MockWatcherEmitter::default();
+    emit_config_changed_inner(&emitter, &tree, &root);
+
+    assert_eq!(emitter.count(), 0, "no window tracks root; expected zero emits");
+}
+
+/// The recorded `path` field on both event payloads must match the canonical
+/// root passed in, so the renderer can dispatch reliably (string equality
+/// against the active workspace root in `useFileWatcher`).
+#[test]
+fn emit_config_changed_inner_payload_includes_canonical_root() {
+    let root = PathBuf::from("/work/proj");
+    let tree = tree_with(&[("window-1", &[root.as_path()])]);
+    let expected_path = root.to_string_lossy().into_owned();
+
+    let emitter = MockWatcherEmitter::default();
+    emit_config_changed_inner(&emitter, &tree, &root);
+
+    let entries = emitter.entries();
+    assert_eq!(entries.len(), 2, "single tracker × 2 events; got {entries:?}");
+    for (label, name, payload_path) in &entries {
+        assert_eq!(label, "window-1");
+        assert_eq!(payload_path, &expected_path, "{name} payload path mismatch");
+    }
 }
