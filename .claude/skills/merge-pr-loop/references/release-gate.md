@@ -128,6 +128,15 @@ Per-PR, all of these reset on Step 1's next pick:
 
 - `BRANCH` — captured at Step 2.
 - `PR_URL` — captured at Step 2.
-- `HEAD_SHA` — captured at Step 2; refreshed from the `commit=` field of every `Done-ForwardFixed` outcome.
+- `HEAD_SHA` — captured at Step 2; refreshed by Step 3.5 (clean rebase) and from the `commit=` field of every `Done-ForwardFixed` outcome.
+- `MERGE_RACE_RETRIES` — captured at Step 2 (init `0`); incremented by Step 5.0 when the branch is found behind right before merge; cap = `1`. Independent of the forward-fix budget.
 - `RG_RUN_ID` — assigned at every 4.1 dispatch.
 - Attempt count is **not** stored locally — re-read from PR comments at every loop iteration so a parallel run cannot bypass the cap.
+
+## Step 3.5's interaction with this document
+
+Step 3.5 in [`SKILL.md`](../SKILL.md) does an inline clean rebase before reaching this document's flow. On rebase **conflict** (not handled inline — clean rebases only), Step 3.5 invokes the same `iterate-one-issue --resume-pr "$PICK"` subagent described in §4.3 below. The inner skill detects "no failed gate but branch behind origin/main" and runs a **rebase-only** Phase R pass (R5 rebase + per-file conflict resolver, R7 push --force-with-lease, R8 marker, exit `Done-ForwardFixed`). Outcome routing is identical to §4.3:
+
+- `Done-ForwardFixed commit=<sha>` → refresh `HEAD_SHA = <sha>`, `PRS_FORWARD_FIXED += 1`, continue to §4.1 (dispatch the gate on the rebased commit).
+- `Done-Blocked` → SKILL.md Step 6 (block with inner reason).
+- Other / parse failure → SKILL.md Step 6 (block with `unrecognised outcome from iterate-one-issue --resume-pr (rebase-only)`).

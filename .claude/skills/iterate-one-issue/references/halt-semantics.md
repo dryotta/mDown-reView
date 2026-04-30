@@ -8,7 +8,7 @@
 
 **Halt (loop ends, Phase 2 skipped):**
 - Phase R (`--resume-pr`) success → `Done-ForwardFixed`
-- Phase R (`--resume-pr`) failure (no failed run, missing branch, no-op fix, attempt cap) → `Done-Blocked`
+- Phase R (`--resume-pr`) failure (no failed run AND branch up to date with origin/main, missing branch, no-op fix, attempt cap, unresolvable rebase conflict) → `Done-Blocked`
 
 **`DEGRADED` (continue):**
 - Validate/CI/experts fails to converge after 5 forward-fix waves (Step 6d — single merged loop)

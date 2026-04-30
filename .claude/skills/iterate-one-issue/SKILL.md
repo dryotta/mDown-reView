@@ -17,7 +17,7 @@ Let `ARG` = trimmed string after skill name. First match wins:
 
 | Pattern | Result |
 |---|---|
-| `^--resume-pr\s+(\S+)$` | `MODE=resume-pr`, `PR_REF=$1` (number, `#N`, or PR URL). Skips 0c–0h and Phase 1; jumps to [Phase R — release-gate forward-fix](#phase-r--release-gate-forward-fix-mode-resume-pr). Caller pre-conditions: clean tree on `main` · the referenced PR carries the `iterate-pr` label · the PR's most recent `release-gate.yml` run failed (or the caller wants this skill to inspect it). Used by `merge-pr-loop` to drive forward-fixes. |
+| `^--resume-pr\s+(\S+)$` | `MODE=resume-pr`, `PR_REF=$1` (number, `#N`, or PR URL). Skips 0c–0h and Phase 1; jumps to [Phase R — release-gate forward-fix](#phase-r--release-gate-forward-fix-mode-resume-pr). Caller pre-conditions: clean tree on `main` · the referenced PR carries the `iterate-pr` label · **either** the PR's most recent `release-gate.yml` run failed (forward-fix sub-mode) **or** the PR branch is behind `origin/main` (rebase-only sub-mode). Used by `merge-pr-loop` to drive forward-fixes (Step 4) and rebase-conflict resolution (Step 3.5). |
 | `^\d+$` | `MODE=issue`, `ISSUE_NUMBER=ARG` |
 | `^#(\d+)$` | `MODE=issue`, group 1 |
 | `^[Ii]ssue-(\d+)$` | `MODE=issue`, group 1 |
@@ -619,7 +619,20 @@ Append to Step 8 comment (link local path, not blob URL — retro is uncommitted
 
 ## Phase R — Release-gate forward-fix mode (`--resume-pr`)
 
-Entered from Phase 0a when `MODE=resume-pr`. Skips Phase 0c–0h (no spec, no new branch, no PR creation) and Phase 1 (no goal-assessor loop). Performs **one** forward-fix pass against the latest failed `release-gate.yml` run on the referenced PR's branch, commits + pushes, and exits with `Done-ForwardFixed` for the caller (`merge-pr-loop`) to re-dispatch the gate.
+Entered from Phase 0a when `MODE=resume-pr`. Skips Phase 0c–0h (no spec, no new branch, no PR creation) and Phase 1 (no goal-assessor loop).
+
+Phase R has **two sub-modes**, auto-selected at R3 based on what's wrong with the PR:
+
+| Sub-mode | Trigger (R3) | What runs | Exit |
+|---|---|---|---|
+| **forward-fix** | Latest `release-gate.yml` run on the branch is `failure` | R3 → R4 (logs) → R5 (rebase if behind) → R6 (`exe-task-implementer` consumes failed-job logs) → R7 (commit + push) → R8 | `Done-ForwardFixed` |
+| **rebase-only** | No failed gate run **and** branch is behind `origin/main` | R3 → R5 (rebase + per-file conflict resolver) → R7 (push only, no commit) → R8 | `Done-ForwardFixed` |
+
+In both sub-modes the skill writes a `<!-- iterate-forward-fix-attempt -->` marker and the caller (`merge-pr-loop`) re-dispatches the gate. Both sub-modes share the same 5/PR attempt budget.
+
+**Phase R always rebases against the freshest `origin/main`** at the time R5 runs — not whatever snapshot the caller saw. If `origin/main` advanced again between the caller's behind-check and R5, that's fine: rebasing onto the newer main is exactly what we want.
+
+**Phase R does not increment the `.claude/iterate-recursion-depth` marker** (Phase 0b's hygiene step ages out stale markers but Phase R is single-pass, not recursive). The caller (`merge-pr-loop` Step 3.5 or Step 4.3) drives all retries.
 
 ### R0 — Pre-flight
 
@@ -651,29 +664,59 @@ fi
 
 If at cap: post a Done-Blocked PR comment (reason `release-gate forward-fix budget exhausted (5 attempts)`), emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL`, exit. (No `blocked` label on the source issue from this mode — merge-pr-loop owns that decision.)
 
-### R2 — Check out branch
+### R2 — Check out branch (stateless, remote-authoritative)
+
+Always reset the local branch to `origin/$BRANCH` so a stale local tracking ref or earlier interrupted run cannot poison this pass:
 
 ```bash
 git fetch origin "$BRANCH"
-git checkout "$BRANCH"
-git pull --ff-only
+git checkout -B "$BRANCH" "origin/$BRANCH"
 git config rerere.enabled true
 git config rerere.autoupdate true
+OLD_REMOTE_SHA=$(git rev-parse "origin/$BRANCH")   # captured for SHA-bound --force-with-lease in R7
 ```
 
-If the branch is gone or `pull --ff-only` fails (force-push from another session): emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL` (reason `branch missing or diverged`), exit.
+If the remote branch is gone (`git fetch` fails for it): emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL` (reason `branch missing or diverged`), exit.
 
-### R3 — Locate the failing release-gate run
+### R3 — Locate the failing release-gate run (or detect rebase-only trigger)
+
+Filter on the **current HEAD SHA** so an older failed run (from a prior commit on this branch that has since been forward-fixed) does not falsely re-trigger forward-fix mode and apply stale logs to the current tree:
 
 ```bash
-RG_RUN_ID=$(gh run list --workflow=release-gate.yml --branch "$BRANCH" --limit 5 \
+CURRENT_SHA=$(git rev-parse HEAD)
+RG_RUN_ID=$(gh run list --workflow=release-gate.yml --branch "$BRANCH" --limit 10 \
   --json databaseId,status,conclusion,headSha,createdAt \
-  --jq '[.[] | select(.status == "completed" and .conclusion == "failure")] | sort_by(.createdAt) | reverse | .[0].databaseId // empty')
+  --jq "[.[] | select(.status == \"completed\" and .conclusion == \"failure\" and .headSha == \"$CURRENT_SHA\")] | sort_by(.createdAt) | reverse | .[0].databaseId // empty")
 ```
 
-If empty: nothing to fix here. Emit `ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL` (reason `no failed release-gate run found for branch`), exit. merge-pr-loop should re-dispatch and re-call.
+Sub-mode dispatch:
 
-### R4 — Pull failed-job logs
+```bash
+if [ -n "$RG_RUN_ID" ]; then
+  REBASE_ONLY=false
+  # Forward-fix sub-mode — fall through to R4.
+else
+  # No failed gate at the current HEAD. Maybe merge-pr-loop's Step 3.5 invoked us because the branch is behind main.
+  git fetch origin main
+  BEHIND=$(git rev-list --count "HEAD..origin/main")
+  if [ "$BEHIND" -gt 0 ]; then
+    REBASE_ONLY=true
+    FAIL_LOGS=""
+    FAILED_JOBS="rebase-only ($BEHIND commits behind origin/main)"
+    # Skip R4 and R6; jump to R5.
+  else
+    # Nothing for us to do — emit Done-Blocked.
+    # ITERATE_OUTCOME: Done-Blocked issue=n/a branch=$BRANCH pr=$PR_URL
+    # reason: `no failed release-gate run found for current HEAD and branch is up to date with origin/main`
+    # See done-handlers.md.
+    exit
+  fi
+fi
+```
+
+### R4 — Pull failed-job logs *(forward-fix sub-mode only)*
+
+Skip entirely when `REBASE_ONLY=true` (no logs to pull).
 
 ```bash
 FAIL_LOGS=$(gh run view "$RG_RUN_ID" --log-failed | tail -n 200)
@@ -684,14 +727,23 @@ FAILED_JOBS=$(gh run view "$RG_RUN_ID" --json jobs --jq '[.jobs[] | select(.conc
 
 ```bash
 git fetch origin main
+REBASE_HAPPENED=false
 if ! git merge-base --is-ancestor origin/main HEAD; then
   git rebase --strategy=recursive --strategy-option=diff3 origin/main
-  # On conflict: reuse Step 1's conflict-resolver loop. If unresolvable, emit
-  # ITERATE_OUTCOME: Done-Blocked reason=`forward-fix rebase against origin/main failed`.
+  REBASE_HAPPENED=true
+  # On conflict: reuse Step 1's conflict-resolver loop (per-file `exe-task-implementer` dispatch,
+  # `attempt < max_attempts_per_commit=3` per file, `commits_replayed < max_total_commits=20`,
+  # `architect-expert` escalation once at max). If still unresolvable:
+  #   git rebase --abort
+  #   ITERATE_OUTCOME: Done-Blocked reason=`forward-fix rebase against origin/main failed`.
 fi
 ```
 
-### R6 — Forward-fix
+In **rebase-only** sub-mode, R5 is the work — the rebase + conflict resolver is the entire job for this pass.
+
+### R6 — Forward-fix *(forward-fix sub-mode only)*
+
+Skip entirely when `REBASE_ONLY=true` (no failed-job logs to act on; the rebase itself was the fix).
 
 Spawn `exe-task-implementer`:
 ```
@@ -708,22 +760,46 @@ If the implementer reports no-op (nothing to fix in the failing logs): emit `ITE
 
 ### R7 — Commit + push
 
+`OLD_REMOTE_SHA` was captured at R2 — use it for an explicit SHA-bound `--force-with-lease` so a concurrent `git fetch` in this repo cannot relax the safety check:
+
 ```bash
 git add -A
-git commit -m "fix(iter-release): <one-line implementer summary>
+if [ "$REBASE_ONLY" = "true" ]; then
+  # Rebase-only: nothing to commit, just push the rebased branch.
+  # SHA-bound lease — accept the push iff origin/$BRANCH still equals what we observed at R2.
+  git push --force-with-lease="$BRANCH:$OLD_REMOTE_SHA" origin "HEAD:refs/heads/$BRANCH"
+elif [ "$REBASE_HAPPENED" = "true" ]; then
+  # Forward-fix sub-mode after a rebase: commit the fix, then SHA-bound force-push (history was rewritten).
+  git commit -m "fix(iter-release): <one-line implementer summary>
 
 <body>
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
-git push
+  git push --force-with-lease="$BRANCH:$OLD_REMOTE_SHA" origin "HEAD:refs/heads/$BRANCH"
+else
+  # Forward-fix sub-mode without rebase: regular fast-forward push.
+  git commit -m "fix(iter-release): <one-line implementer summary>
+
+<body>
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+  git push
+fi
 NEW_HEAD=$(git rev-parse HEAD)
 ```
 
 ### R8 — Mark attempt + exit
 
+Marker text varies by sub-mode (caller parses by counting markers, not by reading text — text is for humans):
+
 ```bash
-gh pr comment "$PR_NUMBER" --body "<!-- iterate-forward-fix-attempt -->
+if [ "$REBASE_ONLY" = "true" ]; then
+  gh pr comment "$PR_NUMBER" --body "<!-- iterate-forward-fix-attempt -->
+🔧 Release-gate forward-fix attempt $((ATTEMPTS + 1))/5 on commit \`$(git rev-parse --short HEAD)\` (rebase-only — was $BEHIND commit(s) behind origin/main). merge-pr-loop will re-dispatch the gate."
+else
+  gh pr comment "$PR_NUMBER" --body "<!-- iterate-forward-fix-attempt -->
 🔧 Release-gate forward-fix attempt $((ATTEMPTS + 1))/5 on commit \`$(git rev-parse --short HEAD)\` (failed run [<RG_RUN_ID>](https://github.com/dryotta/mdownreview/actions/runs/<RG_RUN_ID>)). merge-pr-loop will re-dispatch the gate."
+fi
 ```
 
 Emit:
