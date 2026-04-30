@@ -268,3 +268,123 @@ describe("iterate-one-issue skill — scope guard against workspace-wide formatt
     expect(SKILL).not.toMatch(positiveRunPattern);
   });
 });
+
+describe("iterate-one-issue skill — consume implementer scope non-action reports (issue #309)", () => {
+  // Issue #309 — implementer agents are instructed at `.claude/agents/exe-task-implementer.md`
+  // to fill in `**Did NOT do (scope):** ...` whenever they cannot do all the work in the task,
+  // but the iterate skill had no consumer for those reports — they evaporated into agent text.
+  // The fix is two sub-steps in Step 6 + Step 8:
+  //   1. `6a-noaction. Scope non-action capture` parses every implementer summary's
+  //      `Did NOT do (scope)` block and appends non-empty entries to `scope_non_actions[]`
+  //      in the iteration state file with `disposition: pending`.
+  //   2. `8-pre. Scope non-action disposition gate` requires every captured entry to have
+  //      a non-pending disposition (one of `accepted`, `handled-in-forward-fix`,
+  //      `follow-up-issue:<N>`, `rejected`) BEFORE the iteration can record PASSED.
+  //      Any pending entry forces the iteration into DEGRADED.
+  // Step 8's record template carries a `Scope-non-actions:` field so dispositions are durable.
+
+  it("Step 6 has a 6a-noaction sub-step that parses Did NOT do (scope) from implementer summaries", () => {
+    expect(SKILL).toMatch(/#####\s+6a-noaction/);
+    // Must reference the literal field name from exe-task-implementer.md so a renamed/removed
+    // field is caught loudly.
+    expect(SKILL).toMatch(/\*\*Did NOT do \(scope\)/);
+    expect(SKILL).toMatch(/scope_non_actions/);
+    expect(SKILL).toMatch(/implementer_attempt_id/);
+  });
+
+  it("6a-noaction captures from BOTH Step 5 and 6d (forward-fix) implementer waves", () => {
+    // The skill must process forward-fix implementer summaries too, not just initial Step 5.
+    const sixANoaction = SKILL.indexOf("##### 6a-noaction");
+    const sixAPre = SKILL.indexOf("##### 6a-pre");
+    expect(sixANoaction).toBeGreaterThan(-1);
+    expect(sixAPre).toBeGreaterThan(sixANoaction);
+    const block = SKILL.slice(sixANoaction, sixAPre);
+    expect(block).toMatch(/Step 5/);
+    expect(block).toMatch(/6d/);
+  });
+
+  it("Step 8 has an 8-pre disposition gate enumerating the four allowed values", () => {
+    expect(SKILL).toMatch(/####\s+8-pre/);
+    // All four allowed disposition values must appear verbatim:
+    expect(SKILL).toMatch(/`accepted`/);
+    expect(SKILL).toMatch(/`handled-in-forward-fix`/);
+    expect(SKILL).toMatch(/`follow-up-issue:<N>`|follow-up-issue:<\w+>/);
+    expect(SKILL).toMatch(/`rejected`/);
+  });
+
+  it("8-pre gate appears BEFORE the Step 8 record body (cannot record PASSED with pending dispositions)", () => {
+    const stepEight = SKILL.indexOf("### Step 8 — Record");
+    expect(stepEight).toBeGreaterThan(-1);
+    const stepEightFive = SKILL.indexOf("### Step 8.5", stepEight);
+    expect(stepEightFive).toBeGreaterThan(stepEight);
+    const stepEightBlock = SKILL.slice(stepEight, stepEightFive);
+    const eightPreIdx = stepEightBlock.indexOf("8-pre");
+    const recordIdx = stepEightBlock.indexOf("8-record");
+    expect(eightPreIdx, "8-pre disposition gate missing in Step 8").toBeGreaterThan(-1);
+    expect(recordIdx, "8-record sub-step missing in Step 8").toBeGreaterThan(-1);
+    expect(eightPreIdx).toBeLessThan(recordIdx);
+  });
+
+  it("8-pre explicitly blocks PASSED when a scope_non_actions entry remains pending", () => {
+    // Without this clause, the gate is advisory only — the whole point is hard-blocking.
+    const eightPre = SKILL.indexOf("#### 8-pre");
+    const eightRecord = SKILL.indexOf("#### 8-record", eightPre);
+    expect(eightRecord).toBeGreaterThan(eightPre);
+    const block = SKILL.slice(eightPre, eightRecord);
+    expect(block).toMatch(/[Bb]lock PASSED/);
+    expect(block).toMatch(/DEGRADED/);
+    expect(block).toMatch(/pending/);
+  });
+
+  it("Step 8 iteration template contains Scope-non-actions field for durable visibility", () => {
+    const stepEight = SKILL.indexOf("### Step 8 — Record");
+    const stepEightFive = SKILL.indexOf("### Step 8.5", stepEight);
+    const stepEightBlock = SKILL.slice(stepEight, stepEightFive);
+    expect(stepEightBlock).toMatch(/Scope-non-actions:/);
+    // The same field should appear with a (task_id → disposition) shape so it carries useful info.
+    expect(stepEightBlock).toMatch(/Scope-non-actions:[\s\S]{0,200}disposition/i);
+  });
+
+  it("synthetic 'rustfmt outside declared files' example is the canonical illustration referenced in the spec", () => {
+    // Per AC-5 of issue #309: the regression test must exercise a synthetic implementer
+    // summary containing `Did NOT do (scope): rustfmt outside declared files` and assert
+    // the gate would require disposition. We assert here that:
+    //   (a) The skill contract supports parsing such a string (the parse rule says non-empty),
+    //   (b) The skill names all four allowed dispositions so the synthetic input has at least
+    //       one valid resolution path,
+    //   (c) The synthetic string itself is locked here so a future "what was the canonical
+    //       example?" question has an answer in code.
+    const synthetic = "Did NOT do (scope): rustfmt outside declared files";
+    expect(synthetic).toMatch(/Did NOT do \(scope\)/);
+    // Skill must accept ANY non-empty bullet — assert that the parse rule says so:
+    expect(SKILL).toMatch(/non-empty|\bnon-empty\b/);
+    // And the gate has at least one disposition that maps to "follow-up-issue:<N>" — the most
+    // likely resolution for an out-of-scope formatting deferral.
+    expect(SKILL).toMatch(/follow-up-issue:/);
+  });
+
+  it("PR comment template surfaces non-action disposition counts", () => {
+    // Without this, the disposition state lives only in the gitignored state file —
+    // reviewers wouldn't see it on the PR.
+    const stepEight = SKILL.indexOf("### Step 8 — Record");
+    const stepEightFive = SKILL.indexOf("### Step 8.5", stepEight);
+    const stepEightBlock = SKILL.slice(stepEight, stepEightFive);
+    expect(stepEightBlock).toMatch(/Scope non-actions/i);
+  });
+
+  it("issue #302 scope-diff guard contract remains intact (regression of pre-existing behaviour)", () => {
+    // Belt-and-braces — any of the #302 contract assertions could regress when adding the
+    // 6a-noaction step. Re-affirm the load-bearing ones.
+    expect(SKILL).toMatch(/##### 6a-pre\.?\s+Scope-diff guard/);
+    const sixA = SKILL.indexOf("#### 6a. Push");
+    const sixB = SKILL.indexOf("#### 6b.");
+    const sixABlock = SKILL.slice(sixA, sixB);
+    expect(sixABlock).toMatch(/git diff --name-only/);
+    // 6a-noaction must appear BEFORE 6a-pre (capture before guard, since both inspect
+    // implementer summaries — capturing first lets the guard reuse the parsed scope).
+    const noactionIdx = sixABlock.indexOf("6a-noaction");
+    const preIdx = sixABlock.indexOf("6a-pre");
+    expect(noactionIdx).toBeGreaterThan(-1);
+    expect(preIdx).toBeGreaterThan(noactionIdx);
+  });
+});

@@ -391,6 +391,25 @@ Every implementer reports "no changes" → log `SKIPPED — no-op: <reason>` to 
 
 #### 6a. Push
 
+##### 6a-noaction. Scope non-action capture (issue #309) — record implementer-reported deferrals
+
+Every `exe-task-implementer` Implementation Summary contains a `**Did NOT do (scope):** ...` field (see `.claude/agents/exe-task-implementer.md`). Before staging anything in this iteration's commit, parse those reports so deferred work cannot evaporate into agent-output text:
+
+1. For every implementer summary returned in this iteration's wave (Step 5 OR a 6d forward-fix), scan the Implementation Summary for the `**Did NOT do (scope):**` line and any bullet block that follows it.
+2. If the value is `none`, empty, or absent, skip that summary.
+3. Otherwise append a `scope_non_actions[]` entry to the iteration's block in the state file `.claude/iterate-state-<branch-slug>.md` with this shape:
+   ```yaml
+   scope_non_actions:
+     - implementer_attempt_id: <Step5-group-name | 6d-attempt-N>
+       task_id: <one-line task summary the implementer was given>
+       raw_text: <verbatim Did NOT do (scope) bullet — preserve formatting>
+       disposition: pending   # set in 8-pre disposition gate
+       disposition_note: ""   # set when disposition leaves pending
+   ```
+4. Log to stdout: `[scope-noaction] captured: <implementer_attempt_id> -- <raw_text>`.
+
+The state-file capture is the durable record (referenced by Step 8's record field, the PR comment, and the post-loop retro). No commit is needed at this step — the state file is iteration-local.
+
 ##### 6a-pre. Scope-diff guard (issue #302) — block workspace-wide formatter churn
 
 Implementers report their changed files in their Implementation Summary's `**Files changed:**` block. **Before staging anything**, run a scope-diff guard so workspace-wide `cargo fmt` (or any other off-scope edit) cannot leak into the iteration commit:
@@ -562,13 +581,34 @@ Findings flow into 6d's forward-fix wave alongside validator/CI failures. Conver
 
 ### Step 8 — Record
 
-Append to state file:
+#### 8-pre. Scope non-action disposition gate (issue #309) — block PASSED on undisposed deferrals
+
+Before recording PASSED, every `scope_non_actions[]` entry captured by 6a-noaction in this iteration MUST have a non-`pending` disposition. Allowed disposition values (exactly these four — extending the set requires a contract-test update):
+
+- `accepted` — the runner intentionally defers the non-action as out-of-scope for this iteration; `disposition_note` carries a one-line rationale (e.g. `"deferred to next iteration; not blocking AC-3"`).
+- `handled-in-forward-fix` — a subsequent 6d implementer wave addressed the gap; `disposition_note` cites the commit SHA that closed it.
+- `follow-up-issue:<N>` — a separate GitHub issue tracks the work; the runner MUST verify the issue exists and is open with `gh issue view <N>`; `disposition_note` carries a one-line summary.
+- `rejected` — the implementer's report was a mis-categorisation (e.g. the work was actually in scope and got done in the same wave); `disposition_note` carries the rebuttal rationale.
+
+Workflow:
+
+1. Read this iteration's `scope_non_actions[]` from the state file.
+2. For each entry with `disposition: pending`, the runner reviews the entry against this iteration's commits, reviewer feedback, and other implementer summaries; chooses one of the four allowed values; writes a one-line `disposition_note`.
+3. For borderline entries, the runner MAY consult `architect-expert` or `bug-expert` with the entry's `raw_text` + `task_id` + iteration log. The runner makes the final call.
+4. Update the state file in place: replace `disposition: pending` with the chosen value, set `disposition_note`.
+5. **Block PASSED:** if any `scope_non_actions[]` entry remains `pending` after this gate, the iteration cannot record PASSED. Log `DEGRADED — scope non-action <task_id> remains pending: <reason>`, set the iteration's outcome to DEGRADED in the Step 8 record below, and proceed (do NOT loop forever in this gate; PASSED is unavailable until the runner explicitly resolves all entries).
+
+This gate ensures implementer-reported scope deferrals never silently disappear: they get explicit acknowledgement, a follow-up issue, or a documented rejection — visible in the iteration record + PR comment + retro.
+
+#### 8-record. Append to state file
+
 ```markdown
 ## Iteration <N> — <PASSED | DEGRADED | SKIPPED>
 - DIFF_CLASS: <code | prompt-only | docs-only | none>
 - Commits: <SHAs from ITER_BASE_SHA..HEAD>
 - Validate+CI+Experts: <converged in K | degraded after 5>
 - Scope-guard: <K reverted, M blocked | clean>   <!-- issue #302: K = whitespace-only .rs files auto-reverted by 6a-pre; M = unexpected files surfaced as scope-guard BLOCKs into 6d. "clean" if both zero. -->
+- Scope-non-actions: <list of (task_id → disposition + disposition_note) | none>   <!-- issue #309: items captured by 6a-noaction with their 8-pre dispositions. "none" if every implementer reported empty Did NOT do (scope). -->
 - Expert review: <A approved / B blocked — list>
 - Goal assessor confidence: <%>
 - Summary: <one sentence>
@@ -585,6 +625,7 @@ Update PR:
   ### <✅ PASSED | ⚠️ DEGRADED | ⏭️ SKIPPED> Iteration <N>/30
   **DIFF_CLASS:** <…>   **Commits:** <short SHAs>   **Files:** <count>   **Tests:** <count>
   <issue: AC satisfied this iter: …  |  goal: requirements done: …>
+  <if scope_non_actions non-empty: **Scope non-actions:** <K accepted, M handled-in-fix, P follow-up, Q rejected>>
   <if DEGRADED: Carry-over: …>
   Next: iteration <N+1>
   EOF
