@@ -34,7 +34,6 @@ const EXE_TASK_IMPLEMENTER_PATH = resolve(
   "../../.claude/agents/exe-task-implementer.md",
 );
 const EXE_TASK_IMPLEMENTER = readFileSync(EXE_TASK_IMPLEMENTER_PATH, "utf8");
-
 describe("iterate-one-issue skill — DIFF_CLASS scoping (issue #122)", () => {
   it("Step 6b classifies the diff into code | prompt-only | docs-only | none", () => {
     expect(SKILL).toMatch(/####\s+6b\.?\s+Classify diff/i);
@@ -272,16 +271,22 @@ describe("iterate-one-issue skill — scope guard against workspace-wide formatt
 describe("iterate-one-issue skill — consume implementer scope non-action reports (issue #309)", () => {
   // Issue #309 — implementer agents are instructed at `.claude/agents/exe-task-implementer.md`
   // to fill in `**Did NOT do (scope):** ...` whenever they cannot do all the work in the task,
-  // but the iterate skill had no consumer for those reports — they evaporated into agent text.
-  // The fix is two sub-steps in Step 6 + Step 8:
+  // but the iterate skill had no consumer for those reports. The fix:
   //   1. `6a-noaction. Scope non-action capture` parses every implementer summary's
-  //      `Did NOT do (scope)` block and appends non-empty entries to `scope_non_actions[]`
-  //      in the iteration state file with `disposition: pending`.
-  //   2. `8-pre. Scope non-action disposition gate` requires every captured entry to have
-  //      a non-pending disposition (one of `accepted`, `handled-in-forward-fix`,
-  //      `follow-up-issue:<N>`, `rejected`) BEFORE the iteration can record PASSED.
-  //      Any pending entry forces the iteration into DEGRADED.
-  // Step 8's record template carries a `Scope-non-actions:` field so dispositions are durable.
+  //      `Did NOT do (scope)` block (with explicit start/end markers and malformed-summary
+  //      rules) and appends non-empty entries to the BRANCH-LEVEL `## Open scope non-actions`
+  //      section of the state file (not per-iteration), so pending entries survive across
+  //      DEGRADED iterations until explicitly dispositioned.
+  //   2. `8-pre. Scope non-action disposition gate` requires every entry in the Open list to
+  //      have a non-pending disposition (one of `accepted`, `handled-in-forward-fix`,
+  //      `follow-up-issue:<N>`) BEFORE the iteration can record PASSED. Pending entries
+  //      force DEGRADED. Resolved entries move to `## Resolved scope non-actions` for audit.
+  //   3. **Termination preconditions** in `references/done-handlers.md` run the same gate
+  //      before ANY Done-X exit so the Step 2 → Done-Achieved shortcut cannot bypass 8-pre.
+  //   4. 6d step 3 explicitly re-runs 6a-noaction against forward-fix Implementation Summaries.
+  //   5. Step 8.5 retro context block + the PR comment include scope non-action data so
+  //      Phase 2 synthesis can consume it as cross-run pattern signal.
+  //   6. State file frontmatter carries `state_schema_version: 1` for forward compatibility.
 
   it("Step 6 has a 6a-noaction sub-step that parses Did NOT do (scope) from implementer summaries", () => {
     expect(SKILL).toMatch(/#####\s+6a-noaction/);
@@ -292,24 +297,60 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
     expect(SKILL).toMatch(/implementer_attempt_id/);
   });
 
-  it("6a-noaction captures from BOTH Step 5 and 6d (forward-fix) implementer waves", () => {
-    // The skill must process forward-fix implementer summaries too, not just initial Step 5.
+  it("6a-noaction defines explicit parse boundaries (start marker, end marker, malformed)", () => {
+    // duck-309 BLOCK 2: vague "scan the line and any bullet block" was insufficient.
     const sixANoaction = SKILL.indexOf("##### 6a-noaction");
     const sixAPre = SKILL.indexOf("##### 6a-pre");
     expect(sixANoaction).toBeGreaterThan(-1);
     expect(sixAPre).toBeGreaterThan(sixANoaction);
     const block = SKILL.slice(sixANoaction, sixAPre);
-    expect(block).toMatch(/Step 5/);
-    expect(block).toMatch(/6d/);
+    expect(block).toMatch(/[Ss]tart marker/);
+    expect(block).toMatch(/[Ee]nd marker/);
+    expect(block).toMatch(/[Mm]alformed/);
+    expect(block).toMatch(/[Mm]ultiple sections/);
   });
 
-  it("Step 8 has an 8-pre disposition gate enumerating the four allowed values", () => {
+  it("6a-noaction is re-run on BOTH Step 5 AND 6d (forward-fix) implementer waves", () => {
+    // duck-309 BLOCK 1: 6d previously only re-applied 6a-pre, not 6a-noaction. Without this
+    // fix, deferrals introduced during forward-fix bypass scope_non_actions[] entirely.
+    const sixANoaction = SKILL.indexOf("##### 6a-noaction");
+    const sixAPre = SKILL.indexOf("##### 6a-pre");
+    const block = SKILL.slice(sixANoaction, sixAPre);
+    expect(block).toMatch(/Step 5/);
+    expect(block).toMatch(/6d forward-fix/);
+
+    // The 6d block itself MUST also explicitly say "re-run 6a-noaction" (not just 6a-pre).
+    const sixD = SKILL.indexOf("#### 6d.");
+    const stepSeven = SKILL.indexOf("### Step 7");
+    const sixDBlock = SKILL.slice(sixD, stepSeven);
+    expect(sixDBlock).toMatch(/6a-noaction/);
+    expect(sixDBlock).toMatch(/iter-<N>-6d-attempt/);
+  });
+
+  it("scope non-actions live at the BRANCH level (Open + Resolved), not per-iteration", () => {
+    // duck-309 BLOCK 3 + arch-309 BLOCK 2: per-iteration capture would orphan pending entries
+    // across DEGRADED iterations. Branch-level Open + Resolved sections survive carry-over.
+    expect(SKILL).toMatch(/##\s+Open scope non-actions/);
+    expect(SKILL).toMatch(/##\s+Resolved scope non-actions/);
+    // The 8-pre workflow must read from the Open section across iterations.
+    const eightPre = SKILL.indexOf("#### 8-pre");
+    const eightRecord = SKILL.indexOf("#### 8-record", eightPre);
+    const eightPreBlock = SKILL.slice(eightPre, eightRecord);
+    expect(eightPreBlock).toMatch(/branch-level/i);
+    expect(eightPreBlock).toMatch(/prior[\s\S]{0,40}iterations|across iterations/i);
+  });
+
+  it("8-pre disposition gate enumerates exactly three allowed values (no `rejected`)", () => {
     expect(SKILL).toMatch(/####\s+8-pre/);
-    // All four allowed disposition values must appear verbatim:
+    // The three allowed disposition values must appear verbatim:
     expect(SKILL).toMatch(/`accepted`/);
     expect(SKILL).toMatch(/`handled-in-forward-fix`/);
     expect(SKILL).toMatch(/`follow-up-issue:<N>`|follow-up-issue:<\w+>/);
-    expect(SKILL).toMatch(/`rejected`/);
+    // `rejected` was dropped per lean-309 — folded into `accepted` with rationale.
+    const eightPre = SKILL.indexOf("#### 8-pre");
+    const eightRecord = SKILL.indexOf("#### 8-record", eightPre);
+    const eightPreBlock = SKILL.slice(eightPre, eightRecord);
+    expect(eightPreBlock).not.toMatch(/`rejected`/);
   });
 
   it("8-pre gate appears BEFORE the Step 8 record body (cannot record PASSED with pending dispositions)", () => {
@@ -325,15 +366,30 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
     expect(eightPreIdx).toBeLessThan(recordIdx);
   });
 
-  it("8-pre explicitly blocks PASSED when a scope_non_actions entry remains pending", () => {
-    // Without this clause, the gate is advisory only — the whole point is hard-blocking.
+  it("8-pre causally links pending → block PASSED → DEGRADED (not just co-occurrence)", () => {
+    // Without the causal link, a future edit could leave the words but break the gate.
     const eightPre = SKILL.indexOf("#### 8-pre");
     const eightRecord = SKILL.indexOf("#### 8-record", eightPre);
-    expect(eightRecord).toBeGreaterThan(eightPre);
     const block = SKILL.slice(eightPre, eightRecord);
+    // Must say "remains pending → cannot record PASSED → DEGRADED" in close proximity.
     expect(block).toMatch(/[Bb]lock PASSED/);
-    expect(block).toMatch(/DEGRADED/);
-    expect(block).toMatch(/pending/);
+    expect(block).toMatch(/pending[\s\S]{0,200}DEGRADED|DEGRADED[\s\S]{0,200}pending/);
+  });
+
+  it("Termination preconditions (done-handlers.md) drain Open scope non-actions before any Done-X", () => {
+    // arch-309 BLOCK 1: Step 2 → Done-Achieved skips 3-8.5 (including 8-pre). The
+    // termination-precondition gate is the single chokepoint that catches pending entries
+    // before any terminal exit (Done-Achieved, Done-Blocked, Done-TimedOut).
+    expect(DONE_HANDLERS).toMatch(/Termination preconditions/);
+    expect(DONE_HANDLERS).toMatch(/Open scope non-actions/);
+    expect(DONE_HANDLERS).toMatch(/issue #309/);
+    // Must explicitly mention the Step 2 → Done-Achieved bypass and its mitigation.
+    expect(DONE_HANDLERS).toMatch(/Done-Achieved[\s\S]{0,400}Done-Blocked|forced to.*Done-Blocked/);
+    // Termination gate must appear BEFORE the existing "Handler steps (in order)" list.
+    const termIdx = DONE_HANDLERS.indexOf("Termination preconditions");
+    const handlerStepsIdx = DONE_HANDLERS.indexOf("Handler steps (in order):");
+    expect(termIdx).toBeGreaterThan(-1);
+    expect(handlerStepsIdx).toBeGreaterThan(termIdx);
   });
 
   it("Step 8 iteration template contains Scope-non-actions field for durable visibility", () => {
@@ -341,47 +397,68 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
     const stepEightFive = SKILL.indexOf("### Step 8.5", stepEight);
     const stepEightBlock = SKILL.slice(stepEight, stepEightFive);
     expect(stepEightBlock).toMatch(/Scope-non-actions:/);
-    // The same field should appear with a (task_id → disposition) shape so it carries useful info.
     expect(stepEightBlock).toMatch(/Scope-non-actions:[\s\S]{0,200}disposition/i);
   });
 
-  it("synthetic 'rustfmt outside declared files' example is the canonical illustration referenced in the spec", () => {
-    // Per AC-5 of issue #309: the regression test must exercise a synthetic implementer
-    // summary containing `Did NOT do (scope): rustfmt outside declared files` and assert
-    // the gate would require disposition. We assert here that:
-    //   (a) The skill contract supports parsing such a string (the parse rule says non-empty),
-    //   (b) The skill names all four allowed dispositions so the synthetic input has at least
-    //       one valid resolution path,
-    //   (c) The synthetic string itself is locked here so a future "what was the canonical
-    //       example?" question has an answer in code.
-    const synthetic = "Did NOT do (scope): rustfmt outside declared files";
-    expect(synthetic).toMatch(/Did NOT do \(scope\)/);
-    // Skill must accept ANY non-empty bullet — assert that the parse rule says so:
-    expect(SKILL).toMatch(/non-empty|\bnon-empty\b/);
-    // And the gate has at least one disposition that maps to "follow-up-issue:<N>" — the most
-    // likely resolution for an out-of-scope formatting deferral.
-    expect(SKILL).toMatch(/follow-up-issue:/);
+  it("Step 8.5 retro context block includes scope non-actions for Phase 2 consumption", () => {
+    // arch-309 BLOCK 3: without this, scope non-action signal evaporates before reaching
+    // cross-run pattern detection in Phase 2's improvement-spec synthesis.
+    const stepEightFive = SKILL.indexOf("### Step 8.5");
+    expect(stepEightFive).toBeGreaterThan(-1);
+    const phaseR = SKILL.indexOf("## Phase R", stepEightFive);
+    const phaseTwo = SKILL.indexOf("## Phase 2", stepEightFive);
+    const block = SKILL.slice(stepEightFive, Math.min(
+      phaseR > -1 ? phaseR : SKILL.length,
+      phaseTwo > -1 ? phaseTwo : SKILL.length,
+    ));
+    expect(block).toMatch(/[Ss]cope non-actions/);
+    expect(block).toMatch(/Open scope non-actions/);
+  });
+
+  it("state file frontmatter carries state_schema_version for forward compatibility", () => {
+    // arch-309 medium: structured nested data is growing; version the schema now to avoid
+    // silent parser breakage when more gates land.
+    const zeroG = SKILL.indexOf("### 0g.");
+    const zeroH = SKILL.indexOf("### 0h.");
+    expect(zeroG).toBeGreaterThan(-1);
+    expect(zeroH).toBeGreaterThan(zeroG);
+    const block = SKILL.slice(zeroG, zeroH);
+    expect(block).toMatch(/state_schema_version:\s*1/);
+  });
+
+  it("worked example — synthetic 'rustfmt outside declared files' is locked into SKILL.md text", () => {
+    // AC-5 of issue #309: regression test asserts a synthetic implementer summary containing
+    // `Did NOT do (scope): rustfmt outside declared files` requires a visible disposition
+    // before PASSED. The test-309 review noted the prior version's tautological assertions
+    // (matching a JS literal against itself); the real lock is to assert the synthetic lives
+    // in SKILL.md as the canonical worked example.
+    const synthetic = "rustfmt outside declared files";
+    expect(SKILL).toContain(synthetic);
+    // The example must sit inside the 6a-noaction block so a future edit moving it elsewhere
+    // would break this test (the canonical illustration belongs with the parser, not adrift).
+    const sixANoaction = SKILL.indexOf("##### 6a-noaction");
+    const sixAPre = SKILL.indexOf("##### 6a-pre");
+    const block = SKILL.slice(sixANoaction, sixAPre);
+    expect(block).toContain(synthetic);
+    // The example must mention all three valid resolution paths (accepted /
+    // handled-in-forward-fix / follow-up-issue:<N>) OR refer to the gate that does so.
+    expect(block).toMatch(/disposition[\s\S]{0,80}(accepted|handled-in-forward-fix|follow-up-issue|gate at 8-pre)/i);
   });
 
   it("PR comment template surfaces non-action disposition counts", () => {
-    // Without this, the disposition state lives only in the gitignored state file —
-    // reviewers wouldn't see it on the PR.
     const stepEight = SKILL.indexOf("### Step 8 — Record");
     const stepEightFive = SKILL.indexOf("### Step 8.5", stepEight);
     const stepEightBlock = SKILL.slice(stepEight, stepEightFive);
     expect(stepEightBlock).toMatch(/Scope non-actions/i);
   });
 
-  it("issue #302 scope-diff guard contract remains intact (regression of pre-existing behaviour)", () => {
-    // Belt-and-braces — any of the #302 contract assertions could regress when adding the
-    // 6a-noaction step. Re-affirm the load-bearing ones.
-    expect(SKILL).toMatch(/##### 6a-pre\.?\s+Scope-diff guard/);
+  it("ordering: 6a-noaction sits BEFORE 6a-pre (capture before scope-diff guard)", () => {
+    // Belt-and-braces — only the ordering invariant is new; #302's full contract is locked
+    // by the prior describe block. Without this ordering, capture would happen after the
+    // guard reverts/blocks files, losing context for any non-actions correlated to those.
     const sixA = SKILL.indexOf("#### 6a. Push");
     const sixB = SKILL.indexOf("#### 6b.");
     const sixABlock = SKILL.slice(sixA, sixB);
-    expect(sixABlock).toMatch(/git diff --name-only/);
-    // 6a-noaction must appear BEFORE 6a-pre (capture before guard, since both inspect
-    // implementer summaries — capturing first lets the guard reuse the parsed scope).
     const noactionIdx = sixABlock.indexOf("6a-noaction");
     const preIdx = sixABlock.indexOf("6a-pre");
     expect(noactionIdx).toBeGreaterThan(-1);
