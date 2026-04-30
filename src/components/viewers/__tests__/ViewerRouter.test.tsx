@@ -544,9 +544,80 @@ describe("ViewerRouter scroll-restore vs pendingScrollTarget", () => {
 
     rafSpy.mockRestore();
   });
+
+  // B1 regression (iter 2 forward-fix #298): the loading→ready transition
+  // is the failure mode the previous "always-ready" test could not catch.
+  // When ViewerRouter mounts with status="loading" and pendingScrollTarget
+  // is set for this path, the saved-scroll restore effect early-returns
+  // (status !== "ready"). When content arrives and the parent re-renders
+  // with status="ready", passive effects fire CHILD→PARENT: the child
+  // viewer's `useScrollToLine` mount-effect consumes pendingScrollTarget
+  // and applies the comment-anchored scroll BEFORE the parent's restore
+  // effect runs. Without the layout-effect latch, the parent's restore
+  // effect then reads `useStore.getState().pendingScrollTarget` (now null,
+  // because the child consumed it) and the early-return guard misses,
+  // letting the saved scrollTop overwrite the comment-anchored scroll.
+  //
+  // The layout-effect latch fires AT MOUNT (deps `[path]`), captures the
+  // pending slot synchronously before any passive effect, and survives
+  // the child's later consume. This test simulates that ordering: render
+  // with loading first so the latch grabs the slot, transition to ready,
+  // simulate the child consume + manual scroll, then assert the parent's
+  // restore did not overwrite. Without the latch, this test fails: the
+  // restore effect re-fires on the status flip and snaps scrollTop to
+  // the saved 1234.
+  it("does not overwrite child's comment-anchored scroll on loading→ready transition (B1 regression #298)", () => {
+    const rafSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      });
+
+    useStore.setState({
+      tabs: [{ path: "/a.txt", scrollTop: 1234 }],
+      activeTabPath: "/a.txt",
+      pendingScrollTarget: { filePath: "/a.txt", line: 7 },
+    });
+
+    // Initial render with status="loading". The restore effect early-
+    // returns at the `status !== "ready"` check, but the layout-effect
+    // latch fires after mount and captures the pending slot for /a.txt.
+    mockUseFileContent.mockReturnValue({ status: "loading", content: undefined });
+    const { rerender, container } = render(<ViewerRouter path="/a.txt" />);
+    const scrollRegion = container.querySelector(".viewer-scroll-region") as HTMLDivElement;
+    expect(scrollRegion).toBeTruthy();
+
+    // Transition to ready. Inside the same act() we simulate the child
+    // mount-effect chain (consume + comment-anchored scroll) so that when
+    // act() flushes the parent's restore effect, the store slot is null
+    // (the realistic scenario the latch must defeat).
+    act(() => {
+      mockUseFileContent.mockReturnValue({
+        status: "ready",
+        content: "hello",
+        sizeBytes: 5,
+        mtimeMs: 0,
+      });
+      rerender(<ViewerRouter path="/a.txt" />);
+      // Simulate child useScrollToLine consume (clears the store) and the
+      // child's comment-anchored scroll application.
+      useStore.getState().consumePendingScrollTarget("/a.txt");
+      scrollRegion.scrollTop = 500;
+    });
+
+    // With the layout-effect latch, the parent's restore effect skips and
+    // 500 is preserved. Without the latch, the restore effect runs after
+    // the child's consume, sees pendingScrollTarget=null, misses the
+    // early-return guard, and the rAF retry loop snaps scrollTop to 1234.
+    expect(scrollRegion.scrollTop).toBe(500);
+    expect(scrollRegion.scrollTop).not.toBe(1234);
+
+    rafSpy.mockRestore();
+  });
 });
 
-// RC4/P1.2 (#298) — rerender invariant. ViewerRouter must NOT subscribe
+// RC4/P1.2 (#298) — rerender invariant.ViewerRouter must NOT subscribe
 // to `pendingScrollTarget`; otherwise the child's `useScrollToLine`
 // consume (which clears the slot to null) re-renders the parent and
 // re-fires its restore effect.

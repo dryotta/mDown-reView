@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { isSidecarFile } from "@/lib/file-types";
@@ -26,6 +26,32 @@ export function ViewerRouter({ path }: Props) {
   const setScrollTop = useStore((s) => s.setScrollTop);
   const ghostEntries = useStore((s) => s.ghostEntries);
   const isGhost = ghostEntries.some((g) => g.sourcePath === path);
+
+  // RC4/P1.2 (#298) — layout-effect latch handles the child→parent
+  // passive-effect ordering: when content arrives and ViewerRouter
+  // re-renders with status="ready", the child viewer's useScrollToLine
+  // mount-effect (which runs FIRST, child→parent) consumes the pending
+  // target and applies the comment-anchored scroll. Without this latch,
+  // the parent's restore effect would later read getState() and see
+  // pendingScrollTarget cleared, missing the guard and overwriting the
+  // scroll. Layout effects fire BEFORE passive effects, so the latch is
+  // set synchronously after each commit and survives the child's consume.
+  //
+  // We dropped the useStore selector subscription (not the latch): the
+  // subscription was a separate concern (writer→clear churn re-rendered
+  // ViewerRouter twice per nav). With no subscription, the parent does
+  // not re-render when the slot clears; with the latch, the parent's
+  // passive effect still sees the slot was set during the mount cycle.
+  const suppressRestoreRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const t = useStore.getState().pendingScrollTarget;
+    if (t?.filePath === path) {
+      suppressRestoreRef.current = path;
+    }
+    return () => {
+      suppressRestoreRef.current = null;
+    };
+  }, [path]);
 
   // Iter 5 Group B— every viewer surfaces a file-anchored authoring entry
   // point. Reading through `useStore.getState()` at click time (not via a
@@ -70,17 +96,13 @@ export function ViewerRouter({ path }: Props) {
   useEffect(() => {
     if (!scrollRef.current || status !== "ready") return;
 
-    // RC4/P1.2 (#298) — read pendingScrollTarget via getState() (no
-    // subscription) so the child `useScrollToLine` consume (which clears
-    // the store) does not re-render ViewerRouter or re-fire this effect.
-    // If a cross-file scroll target is queued for THIS file, the child
-    // viewer's `useScrollToLine` mount-effect handles it; the saved-
-    // scroll restore must skip so we don't overwrite the comment-anchored
-    // scroll the child just applied. (The previous `suppressRestoreRef`
-    // latch became dead code once the subscription was dropped — without
-    // a re-render the effect's deps don't change, so a single getState()
-    // check at mount is sufficient.)
-    if (useStore.getState().pendingScrollTarget?.filePath === path) return;
+    // RC4/P1.2 (#298) — skip saved-scroll restore when a cross-file
+    // scroll target was/is queued for THIS file. The layout-effect latch
+    // above captures the slot state synchronously during the mount cycle
+    // so the child `useScrollToLine` passive-effect consume cannot blank
+    // our view of it. (Reading via `useStore.getState()` here would race
+    // the child's consume because passive effects fire child→parent.)
+    if (suppressRestoreRef.current === path) return;
 
     const target = useStore.getState().tabs.find((t) => t.path === path)?.scrollTop ?? 0;
 
