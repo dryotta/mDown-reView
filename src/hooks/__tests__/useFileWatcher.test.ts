@@ -165,6 +165,49 @@ describe("useFileWatcher debounced deletion scan", () => {
   });
 });
 
+describe("useFileWatcher sidecar-config-changed listener", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    useStore.setState({
+      root: "/workspace",
+      tabs: [],
+      lastSaveByPath: {},
+      ghostEntries: [],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("re-scans ghosts when sidecar-config-changed fires (debounced)", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    // Clear initial root-change scan so the assertion is unambiguous
+    vi.mocked(scanReviewFiles).mockClear();
+
+    const call = vi
+      .mocked(listenEvent)
+      .mock.calls.find((c) => c[0] === "sidecar-config-changed");
+    if (!call) throw new Error("listenEvent('sidecar-config-changed', ...) was never called");
+    const callback = call[1] as (payload: { path: string }) => void;
+
+    act(() => {
+      callback({ path: "/workspace/.mrsf.yaml" });
+    });
+
+    // Debounced — not invoked synchronously
+    expect(scanReviewFiles).not.toHaveBeenCalled();
+
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(scanReviewFiles).toHaveBeenCalledWith("/workspace");
+    expect(scanReviewFiles).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("useFileWatcher save-loop suppression", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1,12 +1,16 @@
-import { test, expect, setRootViaTest } from "./fixtures";
+import { test, expect, setRootViaTest, waitForTauriEvent } from "./fixtures";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 
 test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
-  // Skip: flaky on CI — watcher config reload timing is non-deterministic
-  // on Windows GitHub Actions runners. See https://github.com/dryotta/mdownreview/issues/281
-  test.skip("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
+  // Listen-then-write pattern (issue #304 / FLAKE-1): register a Tauri event
+  // listener for `sidecar-config-changed` BEFORE writing .mrsf.yaml, then
+  // deterministically await the emit instead of polling get_sidecar_config.
+  // Must run as a native E2E because it exercises real OS file events, the
+  // Rust watcher's 300 ms debouncer, and the window-scoped Tauri IPC emit
+  // path — none of which are present in the browser-mock layer.
+  test("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
     nativePage,
   }) => {
     const rawTmpDir = path.join(os.tmpdir(), `mdownreview-mrsf-${Date.now()}`);
@@ -19,54 +23,48 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
     try {
       await setRootViaTest(nativePage, tmpDir);
 
-      // Wait for the app to render the file
+      // Wait for the app to render the file. The markdown-viewer being
+      // visible proves the workspace opened and the tree rendered, so the
+      // watcher has been registered for this root via update_tree_watched_dirs
+      // (from the frontend's useTreeWatcher hook).
       await expect(nativePage.locator(".markdown-viewer")).toBeVisible({ timeout: 10_000 });
       await expect(nativePage.locator(".markdown-viewer")).toContainText("Hello", {
         timeout: 5_000,
       });
 
-      // Drop .mrsf.yaml — watcher should detect and reload config internally.
-      // The watcher needs to have registered the workspace root first
-      // (via update_tree_watched_dirs from the frontend's useTreeWatcher hook).
-      // The markdown-viewer being visible proves the workspace opened and
-      // the tree rendered, so the watcher should be watching by now.
+      // Phase 1: register the listener BEFORE writing .mrsf.yaml. The helper
+      // returns a Promise that resolves when the watcher emits the
+      // window-scoped `sidecar-config-changed` event (or rejects on timeout).
+      const eventPromise = waitForTauriEvent<{ path: string }>(
+        nativePage,
+        "sidecar-config-changed",
+        10_000,
+      );
+
+      // Phase 2: drop .mrsf.yaml — the watcher's 300 ms debouncer detects
+      // the create, reloads the config, and emits sidecar-config-changed.
       fs.writeFileSync(
         path.join(tmpDir, ".mrsf.yaml"),
         "sidecar_root: .reviews\n",
       );
 
-      // Phase 1: Poll `get_sidecar_config` until the watcher picks up
-      // .mrsf.yaml. This is deterministic (IPC query to the config cache)
-      // and avoids relying on filesystem side-effects that are
-      // timing-sensitive on slow CI runners.
-      const MAX_CONFIG_POLLS = 60; // 60 × 500ms = 30s budget
-      let configDetected = false;
-      for (let i = 0; i < MAX_CONFIG_POLLS; i++) {
-        await nativePage.waitForTimeout(500);
-        const result = await nativePage.evaluate((root: string) => {
-          // @ts-ignore — Tauri internals
-          return window.__TAURI_INTERNALS__.invoke("get_sidecar_config", { root });
-        }, tmpDir);
-        if (result && (result as { enabled: boolean }).enabled) {
-          configDetected = true;
-          break;
-        }
-      }
-      expect(
-        configDetected,
-        "get_sidecar_config should report enabled=true after watcher reloads .mrsf.yaml",
-      ).toBe(true);
+      // Phase 3: deterministic await — fail loudly if no event arrives.
+      // If the watcher or emit_config_changed regresses, this rejects at
+      // 10 s with `timeout waiting for sidecar-config-changed`.
+      const payload = await eventPromise;
+      expect(payload.path).toBe(tmpDir);
 
-      // Phase 2: Config is confirmed loaded — verify add_comment writes
-      // the sidecar into .reviews/.
+      // Phase 4: verify cache state via the IPC oracle.
+      const cached = await nativePage.evaluate((root: string) => {
+        // @ts-ignore — Tauri internals
+        return window.__TAURI_INTERNALS__.invoke("get_sidecar_config", { root });
+      }, tmpDir);
+      expect((cached as { enabled: boolean }).enabled).toBe(true);
+
+      // Phase 5: verify add_comment writes the sidecar into .reviews/.
       const reviewsDir = path.join(tmpDir, ".reviews");
       const sidecarPath = path.join(reviewsDir, "readme.md.review.yaml");
       const colocated = path.join(tmpDir, "readme.md.review.yaml");
-
-      // Clean up any artifacts from Phase 1 probes (get_sidecar_config
-      // doesn't write, but be safe).
-      if (fs.existsSync(colocated)) fs.unlinkSync(colocated);
-      if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
 
       await nativePage.evaluate((fp: string) => {
         // @ts-ignore — Tauri internals
@@ -80,9 +78,6 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
           document: null,
         });
       }, docFile);
-
-      // Give the write a moment to flush
-      await nativePage.waitForTimeout(500);
 
       // Verify: sidecar landed in .reviews/ directory
       expect(fs.existsSync(sidecarPath), `sidecar should exist at ${sidecarPath}`).toBe(true);

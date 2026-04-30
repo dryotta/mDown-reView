@@ -35,8 +35,9 @@ export interface EventPayloads {
   // serialized as `string[]`.
   "open-file-tab": string[];
   // Emitted by sidecar config commands after toggle/migration so the
-  // watcher hook rescans ghost entries.
-  "sidecar-config-changed": void;
+  // watcher hook rescans ghost entries. Payload mirrors
+  // src-tauri/src/watcher.rs::SidecarConfigChangedEvent.
+  "sidecar-config-changed": { path: string };
   // Menu events — emitted from on_menu_event with `()` payload.
   "menu-open-file": void;
   "menu-open-folder": void;
