@@ -13,8 +13,6 @@ function makeInput(overrides: Partial<SourceLineModelInput> = {}): SourceLineMod
     query: "",
     matchesByLine: new Map(),
     highlightedLines: [],
-    expandedLine: null,
-    commentingLine: null,
     ...overrides,
   };
 }
@@ -40,8 +38,8 @@ describe("useSourceLineModel", () => {
           lines,
           foldStartMap: new Map([[1, foldRegion]]),
           collapsedLines: new Set([1]),
-        }),
-      ),
+        })
+      )
     );
     // Should produce: line 1 (the fold start, marked collapsed), then jump to line 5.
     expect(result.current.map((m) => m.lineNum)).toEqual([1, 5]);
@@ -58,11 +56,11 @@ describe("useSourceLineModel", () => {
           lines,
           query: "bar",
           matchesByLine: new Map([[0, [{ startCol: 4, endCol: 7, isCurrent: true }]]]),
-        }),
-      ),
+        })
+      )
     );
     expect(result.current[0].contentHtml).toBe(
-      'foo <mark class="search-match-current">bar</mark> baz',
+      'foo <mark class="search-match-current">bar</mark> baz'
     );
     // Unmatched line falls back to escaped text.
     expect(result.current[1].contentHtml).toBe("no match here");
@@ -84,20 +82,20 @@ describe("useSourceLineModel", () => {
               ],
             ],
           ]),
-        }),
-      ),
+        })
+      )
     );
     expect(result.current[0].contentHtml).toBe(
-      '<mark class="search-match">xx</mark> zz <mark class="search-match">xx</mark>',
+      '<mark class="search-match">xx</mark> zz <mark class="search-match">xx</mark>'
     );
   });
 
   it("highlightedLines present (and no query) → extracts inner code from <pre><code>…</code></pre>", () => {
     const lines = ["const x = 1;"];
-    const highlightedLines = ['<pre class="shiki"><code><span class="line">SHIKI</span></code></pre>'];
-    const { result } = renderHook(() =>
-      useSourceLineModel(makeInput({ lines, highlightedLines })),
-    );
+    const highlightedLines = [
+      '<pre class="shiki"><code><span class="line">SHIKI</span></code></pre>',
+    ];
+    const { result } = renderHook(() => useSourceLineModel(makeInput({ lines, highlightedLines })));
     expect(result.current[0].contentHtml).toBe('<span class="line">SHIKI</span>');
   });
 
@@ -107,7 +105,7 @@ describe("useSourceLineModel", () => {
     const threadsByLine = new Map<number, CommentThread[]>([[2, [thread]]]);
     const { result, rerender } = renderHook(
       (props: SourceLineModelInput) => useSourceLineModel(props),
-      { initialProps: makeInput({ lines, threadsByLine }) },
+      { initialProps: makeInput({ lines, threadsByLine }) }
     );
     expect(result.current[0].lineThreads).toEqual([]);
     expect(result.current[1].lineThreads).toEqual([thread]);
@@ -137,23 +135,10 @@ describe("useSourceLineModel", () => {
           query: "a",
           // Only line 0 matches; line 1 has no matches but should still be highlighted.
           matchesByLine: new Map([[0, [{ startCol: 6, endCol: 7, isCurrent: true }]]]),
-        }),
-      ),
+        })
+      )
     );
     expect(result.current[0].contentHtml).toContain('<mark class="search-match-current">');
     expect(result.current[1].contentHtml).toBe('<span class="line">SHIKI_B</span>');
-  });
-
-  it("expandedLine / commentingLine flags map to the right entry", () => {
-    const lines = ["a", "b", "c"];
-    const { result } = renderHook(() =>
-      useSourceLineModel(makeInput({ lines, expandedLine: 2, commentingLine: 3 })),
-    );
-    expect(result.current[0].isExpanded).toBe(false);
-    expect(result.current[0].isCommenting).toBe(false);
-    expect(result.current[1].isExpanded).toBe(true);
-    expect(result.current[1].isCommenting).toBe(false);
-    expect(result.current[2].isExpanded).toBe(false);
-    expect(result.current[2].isCommenting).toBe(true);
   });
 });

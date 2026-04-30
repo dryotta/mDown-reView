@@ -4,40 +4,26 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { SourceLine, type SourceLineProps } from "../SourceLine";
 import type { CommentThread, FoldRegion } from "@/lib/tauri-commands";
 
-vi.mock("@/components/comments/LineCommentMargin", () => ({
-  LineCommentMargin: (props: {
-    lineNumber: number;
-    threads: CommentThread[];
-    showInput?: boolean;
-    forceExpanded?: boolean;
-  }) => (
-    <div
-      data-testid="line-comment-margin"
-      data-line={props.lineNumber}
-      data-thread-count={props.threads.length}
-      data-show-input={props.showInput ? "true" : "false"}
-      data-force-expanded={props.forceExpanded ? "true" : "false"}
-    />
-  ),
-}));
+function makeThread(id: string, opts: { resolved?: boolean } = {}): CommentThread {
+  return {
+    root: { id, resolved: opts.resolved ?? false, replies: [] } as never,
+    replies: [],
+  } as unknown as CommentThread;
+}
 
 function renderLine(overrides: Partial<SourceLineProps> = {}) {
   const props: SourceLineProps = {
     idx: 0,
     lineNum: 1,
-    line: "const x = 1;",
     filePath: "/test.ts",
     contentHtml: "const x = 1;",
     isSelectionActive: false,
     foldRegion: undefined,
     isCollapsed: false,
     lineThreads: [],
-    isCommenting: false,
-    isExpanded: false,
     onToggleFold: vi.fn(),
-    onCommentButtonClick: vi.fn(),
-    onCloseInput: vi.fn(),
-    onRequestInput: vi.fn(),
+    onAddCommentClick: vi.fn(),
+    onMarkerClick: vi.fn(),
     ...overrides,
   };
   const utils = render(<SourceLine {...props} />);
@@ -72,17 +58,17 @@ describe("SourceLine", () => {
     expect(onToggleFold).toHaveBeenCalledWith(2);
   });
 
-  it("renders the LineCommentMargin when lineThreads is non-empty", () => {
-    const thread = { root: { line: 1 } } as unknown as CommentThread;
-    renderLine({ lineThreads: [thread] });
-    const margin = screen.getByTestId("line-comment-margin");
-    expect(margin).toBeInTheDocument();
-    expect(margin.getAttribute("data-thread-count")).toBe("1");
+  it("renders the bubble marker (no `+`) when lineThreads has unresolved threads", () => {
+    renderLine({ lineThreads: [makeThread("c1")] });
+    expect(screen.getByLabelText(/comment/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Add comment")).toBeNull();
   });
 
-  it("does not render the margin when there are no threads and not commenting/expanded", () => {
+  it("does not render the bubble when there are no unresolved threads", () => {
     renderLine();
-    expect(screen.queryByTestId("line-comment-margin")).toBeNull();
+    // No bubble — the gutter shows the `+` add-comment affordance instead.
+    expect(document.querySelector(".comment-marker")).toBeNull();
+    expect(screen.getByLabelText("Add comment")).toBeInTheDocument();
   });
 
   it("renders pre-highlighted search HTML via dangerouslySetInnerHTML", () => {
@@ -94,11 +80,18 @@ describe("SourceLine", () => {
     expect(mark?.textContent).toBe("bar");
   });
 
-  it("calls onCommentButtonClick with lineNum when the + button is clicked", () => {
-    const onCommentButtonClick = vi.fn();
-    renderLine({ lineNum: 12, onCommentButtonClick });
+  it("calls onAddCommentClick with lineNum when the + button is clicked", () => {
+    const onAddCommentClick = vi.fn();
+    renderLine({ lineNum: 12, onAddCommentClick });
     fireEvent.click(screen.getByLabelText("Add comment"));
-    expect(onCommentButtonClick).toHaveBeenCalledWith(12);
+    expect(onAddCommentClick).toHaveBeenCalledWith(12);
+  });
+
+  it("calls onMarkerClick with lineNum when the bubble marker is clicked", () => {
+    const onMarkerClick = vi.fn();
+    renderLine({ lineNum: 9, lineThreads: [makeThread("c1")], onMarkerClick });
+    fireEvent.click(screen.getByLabelText(/^1 comment$/));
+    expect(onMarkerClick).toHaveBeenCalledWith(9);
   });
 
   it("adds the 'selection-active' class to the line wrapper when isSelectionActive is true", () => {
@@ -108,19 +101,11 @@ describe("SourceLine", () => {
     expect(wrapper?.classList.contains("selection-active")).toBe(true);
   });
 
-  it("renders LineCommentMargin with showInput=true when isCommenting is true", () => {
-    renderLine({ isCommenting: true });
-    const margin = screen.getByTestId("line-comment-margin");
-    expect(margin).toBeInTheDocument();
-    expect(margin.getAttribute("data-show-input")).toBe("true");
-  });
-
-  it("renders LineCommentMargin with forceExpanded when isExpanded is true (no threads, not commenting)", () => {
-    renderLine({ isExpanded: true });
-    const margin = screen.getByTestId("line-comment-margin");
-    expect(margin).toBeInTheDocument();
-    expect(margin.getAttribute("data-force-expanded")).toBe("true");
-    expect(margin.getAttribute("data-show-input")).toBe("false");
+  it("renders 'N comments' aria-label when ≥2 unresolved threads", () => {
+    renderLine({
+      lineThreads: [makeThread("a"), makeThread("b")],
+    });
+    expect(screen.getByLabelText("2 comments")).toBeInTheDocument();
   });
 
   it("shows the ▾ Collapse toggle and no placeholder when foldRegion is present and isCollapsed=false", () => {
@@ -135,21 +120,12 @@ describe("SourceLine", () => {
   it("re-renders only the line whose props changed (React.memo + stable handlers)", () => {
     // Sanity check first: SourceLine itself must be a React.memo component
     // — without that wrapper the parent's stable handlers buy nothing.
-    expect((SourceLine as unknown as { $$typeof: symbol }).$$typeof).toBe(
-      Symbol.for("react.memo"),
-    );
+    expect((SourceLine as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
 
-    // Render-counter wrapper — counts how many times each line's render
-    // pipeline commits. Wrapper itself is memoized (mirroring SourceLine's
-    // own memo) so the counter only ticks when shallow-equal props change.
-    // Together with stable parent handlers this proves that 4999/5000 lines
-    // skip re-render during a parent re-render.
     const renderCounts: Record<number, number> = {};
     const setterRef: { current: ((html: string) => void) | null } = { current: null };
 
     function CountingSourceLine(props: SourceLineProps) {
-      // Count via useEffect: skipped (memoized) commits don't fire it, so
-      // this measures actual reconciliations rather than render-fn calls.
       useEffect(() => {
         renderCounts[props.idx] = (renderCounts[props.idx] ?? 0) + 1;
       });
@@ -159,15 +135,13 @@ describe("SourceLine", () => {
 
     function Harness() {
       const [line1Html, setLine1Html] = useState("AAA");
-      // Use an effect so the setter assignment isn't a render-phase side effect.
       useEffect(() => {
         setterRef.current = setLine1Html;
       }, []);
       // Stable handlers — what the real SourceView does via useCallback.
       const onToggleFold = useStableFn();
-      const onCommentButtonClick = useStableFn();
-      const onCloseInput = useStableFn();
-      const onRequestInput = useStableFn();
+      const onAddCommentClick = useStableFn();
+      const onMarkerClick = useStableFn();
 
       const baseProps = {
         filePath: "/test.ts",
@@ -175,53 +149,30 @@ describe("SourceLine", () => {
         foldRegion: undefined,
         isCollapsed: false,
         lineThreads: STABLE_EMPTY_THREADS,
-        isCommenting: false,
-        isExpanded: false,
         onToggleFold,
-        onCommentButtonClick,
-        onCloseInput,
-        onRequestInput,
+        onAddCommentClick,
+        onMarkerClick,
       } as const;
 
       return (
         <>
-          <MemoCountingSourceLine
-            {...baseProps}
-            idx={0}
-            lineNum={1}
-            line="line1"
-            contentHtml={line1Html}
-          />
-          <MemoCountingSourceLine
-            {...baseProps}
-            idx={1}
-            lineNum={2}
-            line="line2"
-            contentHtml="BBB"
-          />
-          <MemoCountingSourceLine
-            {...baseProps}
-            idx={2}
-            lineNum={3}
-            line="line3"
-            contentHtml="CCC"
-          />
+          <MemoCountingSourceLine {...baseProps} idx={0} lineNum={1} contentHtml={line1Html} />
+          <MemoCountingSourceLine {...baseProps} idx={1} lineNum={2} contentHtml="BBB" />
+          <MemoCountingSourceLine {...baseProps} idx={2} lineNum={3} contentHtml="CCC" />
         </>
       );
     }
 
     render(<Harness />);
-    // Initial render: each line rendered exactly once.
     expect(renderCounts[0]).toBe(1);
     expect(renderCounts[1]).toBe(1);
     expect(renderCounts[2]).toBe(1);
 
-    // Trigger a parent re-render that only changes line 0's contentHtml.
     act(() => setterRef.current?.("AAA-changed"));
 
-    expect(renderCounts[0]).toBe(2); // changed → re-rendered
-    expect(renderCounts[1]).toBe(1); // unchanged props → memo skipped
-    expect(renderCounts[2]).toBe(1); // unchanged props → memo skipped
+    expect(renderCounts[0]).toBe(2);
+    expect(renderCounts[1]).toBe(1);
+    expect(renderCounts[2]).toBe(1);
   });
 });
 
@@ -230,8 +181,6 @@ describe("SourceLine", () => {
 const STABLE_EMPTY_THREADS: CommentThread[] = [];
 
 function useStableFn() {
-  // A no-op callback whose identity never changes across renders, mirroring
-  // the useCallback-stabilized handlers in SourceView.
   const [fn] = useState(() => () => {});
   return fn;
 }

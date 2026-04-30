@@ -100,7 +100,6 @@ describe("Zustand fine-grained selectors", () => {
       "src/components/comments/CommentsPanel.tsx",
       "src/components/comments/CommentThread.tsx",
       "src/components/TabBar/TabBar.tsx",
-      "src/components/comments/LineCommentMargin.tsx",
     ];
 
     for (const file of files) {

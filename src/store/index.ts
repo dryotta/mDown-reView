@@ -39,6 +39,28 @@ export interface RecentItem {
 
 const MAX_RECENT_ITEMS = 5;
 
+// ── Pending-compose seed ──────────────────────────────────────────────────
+//
+// Authoring is panel-only: every entry point (selection toolbar, source
+// gutter `+` button, markdown gutter click on an empty block, the
+// Ctrl/Cmd+Shift+M shortcut) seeds a request through this shape. The
+// `anchor` mirrors the wire `CommentAnchor` (line is required; the rest
+// optional for a full-line/block-level seed). The `draftKey` overrides
+// the per-anchor fingerprint default so concurrent seeds for the same
+// line (e.g. selection composer vs. line composer) don't collide.
+export interface PendingLineCompose {
+  filePath: string;
+  anchor: {
+    line: number;
+    end_line?: number;
+    start_column?: number;
+    end_column?: number;
+    selected_text?: string;
+    selected_text_hash?: string;
+  };
+  draftKey?: string;
+}
+
 // ── Workspace slice ────────────────────────────────────────────────────────
 
 interface WorkspaceSlice {
@@ -82,6 +104,14 @@ interface UISlice {
    */
   pendingFileLevelInputFor: string | null;
   /**
+   * Transient: a request to seed a line-anchored composer in the
+   * `CommentsPanel` (and auto-open the panel). Set by the selection
+   * toolbar, source-view gutter `+` button, markdown gutter click on an
+   * empty block, and the Ctrl/Cmd+Shift+M shortcut. Consumed once by the
+   * panel on its next render. NOT persisted.
+   */
+  pendingLineCompose: PendingLineCompose | null;
+  /**
    * Transient: a `{path, fragment}` request to scroll the next viewer for
    * `path` to the given heading id. Set by viewer link handlers when they
    * open another file (or the same file) with a `#fragment`. Consumed by
@@ -96,6 +126,15 @@ interface UISlice {
   setReadingWidth: (n: number) => void;
   requestFileLevelInput: (filePath: string) => void;
   clearFileLevelInput: () => void;
+  /**
+   * Seed a line-anchored composer in the panel and force the panel
+   * visible. The panel renders a `CommentInput` against the supplied
+   * anchor on its next render, then calls `clearLineCompose` once the
+   * input has been mounted (so reload mid-typing recovers via the
+   * draft store, not via this transient flag).
+   */
+  requestLineCompose: (req: PendingLineCompose) => void;
+  clearLineCompose: () => void;
   setPendingFragment: (entry: { path: string; fragment: string } | null) => void;
   /** Returns + clears the pending fragment iff its path matches; else null. */
   consumePendingFragment: (path: string) => string | null;
@@ -185,8 +224,16 @@ interface OnboardingSlice {
 
 // ── Combined store ─────────────────────────────────────────────────────────
 
-export type Store = WorkspaceSlice & TabsSlice & UISlice & UpdateSlice & WatcherSlice & RecentSlice & OnboardingSlice & ViewerPrefsSlice & TabHistorySlice & CommentsSlice;
-
+export type Store = WorkspaceSlice &
+  TabsSlice &
+  UISlice &
+  UpdateSlice &
+  WatcherSlice &
+  RecentSlice &
+  OnboardingSlice &
+  ViewerPrefsSlice &
+  TabHistorySlice &
+  CommentsSlice;
 
 export const useStore = create<Store>()(
   persist(
@@ -235,14 +282,18 @@ export const useStore = create<Store>()(
       authorName: "",
       readingWidth: 720,
       pendingFileLevelInputFor: null,
+      pendingLineCompose: null,
       pendingFragment: null,
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) => set({ folderPaneWidth: width }),
       toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
-      requestFileLevelInput: (filePath) => set({ pendingFileLevelInputFor: filePath, commentsPaneVisible: true }),
+      requestFileLevelInput: (filePath) =>
+        set({ pendingFileLevelInputFor: filePath, commentsPaneVisible: true }),
       clearFileLevelInput: () => set({ pendingFileLevelInputFor: null }),
+      requestLineCompose: (req) => set({ pendingLineCompose: req, commentsPaneVisible: true }),
+      clearLineCompose: () => set({ pendingLineCompose: null }),
       setPendingFragment: (entry) => set({ pendingFragment: entry }),
       consumePendingFragment: (path) => {
         const pending = get().pendingFragment;
@@ -262,8 +313,12 @@ export const useStore = create<Store>()(
         const current = get().ghostEntries;
         if (
           current.length === entries.length &&
-          current.every((e, i) => e.sidecarPath === entries[i].sidecarPath && e.sourcePath === entries[i].sourcePath)
-        ) return;
+          current.every(
+            (e, i) =>
+              e.sidecarPath === entries[i].sidecarPath && e.sourcePath === entries[i].sourcePath
+          )
+        )
+          return;
         set({ ghostEntries: entries });
       },
       lastSaveByPath: {},
@@ -310,7 +365,7 @@ export const useStore = create<Store>()(
         const errors: Record<string, string> = { ...get().onboardingErrors };
         const mapStatus = (
           r: PromiseSettledResult<string>,
-          key: OnboardingSectionKey,
+          key: OnboardingSectionKey
         ): OnboardingStatus => {
           if (r.status === "rejected") {
             errors[key] = formatOnboardingError(r.reason);
@@ -335,7 +390,7 @@ export const useStore = create<Store>()(
       },
       openSettings: () => set({ settingsDialogOpen: true }),
       closeSettings: () => set({ settingsDialogOpen: false }),
-      installCliShim:() => runOnboardingAction("cliShim", ipcInstallCliShim),
+      installCliShim: () => runOnboardingAction("cliShim", ipcInstallCliShim),
       removeCliShim: () => runOnboardingAction("cliShim", ipcRemoveCliShim),
       setDefaultHandler: () => runOnboardingAction("defaultHandler", ipcSetDefaultHandler),
     }),
@@ -353,11 +408,8 @@ export const useStore = create<Store>()(
         // 500-LOC budget). The persist signature requires the
         // partialize-shape return; runtime shape is identical so we cast
         // through the partialize result type.
-        const migrated =
-          fromVersion < 1 ? migrateV1StripVerbatim(persistedState) : persistedState;
-        return migrated as ReturnType<
-          NonNullable<Parameters<typeof persist>[1]["partialize"]>
-        >;
+        const migrated = fromVersion < 1 ? migrateV1StripVerbatim(persistedState) : persistedState;
+        return migrated as ReturnType<NonNullable<Parameters<typeof persist>[1]["partialize"]>>;
       },
       // Only persist global prefs — per-window state (tabs, activeTabPath,
       // expandedFolders, root) starts fresh each window / app launch.
@@ -444,7 +496,7 @@ export function formatOnboardingError(reason: unknown): string {
  */
 async function runOnboardingAction(
   sectionKey: OnboardingSectionKey,
-  action: () => Promise<void>,
+  action: () => Promise<void>
 ): Promise<void> {
   try {
     await action();

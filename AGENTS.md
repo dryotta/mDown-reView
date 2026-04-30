@@ -142,7 +142,7 @@ src/
       ViewerRouter.tsx      ← routes to appropriate viewer (incl. ghost detection)
       BinaryPlaceholder.tsx
       MermaidView.tsx
-    comments/               ← CommentInput, CommentThread, CommentsPanel, CommentBadge, LineCommentMargin, SelectionToolbar
+    comments/               ← CommentInput, CommentThread, CommentsPanel, CommentBadge, CommentMarker, SelectionToolbar
     AboutDialog.tsx
     ErrorBoundary.tsx
   store/                    ← Zustand slices

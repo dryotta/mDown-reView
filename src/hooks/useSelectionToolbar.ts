@@ -1,6 +1,8 @@
 import { useState, useCallback } from "react";
 import { computeAnchorHash } from "@/lib/tauri-commands";
 import { truncateSelectedText } from "@/lib/comment-utils";
+import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
+import { useStore } from "@/store";
 
 interface SelectionState {
   position: { top: number; left: number };
@@ -11,30 +13,39 @@ interface SelectionState {
   endOffset: number;
 }
 
-interface PendingAnchor {
-  line: number;
-  end_line: number;
-  start_column: number;
-  end_column: number;
-  selected_text: string;
-  selected_text_hash?: string;
-}
-
+/**
+ * Selection toolbar for both source and markdown viewers.
+ *
+ * On mouseup over a non-collapsed selection inside a `[lineAttribute]`
+ * region, sets `selectionToolbar` so the floating chip can render. When
+ * the user clicks "Comment" on the chip, [`handleAddSelectionComment`]
+ * computes a Line anchor for the selection (line, end_line, start/end
+ * column, selected_text, selected_text_hash) and seeds a panel composer
+ * via `requestLineCompose` — authoring is panel-only, so the selection
+ * never mounts an inline composer.
+ */
 export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset = 1) {
   const [selectionToolbar, setSelectionToolbar] = useState<SelectionState | null>(null);
-  const [pendingSelectionAnchor, setPendingSelectionAnchor] = useState<PendingAnchor | null>(null);
-  const [highlightedSelectionLines, setHighlightedSelectionLines] = useState<Set<number>>(new Set());
 
   const handleMouseUp = () => {
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { setSelectionToolbar(null); return; }
+    if (!sel || sel.isCollapsed) {
+      setSelectionToolbar(null);
+      return;
+    }
     const range = sel.getRangeAt(0);
     const selectedText = sel.toString();
-    if (!selectedText.trim()) { setSelectionToolbar(null); return; }
+    if (!selectedText.trim()) {
+      setSelectionToolbar(null);
+      return;
+    }
 
     const startEl = range.startContainer.parentElement?.closest(`[${lineAttribute}]`);
     const endEl = range.endContainer.parentElement?.closest(`[${lineAttribute}]`);
-    if (!startEl || !endEl) { setSelectionToolbar(null); return; }
+    if (!startEl || !endEl) {
+      setSelectionToolbar(null);
+      return;
+    }
 
     const startIdx = Number(startEl.getAttribute(lineAttribute));
     const endIdx = Number(endEl.getAttribute(lineAttribute));
@@ -45,8 +56,7 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
     // fall back to a temporary zero-width range placed at the selection's
     // end point so we can still read a usable caret rect.
     const rects = range.getClientRects();
-    let lastRect: DOMRect | null =
-      rects.length > 0 ? (rects[rects.length - 1] as DOMRect) : null;
+    let lastRect: DOMRect | null = rects.length > 0 ? (rects[rects.length - 1] as DOMRect) : null;
     if (!lastRect) {
       try {
         const caret = document.createRange();
@@ -70,7 +80,7 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
     const toolbarHeight = 36;
     const toolbarWidth = 120;
     let top = lastRect.top - toolbarHeight - 4;
-    let left = lastRect.left + (lastRect.width / 2) - (toolbarWidth / 2);
+    let left = lastRect.left + lastRect.width / 2 - toolbarWidth / 2;
 
     // Flip below if no room above
     if (top < 4) {
@@ -96,45 +106,41 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
     });
   };
 
-  const handleAddSelectionComment = async (setCommentingLine: (line: number) => void) => {
-    if (!selectionToolbar) return;
-    const { lineNumber, selectedText, startOffset, endLine, endOffset } = selectionToolbar;
+  const handleAddSelectionComment = useCallback(
+    async (filePath: string) => {
+      if (!selectionToolbar) return;
+      const { lineNumber, selectedText, startOffset, endLine, endOffset } = selectionToolbar;
+      const truncated = truncateSelectedText(selectedText);
+      const hash = await computeAnchorHash(truncated);
+      const anchor = {
+        line: lineNumber,
+        end_line: endLine,
+        start_column: startOffset,
+        end_column: endOffset,
+        selected_text: truncated,
+        selected_text_hash: hash,
+      };
+      useStore.getState().requestLineCompose({
+        filePath,
+        anchor,
+        // Selection composers use a fingerprint draft key so concurrent
+        // line-only and selection composers for the same line don't collide.
+        draftKey: `${filePath}::new::${fingerprintAnchor({ kind: "line", ...anchor })}`,
+      });
+      setSelectionToolbar(null);
+    },
+    [selectionToolbar]
+  );
 
-    const truncated = truncateSelectedText(selectedText);
-    const hash = await computeAnchorHash(truncated);
-
-    setPendingSelectionAnchor({
-      line: lineNumber,
-      end_line: endLine,
-      start_column: startOffset,
-      end_column: endOffset,
-      selected_text: truncated,
-      selected_text_hash: hash,
-    });
-
-    // Highlight selected lines
-    const startLine = lineNumber;
-    const endLineNum = endLine ?? lineNumber;
-    const highlighted = new Set<number>();
-    for (let i = startLine; i <= endLineNum; i++) highlighted.add(i);
-    setHighlightedSelectionLines(highlighted);
-
+  const dismissToolbar = useCallback(() => {
     setSelectionToolbar(null);
-    setCommentingLine(lineNumber);
-  };
-
-  const clearSelection = useCallback(() => {
-    setPendingSelectionAnchor(null);
-    setHighlightedSelectionLines(new Set());
   }, []);
 
   return {
     selectionToolbar,
     setSelectionToolbar,
-    pendingSelectionAnchor,
-    highlightedSelectionLines,
     handleMouseUp,
     handleAddSelectionComment,
-    clearSelection,
+    dismissToolbar,
   };
 }

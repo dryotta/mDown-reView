@@ -20,8 +20,6 @@ export interface SourceLineModelInput {
   query: string;
   matchesByLine: Map<number, SearchMatchInLine[]>;
   highlightedLines: string[];
-  expandedLine: number | null;
-  commentingLine: number | null;
 }
 
 export interface LineModel {
@@ -32,8 +30,6 @@ export interface LineModel {
   foldRegion: FoldRegion | undefined;
   isCollapsed: boolean;
   lineThreads: CommentThread[];
-  isCommenting: boolean;
-  isExpanded: boolean;
 }
 
 function extractInnerCode(html: string): string {
@@ -73,8 +69,6 @@ export function useSourceLineModel(input: SourceLineModelInput): LineModel[] {
     query,
     matchesByLine,
     highlightedLines,
-    expandedLine,
-    commentingLine,
   } = input;
 
   return useMemo(() => {
@@ -104,8 +98,6 @@ export function useSourceLineModel(input: SourceLineModelInput): LineModel[] {
         foldRegion,
         isCollapsed,
         lineThreads: threadsByLine.get(lineNum) ?? EMPTY_THREADS,
-        isCommenting: commentingLine === lineNum,
-        isExpanded: expandedLine === lineNum,
       });
 
       if (isCollapsed && foldRegion) {
@@ -115,15 +107,5 @@ export function useSourceLineModel(input: SourceLineModelInput): LineModel[] {
       }
     }
     return out;
-  }, [
-    lines,
-    threadsByLine,
-    foldStartMap,
-    collapsedLines,
-    query,
-    matchesByLine,
-    highlightedLines,
-    expandedLine,
-    commentingLine,
-  ]);
+  }, [lines, threadsByLine, foldStartMap, collapsedLines, query, matchesByLine, highlightedLines]);
 }

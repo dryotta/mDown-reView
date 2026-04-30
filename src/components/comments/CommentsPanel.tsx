@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
 import { useFilteredComments } from "@/lib/vm/useFilteredComments";
@@ -8,7 +8,8 @@ import { CommentInput } from "./CommentInput";
 import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
 import { deriveAnchor } from "@/lib/anchor-derive";
 import { error as logError } from "@/logger";
-import type { MatchedComment } from "@/lib/tauri-commands";
+import { emitCommentFlash, flashElement, onCommentFlash } from "@/lib/comment-flash";
+import type { CommentAnchor, MatchedComment } from "@/lib/tauri-commands";
 import "@/styles/comments.css";
 
 interface Props {
@@ -32,6 +33,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
    * user-facing half of the chokepoint diagnostic.
    */
   const [fileLevelError, setFileLevelError] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   // Iter 5 Group B — single-field selector (architecture rule 9). When this
   // matches our `filePath`, the toolbar's "Comment on file" button has
@@ -50,6 +52,28 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
       useStore.getState().clearFileLevelInput();
     }
   }, [pendingFileLevelInputFor, filePath]);
+
+  // Line-anchored composer requests: every entry point (selection toolbar,
+  // source-view gutter `+`, markdown gutter click on empty block,
+  // Ctrl/Cmd+Shift+M) flows through `requestLineCompose` so the panel is
+  // the single mount point for new comments. Mirror the pending request
+  // into local state, then clear it from the store on consumption.
+  const pendingLineCompose = useStore((s) => s.pendingLineCompose);
+  const [activeLineCompose, setActiveLineCompose] = useState<{
+    anchor: CommentAnchor;
+    draftKey: string;
+  } | null>(null);
+  useEffect(() => {
+    if (pendingLineCompose && pendingLineCompose.filePath === filePath) {
+      const anchor = pendingLineCompose.anchor as CommentAnchor;
+      const draftKey =
+        pendingLineCompose.draftKey ??
+        `${filePath}::new::${fingerprintAnchor({ kind: "line", ...anchor })}`;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveLineCompose({ anchor, draftKey });
+      useStore.getState().clearLineCompose();
+    }
+  }, [pendingLineCompose, filePath]);
 
   // B2 (iter 9 forward-fix): the rendered list comes from
   // `useFilteredComments`; the panel header only needs the unresolved /
@@ -79,10 +103,15 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         // queued targets, consume-by-filePath rejects mismatches).
         setPendingScrollTarget({ filePath: threadFilePath, line, commentId: comment.id });
         openFile(threadFilePath);
+        // The destination viewer will pick up the flash on mount via the
+        // `comment-flash` event we fire here — same-file flow does the
+        // same dispatch below.
+        emitCommentFlash({ filePath: threadFilePath, line, commentId: comment.id });
         return;
       }
       onScrollToLine?.(line);
       window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
+      emitCommentFlash({ filePath: threadFilePath, line, commentId: comment.id });
     },
     [onScrollToLine, filePath, openFile, setFocusedThread, setPendingScrollTarget]
   );
@@ -96,6 +125,25 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     },
     [handleClick]
   );
+
+  // Cross-surface flash listener for panel rows. When a marker (or another
+  // panel row) emits `comment-flash`, every row whose anchored line matches
+  // the event's line gets the keyframe animation re-fired imperatively —
+  // multi-comment lines highlight all matching rows at once.
+  useEffect(() => {
+    return onCommentFlash((detail) => {
+      const root = bodyRef.current;
+      if (!root) return;
+      const items = root.querySelectorAll<HTMLElement>(
+        `.comment-panel-item[data-comment-file-path="${CSS.escape(detail.filePath)}"]`
+      );
+      items.forEach((el) => {
+        const lineAttr = el.getAttribute("data-comment-line");
+        if (!lineAttr) return;
+        if (Number(lineAttr) === detail.line) flashElement(el);
+      });
+    });
+  }, []);
 
   const handleSaveFileLevel = useCallback(
     (text: string) => {
@@ -121,6 +169,19 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     [addComment, filePath]
   );
 
+  const handleSaveLineCompose = useCallback(
+    (text: string) => {
+      if (!activeLineCompose) return;
+      const anchor = activeLineCompose.anchor;
+      void addComment(filePath, text, anchor).catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        void logError(`[CommentsPanel] line-anchored addComment failed for ${filePath}: ${msg}`);
+      });
+      setActiveLineCompose(null);
+    },
+    [addComment, filePath, activeLineCompose]
+  );
+
   const canCommentOnFile = filePath.length > 0;
 
   // C3 (iter 6 Group A) — focus halo is now CSS-only via `:focus-within`
@@ -143,7 +204,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
           {showResolved ? "Hide resolved" : `Show resolved (${resolvedCount})`}
         </button>
       </div>
-      <div className="comments-panel-body">
+      <div className="comments-panel-body" ref={bodyRef}>
         {fileLevelError && (
           <div className="comments-panel-error" role="alert" aria-live="polite">
             <span className="comments-panel-error-text">{fileLevelError}</span>
@@ -169,18 +230,40 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
             />
           </div>
         )}
+        {activeLineCompose && (
+          <div className="comment-panel-line-input">
+            <div className="comment-panel-line-input-anchor">
+              Line {activeLineCompose.anchor.line}
+              {activeLineCompose.anchor.selected_text && (
+                <span className="comment-panel-line-input-snippet">
+                  {" — "}
+                  {activeLineCompose.anchor.selected_text}
+                </span>
+              )}
+            </div>
+            <CommentInput
+              onSave={handleSaveLineCompose}
+              onClose={() => setActiveLineCompose(null)}
+              placeholder="Add a comment… (Ctrl+Enter to save, Escape to cancel)"
+              draftKey={activeLineCompose.draftKey}
+            />
+          </div>
+        )}
         {displayed.length === 0 ? (
           <div className="comments-empty">No comments yet</div>
         ) : (
           displayed.map(({ thread, filePath: tp }) => {
             const anchor = deriveAnchor(thread.root);
             const isFileLevel = anchor.kind === "file";
+            const matchedLine = thread.root.matchedLineNumber ?? thread.root.line ?? null;
             return (
               <div
                 key={`${tp}::${thread.root.id}`}
                 className="comment-panel-item"
                 role="button"
                 tabIndex={0}
+                data-comment-file-path={tp}
+                data-comment-line={matchedLine ?? ""}
                 onClick={() => handleClick(thread.root, tp)}
                 onKeyDown={(e) => handleKeyDown(e, thread.root, tp)}
               >
@@ -194,7 +277,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
                       📄 File
                     </span>
                   ) : (
-                    <>Line {thread.root.matchedLineNumber ?? thread.root.line ?? "?"}</>
+                    <>Line {matchedLine ?? "?"}</>
                   )}
                   {thread.root.isOrphaned && (
                     <span className="comment-orphaned-icon" title="Orphaned">
