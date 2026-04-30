@@ -956,6 +956,8 @@ describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native
     expect(VALIDATOR).toContain("src-tauri/Cargo.lock");
     expect(VALIDATOR).toContain("src-tauri/build.rs");
     expect(VALIDATOR).toContain("playwright.native.config.ts");
+    expect(VALIDATOR).toContain("scripts/stage-cli.mjs");
+    expect(VALIDATOR).toContain("src-tauri/binaries");
   });
 
   it("validator doc declares the structured YAML output marker", () => {
@@ -1040,7 +1042,7 @@ describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native
     expect(TEST_STRATEGY).toContain("ERROR_SERVICE_NOT_ACTIVE");
     expect(TEST_STRATEGY).toContain("CDP HTTP did not become ready");
     expect(TEST_STRATEGY).toContain("6d.0");
-    // Expanded path list (issue #316 wave-1 forward-fix): all 8 disqualifying paths.
+    // Expanded path list (issue #316 forward-fixes): all 10 disqualifying paths.
     expect(TEST_STRATEGY).toContain("e2e/native/");
     expect(TEST_STRATEGY).toContain("src-tauri/src/lib.rs");
     expect(TEST_STRATEGY).toContain("src-tauri/src/main.rs");
@@ -1049,6 +1051,8 @@ describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native
     expect(TEST_STRATEGY).toContain("src-tauri/Cargo.lock");
     expect(TEST_STRATEGY).toContain("src-tauri/build.rs");
     expect(TEST_STRATEGY).toContain("playwright.native.config.ts");
+    expect(TEST_STRATEGY).toContain("scripts/stage-cli.mjs");
+    expect(TEST_STRATEGY).toContain("src-tauri/binaries");
   });
 
   it("SKILL.md 6d step 1 excludes A from the failure bundle when ENVIRONMENTAL", () => {
@@ -1071,5 +1075,27 @@ describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native
     const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
     const sixD0Block = SKILL.slice(sixD0, sixD);
     expect(sixD0Block).toMatch(/scope-guard BLOCK from 6a-pre/);
+  });
+
+  it("SKILL.md 6d.0 outcomes enumerate hang/timeout as a terminal outcome (wave-2 forward-fix)", () => {
+    // Rubber-duck wave-2 #1: without a hang/timeout outcome, a retry that
+    // never returns leaves the orchestrator in undefined state.
+    const sixD0 = SKILL.indexOf("#### 6d.0");
+    expect(sixD0, "Step 6d.0 header not found").toBeGreaterThan(-1);
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
+    const sixD0Block = SKILL.slice(sixD0, sixD);
+    expect(sixD0Block).toMatch(/hangs \/ times out/);
+    expect(sixD0Block).toContain("timeout — suite: native-e2e");
+  });
+
+  it("SKILL.md 6d.0 serializes env-retry before 6d (no concurrent execution)", () => {
+    // Rubber-duck wave-2 #3: pin the serialization decision so the deleted
+    // concurrent-execution paragraph cannot be silently re-introduced.
+    const sixD0 = SKILL.indexOf("#### 6d.0");
+    expect(sixD0, "Step 6d.0 header not found").toBeGreaterThan(-1);
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
+    const sixD0Block = SKILL.slice(sixD0, sixD);
+    expect(sixD0Block).toContain("Sequencing guarantee");
+    expect(sixD0Block).not.toContain("in parallel with normal 6d attempt 1's forward-fix wave");
   });
 });

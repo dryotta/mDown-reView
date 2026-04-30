@@ -34,7 +34,7 @@ ERROR_SERVICE_NOT_ACTIVE
 CDP HTTP did not become ready
 ```
 
-AND the diff under test has NO changes under `e2e/native/` AND no changes to `src-tauri/src/lib.rs`, `src-tauri/src/main.rs`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/build.rs`, or `playwright.native.config.ts`, classify the native-E2E result as `ENVIRONMENTAL — retry recommended`. Per rule 27 in `docs/test-strategy.md`.
+AND the diff under test has NO changes under `e2e/native/` AND no changes to `src-tauri/src/lib.rs`, `src-tauri/src/main.rs`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/build.rs`, `playwright.native.config.ts`, `scripts/stage-cli.mjs`, or `src-tauri/binaries/**`, classify the native-E2E result as `ENVIRONMENTAL — retry recommended`. Per rule 27 in `docs/test-strategy.md`.
 
 Structured-output contract: emit BOTH the markdown verdict header `### Native E2E: ENVIRONMENTAL — retry recommended` (with the verbatim trigger token cited on the line beneath it) AND an HTML-anchored YAML block at the very end of the report:
 
@@ -46,7 +46,7 @@ environmental_failure: true
 retry_recommended: true
 ```
 
-The validator IS the chokepointfor env-flake classification; do not produce ENVIRONMENTAL when ANY of the disqualifying paths are touched in the diff — return hard FAIL instead. The skill DOES NOT re-check the diff.
+The validator IS the chokepoint for env-flake classification; do not produce ENVIRONMENTAL when ANY of the disqualifying paths are touched in the diff — return hard FAIL instead. The skill DOES NOT re-check the diff.
 
 **Examples:**
 
