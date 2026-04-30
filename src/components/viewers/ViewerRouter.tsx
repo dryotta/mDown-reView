@@ -80,11 +80,6 @@ export function ViewerRouter({ path }: Props) {
   // Guard flag: suppresses scroll-save during programmatic scroll restore
   const restoringRef = useRef(false);
 
-  const fileSize = useMemo(
-    () => content ? new TextEncoder().encode(content).length : undefined,
-    [content],
-  );
-
   // Restore scroll position after content renders.
   // Uses a rAF retry loop because async syntax highlighting (Shiki) and
   // images can change layout after the initial React render.
@@ -254,7 +249,7 @@ export function ViewerRouter({ path }: Props) {
         content={content!}
         path={path}
         filePath={path}
-        fileSize={fileSize}
+        fileSize={sizeBytes}
         onCommentOnFile={commentOnFile}
         fileCommentCount={fileCommentCount}
         fileCommentSeverity={fileCommentSeverity}

@@ -243,46 +243,48 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
   });
 });
 
-describe("ViewerRouter fileSize memoization", () => {
-  it("passes byte-accurate fileSize for ASCII content", () => {
-    const content = "Hello, world!";
-    mockUseFileContent.mockReturnValue({ status: "ready", content });
+describe("ViewerRouter fileSize source", () => {
+  // RC6/P1.3 (#298) — fileSize is now sourced directly from
+  // useFileContent's sizeBytes (the canonical on-disk byte length
+  // returned by the Rust IPC), instead of recomputing via
+  // TextEncoder on every content swap. This eliminates a Uint8Array
+  // allocation of the entire file on each render.
+  it("forwards sizeBytes from useFileContent for ASCII content", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "Hello, world!", sizeBytes: 13 });
     useStore.setState({ tabs: [{ path: "/test.txt", scrollTop: 0 }] });
     render(<ViewerRouter path="/test.txt" />);
     const viewer = screen.getByTestId("enhanced-viewer");
     expect(viewer.dataset.filesize).toBe("13");
   });
 
-  it("passes byte-accurate fileSize for multi-byte content", () => {
-    const content = "こんにちは"; // 5 chars, 15 bytes in UTF-8
-    mockUseFileContent.mockReturnValue({ status: "ready", content });
+  it("forwards sizeBytes from useFileContent for multi-byte content", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "こんにちは", sizeBytes: 15 });
     useStore.setState({ tabs: [{ path: "/jp.txt", scrollTop: 0 }] });
     render(<ViewerRouter path="/jp.txt" />);
     const viewer = screen.getByTestId("enhanced-viewer");
     expect(viewer.dataset.filesize).toBe("15");
   });
 
-  it("passes undefined fileSize when content is null", () => {
-    mockUseFileContent.mockReturnValue({ status: "ready", content: null });
+  it("passes undefined fileSize when sizeBytes is undefined", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: null, sizeBytes: undefined });
     useStore.setState({ tabs: [{ path: "/empty.txt", scrollTop: 0 }] });
     render(<ViewerRouter path="/empty.txt" />);
     const viewer = screen.getByTestId("enhanced-viewer");
     expect(viewer.dataset.filesize).toBe(undefined);
   });
 
-  it("does not recompute fileSize on unrelated re-renders", () => {
-    const content = "stable content";
-    mockUseFileContent.mockReturnValue({ status: "ready", content });
+  it("does not allocate a Uint8Array via TextEncoder on render", () => {
+    mockUseFileContent.mockReturnValue({ status: "ready", content: "stable content", sizeBytes: 14 });
     useStore.setState({ tabs: [{ path: "/stable.txt", scrollTop: 0 }] });
 
     const encodeSpy = vi.spyOn(TextEncoder.prototype, "encode");
 
     const { rerender } = render(<ViewerRouter path="/stable.txt" />);
-    const callCountAfterFirst = encodeSpy.mock.calls.length;
-
-    // Re-render with same content — useMemo should skip recomputation
     rerender(<ViewerRouter path="/stable.txt" />);
-    expect(encodeSpy.mock.calls.length).toBe(callCountAfterFirst);
+
+    // ViewerRouter no longer encodes content to derive its byte length;
+    // sizeBytes from the Rust IPC is the canonical source.
+    expect(encodeSpy).not.toHaveBeenCalled();
 
     encodeSpy.mockRestore();
   });

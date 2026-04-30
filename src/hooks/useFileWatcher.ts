@@ -17,14 +17,14 @@ export function useFileWatcher() {
   // unchanged, so the effect only fires on add/remove/reorder.
   const tabPaths = useStore(useShallow((s) => s.tabs.map((t) => t.path)));
   const root = useStore((s) => s.root);
-  const lastSaveByPath = useStore((s) => s.lastSaveByPath);
   const setGhostEntries = useStore((s) => s.setGhostEntries);
-  const lastSaveByPathRef = useRef(lastSaveByPath);
   const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    lastSaveByPathRef.current = lastSaveByPath;
-  }, [lastSaveByPath]);
+  // RC2/P1.5 (#298) — `lastSaveByPath` is read imperatively inside the
+  // `file-changed` listener via `useStore.getState()` (Rule 30 Hot-tier
+  // discipline in docs/architecture.md). Subscribing via selector would
+  // re-render this hook whenever any save fires, with no benefit since
+  // the listener body re-reads anyway.
 
   // Debounced scan coalesces rapid deletions into a single scanReviewFiles call
   const debouncedScan = useCallback(() => {
@@ -57,7 +57,7 @@ export function useFileWatcher() {
     const unlisten = listenEvent("file-changed", (payload) => {
       const { path, kind } = payload;
       const now = Date.now();
-      const lastSave = lastSaveByPathRef.current[path] ?? 0;
+      const lastSave = useStore.getState().lastSaveByPath[path] ?? 0;
 
       if (now - lastSave < SAVE_DEBOUNCE_MS) {
         void debug(`[useFileWatcher] ignoring event within save debounce window: ${path}`); // fire-and-forget log inside sync event handler
