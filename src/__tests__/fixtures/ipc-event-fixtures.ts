@@ -19,6 +19,7 @@ import type { EventPayloads } from "@/lib/tauri-events";
 export type FileChangedPayload = EventPayloads["file-changed"];
 export type FolderChangedPayload = EventPayloads["folder-changed"];
 export type CommentsChangedPayload = EventPayloads["comments-changed"];
+export type UpdateProgressPayload = EventPayloads["update-progress"];
 
 /**
  * Canonical sample paths used by the fixtures and re-exported for tests
@@ -184,4 +185,38 @@ export function commentsChanged(
     );
   }
   return { file_path: filePath };
+}
+
+/**
+ * `update-progress` — emitted app-wide during updater download/install.
+ * Payload struct: `src-tauri/src/update.rs:21-26`
+ * (`UpdateProgressEvent { event: String, content_length: Option<u64>, chunk_length: usize }`).
+ * Emit sites: `src-tauri/src/update.rs:115` (chunk callback — Started/Progress)
+ * and `src-tauri/src/update.rs:123` (finish callback — Finished).
+ *
+ * The `event` field on the wire is `String`, but the production
+ * emitter only ever uses one of three literal strings (`"Started"`,
+ * `"Progress"`, `"Finished"` at `update.rs:108,110,119`). The
+ * `EventPayloads["update-progress"]` type narrows it to the union
+ * accordingly, and this fixture validates the input.
+ */
+function assertValidUpdateProgressEvent(event: string, factory: string): void {
+  if (event !== "Started" && event !== "Progress" && event !== "Finished") {
+    throw new Error(
+      `${factory}: event "${event}" is not one of the production-emittable values ` +
+        `("Started" | "Progress" | "Finished"). See src-tauri/src/update.rs:108,110,119.`,
+    );
+  }
+}
+
+export function updateProgress(
+  o: Partial<UpdateProgressPayload> = {},
+): UpdateProgressPayload {
+  const event = o.event ?? "Progress";
+  assertValidUpdateProgressEvent(event, "updateProgress");
+  return {
+    event,
+    content_length: o.content_length ?? null,
+    chunk_length: o.chunk_length ?? 0,
+  };
 }

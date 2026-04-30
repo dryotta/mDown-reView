@@ -152,3 +152,55 @@ mod tests {
         assert_eq!(channel_from_version(""), "stable");
     }
 }
+
+#[cfg(test)]
+mod event_payload_tests {
+    use super::*;
+
+    /// Pins the JSON wire shape of `UpdateProgressEvent`. Mirror of
+    /// `ipc_event_payloads_serialize_to_frontend_contract` in
+    /// `src-tauri/src/watcher_tests.rs`. See `EventPayloads["update-progress"]`
+    /// in `src/lib/tauri-events.ts` and the `updateProgress` fixture in
+    /// `src/__tests__/fixtures/ipc-event-fixtures.ts`.
+    #[test]
+    fn update_progress_event_serializes_to_frontend_contract() {
+        use serde_json::json;
+
+        // event="Started" — emitted at update.rs:108 from the chunk callback
+        // when content_length is known and chunk_length == 0.
+        assert_eq!(
+            serde_json::to_value(UpdateProgressEvent {
+                event: "Started".to_string(),
+                content_length: Some(1000),
+                chunk_length: 0,
+            })
+            .unwrap(),
+            json!({ "event": "Started", "content_length": 1000, "chunk_length": 0 }),
+            "UpdateProgressEvent event=Started wire shape drifted from frontend contract"
+        );
+
+        // event="Progress" — emitted at update.rs:110 during chunk download.
+        assert_eq!(
+            serde_json::to_value(UpdateProgressEvent {
+                event: "Progress".to_string(),
+                content_length: None,
+                chunk_length: 500,
+            })
+            .unwrap(),
+            json!({ "event": "Progress", "content_length": null, "chunk_length": 500 }),
+            "UpdateProgressEvent event=Progress wire shape drifted from frontend contract"
+        );
+
+        // event="Finished" — emitted at update.rs:119 from the finish callback.
+        assert_eq!(
+            serde_json::to_value(UpdateProgressEvent {
+                event: "Finished".to_string(),
+                content_length: None,
+                chunk_length: 0,
+            })
+            .unwrap(),
+            json!({ "event": "Finished", "content_length": null, "chunk_length": 0 }),
+            "UpdateProgressEvent event=Finished wire shape drifted from frontend contract"
+        );
+    }
+}

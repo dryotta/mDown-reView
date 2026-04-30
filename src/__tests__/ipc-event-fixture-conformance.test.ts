@@ -32,6 +32,7 @@ import {
   fileChangedDeleted,
   folderChanged,
   commentsChanged,
+  updateProgress,
 } from "./fixtures/ipc-event-fixtures";
 
 const repoRoot = resolve(__dirname, "..", "..");
@@ -50,7 +51,7 @@ interface Hit {
   file: string;
   line: number;
   snippet: string;
-  kind: "file-changed" | "comments-changed" | "folder-changed";
+  kind: "file-changed" | "comments-changed" | "folder-changed" | "update-progress";
 }
 
 // All three regexes share the same call-site ident gate — only flag
@@ -86,6 +87,18 @@ const COMMENTS_CHANGED_RE = new RegExp(
 // Folder-changed payload: `{ path: ... }` invoked through a callback.
 const FOLDER_CHANGED_RE = new RegExp(
   CALLBACK_IDENT + String.raw`\s*!?\s*\(\s*\{\s*path\s*:[^{}]*\}\s*\)`,
+  "g",
+);
+
+// Update-progress payload: `{ ...content_length: ... }` or
+// `{ ...chunk_length: ... }` invoked through a callback. The
+// `event:` field is too generic to discriminate on, but
+// `content_length` and `chunk_length` (snake_case) appear nowhere
+// else in the codebase per a grep, so they're safe shape-discriminators.
+// The payload struct is at `src-tauri/src/update.rs:21-26`.
+const UPDATE_PROGRESS_RE = new RegExp(
+  CALLBACK_IDENT +
+    String.raw`\s*!?\s*\(\s*\{[^{}]*\b(?:content_length|chunk_length)\s*:[^{}]*\}\s*\)`,
   "g",
 );
 
@@ -142,6 +155,8 @@ function scanFile(rel: string, source: string): Hit[] {
     source.includes('"comments-changed"') || source.includes("'comments-changed'");
   const mentionsFolderChanged =
     source.includes('"folder-changed"') || source.includes("'folder-changed'");
+  const mentionsUpdateProgress =
+    source.includes('"update-progress"') || source.includes("'update-progress'");
 
   if (mentionsFileChanged) {
     for (const match of source.matchAll(FILE_CHANGED_RE)) {
@@ -184,6 +199,19 @@ function scanFile(rel: string, source: string): Hit[] {
     }
   }
 
+  if (mentionsUpdateProgress) {
+    for (const match of source.matchAll(UPDATE_PROGRESS_RE)) {
+      const ident = match[1];
+      if (ident.startsWith("updateProgress") || ident.startsWith("makeUpdateProgress")) continue;
+      hits.push({
+        file: rel,
+        line: lineOf(source, match.index ?? 0),
+        snippet: match[0],
+        kind: "update-progress",
+      });
+    }
+  }
+
   return hits;
 }
 
@@ -206,6 +234,9 @@ describe("IPC event fixture conformance (issue #311)", () => {
     });
     it("commentsChanged returns EventPayloads['comments-changed']", () => {
       expectTypeOf(commentsChanged()).toEqualTypeOf<EventPayloads["comments-changed"]>();
+    });
+    it("updateProgress returns EventPayloads['update-progress']", () => {
+      expectTypeOf(updateProgress()).toEqualTypeOf<EventPayloads["update-progress"]>();
     });
   });
 
@@ -273,6 +304,15 @@ describe("IPC event fixture conformance (issue #311)", () => {
       ].join("\n");
       const hits = scanFile("synthetic.test.ts", fakeSource);
       expect(hits.some((h) => h.kind === "folder-changed")).toBe(true);
+    });
+
+    it("scanner flags `cb({ event, content_length, chunk_length })` invocations (update-progress)", () => {
+      const fakeSource = [
+        'listenEvent("update-progress", cb);',
+        'cb({ event: "Started", content_length: 1000, chunk_length: 0 });',
+      ].join("\n");
+      const hits = scanFile("synthetic.test.ts", fakeSource);
+      expect(hits.some((h) => h.kind === "update-progress")).toBe(true);
     });
   });
 });

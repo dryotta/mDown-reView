@@ -18,6 +18,7 @@ import {
   fileChangedDeleted,
   commentsChanged,
   folderChanged,
+  updateProgress,
 } from "./ipc-event-fixtures";
 
 describe("ipc-event-fixtures — semantic validation (issue #311 forward-fix)", () => {
@@ -81,6 +82,28 @@ describe("ipc-event-fixtures — semantic validation (issue #311 forward-fix)", 
     it("accepts any directory path (no validation)", () => {
       expect(() => folderChanged("/anywhere")).not.toThrow();
       expect(() => folderChanged("/x/y.review.yaml")).not.toThrow();
+    });
+  });
+
+  describe("updateProgress", () => {
+    it("accepts each production-emittable event value", () => {
+      expect(() => updateProgress({ event: "Started" })).not.toThrow();
+      expect(() => updateProgress({ event: "Progress" })).not.toThrow();
+      expect(() => updateProgress({ event: "Finished" })).not.toThrow();
+    });
+    it("defaults to a valid Progress event", () => {
+      const p = updateProgress();
+      expect(p.event).toBe("Progress");
+      expect(p.content_length).toBeNull();
+      expect(p.chunk_length).toBe(0);
+    });
+    it("throws on a non-production-emittable event value", () => {
+      expect(() =>
+        updateProgress({ event: "Cancelled" as unknown as "Started" }),
+      ).toThrow(/production-emittable/i);
+      expect(() =>
+        updateProgress({ event: "" as unknown as "Started" }),
+      ).toThrow(/production-emittable/i);
     });
   });
 });
