@@ -73,6 +73,14 @@ Failure modes:
 - App closing with unsaved comments — is there a beforeunload guard / save-on-blur?
 - `tauri-plugin-single-instance`: second-launch CLI args route through the same handler as initial-launch args (avoid two code paths).
 
+### `category: csp-inline-style-leak` -- index.html nonce trigger
+
+Hot files: `index.html`, `src-tauri/tauri.conf.json`.
+
+Failure modes:
+- A new inline `<style>` element (or a tooling change that re-introduces one) in `index.html` or any other shipped HTML triggers Tauri's `inject_nonce_token` codegen pass, which appends a runtime nonce to `style-src` and (per CSP3) ignores `'unsafe-inline'` — silently breaking Shiki, KaTeX, Mermaid, and React inline-style outputs in production. Canonical: rule 17a in [`../security.md`](../security.md).
+- Lifting a hard-coded background color from `index.html` into `src/styles/app.css` should preserve the FOUC contract (`html, body { background-color: var(--color-bg) }` per `[data-theme]`); regressing this to a non-`var` color or removing the rule entirely re-creates issue #265's first-paint flash. Canonical: rule 17a in [`../security.md`](../security.md).
+
 ## How to read for bugs
 
 1. Read every file in `src/hooks/` — focus on `useEffect` cleanup and error paths.
