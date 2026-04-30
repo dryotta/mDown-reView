@@ -2,29 +2,89 @@
 //! the 400-LOC budget (rule 23 in docs/architecture.md).
 
 use super::*;
-use crate::core::types::MrsfComment;
+use crate::core::types::{Anchor, MrsfComment};
 use tempfile::TempDir;
 
+/// Builder used by [`sample_comment_with`]. Lets individual tests
+/// override the fields that vary across cases (whitespace prefixes,
+/// anchored text, sparse-fixture matching) without each test
+/// re-listing the dozen `Option::None` defaults.
+struct CommentBuilder {
+    id: String,
+    text: String,
+    line: Option<u32>,
+    selected_text: Option<String>,
+    anchored_text: Option<String>,
+}
+
 fn sample_comment(id: &str) -> MrsfComment {
-    MrsfComment {
+    sample_comment_with(id, |_| {})
+}
+
+fn sample_comment_with<F: FnOnce(&mut CommentBuilder)>(id: &str, f: F) -> MrsfComment {
+    let mut b = CommentBuilder {
         id: id.to_string(),
-        author: "test".to_string(),
-        timestamp: "2025-01-01T00:00:00Z".to_string(),
         text: "test comment".to_string(),
-        resolved: false,
         line: Some(1),
+        selected_text: None,
+        anchored_text: None,
+    };
+    f(&mut b);
+
+    // Keep the `Anchor::Line` payload in sync with the legacy flat
+    // line/selected_text fields. The wire round-trip would otherwise
+    // overwrite the in-memory anchor with values reconstructed from
+    // the flat fields (see `wire::TryFrom<MrsfCommentRepr>`), which
+    // would make `assert_sidecar_eq` spuriously fail.
+    let anchor = Anchor::Line {
+        line: b.line.unwrap_or(0),
         end_line: None,
         start_column: None,
         end_column: None,
-        selected_text: None,
-        anchored_text: None,
+        selected_text: b.selected_text.clone(),
+        selected_text_hash: None,
+    };
+
+    MrsfComment {
+        id: b.id,
+        author: "test".to_string(),
+        timestamp: "2025-01-01T00:00:00Z".to_string(),
+        text: b.text,
+        resolved: false,
+        line: b.line,
+        end_line: None,
+        start_column: None,
+        end_column: None,
+        selected_text: b.selected_text,
+        anchored_text: b.anchored_text,
         selected_text_hash: None,
         commit: None,
         comment_type: None,
         severity: None,
         reply_to: None,
+        anchor,
         ..Default::default()
     }
+}
+
+/// Byte-exact equality across every sidecar field. `MrsfSidecar`
+/// itself doesn't derive `PartialEq` (only its `Vec<MrsfComment>`
+/// does), so compare structurally. This is the only oracle worth
+/// using for round-trip tests — substring / `is_some()` / length
+/// checks let the saphyr block-scalar bug ship (#293).
+fn assert_sidecar_eq(loaded: &MrsfSidecar, expected: &MrsfSidecar) {
+    assert_eq!(
+        loaded.mrsf_version, expected.mrsf_version,
+        "mrsf_version round-trip mismatch"
+    );
+    assert_eq!(
+        loaded.document, expected.document,
+        "document round-trip mismatch"
+    );
+    assert_eq!(
+        loaded.comments, expected.comments,
+        "comments round-trip mismatch (byte-exact)"
+    );
 }
 
 #[test]
@@ -48,10 +108,15 @@ comments:
     .unwrap();
 
     let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
-    assert!(result.is_some());
-    let sidecar = result.unwrap();
-    assert_eq!(sidecar.comments.len(), 1);
-    assert_eq!(sidecar.comments[0].id, "c1");
+    let expected = MrsfSidecar {
+        mrsf_version: "1.0".to_string(),
+        document: "test.md".to_string(),
+        comments: vec![sample_comment_with("c1", |b| {
+            b.text = "hello".to_string();
+            b.line = None; // fixture has no `line` field
+        })],
+    };
+    assert_sidecar_eq(&result.unwrap(), &expected);
 }
 
 #[test]
@@ -67,8 +132,15 @@ fn load_sidecar_json_fallback() {
         .unwrap();
 
     let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().comments[0].id, "c1");
+    let expected = MrsfSidecar {
+        mrsf_version: "1.0".to_string(),
+        document: "test.md".to_string(),
+        comments: vec![sample_comment_with("c1", |b| {
+            b.text = "hello".to_string();
+            b.line = None; // fixture has no `line` field
+        })],
+    };
+    assert_sidecar_eq(&result.unwrap(), &expected);
 }
 
 #[test]
@@ -291,8 +363,12 @@ fn load_sidecar_accepts_v1_minor_versions() {
     .unwrap();
 
     let result = load_sidecar(file_path.to_str().unwrap()).unwrap();
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().mrsf_version, "1.5");
+    let expected = MrsfSidecar {
+        mrsf_version: "1.5".to_string(),
+        document: "v1x.md".to_string(),
+        comments: vec![],
+    };
+    assert_sidecar_eq(&result.unwrap(), &expected);
 }
 
 // ── Save error semantics (regression: misleading "sidecar not found") ───────
@@ -347,7 +423,11 @@ fn save_sidecar_at_to_invalid_ancestor_surfaces_real_io_error() {
         "x".into(),
         false,
         Some(1),
-        None, None, None, None, None,
+        None,
+        None,
+        None,
+        None,
+        None,
     );
     let result = save_sidecar_at(&bogus, "foo.bin", std::slice::from_ref(&c));
     let err = result.expect_err("write to invalid ancestor must fail");
@@ -416,7 +496,11 @@ fn save_sidecar_at_to_readonly_dir_surfaces_clear_message() {
         "x".into(),
         false,
         Some(1),
-        None, None, None, None, None,
+        None,
+        None,
+        None,
+        None,
+        None,
     );
     let result = save_sidecar_at(&target, "foo.png", std::slice::from_ref(&c));
     let err = result.expect_err("write to read-only dir must fail");
@@ -479,4 +563,393 @@ comments:
     );
     // Value actually changed
     assert!(on_disk.contains("resolved: true"));
+}
+
+// ── #293 P0 tests: block-literal indent bug + write-side chokepoint ─────────
+//
+// All tests here assert byte-exact round-trip on whitespace-bearing string
+// fields. Without `emit_mrsf_yaml`'s repair pass, saphyr-0.0.25 would emit
+// a `|N` indicator computed against the absolute body column instead of
+// parent-relative, producing YAML the parser rejects (and silently dropping
+// the comment on next load — the exact failure mode reported in #293).
+
+/// AC4 regression — verbatim from issue #293 body.
+#[test]
+fn regression_saphyr_block_scalar_indent_bug() {
+    let payload = MrsfSidecar {
+        mrsf_version: "1.0".into(),
+        document: "test.md".into(),
+        comments: vec![sample_comment_with("abc", |b| {
+            b.selected_text = Some(
+                " install, and launch the mdownreview desktop app\n\
+                 readScan for review sidecars\n\
+                 reviewOrchestrate the full c"
+                    .into(),
+            );
+        })],
+    };
+    let yaml = emit_mrsf_yaml(&payload).expect("must emit valid yaml");
+    let round: MrsfSidecar = serde_saphyr::from_str(&yaml).expect("emitted yaml must parse");
+    assert_eq!(
+        round.comments[0].selected_text, payload.comments[0].selected_text,
+        "selected_text must round-trip byte-exact"
+    );
+}
+
+/// Exact reproducer from #293: `selected_text` with one leading space,
+/// 3 lines, no trailing newline. Forces saphyr's literal-block branch.
+#[test]
+fn save_then_load_preserves_selected_text_with_leading_space() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = " install, and launch the mdownreview desktop app\n\
+                    readScan for review sidecars\n\
+                    reviewOrchestrate the full c"
+        .to_string();
+    let comment = sample_comment_with("c1", |b| {
+        b.selected_text = Some(original.clone());
+    });
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(
+        loaded.comments[0].selected_text.as_deref(),
+        Some(original.as_str()),
+        "selected_text with leading space must round-trip byte-exact"
+    );
+}
+
+#[test]
+fn save_then_load_preserves_selected_text_with_leading_tab() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = "\tline1\nline2\nline3".to_string();
+    let comment = sample_comment_with("c1", |b| {
+        b.selected_text = Some(original.clone());
+    });
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(
+        loaded.comments[0].selected_text.as_deref(),
+        Some(original.as_str())
+    );
+}
+
+#[test]
+fn save_then_load_preserves_selected_text_with_leading_newline() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = "\n  body\n  more".to_string();
+    let comment = sample_comment_with("c1", |b| {
+        b.selected_text = Some(original.clone());
+    });
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(
+        loaded.comments[0].selected_text.as_deref(),
+        Some(original.as_str())
+    );
+}
+
+#[test]
+fn save_then_load_preserves_text_with_leading_whitespace() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = "  multi-line\n  comment\n  body".to_string();
+    let comment = sample_comment_with("c1", |b| {
+        b.text = original.clone();
+    });
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(
+        loaded.comments[0].text, original,
+        "comment.text with leading whitespace must round-trip byte-exact"
+    );
+}
+
+#[test]
+fn save_then_load_preserves_anchored_text_multiline() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = "  anchor line 1\n  anchor line 2\n  anchor line 3".to_string();
+    let comment = sample_comment_with("c1", |b| {
+        b.anchored_text = Some(original.clone());
+    });
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(
+        loaded.comments[0].anchored_text.as_deref(),
+        Some(original.as_str())
+    );
+}
+
+/// File-level anchors don't carry `selected_text` (the wire-level
+/// guard rejects it: `Anchor::File requires explicit anchor_kind:"file"
+/// with NO flat targeting fields`). Exercise the same write path with
+/// whitespace-leading content via the comment's `text` field instead.
+#[test]
+fn save_then_load_file_anchor_with_whitespace_text() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = "  file-level\n  comment\n  body".to_string();
+    let mut comment = sample_comment_with("c1", |b| {
+        b.text = original.clone();
+        b.line = None; // file anchor: no flat targeting
+    });
+    comment.anchor = Anchor::File;
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(loaded.comments[0].text, original);
+    assert!(matches!(loaded.comments[0].anchor, Anchor::File));
+}
+
+#[test]
+fn save_then_load_multiple_comments_mixed_content() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let leading_space = " selected with leading space\nline2\nline3".to_string();
+    let leading_tab = "\ttabby text\non multiple lines\nfor sure".to_string();
+
+    let mut c1 = sample_comment_with("c1", |b| {
+        b.selected_text = Some(leading_space.clone());
+    });
+    c1.id = "c1".into();
+    let mut c2 = sample_comment_with("c2", |b| {
+        b.text = leading_tab.clone();
+    });
+    c2.id = "c2".into();
+    let c3 = sample_comment_with("c3", |b| {
+        b.text = "no whitespace here".into();
+    });
+
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[c1, c2, c3]).unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    assert_eq!(loaded.comments.len(), 3);
+    assert_eq!(
+        loaded.comments[0].selected_text.as_deref(),
+        Some(leading_space.as_str())
+    );
+    assert_eq!(loaded.comments[1].text, leading_tab);
+    assert_eq!(loaded.comments[2].text, "no whitespace here");
+}
+
+#[test]
+fn save_then_load_preserves_anchor_history_selected_text() {
+    use crate::core::types::Anchor;
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let history_text = "  history line 1\n  history line 2\n  history line 3".to_string();
+    let mut comment = sample_comment_with("c1", |_| {});
+    comment.anchor_history = Some(vec![Anchor::Line {
+        line: 5,
+        end_line: None,
+        start_column: None,
+        end_column: None,
+        selected_text: Some(history_text.clone()),
+        selected_text_hash: None,
+    }]);
+
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+
+    let history = loaded.comments[0]
+        .anchor_history
+        .as_ref()
+        .expect("history must survive round-trip");
+    assert_eq!(history.len(), 1);
+    match &history[0] {
+        Anchor::Line { selected_text, .. } => {
+            assert_eq!(selected_text.as_deref(), Some(history_text.as_str()));
+        }
+        other => panic!("expected Anchor::Line, got {:?}", other),
+    }
+}
+
+/// Lossy fallback path for `patch_comment` (L376) must preserve
+/// whitespace-leading `selected_text`. We can't reliably force the
+/// fallback (surgery handles `SetResolved` for typical inputs), so we
+/// assert the invariant that matters in BOTH branches: even if the
+/// surgery path was taken, the bytes survive (surgery preserves bytes
+/// by definition); even if the lossy fallback was taken, the
+/// emit_mrsf_yaml chokepoint preserves them.
+#[test]
+fn patch_comment_lossy_fallback_preserves_whitespace_selected_text() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = " selected with leading space\nline2\nline3".to_string();
+    let comment = sample_comment_with("c1", |b| {
+        b.selected_text = Some(original.clone());
+    });
+    save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+
+    patch_comment(
+        file_path.to_str().unwrap(),
+        "c1",
+        &[CommentMutation::SetResolved(true)],
+    )
+    .unwrap();
+
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    let c = loaded.comments.iter().find(|c| c.id == "c1").unwrap();
+    assert!(c.resolved, "set_resolved must have applied");
+    assert_eq!(
+        c.selected_text.as_deref(),
+        Some(original.as_str()),
+        "selected_text must survive patch_comment regardless of surgery vs lossy branch"
+    );
+}
+
+/// L319 path: `.review.json` exists (no `.review.yaml`), patch_comment
+/// migrates to YAML. Whitespace-leading `selected_text` must survive
+/// the JSON→YAML emission through the chokepoint.
+#[test]
+fn patch_comment_json_to_yaml_migration_preserves_whitespace() {
+    let tmp = TempDir::new().unwrap();
+    let file_path = tmp.path().join("doc.md");
+    std::fs::write(&file_path, "# Test").unwrap();
+
+    let original = " leading-space text\nline two\nline three";
+    let json_path = tmp.path().join("doc.md.review.json");
+    let json = serde_json::json!({
+        "mrsf_version": "1.0",
+        "document": "doc.md",
+        "comments": [{
+            "id": "c1",
+            "author": "test",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "text": "test comment",
+            "resolved": false,
+            "line": 1,
+            "selected_text": original,
+        }]
+    });
+    std::fs::write(&json_path, serde_json::to_string(&json).unwrap()).unwrap();
+
+    patch_comment(
+        file_path.to_str().unwrap(),
+        "c1",
+        &[CommentMutation::SetResolved(true)],
+    )
+    .unwrap();
+
+    // Loaded back via the YAML path (newly written by migration).
+    let yaml_path = tmp.path().join("doc.md.review.yaml");
+    assert!(yaml_path.exists(), "migration must produce a .review.yaml");
+    let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+    let c = loaded.comments.iter().find(|c| c.id == "c1").unwrap();
+    assert!(c.resolved);
+    assert_eq!(c.selected_text.as_deref(), Some(original));
+}
+
+/// Table-driven matrix: every (field × prefix) combination must
+/// round-trip byte-exact. Catches any one-cell regression in a single
+/// test, with descriptive failure messages.
+#[test]
+fn round_trip_every_string_field_with_every_whitespace_prefix() {
+    #[derive(Copy, Clone)]
+    enum Field {
+        Text,
+        SelectedText,
+        AnchoredText,
+    }
+    let fields = [Field::Text, Field::SelectedText, Field::AnchoredText];
+    let prefixes: &[&str] = &[" ", "\t", "  ", ""];
+    let body = "\nbody line two\nbody line three";
+
+    for (fi, field) in fields.iter().enumerate() {
+        for (pi, prefix) in prefixes.iter().enumerate() {
+            let value = format!("{prefix}content{body}");
+            let id = format!("c-{fi}-{pi}");
+            let comment = sample_comment_with(&id, |b| match field {
+                Field::Text => b.text = value.clone(),
+                Field::SelectedText => b.selected_text = Some(value.clone()),
+                Field::AnchoredText => b.anchored_text = Some(value.clone()),
+            });
+
+            let tmp = TempDir::new().unwrap();
+            let file_path = tmp.path().join("doc.md");
+            std::fs::write(&file_path, "# Test").unwrap();
+            save_sidecar(file_path.to_str().unwrap(), "doc.md", &[comment]).unwrap();
+            let loaded = load_sidecar(file_path.to_str().unwrap()).unwrap().unwrap();
+            let c = &loaded.comments[0];
+            let actual = match field {
+                Field::Text => c.text.clone(),
+                Field::SelectedText => c.selected_text.clone().unwrap_or_default(),
+                Field::AnchoredText => c.anchored_text.clone().unwrap_or_default(),
+            };
+            assert_eq!(
+                actual, value,
+                "round-trip failed: field={fi} prefix={pi:?} value={value:?}"
+            );
+        }
+    }
+}
+
+/// Validation guard fires when the repair pass would otherwise produce
+/// unparseable output. Pre-feed `validate_emitted_mrsf_yaml` a
+/// hand-crafted broken document; assert it returns `YamlParse`.
+#[test]
+fn emit_mrsf_yaml_round_trip_validation_rejects_unparseable_output() {
+    use super::io_guards::validate_emitted_mrsf_yaml;
+    // `id: x` at col 4, but `text:` at col 6 — inconsistent indent in
+    // the same map. saphyr's parser must reject this.
+    let broken = "comments:\n  - id: x\n      text: |2-\n  no indent\n";
+    let err =
+        validate_emitted_mrsf_yaml(broken).expect_err("validator must reject unparseable yaml");
+    assert!(
+        matches!(err, SidecarError::YamlParse(_)),
+        "expected YamlParse, got {:?}",
+        err
+    );
+}
+
+/// Structural round-trip equality check: emit then parse, the parsed
+/// JSON Value must `==` the input. Catches a hypothetical repair-pass
+/// bug that produces parseable-but-different YAML.
+#[test]
+fn emit_mrsf_yaml_round_trip_validates_structural_equality() {
+    let value = serde_json::json!({
+        "mrsf_version": "1.0",
+        "document": "test.md",
+        "comments": [{
+            "id": "c1",
+            "author": "test",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "text": "test comment",
+            "resolved": false,
+            "line": 1,
+            "selected_text": " leading space\nsecond line\nthird line",
+        }]
+    });
+    let yaml = emit_mrsf_yaml(&value).expect("must emit");
+    let re_parsed: serde_json::Value =
+        serde_saphyr::from_str(&yaml).expect("emitted yaml must parse");
+    assert_eq!(
+        re_parsed, value,
+        "structural round-trip mismatch: yaml=\n{yaml}"
+    );
 }

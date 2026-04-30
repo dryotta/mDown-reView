@@ -8,6 +8,11 @@
 //! → parse. JSON reads intentionally skip the YAML anchor check (anchors
 //! are a YAML-only construct).
 //!
+//! Symmetrically, all sidecar **writes** funnel through
+//! [`io_guards::emit_mrsf_yaml`] (emit + saphyr block-literal repair
+//! for #293 + write-side `reject_yaml_anchors` per `docs/security.md`
+//! rule 8 + structural re-parse) before bytes reach `write_atomic`.
+//!
 //! Workspace `.mrsf.yaml` config (loading, validation, caching) lives in
 //! [`config`].
 
@@ -20,7 +25,7 @@ use crate::core::mrsf_version::mrsf_version_for;
 use crate::core::types::{CommentMutation, MrsfComment, MrsfSidecar};
 // Re-export IO guards so sibling core modules (e.g. paths.rs) can reuse
 // the same capped-read + anchor-rejection defenses for config files.
-pub(crate) use io_guards::{read_capped, reject_yaml_anchors};
+pub(crate) use io_guards::{emit_mrsf_yaml, read_capped, reject_yaml_anchors};
 use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
@@ -149,8 +154,8 @@ pub fn load_sidecar_at(
     match read_capped(yaml_path) {
         Ok(content) => {
             reject_yaml_anchors(&content)?;
-            let sidecar: MrsfSidecar =
-                serde_saphyr::from_str(&content).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
+            let sidecar: MrsfSidecar = serde_saphyr::from_str(&content)
+                .map_err(|e| SidecarError::YamlParse(e.to_string()))?;
             reject_unsupported_version(&sidecar)?;
             validate_sidecar_warnings(&sidecar);
             return Ok(Some(sidecar));
@@ -207,13 +212,13 @@ pub fn save_sidecar_at(
         document: document.to_string(),
         comments: comments.to_vec(),
     };
-    let yaml = serde_saphyr::to_string(&payload).map_err(|e| {
+    let yaml = emit_mrsf_yaml(&payload).map_err(|e| {
         log::warn!(
             target: "mdownreview::sidecar",
-            "save_sidecar_at: serde_saphyr serialise failed path={} comment_count={} error={}",
+            "save_sidecar_at: emit_mrsf_yaml failed path={} comment_count={} error={}",
             sidecar_path.display(), comments.len(), e
         );
-        SidecarError::YamlParse(e.to_string())
+        e
     })?;
 
     crate::core::atomic::write_atomic(sidecar_path, yaml.as_bytes()).map_err(|e| {
@@ -316,7 +321,7 @@ pub fn patch_comment_at(
                     // Convert JSON to YAML Value
                     let json_val: serde_json::Value =
                         serde_json::from_str(&c).map_err(SidecarError::JsonParse)?;
-                    serde_saphyr::to_string(&json_val).map_err(|e| SidecarError::YamlParse(e.to_string()))?
+                    emit_mrsf_yaml(&json_val)?
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Err(SidecarError::NotFound);
@@ -355,9 +360,7 @@ pub fn patch_comment_at(
                 text,
                 timestamp,
             } => {
-                let responses = comment
-                    .get_mut("responses")
-                    .and_then(|v| v.as_array_mut());
+                let responses = comment.get_mut("responses").and_then(|v| v.as_array_mut());
                 let new_response = serde_json::json!({
                     "author": author,
                     "text": text,
@@ -373,7 +376,7 @@ pub fn patch_comment_at(
         }
     }
 
-    let yaml_out = serde_saphyr::to_string(&doc).map_err(|e| SidecarError::YamlParse(e.to_string()))?;
+    let yaml_out = emit_mrsf_yaml(&doc)?;
 
     // Atomic write — always target the provided yaml_path.
     crate::core::atomic::write_atomic(Path::new(yaml_path), yaml_out.as_bytes())?;
