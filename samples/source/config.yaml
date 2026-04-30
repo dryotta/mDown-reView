@@ -1,0 +1,60 @@
+# Sample YAML — exercises Shiki yaml + indent-folding.
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  tls:
+    enabled: true
+    cert_path: /etc/mdownreview/cert.pem
+    key_path: /etc/mdownreview/key.pem
+    min_protocol: "TLSv1.2"
+    ciphers:
+      - "ECDHE-ECDSA-AES256-GCM-SHA384"
+      - "ECDHE-RSA-AES256-GCM-SHA384"
+      - "ECDHE-ECDSA-CHACHA20-POLY1305"
+
+logging:
+  level: info
+  format: json
+  destinations:
+    - type: file
+      path: /var/log/mdownreview/server.log
+      rotation:
+        max_size_mb: 50
+        max_files: 10
+        compress: true
+    - type: syslog
+      facility: local0
+      severity: notice
+
+routes:
+  - path: /health
+    methods: [GET]
+    handler: health.check
+    auth: false
+  - path: /api/v1/comments
+    methods: [GET, POST]
+    handler: comments.list_or_create
+    auth: true
+    rate_limit:
+      requests: 100
+      window_seconds: 60
+  - path: /api/v1/comments/:id
+    methods: [GET, PATCH, DELETE]
+    handler: comments.detail
+    auth: true
+
+# Multiline string examples
+greeting: |
+  This is a literal block scalar.
+  Newlines are preserved exactly as written.
+  Including blank lines:
+
+  Like this one.
+
+description: >
+  This is a folded block scalar.
+  Newlines become spaces, but blank lines
+  are still respected.
+
+  This becomes a new paragraph.

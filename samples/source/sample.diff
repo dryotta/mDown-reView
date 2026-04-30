@@ -1,0 +1,34 @@
+# Diff sample — exercises Shiki diff highlighting.
+
+diff --git a/src/components/viewers/MarkdownViewer.tsx b/src/components/viewers/MarkdownViewer.tsx
+index a1b2c3d..e4f5g6h 100644
+--- a/src/components/viewers/MarkdownViewer.tsx
++++ b/src/components/viewers/MarkdownViewer.tsx
+@@ -45,7 +45,7 @@ export function MarkdownViewer({ content, filePath }: Props) {
+-  const [theme, setTheme] = useState<"light" | "dark">("light");
++  const [theme, setTheme] = useState<"light" | "dark">(() => detectInitialTheme());
+   const remarkPlugins = useMemo(() => REMARK_PLUGINS, []);
+-  const rehypePlugins = useMemo(() => buildRehypePlugins({ theme }), [theme]);
++  const rehypePlugins = useMemo(() => buildRehypePlugins({ theme, lazy: true }), [theme]);
+
+@@ -100,3 +100,12 @@ export function MarkdownViewer({ content, filePath }: Props) {
++  // Re-load lazy KaTeX when the doc starts containing math (saves the chunk
++  // download on math-free documents).
++  const hasMath = useMemo(() => HAS_MATH_RE.test(content), [content]);
++  useEffect(() => {
++    if (!hasMath || katexImported.current) return;
++    void import("rehype-katex").then((m) => {
++      rehypeKatexRef.current = m.default;
++      katexImported.current = true;
++    });
++  }, [hasMath]);
+
+diff --git a/src-tauri/src/commands/comments/badges.rs b/src-tauri/src/commands/comments/badges.rs
+index 1234567..89abcde 100644
+--- a/src-tauri/src/commands/comments/badges.rs
++++ b/src-tauri/src/commands/comments/badges.rs
+@@ -28,9 +28,11 @@ pub struct FileBadge {
+     pub count: u32,
+     pub max_severity: Severity,
++    pub file_level_count: u32,
+ }

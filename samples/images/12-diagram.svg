@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-label="diagram with shapes, lines, and text">
+  <style>
+    .label  { font-family: system-ui, sans-serif; font-size: 14px; fill: #1f2937; text-anchor: middle; }
+    .small  { font-family: system-ui, sans-serif; font-size: 11px; fill: #6b7280; text-anchor: middle; }
+    .arrow  { stroke: #475569; stroke-width: 2; fill: none; }
+    .node-a { fill: #dbeafe; stroke: #1d4ed8; stroke-width: 2; }
+    .node-b { fill: #fef3c7; stroke: #d97706; stroke-width: 2; }
+    .node-c { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+    .title  { font-family: system-ui, sans-serif; font-size: 18px; font-weight: 700; fill: #0f172a; text-anchor: middle; }
+  </style>
+  <text x="300" y="32" class="title">mdownreview viewer pipeline</text>
+
+  <!-- Source -->
+  <rect class="node-a" x="60"  y="160" width="120" height="60" rx="8"/>
+  <text class="label" x="120" y="185">File on disk</text>
+  <text class="small" x="120" y="205">read_text_file</text>
+
+  <!-- Render -->
+  <rect class="node-b" x="240" y="160" width="120" height="60" rx="8"/>
+  <text class="label" x="300" y="185">Renderer</text>
+  <text class="small" x="300" y="205">routes by extension</text>
+
+  <!-- Output -->
+  <rect class="node-c" x="420" y="80"  width="140" height="60" rx="8"/>
+  <text class="label" x="490" y="105">MarkdownViewer</text>
+  <text class="small" x="490" y="125">visual or source</text>
+
+  <rect class="node-c" x="420" y="180" width="140" height="60" rx="8"/>
+  <text class="label" x="490" y="205">JsonView / CsvView</text>
+  <text class="small" x="490" y="225">tabular tree</text>
+
+  <rect class="node-c" x="420" y="280" width="140" height="60" rx="8"/>
+  <text class="label" x="490" y="305">SourceView</text>
+  <text class="small" x="490" y="325">Shiki + folding</text>
+
+  <!-- Arrows -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <path class="arrow" d="M 180 190 L 240 190" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 360 180 Q 390 130, 420 110" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 360 200 L 420 210" marker-end="url(#arrow)"/>
+  <path class="arrow" d="M 360 220 Q 390 270, 420 310" marker-end="url(#arrow)"/>
+</svg>

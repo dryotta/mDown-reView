@@ -1,0 +1,7 @@
+name,description,price,currency,in_stock,category,sku,weight_kg,dimensions,tags
+"Smith, John","Widget with ""quoted"" name",19.99,USD,true,gadgets,SKU-001,0.45,"10x5x3","red,small,featured"
+"Doe, Jane","Sprocket
+with newline in description",24.50,USD,true,gadgets,SKU-002,0.78,"15x8x5","blue,medium"
+"Brown, Alice","Comma, in, name",9.99,EUR,false,accessories,SKU-003,0.12,"3x3x1","green,tiny"
+"O'Brien, Sean","Apostrophe's are fine",149.00,USD,true,premium,SKU-004,3.20,"40x30x20","luxury,heavy"
+Plain Name,No quotes needed,1.00,USD,true,basic,SKU-005,0.05,"5x5x1","cheap"

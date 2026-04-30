@@ -1,0 +1,28 @@
+erDiagram
+    SIDECAR ||--o{ COMMENT  : contains
+    COMMENT ||--o{ RESPONSE : has
+    COMMENT }|--|| ANCHOR   : "tagged by"
+
+    SIDECAR {
+        string mrsf_version "always 1.0 or 1.1"
+        string document "relative path"
+    }
+    COMMENT {
+        string id PK "ULID"
+        string author
+        string timestamp "ISO-8601 UTC"
+        string text "markdown body"
+        bool   resolved
+    }
+    RESPONSE {
+        string author
+        string text
+        string timestamp
+    }
+    ANCHOR {
+        string kind "line | file | word_range | image_rect | csv_cell | json_path | html_range | html_element | unknown"
+        int    line "for kind=line"
+        int    end_line "for multi-line line range"
+        string selected_text "optional preview"
+        string selected_text_hash "SHA-256 of selected_text"
+    }

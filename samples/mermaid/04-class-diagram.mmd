@@ -1,0 +1,43 @@
+classDiagram
+    class MrsfSidecar {
+        +String mrsf_version
+        +String document
+        +Vec~MrsfComment~ comments
+        +open(Path) Result~Option~Self~~
+        +save(Path) Result~()~
+    }
+
+    class MrsfComment {
+        +String id
+        +String author
+        +String timestamp
+        +String text
+        +bool resolved
+        +Anchor anchor
+        +Vec~Response~ responses
+    }
+
+    class Anchor {
+        <<enumeration>>
+        Line
+        WordRange
+        File
+        ImageRect
+        CsvCell
+        JsonPath
+        HtmlRange
+        HtmlElement
+        Unknown
+    }
+
+    class Response {
+        +String author
+        +String text
+        +String timestamp
+    }
+
+    MrsfSidecar "1" *-- "*" MrsfComment : contains
+    MrsfComment "1" *-- "1" Anchor       : tagged by
+    MrsfComment "1" *-- "*" Response     : has
+
+    note for Anchor "Tagged-union discriminator: kind: line | file | word_range | …"

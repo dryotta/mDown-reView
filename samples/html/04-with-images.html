@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>HTML with images</title>
+  <style>
+    body { font-family: system-ui; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    figure { margin: 1.5rem 0; }
+    figure img { display: block; margin: 0 auto; max-width: 100%; }
+    figure figcaption { text-align: center; color: #6b7280; font-size: 14px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>HTML with embedded images</h1>
+  <p>Local + remote, just like the markdown <code>09-images-mixed-and-edge-cases.md</code> sample.</p>
+
+  <figure>
+    <img src="../markdown/images/logo.svg" alt="local SVG (relative path)" width="200">
+    <figcaption>Local SVG via relative path</figcaption>
+  </figure>
+
+  <figure>
+    <img src="../markdown/images/gradient-300.png" alt="local PNG gradient" width="300">
+    <figcaption>Local PNG (relative path)</figcaption>
+  </figure>
+
+  <figure>
+    <img src="https://avatars.githubusercontent.com/u/9919?s=200&v=4" alt="GitHub octocat avatar" width="200">
+    <figcaption>Remote image (GitHub avatar) — may require allowance prompt</figcaption>
+  </figure>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "string_field": "hello world",
+  "integer_field": 42,
+  "negative_integer": -17,
+  "float_field": 3.14159,
+  "scientific": 6.022e23,
+  "boolean_true": true,
+  "boolean_false": false,
+  "null_field": null,
+  "empty_string": "",
+  "empty_array": [],
+  "empty_object": {},
+  "unicode_string": "café — ñoño — ☕ — 日本語",
+  "string_with_escapes": "line1\nline2\ttabbed\"quoted\"",
+  "array_of_numbers": [1, 2, 3, 5, 8, 13, 21, 34, 55, 89],
+  "array_of_strings": ["alpha", "beta", "gamma"],
+  "array_of_objects": [
+    { "id": 1, "name": "first" },
+    { "id": 2, "name": "second" }
+  ],
+  "mixed_array": [1, "two", 3.0, true, null, [4, 5], { "six": 6 }]
+}
