@@ -2,6 +2,17 @@
 
 Reached when Step 2's `exe-goal-assessor` returns `achieved` (every `REQUIREMENT` marked `met`). No release-gate dispatch — that lifecycle belongs to `merge-pr-loop`.
 
+#### Termination preconditions (issue #309) — drain `## Open scope non-actions` before any Done-X exit
+
+Before invoking ANY `Done-X` handler — Done-Achieved, Done-Blocked, or Done-TimedOut — the runner MUST drain the **branch-level** `## Open scope non-actions` section of `.claude/iterate-state-<branch-slug>.md`. Step 2's `achieved` shortcut bypasses Steps 3–8.5, including 8-pre, so this gate is the single chokepoint that catches pending scope non-actions on every terminal exit. Workflow:
+
+1. Read every entry under `## Open scope non-actions` in the state file.
+2. For each entry with `disposition: pending`, run the same disposition workflow as 8-pre (`accepted` / `handled-in-forward-fix` / `follow-up-issue:<N>`; one-line `disposition_note`; move resolved entries to `## Resolved scope non-actions`).
+3. **Block Done-Achieved on undisposed entries.** If any entry remains `pending` after step 2 — for example, the runner cannot decide a disposition without human input — the terminal outcome is forced to **Done-Blocked** (NOT Done-Achieved), with reason `scope non-actions undisposed: <implementer_attempt_id list>`. The PR stays draft, the source issue gets the `blocked` label, and `iterate-loop` skips the issue on subsequent sweeps until a human resolves the entries (e.g. by opening follow-up issues and re-disposing them).
+4. Done-Blocked and Done-TimedOut also run this gate, but their outcome is unchanged — the gate just ensures that pending entries are surfaced in the Done-Blocked / Done-TimedOut PR comment so they're visible in the carry-over.
+
+This gate guarantees that no terminal exit (including the Step 2 → Done-Achieved shortcut at SKILL.md "Termination" table) can ship pending scope non-actions silently.
+
 Handler steps (in order):
 
 1. **Bug-mode behavioural verification (`IS_BUG` only).** Before marking the PR ready-for-review, verify the original bug is resolved at the **observation level** of the bug report — not the implementation level.
