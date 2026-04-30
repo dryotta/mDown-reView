@@ -10,7 +10,6 @@ import {
   fileChangedDeleted,
   fileChangedReview,
   fileChangedReviewJson,
-  ipcEventFixturePaths,
 } from "@/__tests__/fixtures/ipc-event-fixtures";
 
 vi.mock("@/lib/tauri-events", () => ({
@@ -434,58 +433,15 @@ describe("useFileWatcher tabPaths stability — RC2/P1.1", () => {
   });
 });
 
-describe("useFileWatcher  review-event regression (issue #311)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
-    useStore.setState({
-      root: "/workspace",
-      tabs: [{ path: ipcEventFixturePaths.source, scrollTop: 0 }],
-      lastSaveByPath: {},
-      ghostEntries: [],
-    });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("does not suppress kind=review for a sidecar path even when a save was just recorded for the source", async () => {
-    renderHook(() => useFileWatcher());
-    await act(async () => {});
-
-    const callback = getFileChangedCallback();
-    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
-
-    act(() => { useStore.getState().recordSave(ipcEventFixturePaths.source); });
-
-    act(() => { callback(fileChangedReview(ipcEventFixturePaths.reviewYaml)); });
-
-    const fileChangedEvents = dispatchSpy.mock.calls.filter(
-      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed",
-    );
-    expect(fileChangedEvents).toHaveLength(1);
-    const detail = (fileChangedEvents[0]![0] as CustomEvent).detail as EventPayloads["file-changed"];
-    expect(detail.path).toBe(ipcEventFixturePaths.reviewYaml);
-    expect(detail.kind).toBe("review");
-
-    dispatchSpy.mockRestore();
-  });
-
-  it("dispatches kind=review even when no save was recorded (positive control)", async () => {
-    renderHook(() => useFileWatcher());
-    await act(async () => {});
-
-    const callback = getFileChangedCallback();
-    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
-
-    act(() => { callback(fileChangedReview(ipcEventFixturePaths.reviewYaml)); });
-
-    const fileChangedEvents = dispatchSpy.mock.calls.filter(
-      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed",
-    );
-    expect(fileChangedEvents).toHaveLength(1);
-
-    dispatchSpy.mockRestore();
-  });
-});
+// The #311 review-event regression tests were rebased away — PR #299
+// (issue #298 iter-3) added the sidecar→source path normalization that
+// R7 was meant to drive, AND added two superior tests covering both
+// `.review.yaml` and `.review.json` sidecars at lines 276-322 above
+// ("suppresses kind=review event with sidecar path when source path was
+// recently saved" / ".review.json sidecar path"). Those tests assert
+// the contract-correct behavior (suppression engages because the hook
+// normalizes the sidecar path to the source key) — which is exactly
+// the R7 oracle. The hook now FAILS to suppress only if it regresses
+// to using the raw watcher path as the lookup key (i.e. drops
+// `sourcePathFromEvent`). Keeping a duplicate Group E describe here
+// would be dead weight per AGENTS.md "Never Increase Engineering Debt".

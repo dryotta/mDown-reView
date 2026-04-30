@@ -350,7 +350,13 @@ describe("useFileBadges file-changed kind=deleted + kind=content + path normaliz
     expect(getFileBadges).not.toHaveBeenCalled();
   });
 
-  it("suppresses kind=review for an unsuffixed source path (defensive: sourcePathFromEvent is a no-op)", async () => {
+  // #311 fixture validation moved this test to a contract-correct input:
+  // the production watcher only emits sidecar paths for kind=review (per
+  // src-tauri/src/watcher.rs:489-496). The hook's `sourcePathFromEvent`
+  // strips `.review.yaml` to `/a.md`, the suppression key matches, and
+  // the IPC re-fetch is suppressed. This test verifies the round-trip
+  // (comments-changed → sidecar kind=review within window → no IPC).
+  it("suppresses kind=review (sidecar) within SAVE_DEBOUNCE_MS of a comments-changed for the source", async () => {
     vi.mocked(getFileBadges).mockResolvedValue({ "/a.md": A });
 
     renderHook(() => useFileBadges(["/a.md"]));
@@ -364,10 +370,8 @@ describe("useFileBadges file-changed kind=deleted + kind=content + path normaliz
     await flushDebounce();
     expect(getFileBadges).toHaveBeenCalledTimes(1);
 
-    // Defensive path: if the watcher ever emits a non-suffixed path
-    // with kind=review, suppression must still match.
     await act(async () => { vi.advanceTimersByTime(500); });
-    await act(async () => { fCb(fileChangedReview("/a.md")); });
+    await act(async () => { fCb(fileChangedReview("/a.md.review.yaml")); });
     await flushDebounce();
 
     expect(getFileBadges).toHaveBeenCalledTimes(1);
