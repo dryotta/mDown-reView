@@ -8,6 +8,23 @@ import { warn, debug } from "@/logger";
 const SAVE_DEBOUNCE_MS = 1500;
 const SCAN_DEBOUNCE_MS = 500;
 
+/**
+ * Convert a `file-changed` event path to the source-file path used as
+ * the `lastSaveByPath` key. The watcher emits the sidecar path for
+ * `kind=review` (e.g. `/ws/foo.md.review.yaml`), so we must strip the
+ * suffix before looking up the per-source save timestamp — otherwise
+ * the suppression silently no-ops because the sidecar key never matches
+ * the source-keyed timestamp recorded by `recordSave`.
+ *
+ * Same shape as `sourcePathFromEvent` in `useFileBadges.ts:40-44`;
+ * flag for shared consolidation if a third consumer materializes.
+ */
+function sourcePathFromEvent(p: string): string {
+  if (p.endsWith(".review.yaml")) return p.slice(0, -".review.yaml".length);
+  if (p.endsWith(".review.json")) return p.slice(0, -".review.json".length);
+  return p;
+}
+
 export function useFileWatcher() {
   // RC2/P1.1 — subscribe to the set of tab paths only. Selecting the
   // whole `tabs` array re-fires this hook (and its `updateWatchedFiles`
@@ -57,7 +74,12 @@ export function useFileWatcher() {
     const unlisten = listenEvent("file-changed", (payload) => {
       const { path, kind } = payload;
       const now = Date.now();
-      const lastSave = useStore.getState().lastSaveByPath[path] ?? 0;
+      // Normalize sidecar→source path: `lastSaveByPath` is keyed by
+      // source path, but the watcher emits the sidecar path for
+      // `kind=review` events. Without this strip the suppression
+      // silently no-ops on every external sidecar edit.
+      const sourcePath = sourcePathFromEvent(path);
+      const lastSave = useStore.getState().lastSaveByPath[sourcePath] ?? 0;
 
       if (now - lastSave < SAVE_DEBOUNCE_MS) {
         void debug(`[useFileWatcher] ignoring event within save debounce window: ${path}`); // fire-and-forget log inside sync event handler

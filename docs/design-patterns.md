@@ -39,7 +39,7 @@ Structural chokepoints (IPC, logger) are canonical in [`docs/architecture.md`](a
 
 ### Cross-hook communication
 15. Cross-hook communication uses `window` `CustomEvent` with the `mdownreview:*` namespace. (`useFileWatcher.ts:62-66` dispatch; `useFileContent.ts:26` listen.)
-16. File-watcher save-loop prevention compares against `lastSaveByPathRef` (the ref, not the reactive value) to avoid stale closures. (`useFileWatcher.ts:18-20,53-59`.)
+16. File-watcher save-loop prevention compares against `useStore.getState().lastSaveByPath[sourcePath]` read imperatively inside the `file-changed` listener (Hot-tier discipline per `docs/architecture.md` rule 30). The sidecar path emitted by the watcher is normalized to the source path via `sourcePathFromEvent` before lookup. (`src/hooks/useFileWatcher.ts:22-26,74-87`.)
 17. Every `scanReviewFiles` trigger is behind the debounced helper. (`useFileWatcher.ts:23-39,71`.)
 
 ### Mock-file idioms (testing)

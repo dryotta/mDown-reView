@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 
 export { test, expect } from "./error-tracking";
+export type { Page } from "@playwright/test";
 
 export interface LaunchArgs {
   files: string[];

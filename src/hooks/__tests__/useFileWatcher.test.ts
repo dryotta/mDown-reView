@@ -259,6 +259,59 @@ describe("useFileWatcher save-loop suppression", () => {
 
     dispatchSpy.mockRestore();
   });
+
+  // #298 iter 3 — sidecar→source path normalization. The watcher emits
+  // the SIDECAR path for kind=review events, but `lastSaveByPath` is
+  // keyed by the SOURCE path (matching `recordSave` callers). Without
+  // `sourcePathFromEvent` the suppression silently no-ops on every
+  // external sidecar edit. Same fix shape as `useFileBadges.ts:40-44`.
+  it("suppresses kind=review event with sidecar path when source path was recently saved", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    // Save was recorded for the SOURCE path…
+    act(() => {
+      useStore.getState().recordSave("/workspace/file.md");
+    });
+
+    // …but the watcher fires with the SIDECAR path (the real shape
+    // for kind=review events).
+    act(() => {
+      callback({ path: "/workspace/file.md.review.yaml", kind: "review" });
+    });
+
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed"
+    );
+    expect(fileChangedEvents).toHaveLength(0);
+
+    dispatchSpy.mockRestore();
+  });
+
+  it("suppresses kind=review event with .review.json sidecar path", async () => {
+    renderHook(() => useFileWatcher());
+    await act(async () => {});
+
+    const callback = getFileChangedCallback();
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+    act(() => {
+      useStore.getState().recordSave("/workspace/file.md");
+    });
+    act(() => {
+      callback({ path: "/workspace/file.md.review.json", kind: "review" });
+    });
+
+    const fileChangedEvents = dispatchSpy.mock.calls.filter(
+      (call) => call[0] instanceof CustomEvent && call[0].type === "mdownreview:file-changed"
+    );
+    expect(fileChangedEvents).toHaveLength(0);
+
+    dispatchSpy.mockRestore();
+  });
 });
 
 describe("useFileWatcher tabPaths stability — RC2/P1.1", () => {

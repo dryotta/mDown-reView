@@ -19,17 +19,6 @@ export async function getRenderCounts(page: Page): Promise<RenderCounts> {
   });
 }
 
-export async function resetRenderCounts(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const w = window as unknown as { __RENDER_COUNTS__?: Record<string, number> };
-    if (w.__RENDER_COUNTS__) {
-      for (const k of Object.keys(w.__RENDER_COUNTS__)) {
-        delete w.__RENDER_COUNTS__[k];
-      }
-    }
-  });
-}
-
 /**
  * Assert that every observed render count is within budget AND that the
  * set of instrumented sites observed is exactly the set baselined.

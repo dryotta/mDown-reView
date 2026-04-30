@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test, expect } from "./fixtures";
-import type { Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { getRenderCounts, assertWithinBaseline } from "./helpers/render-counts";
 
 const baselines = JSON.parse(
