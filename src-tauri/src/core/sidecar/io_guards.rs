@@ -103,6 +103,13 @@ pub(crate) fn reject_yaml_anchors(text: &str) -> std::io::Result<()> {
 ///   4. `serde_saphyr::from_str::<serde_json::Value>(&repaired)` —
 ///      structural round-trip parse. Catches parse-level breakage
 ///      from a future repair-pass regression.
+///   5. **Structural-equality** check: `serde_json::to_value(value)`
+///      must compare equal to the parsed-back `Value` from step 4.
+///      Catches a repair-pass bug that produces parseable-but-
+///      different YAML — exactly what a stateless regex over body
+///      lines could do (issue #293 forward-fix). The reference is
+///      the input value re-serialized through serde to its JSON
+///      shape; saphyr-from-str of the repaired YAML must match it.
 ///
 /// The validator rejects rather than mutates. Rule 4 in
 /// `docs/security.md` ("the only acceptable failure is 'no write'")
@@ -115,7 +122,28 @@ where
     let raw = serde_saphyr::to_string(value)
         .map_err(|e| super::SidecarError::YamlParse(e.to_string()))?;
     let repaired = repair_block_scalar_indents(raw);
-    validate_emitted_mrsf_yaml(&repaired)?;
+
+    // Stage 1: parse-level guard (anchor reject + parseability).
+    reject_yaml_anchors(&repaired).map_err(|e| super::SidecarError::YamlParse(e.to_string()))?;
+    let post: serde_json::Value = serde_saphyr::from_str(&repaired)
+        .map_err(|e| super::SidecarError::YamlParse(e.to_string()))?;
+
+    // Stage 2: structural equality. Catches a repair-pass bug that
+    // produced parseable-but-different YAML — which is exactly what
+    // a stateless regex over body lines could do (issue #293
+    // forward-fix).
+    let original: serde_json::Value = serde_json::to_value(value).map_err(|e| {
+        super::SidecarError::YamlParse(format!(
+            "input value cannot be re-serialized for round-trip check: {e}"
+        ))
+    })?;
+    if post != original {
+        return Err(super::SidecarError::YamlParse(
+            "post-emit YAML parses to a value that differs structurally from the input \
+             — refusing to write to disk to avoid silent corruption (issue #293)"
+                .into(),
+        ));
+    }
     Ok(repaired)
 }
 
@@ -154,18 +182,29 @@ pub(super) fn validate_emitted_mrsf_yaml(text: &str) -> Result<(), super::Sideca
 /// NOT moved — the bug is purely in the indicator, not the body
 /// layout. Chomping indicators (`+` / `-`) are preserved verbatim.
 ///
-/// Allocates only when at least one header needs repair: returns the
-/// original `String` untouched otherwise (single allocation total in
-/// the happy path, since `emit_mrsf_yaml` already owns `raw`).
+/// Allocates a `Vec<&str>` proportional to line count for line-by-line
+/// scanning; the content `String` itself is only reallocated when at
+/// least one header needs rewriting (returns the original `String`
+/// untouched in the happy path).
+///
+/// **Stateful body skipping** (issue #293 forward-fix). After matching
+/// a header at parent indent `P`, the outer loop jumps past every
+/// following line whose indent is strictly greater than `P` (blanks
+/// included) before resuming header detection. A line *inside* an
+/// already-open block-scalar body must NEVER be re-tested as a header,
+/// otherwise a body line that happens to look like `|3` or `>3-` would
+/// be silently rewritten — corrupting the user's literal content.
 fn repair_block_scalar_indents(yaml: String) -> String {
     static HEADER_RE: OnceLock<Regex> = OnceLock::new();
     let re = HEADER_RE.get_or_init(|| {
-        // Conservative: only match lines whose prefix is a recognisable
-        // YAML node-position (leading spaces, optional `- `, optional
-        // `key: `). The header itself is `|` or `>`, an explicit
-        // ASCII digit, optional chomp, optional trailing whitespace.
+        // Saphyr never emits a bare `|N` on its own line; a header
+        // always sits on a `- ` element line, a `key:` line, or both.
+        // Require at least one of those prefixes so a body line that
+        // happens to read `|3` (or `>3-`) is NOT misclassified as a
+        // header. Capture each prefix component separately so the
+        // post-match check can reject a bare-prefix match.
         Regex::new(
-            r"^(?P<indent>[ \t]*)(?:-[ \t]+)?(?:[^\n:|>]+?:[ \t]+)?[|>](?P<digit>[0-9])[+\-]?[ \t]*$",
+            r"^(?P<indent>[ \t]*)(?P<dash>-[ \t]+)?(?P<key>[^\n:|>][^\n:|>]*?:[ \t]+)?[|>](?P<digit>[0-9])[+\-]?[ \t]*$",
         )
         .expect("valid block-scalar header regex")
     });
@@ -178,7 +217,8 @@ fn repair_block_scalar_indents(yaml: String) -> String {
     let lines: Vec<&str> = yaml.split_inclusive('\n').collect();
     let mut out: Option<String> = None;
 
-    for i in 0..lines.len() {
+    let mut i = 0;
+    while i < lines.len() {
         let line = lines[i];
         let line_no_nl = trim_eol(line);
 
@@ -188,9 +228,22 @@ fn repair_block_scalar_indents(yaml: String) -> String {
                 if let Some(ref mut buf) = out {
                     buf.push_str(line);
                 }
+                i += 1;
                 continue;
             }
         };
+
+        // Defense-in-depth: even though the regex requires at least one
+        // of `dash` / `key` via the alternation pattern, double-check.
+        // A line with neither prefix is a body-line look-alike and must
+        // be left alone.
+        if caps.name("dash").is_none() && caps.name("key").is_none() {
+            if let Some(ref mut buf) = out {
+                buf.push_str(line);
+            }
+            i += 1;
+            continue;
+        }
 
         let parent_col = caps.name("indent").unwrap().as_str().len();
         let digit_match = caps.name("digit").unwrap();
@@ -198,20 +251,24 @@ fn repair_block_scalar_indents(yaml: String) -> String {
         let digit_byte_offset = digit_match.start();
 
         // Scan body: find the MINIMUM indent across every non-blank body
-        // line, stopping at any line indented `<=` parent_col (dedent).
+        // line, AND determine the body span end (first non-body line, or
+        // `lines.len()`). Body = blank line OR line indented > parent_col.
         // Saphyr preserves leading whitespace in the first content line by
-        // emitting that line at one extra indent level (the leading-space
-        // bytes become content after the strip), so the FIRST body line
+        // emitting it at one extra indent level, so the FIRST body line
         // can be deeper than the body's logical indent — only the minimum
         // determines what the parser will accept (YAML 1.2 §8.1.1).
         let mut body_col: Option<usize> = None;
+        let mut body_end = lines.len();
         for j in (i + 1)..lines.len() {
             let bl = trim_eol(lines[j]);
             if bl.is_empty() || bl.bytes().all(|b| b == b' ' || b == b'\t') {
+                // Blank lines belong to the body; do not constrain
+                // `body_col`, but do not terminate the span either.
                 continue;
             }
             let lead = bl.bytes().take_while(|b| *b == b' ').count();
             if lead <= parent_col {
+                body_end = j;
                 break;
             }
             body_col = Some(body_col.map_or(lead, |cur| cur.min(lead)));
@@ -241,6 +298,15 @@ fn repair_block_scalar_indents(yaml: String) -> String {
                 }
             }
         }
+
+        // CRITICAL: jump past the entire body span so body lines are
+        // NEVER re-tested as headers. This is the stateful guard.
+        if let Some(ref mut buf) = out {
+            for k in (i + 1)..body_end {
+                buf.push_str(lines[k]);
+            }
+        }
+        i = body_end;
     }
 
     out.unwrap_or(yaml)

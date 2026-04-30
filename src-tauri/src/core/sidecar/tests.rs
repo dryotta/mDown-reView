@@ -596,6 +596,68 @@ fn regression_saphyr_block_scalar_indent_bug() {
     );
 }
 
+/// Forward-fix regression for #293: the indent-repair pass must NOT
+/// rewrite block-scalar body lines that happen to look like headers.
+/// Without stateful tracking, a stateless line-regex would match a
+/// body line `|3` as a "header" and rewrite the digit, silently
+/// corrupting the user's literal content.
+#[test]
+fn repair_does_not_rewrite_body_lines_that_look_like_headers() {
+    let payload = MrsfSidecar {
+        mrsf_version: "1.0".into(),
+        document: "d.md".into(),
+        comments: vec![sample_comment_with("c1", |b| {
+            b.selected_text = Some("foo\n|3\n    deeper\n    deeper2".into());
+        })],
+    };
+    let yaml = emit_mrsf_yaml(&payload).expect("must emit valid yaml");
+    let round: MrsfSidecar = serde_saphyr::from_str(&yaml).expect("emitted yaml must parse");
+    assert_eq!(
+        round.comments[0].selected_text.as_deref(),
+        Some("foo\n|3\n    deeper\n    deeper2"),
+        "body line `|3` must not be misclassified as a header"
+    );
+}
+
+/// Variant: chomping indicator on body line (`|3-`) — verifies the
+/// stateful repair preserves the chomp marker too, not just the digit.
+#[test]
+fn repair_does_not_rewrite_body_lines_with_chomping_indicator() {
+    let payload = MrsfSidecar {
+        mrsf_version: "1.0".into(),
+        document: "d.md".into(),
+        comments: vec![sample_comment_with("c1", |b| {
+            b.selected_text = Some("foo\n|3-\n    deeper\n    deeper2".into());
+        })],
+    };
+    let yaml = emit_mrsf_yaml(&payload).expect("must emit valid yaml");
+    let round: MrsfSidecar = serde_saphyr::from_str(&yaml).expect("emitted yaml must parse");
+    assert_eq!(
+        round.comments[0].selected_text.as_deref(),
+        Some("foo\n|3-\n    deeper\n    deeper2"),
+        "body line `|3-` must not be misclassified as a header"
+    );
+}
+
+/// Variant: folded-scalar header look-alike (`>3`) inside body content.
+#[test]
+fn repair_does_not_rewrite_body_lines_that_look_like_folded_headers() {
+    let payload = MrsfSidecar {
+        mrsf_version: "1.0".into(),
+        document: "d.md".into(),
+        comments: vec![sample_comment_with("c1", |b| {
+            b.selected_text = Some("foo\n>3\n    deeper\n    deeper2".into());
+        })],
+    };
+    let yaml = emit_mrsf_yaml(&payload).expect("must emit valid yaml");
+    let round: MrsfSidecar = serde_saphyr::from_str(&yaml).expect("emitted yaml must parse");
+    assert_eq!(
+        round.comments[0].selected_text.as_deref(),
+        Some("foo\n>3\n    deeper\n    deeper2"),
+        "body line `>3` must not be misclassified as a folded header"
+    );
+}
+
 /// Exact reproducer from #293: `selected_text` with one leading space,
 /// 3 lines, no trailing newline. Forces saphyr's literal-block branch.
 #[test]
@@ -927,9 +989,12 @@ fn emit_mrsf_yaml_round_trip_validation_rejects_unparseable_output() {
     );
 }
 
-/// Structural round-trip equality check: emit then parse, the parsed
-/// JSON Value must `==` the input. Catches a hypothetical repair-pass
-/// bug that produces parseable-but-different YAML.
+/// Asserts that `emit_mrsf_yaml` enforces structural equality between
+/// the input value and the post-emit YAML's parse — preventing silent
+/// disk corruption from a future repair-pass regression. The runtime
+/// guard at `io_guards.rs::emit_mrsf_yaml` rejects any non-structurally-
+/// equal output as `SidecarError::YamlParse`; this test asserts that
+/// guarantee from the outside (via `emit_mrsf_yaml` → success path).
 #[test]
 fn emit_mrsf_yaml_round_trip_validates_structural_equality() {
     let value = serde_json::json!({
