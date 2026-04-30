@@ -213,8 +213,9 @@ describe("useFileBadges echo suppression — RC5/P1.4", () => {
     expect(getFileBadges).toHaveBeenCalledTimes(1);
 
     // Watcher echo arrives ~500 ms later, well within SAVE_DEBOUNCE_MS=1500.
+    // Watcher emits the SIDECAR path, not the source path.
     await act(async () => { vi.advanceTimersByTime(500); });
-    await act(async () => { fCb({ path: "/a.md", kind: "review" }); });
+    await act(async () => { fCb({ path: "/a.md.review.yaml", kind: "review" }); });
     await flushDebounce();
 
     // Suppressed — no extra refetch (AC6).
@@ -235,9 +236,10 @@ describe("useFileBadges echo suppression — RC5/P1.4", () => {
     await flushDebounce();
     expect(getFileBadges).toHaveBeenCalledTimes(1);
 
-    // Past the suppression window — treat as external edit.
+    // Past the suppression window — treat as external edit. Watcher
+    // emits the SIDECAR path.
     await act(async () => { vi.advanceTimersByTime(1600); });
-    await act(async () => { fCb({ path: "/a.md", kind: "review" }); });
+    await act(async () => { fCb({ path: "/a.md.review.yaml", kind: "review" }); });
     await flushDebounce();
 
     expect(getFileBadges).toHaveBeenCalledTimes(2);
@@ -257,10 +259,88 @@ describe("useFileBadges echo suppression — RC5/P1.4", () => {
     await flushDebounce();
     expect(getFileBadges).toHaveBeenCalledTimes(1);
 
-    // file-changed for a different path — no suppression entry exists.
-    await act(async () => { fCb({ path: "/b.md", kind: "review" }); });
+    // file-changed for a different source — no suppression entry
+    // matches (sidecar normalizes to /b.md, not /a.md).
+    await act(async () => { fCb({ path: "/b.md.review.yaml", kind: "review" }); });
     await flushDebounce();
 
     expect(getFileBadges).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useFileBadges file-changed kind=deleted + kind=content + path normalization", () => {
+  it("refreshes once on a sidecar deletion event (kind=deleted)", async () => {
+    vi.mocked(getFileBadges).mockResolvedValue({ "/a.md": A });
+
+    renderHook(() => useFileBadges(["/a.md"]));
+    await flushDebounce();
+    vi.mocked(getFileBadges).mockClear();
+
+    const fCb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed")![1] as (p: { path: string; kind: "content" | "review" | "deleted" }) => void;
+
+    await act(async () => { fCb({ path: "/a.md.review.yaml", kind: "deleted" }); });
+    await flushDebounce();
+
+    expect(getFileBadges).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT suppress kind=deleted within SAVE_DEBOUNCE_MS of comments-changed", async () => {
+    vi.mocked(getFileBadges).mockResolvedValue({ "/a.md": A });
+
+    renderHook(() => useFileBadges(["/a.md"]));
+    await flushDebounce();
+    vi.mocked(getFileBadges).mockClear();
+
+    const cCb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "comments-changed")![1] as (p: { file_path: string }) => void;
+    const fCb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed")![1] as (p: { path: string; kind: "content" | "review" | "deleted" }) => void;
+
+    await act(async () => { cCb({ file_path: "/a.md" }); });
+    await flushDebounce();
+    expect(getFileBadges).toHaveBeenCalledTimes(1);
+
+    // Within suppression window — but deletions are real events, not echoes.
+    await act(async () => { vi.advanceTimersByTime(500); });
+    await act(async () => { fCb({ path: "/a.md.review.yaml", kind: "deleted" }); });
+    await flushDebounce();
+
+    expect(getFileBadges).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores file-changed kind=content (source content does not affect badges)", async () => {
+    vi.mocked(getFileBadges).mockResolvedValue({ "/a.md": A });
+
+    renderHook(() => useFileBadges(["/a.md"]));
+    await flushDebounce();
+    vi.mocked(getFileBadges).mockClear();
+
+    const fCb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed")![1] as (p: { path: string; kind: "content" | "review" | "deleted" }) => void;
+
+    await act(async () => { fCb({ path: "/a.md", kind: "content" }); });
+    await flushDebounce();
+
+    expect(getFileBadges).not.toHaveBeenCalled();
+  });
+
+  it("suppresses kind=review for an unsuffixed source path (defensive: sourcePathFromEvent is a no-op)", async () => {
+    vi.mocked(getFileBadges).mockResolvedValue({ "/a.md": A });
+
+    renderHook(() => useFileBadges(["/a.md"]));
+    await flushDebounce();
+    vi.mocked(getFileBadges).mockClear();
+
+    const cCb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "comments-changed")![1] as (p: { file_path: string }) => void;
+    const fCb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed")![1] as (p: { path: string; kind: "content" | "review" | "deleted" }) => void;
+
+    await act(async () => { cCb({ file_path: "/a.md" }); });
+    await flushDebounce();
+    expect(getFileBadges).toHaveBeenCalledTimes(1);
+
+    // Defensive path: if the watcher ever emits a non-suffixed path
+    // with kind=review, suppression must still match.
+    await act(async () => { vi.advanceTimersByTime(500); });
+    await act(async () => { fCb({ path: "/a.md", kind: "review" }); });
+    await flushDebounce();
+
+    expect(getFileBadges).toHaveBeenCalledTimes(1);
   });
 });

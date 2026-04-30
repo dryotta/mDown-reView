@@ -24,6 +24,26 @@ const PATHS_DEBOUNCE_MS = 50;
 const SAVE_DEBOUNCE_MS = 1500;
 
 /**
+ * Convert a `file-changed` event path into the source-file path used as
+ * the suppression key. The watcher (`src-tauri/src/watcher.rs:482-500`)
+ * emits the raw notify path, which for `kind=review` is the sidecar
+ * (`<source>.review.yaml` or `<source>.review.json`). The badge hook
+ * tracks save timestamps keyed by source-file path (matching
+ * `comments-changed.file_path`), so we must strip the sidecar suffix
+ * before lookup — otherwise the suppression silently no-ops because
+ * the sidecar key never matches the source-keyed timestamp.
+ *
+ * For `kind=deleted` events the path may be either a sidecar or a
+ * source file; applying the strip is a no-op for source paths and
+ * correct for sidecar paths.
+ */
+function sourcePathFromEvent(p: string): string {
+  if (p.endsWith(".review.yaml")) return p.slice(0, -".review.yaml".length);
+  if (p.endsWith(".review.json")) return p.slice(0, -".review.json".length);
+  return p;
+}
+
+/**
  * Returns per-file unresolved-comment badge data (count + worst severity)
  * for a set of file paths.
  *
@@ -31,15 +51,22 @@ const SAVE_DEBOUNCE_MS = 1500;
  * - `comments-changed` — fires immediately; emitted by every
  *   frontend-initiated sidecar mutation via `with_sidecar_mut`
  *   (rule 17, docs/architecture.md).
- * - `file-changed kind=review` — fires UNLESS within `SAVE_DEBOUNCE_MS`
- *   of a `comments-changed` for the same path. The watcher emits this
- *   ~500 ms after a local sidecar write (it observes the same on-disk
- *   change `with_sidecar_mut` already announced via `comments-changed`),
- *   so we suppress the duplicate to meet AC6 (≤1 refetch per local
- *   save). External-editor sidecar edits arrive WITHOUT a preceding
- *   `comments-changed`, bypass the suppression, and refresh the badge —
- *   this is the only surface that reflects external `.review.yaml`
- *   edits in the FolderTree (RC5 / P1.4).
+ * - `file-changed kind=review` — for EXTERNAL edits. The watcher emits
+ *   the SIDECAR path (e.g. `/ws/foo.md.review.yaml`); we normalize it
+ *   back to the source path via `sourcePathFromEvent` and suppress
+ *   when within `SAVE_DEBOUNCE_MS` of a `comments-changed` for the
+ *   same source — that's the watcher's ~500 ms echo of a local write
+ *   `with_sidecar_mut` already announced. External-editor sidecar
+ *   edits arrive WITHOUT a preceding `comments-changed`, pass the
+ *   suppression, and refresh the badge — the only surface that
+ *   reflects external `.review.yaml` edits in the FolderTree
+ *   (RC5 / P1.4).
+ * - `file-changed kind=deleted` — for ANY sidecar/source deletion.
+ *   Never suppressed (deletions are never echoes of a local mutation
+ *   we already handled): they surface real disk-state changes that
+ *   must clear/update badges immediately.
+ * - `file-changed kind=content` — IGNORED. Source-file content edits
+ *   do not affect badge counts; comments live in the sidecar.
  *
  * Design notes:
  * - `pathsKey` changes (folder expand/collapse, ghost-set churn) are
@@ -136,13 +163,24 @@ export function useFileBadges(filePaths: string[]): Record<string, FileBadge> {
 
   useEffect(() => {
     const p = listenEvent("file-changed", (payload) => {
-      if (payload.kind !== "review") return;
-      const lastEcho = lastCommentsChangedAtRef.current[payload.path] ?? 0;
-      if (Date.now() - lastEcho < SAVE_DEBOUNCE_MS) {
-        // Echo of a local write that already triggered comments-changed
-        // — suppress to meet AC6 (≤1 refetch per local save).
-        return;
+      // `kind=content` (source-file content edits) does not affect badge
+      // counts — comments live in the sidecar. Ignore.
+      if (payload.kind === "content") return;
+
+      const sourcePath = sourcePathFromEvent(payload.path);
+
+      if (payload.kind === "review") {
+        const lastEcho = lastCommentsChangedAtRef.current[sourcePath] ?? 0;
+        if (Date.now() - lastEcho < SAVE_DEBOUNCE_MS) {
+          // Echo of a local write that already triggered comments-changed
+          // — suppress to meet AC6 (≤1 refetch per local save).
+          return;
+        }
       }
+
+      // kind=review (external edit) or kind=deleted: refresh badges.
+      // Deletions are never an echo (no preceding comments-changed); they
+      // surface real disk-state changes that must clear/update badges.
       setReloadKey((k) => k + 1);
     });
     return () => { p.then((fn) => fn()).catch(() => {}); };
