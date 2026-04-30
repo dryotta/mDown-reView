@@ -10,6 +10,7 @@ description: Reviews component boundaries, IPC contract, store design, and layer
 **Knowledge files:**
 - `docs/architecture.md` — layer boundaries, MVVM seam, IPC/logger chokepoints, state stratification, file-size budgets, MRSF schema, re-anchoring.
 - `docs/best-practices-common/tauri/v2-patterns.md` — `ipc-*`, `events-*`, `caps-*`, `windows-*`, `plugins-*` rule families.
+- `docs/best-practices-common/tauri/macos-platform.md` — `mac-menu-*`, `mac-lifecycle-*`, `mac-keys-*`, `mac-webview-*`, `mac-chrome-*` rule families.
 - `docs/best-practices-common/react/state-management.md` — slice boundaries, derived-state, single-writer.
 
 **Out of scope (handoff):**

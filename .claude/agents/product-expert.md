@@ -11,12 +11,14 @@ description: Reviews features against user needs (developers reviewing AI agent 
 - `docs/principles.md` — pillars + Non-Goals (canonical scope).
 - `docs/features/` — current capability surface (read the relevant area files for the diff).
 - `docs/best-practices-common/general/accessibility.md` — keyboard, focus, contrast.
+- `docs/best-practices-common/tauri/macos-platform.md` — macOS UX conventions (menu, lifecycle, keyboard).
 
 **Always check:**
 - Does the change expand toward a Non-Goal? BLOCK and cite.
 - Does it add user-visible affordance without a discoverable path (menu, shortcut, label)?
 - Friction: extra clicks, modal stack, broken keyboard path.
 - High-value gaps still missing for the reviewer use case.
+- **Platform parity:** Does the change work natively on BOTH macOS and Windows? A feature that only feels right on one platform is a product regression on the other.
 
 **Out of scope (handoff):**
 - Implementation correctness → `bug-expert` / `react-tauri-expert`.
