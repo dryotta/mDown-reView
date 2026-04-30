@@ -1,10 +1,10 @@
 # Observability
 
-Internal runtime instrumentation for the mdownreview Tauri shell. This document is the canonical home for the on-disk log schema produced by the `[ipc]` and `[startup]` event surfaces shipped in issue #264 (PR3 of the engineering-excellence plan). All instrumentation is **internal-only** — end-user behavior is unchanged. Output flows into the rotating log file already managed by `tauri-plugin-log` (see [`docs/features/logging.md`](features/logging.md) and [`docs/architecture.md`](architecture.md) rule 6).
+Internal runtime instrumentation for the mdownreview Tauri shell. This document is the canonical home for the on-disk log schemas produced by the `[ipc]`, `[startup]`, and `[log-rotation]` event surfaces (the first two shipped in issue #264 / PR3 of the engineering-excellence plan; the third in PR #295). All instrumentation is **internal-only** — end-user behavior is unchanged. Output flows into the rotating log file already managed by `tauri-plugin-log` (see [`docs/features/logging.md`](features/logging.md) and [`docs/architecture.md`](architecture.md) rule 6).
 
 ## On-disk schemas
 
-Two stable line schemas, both emitted via `log::info!`/`log::warn!` against named `target` strings so log analyzers can filter cheaply.
+Three stable line schemas, all emitted via `log::info!`/`log::warn!` against named `target` strings so log analyzers can filter cheaply.
 
 ### `[ipc]` schema
 
@@ -57,6 +57,22 @@ Each phase fires **at most once per process**. A duplicate call against the same
 | `first-file-loaded` | (frontend, future PR) | First viewer paint completes. |
 
 `t_ms` is milliseconds since the recorder's `Instant` anchor (set on first touch — typically `app-init`). Phase order is **not** enforced; async timing differences mean callers may report out of sequence.
+
+### `[log-rotation]` schema
+
+Emitted exactly once per process at the end of `lib.rs::run`'s setup hook (after `tauri-plugin-log` initializes), via `log_rotation::surface_outcome`. Target: `"log-rotation"` — analyzers should filter on target, not on line prefix.
+
+```
+[log-rotation] archived=<path|"none"> pruned_count=<n> errors=<n>
+```
+
+If the rotator encountered any errors during pre-init (failed `app_log_dir` resolution, failed `create_dir_all`, failed `rename`, failed `remove_file`), each is surfaced as an additional `log::warn!` line on the same target:
+
+```
+[log-rotation] error: <message>
+```
+
+The `[log-rotation]` target is intentionally separate from `[startup]` because the line shape (`archived`/`pruned_count`/`errors`) does not match the `[startup] phase=<name> t_ms=<n>` schema documented above. Keeping them on different targets means analyzers that filter `target="startup"` see a clean phase stream.
 
 ## Source of truth
 
@@ -118,26 +134,10 @@ Events flow into the rotating file managed by `tauri-plugin-log`. Retrieve the p
 
 Two layers of rotation apply:
 
-* **Per-launch archive (primary):** before `tauri-plugin-log` initializes, the `log-rotator` plugin (`src-tauri/src/log_rotation.rs`, registered first) renames the previous session's `mdownreview.log` to `mdownreview.<UTC stamp>.log` and prunes the log directory to at most `log_rotation::DEFAULT_KEEP` (= 10) `mdownreview*.log` files (active + archives combined, oldest mtime first; the active file is never deleted). This bounds disk usage **across launches** — see [`docs/features/logging.md`](features/logging.md).
+* **Per-launch archive (primary):** before `tauri-plugin-log` initializes, the `log-rotator` plugin (`src-tauri/src/log_rotation.rs`, registered first) renames the previous session's `mdownreview.log` to `mdownreview.<UTC stamp>.log` and prunes the log directory to at most `log_rotation::DEFAULT_KEEP` (= 10) `mdownreview*.log` files (active + archives combined, oldest mtime first; the active file is never deleted). This bounds disk usage **across launches** — see [`docs/features/logging.md`](features/logging.md) and the `[log-rotation]` schema above.
 * **Intra-session size cap (secondary):** `tauri-plugin-log` is configured with `max_file_size(5 MB)` + `RotationStrategy::KeepAll`. Within a single long-running session, when the active file exceeds 5 MB the plugin rotates it to `mdownreview_<stamp>.log` (note the underscore separator). The startup prune covers both naming patterns so these intra-session archives don't accumulate indefinitely.
 
 There is no in-app log viewer and no network upload — both are Non-Goals in [`docs/principles.md`](principles.md).
-
-### `[log-rotation]` schema
-
-Emitted exactly once per process at the end of `lib.rs::run`'s setup hook (after `tauri-plugin-log` initializes), via `log_rotation::surface_outcome`. Target: `"log-rotation"` — analyzers should filter on target, not on line prefix.
-
-```
-[log-rotation] archived=<path|"none"> pruned_count=<n> errors=<n>
-```
-
-If the rotator encountered any errors during pre-init (failed `app_log_dir` resolution, failed `create_dir_all`, failed `rename`, failed `remove_file`), each is surfaced as an additional `log::warn!` line on the same target:
-
-```
-[log-rotation] error: <message>
-```
-
-The `[log-rotation]` target is intentionally separate from `[startup]` because the line shape (`archived`/`pruned_count`/`errors`) does not match the `[startup] phase=<name> t_ms=<n>` schema documented above. Keeping them on different targets means analyzers that filter `target="startup"` see a clean phase stream.
 
 ## Post-hoc analysis
 

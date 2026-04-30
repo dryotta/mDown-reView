@@ -360,6 +360,31 @@ mod tests {
     }
 
     #[test]
+    fn archive_first_collision_uses_suffix_1() {
+        // Locks in that the FIRST collision suffix is `.1`, not `.0` or
+        // `.2`. `archive_handles_double_collision` would still pass if a
+        // regression jumped straight from no-suffix to `.2` (it pre-
+        // places `.1` so the helper computes `.2` regardless). Without
+        // this dedicated guard, a "starts at 2" regression would slip
+        // through every other test.
+        let dir = TempDir::new().unwrap();
+        let now = fake_now();
+        std::fs::write(
+            dir.path().join("mdownreview.2026-04-30T15-30-45Z.log"),
+            b"prev",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("mdownreview.log"), b"curr").unwrap();
+
+        let archived = archive_active_log(dir.path(), now).unwrap().unwrap();
+        assert_eq!(
+            archived.file_name().unwrap().to_str().unwrap(),
+            "mdownreview.2026-04-30T15-30-45Z.1.log",
+            "first collision must use suffix .1"
+        );
+    }
+
+    #[test]
     fn archive_handles_double_collision() {
         // Subsumes the single-collision case: this test pre-places both
         // `mdownreview.<stamp>.log` AND `mdownreview.<stamp>.1.log`,
