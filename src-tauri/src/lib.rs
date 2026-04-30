@@ -82,12 +82,23 @@ fn parse_menu_id(id: &str) -> Option<(&str, &str)> {
 /// Build the application menu for a specific window. Each menu item ID is
 /// prefixed with the window label so `on_menu_event` can identify the
 /// originating window without heuristics.
+///
+/// On macOS the menu bar follows Apple conventions:
+///   App (About · Settings · Services · Hide/Show · Quit) │ File │ Edit │ View │ Window │ Help
+/// On Windows the layout is unchanged from the pre-macOS-support era:
+///   File (incl. Settings · Quit) │ View │ Window │ Help (incl. About)
+///
+/// PredefinedMenuItems (About, Edit shortcuts, Services, Hide, Quit) are
+/// OS-handled and never fire through `on_menu_event`; custom MenuItems keep
+/// the `{label}:{action}` encoding for per-window routing.
 fn build_window_menu<R: Runtime, M: Manager<R>>(
     handle: &M,
     label: &str,
 ) -> tauri::Result<Menu<R>> {
     let id = |action: &str| encode_menu_id(label, action);
 
+    // ── Items shared across platforms ────────────────────────────────────
+    let new_window = MenuItem::with_id(handle, id("new-window"), "New Window", true, None::<&str>)?;
     let open_file =
         MenuItem::with_id(handle, id("open-file"), "Open File…", true, Some("CmdOrCtrl+O"))?;
     let open_folder = MenuItem::with_id(
@@ -95,29 +106,12 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     )?;
     let close_folder =
         MenuItem::with_id(handle, id("close-folder"), "Close Folder", true, None::<&str>)?;
-    let new_window = MenuItem::with_id(
-        handle, id("new-window"), "New Window", true, None::<&str>,
-    )?;
     let close_tab =
         MenuItem::with_id(handle, id("close-tab"), "Close Tab", true, Some("CmdOrCtrl+W"))?;
     let close_all_tabs = MenuItem::with_id(
         handle, id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
     let help_settings = MenuItem::with_id(handle, id("help-settings"), "Settings…", true, Some("CmdOrCtrl+,"))?;
-    let file_menu = SubmenuBuilder::new(handle, "File")
-        .item(&new_window)
-        .separator()
-        .item(&open_file)
-        .item(&open_folder)
-        .item(&close_folder)
-        .separator()
-        .item(&close_tab)
-        .item(&close_all_tabs)
-        .separator()
-        .item(&help_settings)
-        .separator()
-        .quit()
-        .build()?;
 
     let toggle_comments_pane = MenuItem::with_id(
         handle, id("toggle-comments-pane"), "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"),
@@ -134,29 +128,115 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
         .item(&next_tab).item(&prev_tab).separator()
         .item(&theme_menu).build()?;
 
-    let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
-    let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
-    // Developer Tools — available in BOTH debug and release builds. Enabled by
-    // the `devtools` Cargo feature on the `tauri` crate (see Cargo.toml). F12
-    // is the universal cross-platform accelerator (also accepted natively by
-    // WebView2/WKWebView in dev builds, so users get muscle-memory parity in
-    // production via this menu item). Rust-handled in `on_menu_event` like the
-    // other window-frame actions (`win-minimize`, `win-bring-all`).
+    let check_updates = MenuItem::with_id(handle, id("check-updates"), "Check for Updates…", true, None::<&str>)?;
+
+    // Developer Tools — available in BOTH debug and release builds via the
+    // `devtools` Cargo feature (see Cargo.toml). F12 is the cross-platform
+    // accelerator. Rust-handled in `on_menu_event`.
     let toggle_devtools = MenuItem::with_id(
         handle, id("toggle-devtools"), "Toggle Developer Tools", true, Some("F12"),
     )?;
-    let window_menu = SubmenuBuilder::new(handle, "Window")
-        .item(&win_minimize).separator().item(&win_bring_all)
-        .separator().item(&toggle_devtools).build()?;
 
-    let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;
-    let check_updates = MenuItem::with_id(handle, id("check-updates"), "Check for Updates…", true, None::<&str>)?;
-    let help_menu = SubmenuBuilder::new(handle, "Help")
-        .item(&check_updates).separator().item(&about_item).build()?;
+    // ── macOS menu bar ──────────────────────────────────────────────────
+    // Rule mac-menu-app-submenu-first: first submenu is the app menu.
+    // Rule mac-menu-edit-submenu / mac-webview-clipboard-requires-edit-menu:
+    //   Edit menu enables Cmd+C/V/X in WKWebView inputs.
+    // Rule mac-menu-no-quit-in-file: Quit is in the app menu, not File.
+    // Rule mac-menu-settings-placement: Settings is in the app menu.
+    // Rule mac-menu-window-submenu: Window has Minimize + Zoom.
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = SubmenuBuilder::new(handle, "mdownreview")
+            .about(None)
+            .separator()
+            .item(&help_settings)
+            .separator()
+            .services()
+            .separator()
+            .hide()
+            .hide_others()
+            .show_all()
+            .separator()
+            .quit()
+            .build()?;
 
-    MenuBuilder::new(handle)
-        .item(&file_menu).item(&view_menu).item(&window_menu).item(&help_menu)
-        .build()
+        let file_menu = SubmenuBuilder::new(handle, "File")
+            .item(&new_window)
+            .separator()
+            .item(&open_file)
+            .item(&open_folder)
+            .item(&close_folder)
+            .separator()
+            .item(&close_tab)
+            .item(&close_all_tabs)
+            .build()?;
+
+        let edit_menu = SubmenuBuilder::new(handle, "Edit")
+            .undo()
+            .redo()
+            .separator()
+            .cut()
+            .copy()
+            .paste()
+            .select_all()
+            .build()?;
+
+        let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
+        let window_menu = SubmenuBuilder::new(handle, "Window")
+            .minimize()
+            .maximize()
+            .separator()
+            .item(&win_bring_all)
+            .separator()
+            .item(&toggle_devtools)
+            .build()?;
+
+        let help_menu = SubmenuBuilder::new(handle, "Help")
+            .item(&check_updates)
+            .build()?;
+
+        return MenuBuilder::new(handle)
+            .item(&app_menu)
+            .item(&file_menu)
+            .item(&edit_menu)
+            .item(&view_menu)
+            .item(&window_menu)
+            .item(&help_menu)
+            .build();
+    }
+
+    // ── Windows menu bar (unchanged from pre-macOS-support) ─────────────
+    #[cfg(not(target_os = "macos"))]
+    {
+        let file_menu = SubmenuBuilder::new(handle, "File")
+            .item(&new_window)
+            .separator()
+            .item(&open_file)
+            .item(&open_folder)
+            .item(&close_folder)
+            .separator()
+            .item(&close_tab)
+            .item(&close_all_tabs)
+            .separator()
+            .item(&help_settings)
+            .separator()
+            .quit()
+            .build()?;
+
+        let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
+        let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
+        let window_menu = SubmenuBuilder::new(handle, "Window")
+            .item(&win_minimize).separator().item(&win_bring_all)
+            .separator().item(&toggle_devtools).build()?;
+
+        let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;
+        let help_menu = SubmenuBuilder::new(handle, "Help")
+            .item(&check_updates).separator().item(&about_item).build()?;
+
+        MenuBuilder::new(handle)
+            .item(&file_menu).item(&view_menu).item(&window_menu).item(&help_menu)
+            .build()
+    }
 }
 
 /// Create a new application window with its own per-window menu.
@@ -646,6 +726,27 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Rule mac-lifecycle-close-hides: on macOS, closing the last
+            // visible window hides it (app stays in Dock). Cmd+Q is the
+            // only exit path. Non-last windows close normally.
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let visible_count = window
+                    .app_handle()
+                    .webview_windows()
+                    .values()
+                    .filter(|w| w.is_visible().unwrap_or(false))
+                    .count();
+                if visible_count <= 1 {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    log::info!(
+                        "[window] CloseRequested on {}: hidden (last visible window)",
+                        window.label()
+                    );
+                }
+            }
+
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
                 if let Some(reg) = window.try_state::<registry::WindowRegistry>() {
@@ -744,6 +845,24 @@ pub fn run() {
                 route_args_through_registry(app_handle, &args, "macOS-open");
             }
         }
+
+        // Rule mac-lifecycle-reopen-on-activate: clicking the Dock icon
+        // when all windows are hidden re-shows them.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows, ..
+        } = &event
+        {
+            if !has_visible_windows {
+                for win in app_handle.webview_windows().values() {
+                    let _ = win.show();
+                }
+                if let Some(win) = app_handle.get_webview_window("main") {
+                    let _ = win.set_focus();
+                }
+            }
+        }
+
         let _ = (app_handle, event);
     });
 }

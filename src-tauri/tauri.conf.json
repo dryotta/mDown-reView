@@ -35,7 +35,8 @@
     "externalBin": ["binaries/mdownreview-cli"],
     "resources": ["dmg/README.txt"],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist"
     },
     "icon": [
       "icons/32x32.png",
