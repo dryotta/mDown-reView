@@ -151,6 +151,12 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+# Optimise for size, not speed: smaller `.text` reduces page faults
+# during the cold exe load on Windows (most user-visible wins live in
+# WebView2 + frontend, not the Rust hot loop). `s` keeps the LLVM
+# size pass without giving up vectorization the way `z` does. Re-bench
+# `hot_path_bench.rs` if this changes.
+opt-level = "s"
 
 [[bench]]
 name = "sidecar_bench"

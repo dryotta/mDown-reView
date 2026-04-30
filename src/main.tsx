@@ -17,18 +17,23 @@ void recordStartupPhase("theme-applied").catch(() => {});
 
 // Install global error handlers before React initializes so that errors
 // during module loading or the first render are captured.
-window.onerror = (message, source, lineno, colno, error) => {
-  const stack = error?.stack ?? "";
-  void logger.error(`Uncaught error: ${message} at ${source}:${lineno}:${colno}\n${stack}`); // fire-and-forget — global handler signature is sync
-};
+// `addEventListener` preserves any handler Vite/devtools may have already
+// installed — `window.onerror = …` would clobber them.
+window.addEventListener("error", (event) => {
+  const error = event.error;
+  const stack = error instanceof Error ? error.stack : undefined;
+  void logger.error(
+    `Uncaught error: ${event.message} at ${event.filename}:${event.lineno}:${event.colno}\n${stack ?? ""}`
+  );
+});
 
-window.onunhandledrejection = (event) => {
+window.addEventListener("unhandledrejection", (event) => {
   const reason =
     event.reason instanceof Error
       ? (event.reason.stack ?? event.reason.message)
       : String(event.reason);
-  void logger.error(`Unhandled promise rejection: ${reason}`); // fire-and-forget — global handler signature is sync
-};
+  void logger.error(`Unhandled promise rejection: ${reason}`);
+});
 
 // Suppress the WebView's default OS context menu everywhere in the renderer.
 // The app does not ship any in-app context menu — every right-click is a
