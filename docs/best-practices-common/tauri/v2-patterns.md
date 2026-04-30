@@ -128,7 +128,7 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 - Performance degrades linearly with window count
 - Bugs are silent: a window that forgets to filter processes events intended for another
 
-**Applies to:** `file-changed`, `folder-changed`, `comments-changed`, `args-received`, `open-file-tab`, menu events. Only `update-progress` (always to main) and truly global preference changes warrant broadcast.
+**Applies to:** `file-changed`, `folder-changed`, `sidecar-config-changed`, `comments-changed`, `args-received`, `open-file-tab`, menu events. Only `update-progress` (always to main) and truly global preference changes warrant broadcast.
 
 **Pattern:** The Rust side (watcher, command handler) must know which window(s) care about a given file/folder path. The `WindowRegistry` already tracks this — use it to look up the target label, then `emit_to(label, ...)`.
 

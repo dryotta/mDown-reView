@@ -4,9 +4,16 @@ import * as path from "path";
 import * as fs from "fs";
 
 test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
-  // Skip: flaky on CI — watcher config reload timing is non-deterministic
-  // on Windows GitHub Actions runners. See https://github.com/dryotta/mdownreview/issues/281
-  test.skip("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
+  // Polled-IPC pattern (issue #304 / FLAKE-1): we cannot listen for
+  // `sidecar-config-changed` from inside `page.evaluate` —
+  // `__TAURI_INTERNALS__` exposes `invoke()` but no `event.listen` API,
+  // and `@tauri-apps/api/event` is not reachable in the page context.
+  // Instead we use `expect.poll` against `get_sidecar_config` (a
+  // deterministic IPC oracle) to wait for the watcher's reload to land.
+  // The event-side contract — `sidecar-config-changed` fans out to the
+  // tracking windows only — is covered by the Rust unit tests in
+  // `src-tauri/tests/watcher_emit_test.rs`.
+  test("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
     nativePage,
   }) => {
     const rawTmpDir = path.join(os.tmpdir(), `mdownreview-mrsf-${Date.now()}`);
@@ -19,52 +26,53 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
     try {
       await setRootViaTest(nativePage, tmpDir);
 
-      // Wait for the app to render the file
+      // Wait for the app to render the file. The markdown-viewer being
+      // visible proves the workspace opened and the tree rendered, so the
+      // watcher has been registered for this root via update_tree_watched_dirs
+      // (from the frontend's useTreeWatcher hook).
       await expect(nativePage.locator(".markdown-viewer")).toBeVisible({ timeout: 10_000 });
       await expect(nativePage.locator(".markdown-viewer")).toContainText("Hello", {
         timeout: 5_000,
       });
 
-      // Drop .mrsf.yaml — watcher should detect and reload config internally.
-      // The watcher needs to have registered the workspace root first
-      // (via update_tree_watched_dirs from the frontend's useTreeWatcher hook).
-      // The markdown-viewer being visible proves the workspace opened and
-      // the tree rendered, so the watcher should be watching by now.
+      // Drop .mrsf.yaml — watcher detects, reloads SidecarConfigState, emits
+      // sidecar-config-changed window-scoped (issue #304 / FLAKE-1). We poll
+      // get_sidecar_config (the deterministic IPC oracle) rather than
+      // listen for the event — page.evaluate cannot reach
+      // @tauri-apps/api/event and __TAURI_INTERNALS__ does not expose a
+      // listen API. The event-side contract is covered by the Rust unit
+      // tests in src-tauri/tests/watcher_emit_test.rs.
       fs.writeFileSync(
         path.join(tmpDir, ".mrsf.yaml"),
         "sidecar_root: .reviews\n",
       );
 
-      // Phase 1: Poll `get_sidecar_config` until the watcher picks up
-      // .mrsf.yaml. This is deterministic (IPC query to the config cache)
-      // and avoids relying on filesystem side-effects that are
-      // timing-sensitive on slow CI runners.
-      const MAX_CONFIG_POLLS = 60; // 60 × 500ms = 30s budget
-      let configDetected = false;
-      for (let i = 0; i < MAX_CONFIG_POLLS; i++) {
-        await nativePage.waitForTimeout(500);
-        const result = await nativePage.evaluate((root: string) => {
-          // @ts-ignore — Tauri internals
-          return window.__TAURI_INTERNALS__.invoke("get_sidecar_config", { root });
-        }, tmpDir);
-        if (result && (result as { enabled: boolean }).enabled) {
-          configDetected = true;
-          break;
-        }
-      }
-      expect(
-        configDetected,
-        "get_sidecar_config should report enabled=true after watcher reloads .mrsf.yaml",
-      ).toBe(true);
+      // Phase 1: poll get_sidecar_config until the watcher's config cache
+      // reflects the new sidecar_root. With the watcher fix in place, this
+      // typically takes ~300ms (debounce + reload). 15s is a generous CI budget
+      // for slow Windows runners (matches the timeout used by other native
+      // specs e.g. e2e/native/03-file-reload.spec.ts).
+      await expect
+        .poll(
+          async () => {
+            return nativePage.evaluate((root: string) => {
+              // @ts-ignore — Tauri internals
+              return window.__TAURI_INTERNALS__.invoke("get_sidecar_config", { root });
+            }, tmpDir);
+          },
+          {
+            message:
+              "watcher should reload .mrsf.yaml and update SidecarConfigState within 15s",
+            timeout: 15_000,
+            intervals: [200, 500, 1000],
+          },
+        )
+        .toMatchObject({ enabled: true });
 
-      // Phase 2: Config is confirmed loaded — verify add_comment writes
-      // the sidecar into .reviews/.
+      // Phase 2: verify add_comment writes the sidecar to the configured root.
       const reviewsDir = path.join(tmpDir, ".reviews");
       const sidecarPath = path.join(reviewsDir, "readme.md.review.yaml");
       const colocated = path.join(tmpDir, "readme.md.review.yaml");
-
-      // Clean up any artifacts from Phase 1 probes (get_sidecar_config
-      // doesn't write, but be safe).
       if (fs.existsSync(colocated)) fs.unlinkSync(colocated);
       if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath);
 
@@ -81,20 +89,17 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
         });
       }, docFile);
 
-      // Give the write a moment to flush
-      await nativePage.waitForTimeout(500);
+      // Wait for sidecar file to appear (also via expect.poll)
+      await expect
+        .poll(async () => fs.existsSync(sidecarPath), {
+          message: `sidecar should land at ${sidecarPath} within 15s`,
+          timeout: 15_000,
+        })
+        .toBe(true);
 
-      // Verify: sidecar landed in .reviews/ directory
-      expect(fs.existsSync(sidecarPath), `sidecar should exist at ${sidecarPath}`).toBe(true);
       expect(fs.existsSync(reviewsDir)).toBe(true);
+      expect(fs.existsSync(colocated)).toBe(false);
 
-      // Verify co-located sidecar was NOT created
-      expect(
-        fs.existsSync(colocated),
-        "co-located sidecar should NOT exist when sidecar_root is configured",
-      ).toBe(false);
-
-      // Read sidecar and verify content
       const content = fs.readFileSync(sidecarPath, "utf-8");
       expect(content).toContain("Comment under sidecar_root");
       expect(content).toContain("e2e-test");
