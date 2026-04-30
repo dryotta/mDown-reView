@@ -274,8 +274,8 @@ mod tests {
     use tempfile::TempDir;
 
     /// Single source of truth for `tauri-plugin-log` filename shapes used in test
-    /// fixtures. See `docs/test-strategy.md` rule 26 (Test data fidelity, added
-    /// in PR #312) and the canonical example at
+    /// fixtures. See rule 26 in docs/test-strategy.md (Test data fidelity —
+    /// forward-ref, defined by in-flight PR #312) and the canonical example at
     /// `src-tauri/src/core/sidecar/tests.rs::regression_serde_saphyr_emit_round_trips_through_load_sidecar`.
     ///
     /// Why a helper instead of invoking `tauri-plugin-log`'s rotator directly:
@@ -470,8 +470,9 @@ mod tests {
     // ---- prune_logs ---------------------------------------------------------
 
     /// Canonical regression for **rule 26 in docs/test-strategy.md** (Test data
-    /// fidelity, PR #312): `prune_logs` must recognize both filename shapes
-    /// produced by `tauri-plugin-log` AND our startup archiver. Fixtures here
+    /// fidelity — forward-ref, defined by in-flight PR #312): `prune_logs` must
+    /// recognize both filename shapes produced by `tauri-plugin-log` AND our
+    /// startup archiver. Fixtures here
     /// are constructed exclusively through `fixture_names::*` so the source
     /// stays coupled to the registered library version (pinned by
     /// `tauri_plugin_log_version_pin_rule_26`).
@@ -725,9 +726,10 @@ mod tests {
 
     #[test]
     fn fixture_names_match_documented_shapes_rule_26() {
-        // Locks in the registered-version-derived shapes from docs/test-strategy.md
-        // rule 26 (Test data fidelity). If these literals change, the helper has
-        // drifted from `tauri-plugin-log`'s actual emitter — re-verify against
+        // Locks in the registered-version-derived shapes from rule 26 in
+        // docs/test-strategy.md (Test data fidelity — forward-ref, defined by
+        // in-flight PR #312). If these literals change, the helper has drifted
+        // from `tauri-plugin-log`'s actual emitter — re-verify against
         // tauri-plugin-log/src/lib.rs at the pinned version.
         use fixture_names::{
             plugin_intra_session_name, startup_archive_collision_name, startup_archive_name,
@@ -748,9 +750,10 @@ mod tests {
 
     #[test]
     fn tauri_plugin_log_version_pin_rule_26() {
-        // Pin assertion (rule 26 in docs/test-strategy.md, canonical pattern from
-        // `src-tauri/src/core/sidecar/tests.rs::regression_serde_saphyr_emit_round_trips_through_load_sidecar`
-        // added in PR #312). Cargo.lock is the resolver's record of the registered
+        // Pin assertion (rule 26 in docs/test-strategy.md — forward-ref, defined
+        // by in-flight PR #312, canonical pattern from
+        // `src-tauri/src/core/sidecar/tests.rs::regression_serde_saphyr_emit_round_trips_through_load_sidecar`).
+        // Cargo.lock is the resolver's record of the registered
         // version. If the pin moves, RE-VALIDATE `fixture_names::*` against the
         // new emitter's filename shape BEFORE bumping the dep. CWD is `src-tauri/`
         // under `cargo test`; Cargo.lock is CRLF on Windows, LF on Unix.
@@ -765,7 +768,7 @@ mod tests {
              against the new emitter shape in tauri-plugin-log/src/lib.rs \
              (RotatingFile::new line ~171, RotatingFile::rename_file_to_dated \
              lines ~264-272) BEFORE bumping the dep \
-             (rule 26 in docs/test-strategy.md)."
+             (rule 26, PR #312)."
         );
     }
 
@@ -774,22 +777,31 @@ mod tests {
         // Reads its own source file at compile time and rejects any reintroduction
         // of hand-built `tauri-plugin-log`-shape filename literals in fixture
         // construction. If a future test inlines `format!("<prefix>.<year>...` or
-        // `"<prefix>_<year>...` instead of using `fixture_names::*`, this test
-        // fails with a pointer to the canonical helper. See docs/test-strategy.md
-        // rule 26 (Test data fidelity) and PR #312.
+        // `"<prefix>_<year>...` — or sneaks the date in via a `{stamp}` placeholder
+        // like `format!("<prefix>.{...` — instead of using `fixture_names::*`,
+        // this test fails with a pointer to the canonical helper. See rule 26 in
+        // docs/test-strategy.md (Test data fidelity — forward-ref, defined by
+        // in-flight PR #312).
         //
-        // Needles intentionally narrow: only `<prefix>.<year-prefix>` and
-        // `<prefix>_<year-prefix>` patterns — synthetic labels like
-        // `<prefix>.archive-NN.log` and `<prefix>.startup-NN.log` are
-        // internal test fixtures, NOT third-party on-disk shapes, and remain
-        // exempt. (Doc comments here use the placeholder `<year>` to avoid
-        // self-matching the needles.)
+        // Needles cover both year-prefixed AND `format!`-with-placeholder
+        // bypasses:
+        //   - `<prefix>.<year-prefix>` / `<prefix>_<year-prefix>` (literal date
+        //     in code, e.g. `"<prefix>.2026-...`).
+        //   - `format!("<prefix>.{` / `format!("<prefix>_{` (date interpolated
+        //     via `{stamp}`/positional `{}`, which would dodge the year check).
+        // Synthetic labels like `<prefix>.archive-NN.log` and
+        // `<prefix>.startup-NN.log` are internal test fixtures, NOT third-party
+        // on-disk shapes, and remain exempt — the byte after `<prefix>.` in
+        // those is `s`/`a`, never `{`, so the placeholder needles don't catch
+        // them. (Doc comments here use the placeholders `<prefix>`, `<year>`,
+        // and `{...` to avoid self-matching the needles.)
         //
         // Needles are BUILT AT RUNTIME from `FILE_PREFIX` so the literal
-        // forbidden bytes (`"<prefix>.<year>` etc.) never appear contiguously
-        // in this file's source — otherwise the guard would self-match. Both
-        // `\"` escapes and raw strings encode `"` as a single source byte, so
-        // either form would self-match if the bytes appeared inline.
+        // forbidden bytes (`"<prefix>.<year>`, `format!("<prefix>.{`, etc.)
+        // never appear contiguously in this file's source — otherwise the
+        // guard would self-match. Both `\"` escapes and raw strings encode `"`
+        // as a single source byte, so either form would self-match if the
+        // bytes appeared inline.
         let src = include_str!("log_rotation.rs");
         let q = '"';
         let p = FILE_PREFIX;
@@ -798,17 +810,21 @@ mod tests {
         let underscore_year = format!("{q}{p}_{year2}");
         let dot_year_fmt = format!("format!({q}{p}.{year2}");
         let underscore_year_fmt = format!("format!({q}{p}_{year2}");
+        let dot_brace_fmt = format!("format!({q}{p}.{{");
+        let underscore_brace_fmt = format!("format!({q}{p}_{{");
         let forbidden = [
             dot_year.as_str(),
             underscore_year.as_str(),
             dot_year_fmt.as_str(),
             underscore_year_fmt.as_str(),
+            dot_brace_fmt.as_str(),
+            underscore_brace_fmt.as_str(),
         ];
         for needle in forbidden {
             assert!(
                 !src.contains(needle),
-                "rule 26 violation (docs/test-strategy.md): hand-built \
-                 tauri-plugin-log fixture literal containing `{needle}` found in \
+                "rule 26 (PR #312) violation: hand-built tauri-plugin-log \
+                 fixture literal containing `{needle}` found in \
                  log_rotation.rs. Use `fixture_names::startup_archive_name`, \
                  `fixture_names::startup_archive_collision_name`, or \
                  `fixture_names::plugin_intra_session_name` instead.",
