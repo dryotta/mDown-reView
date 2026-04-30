@@ -87,7 +87,7 @@ describe("ipc-event-fixtures — semantic validation (issue #311 forward-fix)", 
 
   describe("updateProgress", () => {
     it("accepts each production-emittable event value", () => {
-      expect(() => updateProgress({ event: "Started" })).not.toThrow();
+      expect(() => updateProgress({ event: "Started", content_length: 1000 })).not.toThrow();
       expect(() => updateProgress({ event: "Progress" })).not.toThrow();
       expect(() => updateProgress({ event: "Finished" })).not.toThrow();
     });
@@ -104,6 +104,55 @@ describe("ipc-event-fixtures — semantic validation (issue #311 forward-fix)", 
       expect(() =>
         updateProgress({ event: "" as unknown as "Started" }),
       ).toThrow(/production-emittable/i);
+    });
+  });
+
+  describe("updateProgress numeric validation", () => {
+    it("rejects negative chunk_length", () => {
+      expect(() => updateProgress({ event: "Progress", chunk_length: -1 })).toThrow(/finite non-negative integer/i);
+    });
+    it("rejects negative content_length", () => {
+      expect(() => updateProgress({ event: "Started", content_length: -1, chunk_length: 0 })).toThrow(/finite non-negative integer/i);
+    });
+    it("rejects Infinity content_length", () => {
+      expect(() => updateProgress({ event: "Started", content_length: Number.POSITIVE_INFINITY, chunk_length: 0 })).toThrow(/finite non-negative integer/i);
+    });
+    it("rejects non-integer chunk_length", () => {
+      expect(() => updateProgress({ event: "Progress", chunk_length: 1.5 })).toThrow(/finite non-negative integer/i);
+    });
+    it("rejects NaN chunk_length", () => {
+      expect(() => updateProgress({ event: "Progress", chunk_length: Number.NaN })).toThrow(/finite non-negative integer/i);
+    });
+  });
+
+  describe("updateProgress cross-field validation", () => {
+    it("rejects Started with content_length=null", () => {
+      expect(() => updateProgress({ event: "Started", content_length: null, chunk_length: 0 })).toThrow(/Started.*content_length/i);
+    });
+    it("rejects Started with chunk_length!=0", () => {
+      expect(() => updateProgress({ event: "Started", content_length: 100, chunk_length: 5 })).toThrow(/Started.*chunk_length/i);
+    });
+    it("rejects Finished with content_length!=null", () => {
+      expect(() => updateProgress({ event: "Finished", content_length: 100, chunk_length: 0 })).toThrow(/Finished.*content_length/i);
+    });
+    it("rejects Finished with chunk_length!=0", () => {
+      expect(() => updateProgress({ event: "Finished", content_length: null, chunk_length: 5 })).toThrow(/Finished.*chunk_length/i);
+    });
+    it("rejects Progress with Started-shape (content_length!=null + chunk_length=0)", () => {
+      expect(() => updateProgress({ event: "Progress", content_length: 100, chunk_length: 0 })).toThrow(/Started/i);
+    });
+    it("accepts Started with content_length+chunk_length=0", () => {
+      expect(() => updateProgress({ event: "Started", content_length: 1000, chunk_length: 0 })).not.toThrow();
+    });
+    it("accepts Progress with content_length=null + any chunk_length", () => {
+      expect(() => updateProgress({ event: "Progress", content_length: null, chunk_length: 0 })).not.toThrow();
+      expect(() => updateProgress({ event: "Progress", content_length: null, chunk_length: 500 })).not.toThrow();
+    });
+    it("accepts Progress with content_length+nonzero chunk_length", () => {
+      expect(() => updateProgress({ event: "Progress", content_length: 1000, chunk_length: 500 })).not.toThrow();
+    });
+    it("accepts Finished with both null/0", () => {
+      expect(() => updateProgress({ event: "Finished", content_length: null, chunk_length: 0 })).not.toThrow();
     });
   });
 });

@@ -209,14 +209,84 @@ function assertValidUpdateProgressEvent(event: string, factory: string): void {
   }
 }
 
+function assertValidNumericField(
+  name: string,
+  value: number,
+  factory: string,
+): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `${factory}: ${name}=${value} is not a finite non-negative integer. ` +
+        `Production Rust types are usize/Option<u64> at src-tauri/src/update.rs:21-26 ` +
+        `and cannot represent negatives or Infinity.`,
+    );
+  }
+}
+
+function assertValidUpdateProgressShape(
+  p: UpdateProgressPayload,
+  factory: string,
+): void {
+  // Numeric domain.
+  assertValidNumericField("chunk_length", p.chunk_length, factory);
+  if (p.content_length !== null) {
+    assertValidNumericField("content_length", p.content_length, factory);
+  }
+
+  // Cross-field constraints from src-tauri/src/update.rs:107-114, 117-122:
+  //   Started   ⇔ content_length !== null AND chunk_length === 0
+  //   Finished  ⇔ content_length === null AND chunk_length === 0
+  //   Progress  ⇔ NOT a Started-shaped payload (Rust's else branch)
+  if (p.event === "Started") {
+    if (p.content_length === null) {
+      throw new Error(
+        `${factory}: event="Started" requires content_length !== null ` +
+          `(Rust emit at src-tauri/src/update.rs:107-114 only emits Started when ` +
+          `content_length.is_some()).`,
+      );
+    }
+    if (p.chunk_length !== 0) {
+      throw new Error(
+        `${factory}: event="Started" requires chunk_length === 0 ` +
+          `(Rust emit at src-tauri/src/update.rs:107-114 only emits Started when ` +
+          `chunk_length == 0).`,
+      );
+    }
+  } else if (p.event === "Finished") {
+    if (p.content_length !== null) {
+      throw new Error(
+        `${factory}: event="Finished" requires content_length === null ` +
+          `(Rust emit at src-tauri/src/update.rs:117-122 always sets content_length: None).`,
+      );
+    }
+    if (p.chunk_length !== 0) {
+      throw new Error(
+        `${factory}: event="Finished" requires chunk_length === 0 ` +
+          `(Rust emit at src-tauri/src/update.rs:117-122 always sets chunk_length: 0).`,
+      );
+    }
+  } else if (p.event === "Progress") {
+    // Progress is the Rust else-branch — anything not matching Started's shape
+    // is valid. Reject Started-shaped payloads marked as Progress to catch typos.
+    if (p.content_length !== null && p.chunk_length === 0) {
+      throw new Error(
+        `${factory}: event="Progress" with content_length !== null AND chunk_length === 0 ` +
+          `is impossible — Rust at src-tauri/src/update.rs:107-114 would have classified this as "Started".`,
+      );
+    }
+  }
+}
+
 export function updateProgress(
   o: Partial<UpdateProgressPayload> = {},
 ): UpdateProgressPayload {
   const event = o.event ?? "Progress";
   assertValidUpdateProgressEvent(event, "updateProgress");
-  return {
+  const payload: UpdateProgressPayload = {
     event,
     content_length: o.content_length ?? null,
     chunk_length: o.chunk_length ?? 0,
   };
+  assertValidUpdateProgressShape(payload, "updateProgress");
+  return payload;
 }

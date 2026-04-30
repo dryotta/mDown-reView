@@ -33,6 +33,14 @@ export interface EventPayloads {
   // `get_launch_args` to drain the queued args. See useLaunchArgsBootstrap
   // and src-tauri/src/lib.rs (single-instance handler).
   "args-received": void;
+  // Wire field on the Rust side is `String` (src-tauri/src/update.rs:23
+  // `UpdateProgressEvent.event: String`), but the production emitter only
+  // ever uses one of these three literal values (update.rs:108,110,119).
+  // The TS type intentionally NARROWS to that union so a future Rust
+  // addition (e.g. "Cancelled") fails type-check + parity test in this
+  // PR — extending the literal set requires updating EventPayloads,
+  // ipc-event-fixtures.ts, and the Rust serde JSON pin in update.rs in
+  // the same change.
   "update-progress": {
     event: "Started" | "Progress" | "Finished";
     content_length: number | null;
