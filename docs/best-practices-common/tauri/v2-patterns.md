@@ -184,3 +184,11 @@ Window creation (`WebviewWindowBuilder::build()`) runs on the main thread and ma
 - Do NOT acquire locks that IPC handlers also need
 - Do NOT perform I/O (file scanning, canonicalization) synchronously before or after `build()`
 - Move any post-creation setup (arg pushing, event emission) to be as fast as possible
+
+## Platform-Specific Cross-References
+
+| Platform | Document |
+|----------|----------|
+| macOS | [`macos-platform.md`](macos-platform.md) — app menu structure, window lifecycle (close-hides), WKWebView quirks, distribution, keyboard conventions |
+
+Menu construction, window close behavior, and clipboard handling differ significantly between macOS and Windows. Always use `#[cfg(target_os = "...")]` or runtime detection to branch platform-specific logic. Never assume Windows behavior is universal.
