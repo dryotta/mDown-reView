@@ -191,7 +191,7 @@ Starting autonomous loop — cap 30. Per-iteration retrospectives committed to t
 
 ## Phase 1 — Iteration loop
 
-Counters: `iteration=1`, `passed_count=0`, `degraded_count=0`. Run Steps 1–8 each iteration. Termination fires only at Step 1 (rebase abort) or Step 2 (`achieved`/`blocked`) or end-of-iteration cap.
+Counters: `iteration=1`, `passed_count=0`, `degraded_count=0`, `INLINE_FIX_USED=0` (Phase 1.5 inline-fix carry-over cap; reset to 0 once per skill invocation, never decremented). Run Steps 1–8 each iteration. Termination fires only at Step 1 (rebase abort) or Step 2 (`achieved`/`blocked`) or end-of-iteration cap. **Step 2 `achieved` does NOT immediately invoke the Done-Achieved handler — it first passes through [Phase 1.5](#phase-15--inline-fix-carry-over-done-achieved-only-gated) which may extend the loop with one bounded follow-on iteration before Done-Achieved fires.**
 
 ### Step 1 — Rebase onto `origin/main`
 
@@ -282,7 +282,7 @@ Do **not** pass `ISSUE_NUMBER`, `ISSUE_TITLE`, `ISSUE_BODY`, the `<!-- mdownrevi
 Instruction: read code from scratch, mark every requirement `met` or `unmet` with file:line or command output, and return the exact template (STATUS / CONFIDENCE / REQUIREMENTS / NEXT_REQUIREMENTS / BLOCKING_REASON). `achieved` requires every requirement `met`; even one `unmet` ⇒ `in_progress`. Empty `NEXT_REQUIREMENTS` with ≥1 unmet requirement ⇒ `blocked` pointing at the unreachable requirement.
 
 Routing:
-- `achieved` → **Done-Achieved** (no commit).
+- `achieved` → **[Phase 1.5](#phase-15--inline-fix-carry-over-done-achieved-only-gated)** eligibility gate. If gate fires, loop extends by one bounded iteration before Done-Achieved handler runs. If gate skips, Done-Achieved handler runs immediately. Either way: no commit at this step.
 - `blocked` → **Done-Blocked** (no commit).
 - `in_progress` → Step 3.
 
@@ -353,6 +353,10 @@ ADVISORY_SUMMARY: <…>
 BUG_RCA (load-bearing): <verbatim>
 The first plan group MUST add the regression test from BUG_RCA §5. Fix MUST follow §6 canonical shape. No fix without a corresponding test = Zero Bug Policy violation.
 <end>
+<if INLINE_FIX_USED == 1 (Phase 1.5 carry-over active):>
+**Inline-fix task brief:** <verbatim TASK_BRIEF parsed from Phase 1.5b synthesis output>
+This brief is load-bearing — it bounds the candidate's scope (allowed files, out-of-scope, required test layer, rule citations). The plan MUST address the new `Phase 1.5 inline-fix carry-over` AC appended to NEXT_REQUIREMENTS using only the files listed in this brief; touching anything outside that allow-list is a scope violation that 6a-pre will revert.
+<end>
 
 Phased planning (apply when NEXT_REQUIREMENTS contains >5 items OR overall risk is high):
 - Map all remaining work, then choose ONE iteration-sized phase for this iteration.
@@ -364,13 +368,23 @@ Use NEXT_REQUIREMENTS grouping: independent groups parallel; dependents wait.
 Per group: files · exact changes · tests · group dependencies · expected local validation · AC items satisfied (issue mode, cite spec).
 Rate overall risk: low | medium | high.
 
+AC literal compliance (issue #326 — load-bearing for issue mode with explicit AC):
+When the source spec has explicit acceptance-criteria checkboxes or bullets (`- [ ]` / `- [x]` / `- ` under `## Acceptance criteria`), the plan MUST emit a top-level `**AC literal compliance:**` section BEFORE the per-group breakdown. For each AC bullet, extract every:
+- LITERAL STRING — exact words/phrases the AC requires verbatim (e.g. `'environmental_failure: true'`, `'PASS — docs-only diff'`, `'docs/architecture.md'`).
+- STRUCTURED FIELD NAMES + VALUES — YAML/JSON/markdown field names with their required values (e.g. `verdict: ENVIRONMENTAL`, `LAYER: native-e2e`, `severity: P1`).
+- FILE PATHS — exact relative paths the AC names (e.g. `src-tauri/src/core/sidecar.rs`, `.claude/agents/lean-expert.md`).
+- COMMAND NAMES — exact CLI invocations or function names (e.g. `npm run lint:skills`, `cargo test`, `compute_anchor_hash`).
+- HEADINGS / SECTION NAMES — exact markdown headings the AC requires the implementation to emit or contain (e.g. `## Open scope non-actions`, `### Step 4 — Plan`).
+- REGEX / PATTERNS — any regex-shaped or pattern-shaped requirement (e.g. `^pre-flight:`, `MDR-CONSOLE-ERROR`).
+Cite each extracted literal back to the AC bullet it came from (e.g. `AC #3: structured field environmental_failure: true`). Skip this section ONLY if the spec has zero explicit AC bullets — never summarise the AC text in place of literal extraction.
+
 Completeness rules (non-negotiable, per docs/test-strategy.md rules 4-5):
 - UI-visible change → browser e2e in e2e/browser/ AND native e2e in e2e/native/ if real I/O or IPC.
 - New Tauri command → commands.rs + tauri-commands.ts + IPC mock in src/__mocks__/@tauri-apps/api/core.ts.
 - Delete code made obsolete in the same step. No TODOs, half-wires, workarounds.
 ```
 
-Save as `PLAN`. Parse groups · label `independent` or list deps.
+Save as `PLAN`. Parse groups · label `independent` or list deps. The `**AC literal compliance:**` section (when emitted) is contractually attached to `PLAN` and forwarded to every Step 5 implementer prompt verbatim — see Step 5.
 
 **`risk=high`** → spawn `architect-expert`:
 ```
@@ -390,6 +404,12 @@ Iteration: <N>/30
 Group: <name + deps>
 Files: <list>   Changes: <from PLAN>   Tests: <from PLAN>
 Context: <relevant excerpt>
+<if PLAN contains an **AC literal compliance:** section:>
+**AC literal compliance (issue #326 — copy VERBATIM, do not summarise):**
+<paste the entire **AC literal compliance:** section from PLAN, byte-for-byte, including bullet structure and citations>
+
+The AC literal compliance section above is load-bearing: every literal string, structured field name+value, file path, command name, heading, and regex pattern listed there MUST appear verbatim in the diff this group produces (in the implementation code, the test assertions, the doc text, or wherever the AC bullet anchors them). Summarising or paraphrasing an AC literal is a contract violation and will be flagged at Step 7 review.
+<end>
 Do NOT touch files outside this group. Do NOT ask questions — if ambiguous, conservative choice + note.
 Return Implementation Summary.
 ```
@@ -602,6 +622,9 @@ BLOCK on any of these — APPROVE otherwise. Cite specific rule numbers from doc
 6. Debt — TODOs, half-wires, bypassed checks, workarounds?
 7. Rust-First with MVVM respected?
 
+Type-surface proof for literal code/assertion suggestions (issue #320 — panel-wide):
+Any literal code or assertion suggestion you emit (e.g. a Rust assertion like `assert_eq!(loaded.comments[0].field, ...)`, a TypeScript expression, a regex you assert against an output) MUST cite the struct/function/type definition (file:line) that makes it type-valid, OR be explicitly labelled as `pseudocode` with a one-line note stating what surface still needs verification. Snippets that cannot compile/typecheck against the cited surface (e.g. naming a non-existent field) are themselves a BLOCK condition — they impose adaptation cost on the implementer and erode review trust. This rule applies to every reviewer in this panel.
+
 Return APPROVE or BLOCK with file:line + "violates rule N in docs/X.md".
 ```
 
@@ -714,6 +737,108 @@ Append to Step 8 comment (link local path, not blob URL — retro is uncommitted
 ```
 
 **Termination check after 8.5:** `iteration > 30` → **Done-TimedOut**. Else loop back to Step 1.
+
+---
+
+## Phase 1.5 — Inline-fix carry-over (Done-Achieved only, gated)
+
+Runs ONLY between Phase 1 termination at Step 2 = `achieved` and the [Done-Achieved handler](references/done-handlers.md#done-achieved). Skipped for every other terminal path (`blocked`, `Done-TimedOut`, `Done-ForwardFixed`). Phase 1.5 is the single chokepoint where the skill may inline-fix a small product bug or test improvement surfaced in the just-written retro instead of filing a follow-up GitHub issue at Phase 2.
+
+**Why before the Done-Achieved handler:** the Done-Achieved handler runs `gh pr ready` + `gh pr edit --add-label iterate-pr` (steps 3–4), at which point `merge-pr-loop` may begin polling. Mutating the branch from Phase 2 (which runs at handler step 6) would race the gate. Phase 1.5 happens while the PR is still draft — no merge-loop interaction risk.
+
+### 1.5a. Eligibility gate
+
+Required preconditions (ALL must hold; otherwise skip Phase 1.5 entirely):
+
+1. Phase 1 just terminated `achieved` at Step 2 of iteration `<N>`.
+2. `INLINE_FIX_USED == 0` (cap = 1 inline-fix per `iterate-one-issue` invocation; the cap survives even if the inline-fix iteration itself terminates `blocked`/`DEGRADED`).
+3. The most recent retro file `$RETRO_FILE` (written by Step 8.5 of iteration `<N>` OR — if Step 2's `achieved` shortcut bypassed Step 8.5 — written by the prior iteration's Step 8.5) exists and contains at least one `### <candidate-title>` block under `## Improvement candidates` (i.e. is NOT the literal `_None — run was clean…_` line).
+4. Light synthesis (single `general-purpose` call against THIS run's retros only — NOT the cross-run R2b synthesis in Phase 2) emits a candidate where ALL hold:
+   - `**Category:**` parses to exactly one of `bug` OR `test-strategy`.
+   - `**Estimated size:**` parses to exactly one of `xs` OR `s`.
+   - `**Confidence this matters:**` parses to exactly one of `medium` OR `high`.
+   - The candidate's `**Proposed change:**` text references file paths ENTIRELY under `src/`, `src-tauri/`, or `e2e/` (no `.claude/`, no `docs/`, no root `*.md`, no `.github/`). Mixed paths → ineligible (defer to Phase 2 issue creation).
+
+If any condition fails, skip Phase 1.5 and proceed directly to the [Done-Achieved handler](references/done-handlers.md#done-achieved). Phase 2 will run at handler step 6 as today and may create a follow-up issue per the shared retrospective contract.
+
+### 1.5b. Light synthesis prompt
+
+Spawn `general-purpose`:
+```
+Inline-fix gate for /iterate-one-issue Phase 1.5.
+Branch: <BRANCH>   Iteration: <N>   Outcome: Done-Achieved (Phase 1)
+Retro: <verbatim contents of $RETRO_FILE>
+
+Pick AT MOST ONE candidate from the retro's `## Improvement candidates` section that meets ALL:
+- Category is exactly `bug` OR `test-strategy`
+- Estimated size is exactly `xs` OR `s`
+- Confidence this matters is exactly `medium` OR `high`
+- Proposed change touches ONLY files under `src/`, `src-tauri/`, or `e2e/` (no `.claude/`, no `docs/`, no root *.md, no `.github/`)
+
+If no candidate matches, output exactly:
+INLINE_FIX_INELIGIBLE
+<one-line justification>
+
+Otherwise output exactly this template — no preamble, no extra commentary:
+
+INLINE_FIX_ELIGIBLE
+TITLE: <imperative, <=70 chars>
+CATEGORY: <bug | test-strategy>
+SIZE: <xs | s>
+CONFIDENCE: <medium | high>
+PATHS: <comma-separated allowed paths under src/ src-tauri/ e2e/>
+ACCEPTANCE_SIGNAL: <one observable, measurable signal — verbatim from the retro candidate>
+TASK_BRIEF:
+<a 5-15-line scoped implementer brief: task sentence + allowed files + explicit out-of-scope + required test layer + rule citations from docs/*.md>
+```
+
+If output starts with `INLINE_FIX_INELIGIBLE`, log `[phase-1.5] inline-fix ineligible: <justification>` and skip to the Done-Achieved handler.
+
+### 1.5c. Append AC + extend the loop
+
+If output starts with `INLINE_FIX_ELIGIBLE`:
+
+1. Set `INLINE_FIX_USED=1`.
+2. Append a new requirement to `REQUIREMENTS` (the assessor's source of truth at Step 2):
+   ```
+   - [ ] Phase 1.5 inline-fix carry-over: <ACCEPTANCE_SIGNAL> (category=<CATEGORY>, size=<SIZE>; from retro candidate "<TITLE>")
+   ```
+   This becomes a new unmet AC, so the next assessor pass at Step 2 will return `in_progress` (not `achieved`), keeping the loop alive for one more iteration.
+3. Append to the state file under a new `## Inline-fix carry-overs` section:
+   ```yaml
+   - iteration_at_eligibility: <N>
+     title: <TITLE>
+     category: <bug | test-strategy>
+     size: <xs | s>
+     confidence: <medium | high>
+     paths: <PATHS>
+     acceptance_signal: <ACCEPTANCE_SIGNAL>
+     status: pending   # set to `landed` when the follow-on iteration converges; `dropped` if the follow-on terminates blocked/degraded
+   ```
+4. Print banner:
+   ```
+   [phase-1.5] inline-fix carry-over eligible: "<TITLE>" (<CATEGORY>/<SIZE>/confidence=<CONFIDENCE>)
+              extending Phase 1 by one bounded iteration before marking PR ready.
+   ```
+5. `iteration += 1` (counts against the 30-cap). If `iteration > 30` after increment, do NOT enter the follow-on iteration; instead, edit the most recent `## Inline-fix carry-overs` entry in `.claude/iterate-state-<branch-slug>.md` to set `status: dropped` with note `cap-exhausted: iteration > 30`, log `[phase-1.5] inline-fix dropped — 30-cap exhausted`, and proceed directly to the Done-Achieved handler.
+6. **Carry the parsed `TASK_BRIEF` into Step 4 of the follow-on iteration** as a load-bearing context block. The Step 4 planner's `NEXT_REQUIREMENTS` already includes the new AC from step 2; the `TASK_BRIEF` is appended verbatim under a `**Inline-fix task brief:**` heading in the Step 4 prompt (the Step 4 prompt template includes `<if INLINE_FIX_USED == 1 ...>` for exactly this purpose) so the planner has the candidate's scope budget.
+7. Re-enter Phase 1 at **Step 1** (rebase). The full pipeline runs — planner (Step 4), 6a-pre scope-diff guard, validators (6c-A), CI (6c-B), expert panel (6c-C), forward-fix loop (6d).
+8. **State-file status flip on second-pass termination** (single chokepoint — the runner owns this write):
+   - When Phase 1 terminates `achieved` AGAIN at Step 2 of the follow-on iteration, edit the most recent entry in `## Inline-fix carry-overs` to set `status: landed` with `landed_commit: $(git rev-parse HEAD)`. Do this BEFORE invoking the Done-Achieved handler so the handler's PR comment can reference the landed inline-fix.
+   - When Phase 1 terminates `blocked` at Step 2 of the follow-on iteration, edit the entry to set `status: dropped` with note `blocked: <BLOCKING_REASON>`. Done-Blocked handler runs as today.
+   - When Step 8.5 advances `iteration > 30` during the follow-on iteration, edit the entry to set `status: dropped` with note `timed-out: <BLOCKING_REASON or "30-cap during follow-on iteration">`. Done-TimedOut handler runs as today.
+   In all three cases the audit trail in `## Inline-fix carry-overs` reflects the actual outcome — never leave `status: pending` past terminal exit.
+
+Phase 1 will terminate again at Step 2 either:
+- `achieved` → Phase 1.5 re-runs its eligibility gate. `INLINE_FIX_USED == 1` so it skips. State file's `status: pending` flips to `landed` per step 8 above. Done-Achieved handler runs.
+- `in_progress` → loop continues normally up to the 30-cap.
+- `blocked` → state file's `status: pending` flips to `dropped` per step 8 above. Done-Blocked handler runs (the inline-fix attempt is recorded in carry-over for the post-loop retro).
+
+### 1.5d. Done-Achieved handler invariant
+
+The Done-Achieved handler ([references/done-handlers.md](references/done-handlers.md#done-achieved)) is invoked ONLY after Phase 1.5 has either skipped (eligibility gate failed) or completed (the follow-on iteration converged or `INLINE_FIX_USED == 1` on the second pass). The handler's existing termination-precondition gate (drain `## Open scope non-actions`) and bug-mode behavioural verification still run — Phase 1.5 only adds the inline-fix carry-over check upstream of those.
+
+> **Contract test**: the Phase 1.5 ordering invariants (cap=1 via `INLINE_FIX_USED`, runs before `gh pr ready` / `iterate-pr` label, eligibility gate categories/sizes/paths) are locked by `src/__tests__/iterate-skill-contract.test.ts`. If you change Phase 1.5 behaviour, update that test too.
 
 ---
 
@@ -922,13 +1047,15 @@ Runs first on every terminal Done-X — before banner, before exit. Highest sign
 | Trigger | Path | Phase 2? |
 |---|---|---|
 | Step 1 abort (rebase) | **Done-Blocked** (skip 2–8.5) | yes |
-| Step 2 `achieved` | **Done-Achieved** (skip 3–8.5) | yes |
+| Step 2 `achieved` (after Phase 1.5 gate) | **Done-Achieved** (skip 3–8.5) | yes |
 | Step 2 `blocked` | **Done-Blocked** (skip 3–8.5) | yes |
 | End of Step 8.5 + `iteration+1 > 30` | **Done-TimedOut** | yes |
 | Phase R (resume-pr) success | **Done-ForwardFixed** | no |
 | Phase R (resume-pr) failure / cap exhausted | **Done-Blocked** | no |
 
 `DEGRADED`/`SKIPPED` do not terminate.
+
+**Phase 1.5 interposes between `Step 2 achieved` and the Done-Achieved handler.** When Phase 1.5's eligibility gate fires, the loop extends by one bounded iteration; when it skips, the Done-Achieved handler runs immediately.
 
 ### Done-Achieved · Done-Blocked · Done-TimedOut · Done-ForwardFixed
 

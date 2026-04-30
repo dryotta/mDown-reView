@@ -34,6 +34,12 @@ const EXE_TASK_IMPLEMENTER_PATH = resolve(
   "../../.claude/agents/exe-task-implementer.md",
 );
 const EXE_TASK_IMPLEMENTER = readFileSync(EXE_TASK_IMPLEMENTER_PATH, "utf8");
+
+const LEAN_EXPERT_PATH = resolve(
+  __dirname,
+  "../../.claude/agents/lean-expert.md",
+);
+const LEAN_EXPERT = readFileSync(LEAN_EXPERT_PATH, "utf8");
 describe("iterate-one-issue skill — DIFF_CLASS scoping (issue #122)", () => {
   it("Step 6b classifies the diff into code | prompt-only | docs-only | none", () => {
     expect(SKILL).toMatch(/####\s+6b\.?\s+Classify diff/i);
@@ -463,5 +469,351 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
     const preIdx = sixABlock.indexOf("6a-pre");
     expect(noactionIdx).toBeGreaterThan(-1);
     expect(preIdx).toBeGreaterThan(noactionIdx);
+  });
+});
+
+/**
+ * Issue #326 — Step 4 must extract literal AC strings, structured fields,
+ * file paths, command names, headings, and regex patterns from explicit
+ * acceptance criteria, and the Step 5 implementer prompt must copy that
+ * section verbatim.
+ *
+ * Source retro evidence: Wave 1 of feature-issue-316 missed the literal
+ * structured-field requirement `environmental_failure: true` in AC #3 even
+ * though it was already explicit in the spec. The forward-fix promoted the
+ * field to a contract-test assertion; this regression test does the same
+ * for the Step 4 contract itself.
+ */
+describe("iterate-one-issue skill — Step 4 AC literal compliance extraction (issue #326)", () => {
+  // Cache Step 4 + Step 5 sub-blocks once per describe.
+  const stepFourIdx = SKILL.indexOf("### Step 4 — Plan");
+  const stepFiveIdx = SKILL.indexOf("### Step 5 — Implement", stepFourIdx);
+  const stepSixIdx = SKILL.indexOf("### Step 6 — Push", stepFiveIdx);
+  const stepFourBlock = SKILL.slice(stepFourIdx, stepFiveIdx);
+  const stepFiveBlock = SKILL.slice(stepFiveIdx, stepSixIdx);
+
+  it("Step 4 planner prompt contains an `AC literal compliance` section", () => {
+    expect(stepFourIdx).toBeGreaterThan(-1);
+    expect(stepFiveIdx).toBeGreaterThan(stepFourIdx);
+    expect(stepFourBlock).toMatch(/AC literal compliance/);
+  });
+
+  it("Step 4 instructs extraction for explicit AC checkboxes/bullets", () => {
+    // The trigger condition: explicit AC bullets in the spec must turn the
+    // section on. Vague spec → section may be skipped (the rule says so).
+    expect(stepFourBlock).toMatch(/explicit acceptance.criteria/i);
+    // The two checkbox shapes (` - [ ] ` and ` - [x] `) must both appear in
+    // the rule body so the planner can recognise both checked and unchecked
+    // bullets — backticks around the literals are allowed.
+    expect(stepFourBlock).toMatch(/`?-\s*\[\s*\]`?\s*\/\s*`?-\s*\[x\]`?/);
+  });
+
+  it("Step 4 enumerates all six literal categories (mechanism check)", () => {
+    // Mechanism assertions — guard against future rewrites that drop one
+    // category and rely on the sentinel test alone.
+    expect(stepFourBlock).toMatch(/LITERAL STRING/);
+    expect(stepFourBlock).toMatch(/STRUCTURED FIELD/);
+    expect(stepFourBlock).toMatch(/FILE PATH/);
+    expect(stepFourBlock).toMatch(/COMMAND NAME/);
+    expect(stepFourBlock).toMatch(/HEADING/);
+    expect(stepFourBlock).toMatch(/REGEX/);
+  });
+
+  it("Step 4 cites a structured-field sentinel literal so an AC like `environmental_failure: true` cannot be silently summarised", () => {
+    // Sentinel oracle — locks the canonical worked example from the
+    // feature-issue-316 retro into the prompt, alongside the mechanism
+    // assertions above. A future rewrite that omits structured-field
+    // examples would break this test even if the mechanism checks still
+    // pass with looser wording.
+    expect(stepFourBlock).toMatch(/environmental_failure:\s*true/);
+  });
+
+  it("Step 4 forbids summarising the AC text in place of literal extraction", () => {
+    expect(stepFourBlock).toMatch(/never summarise/i);
+  });
+
+  it("Step 5 implementer prompt copies the AC literal compliance section VERBATIM, not summarised", () => {
+    expect(stepFiveBlock).toMatch(/AC literal compliance/);
+    expect(stepFiveBlock).toMatch(/copy VERBATIM/);
+    expect(stepFiveBlock).toMatch(/do not summarise/i);
+  });
+
+  it("Step 5 marks the AC literal compliance handoff as load-bearing (i.e. failure to embed = contract violation surfaced at Step 7)", () => {
+    expect(stepFiveBlock).toMatch(/load-bearing/);
+    expect(stepFiveBlock).toMatch(/Step 7/);
+  });
+
+  it("ordering: Step 4 emits the section BEFORE the per-group breakdown, and Step 5 forwards it INSIDE the group prompt", () => {
+    // The section must appear before the "Save as PLAN" hand-off so the
+    // planner cannot defer extraction to the implementer.
+    const acIdx = stepFourBlock.indexOf("AC literal compliance");
+    const saveIdx = stepFourBlock.indexOf("Save as `PLAN`");
+    expect(acIdx).toBeGreaterThan(-1);
+    expect(saveIdx).toBeGreaterThan(acIdx);
+  });
+});
+
+/**
+ * Issue #320 — reviewer code/assertion suggestions must cite the
+ * struct/function/type definition that makes them type-valid, or be
+ * labelled as pseudocode. The rule lives panel-wide (Step 7 prompt)
+ * AND on the lean-expert agent (which is the always-included panel
+ * member that produced the bad snippet in feature-issue-297).
+ */
+describe("iterate-one-issue + lean-expert — type-surface proof for reviewer code snippets (issue #320)", () => {
+  const stepSevenIdx = SKILL.indexOf("### Step 7 — Expert diff review panel");
+  const stepEightIdx = SKILL.indexOf("### Step 8 — Record", stepSevenIdx);
+  const stepSevenBlock = SKILL.slice(stepSevenIdx, stepEightIdx);
+
+  it("Step 7 panel-wide prompt requires type-surface proof for literal code/assertion suggestions", () => {
+    expect(stepSevenIdx).toBeGreaterThan(-1);
+    expect(stepSevenBlock).toMatch(/Type-surface proof/i);
+    expect(stepSevenBlock).toMatch(/literal code or assertion suggestion/i);
+    expect(stepSevenBlock).toMatch(/cite the struct\/function\/type definition/i);
+  });
+
+  it("Step 7 rule offers the pseudocode escape hatch", () => {
+    expect(stepSevenBlock).toMatch(/labelled as `?pseudocode`?/i);
+    expect(stepSevenBlock).toMatch(/needs verification/i);
+  });
+
+  it("Step 7 names this rule as panel-wide (applies to every reviewer in the panel)", () => {
+    expect(stepSevenBlock).toMatch(/panel-wide/);
+  });
+
+  it("Step 7 makes a non-typecheckable snippet itself a BLOCK condition", () => {
+    // Without this teeth, the rule degrades to advisory — the original retro
+    // failure mode (lean-expert proposing `loaded.comments[0].responses[0].text`
+    // against MrsfComment which has no `responses` field) would still slip.
+    expect(stepSevenBlock).toMatch(/BLOCK/);
+  });
+
+  it("lean-expert.md Always-check section embeds the same type-surface proof rule", () => {
+    expect(LEAN_EXPERT).toMatch(/\*\*Always check:\*\*/);
+    expect(LEAN_EXPERT).toMatch(/Type-surface proof/i);
+    expect(LEAN_EXPERT).toMatch(/literal code or assertion snippet/i);
+    expect(LEAN_EXPERT).toMatch(/file:line/);
+  });
+
+  it("lean-expert.md Output template shows how to annotate a verified vs pseudocode snippet", () => {
+    // The Output section must demonstrate the annotation so reviewers don't
+    // have to re-invent the format every time.
+    const outputIdx = LEAN_EXPERT.indexOf("**Output:**");
+    expect(outputIdx).toBeGreaterThan(-1);
+    const outputBlock = LEAN_EXPERT.slice(outputIdx);
+    expect(outputBlock).toMatch(/verified against/i);
+    expect(outputBlock).toMatch(/pseudocode/i);
+  });
+
+  it("lean-expert.md cites a worked-example struct/file:line reference (proves the format is concrete, not abstract)", () => {
+    // The original retro identified MrsfComment's missing `responses` field —
+    // pinning a concrete type-surface citation in the agent rule prevents
+    // a future rewrite from silently dropping the file:line requirement.
+    expect(LEAN_EXPERT).toMatch(/src-tauri\/src\/core\/types/);
+  });
+});
+
+/**
+ * New iterate-skill behaviour — Phase 1.5 inline-fix carry-over.
+ *
+ * When the just-written retro identifies a small product bug or test
+ * fix (category ∈ {bug, test-strategy}, size ∈ {xs, s}, confidence ≥
+ * medium, paths under src/src-tauri/e2e), iterate-one-issue extends
+ * Phase 1 by one bounded iteration before invoking the Done-Achieved
+ * handler — instead of filing a follow-up gh issue at Phase 2.
+ *
+ * The rubber-duck critique on the original Phase 2 mutation flagged
+ * three killers: (a) Phase 2 runs after `gh pr ready` + `iterate-pr`
+ * label, racing merge-pr-loop; (b) force-push recovery is destructive;
+ * (c) bypassing Step 7 expert review weakens the acceptance bar. The
+ * Phase 1.5 design fixes all three by interposing BEFORE the Done-
+ * Achieved handler and reusing the full Phase 1 pipeline.
+ */
+describe("iterate-one-issue skill — Phase 1.5 inline-fix carry-over (Done-Achieved only, gated)", () => {
+  const phase15Idx = SKILL.indexOf("## Phase 1.5 — Inline-fix carry-over");
+  const phaseRIdx = SKILL.indexOf("## Phase R — Release-gate forward-fix");
+  const phase15Block = SKILL.slice(phase15Idx, phaseRIdx);
+
+  it("Phase 1.5 section exists and sits between Phase 1 and Phase R in the document", () => {
+    const phase1Idx = SKILL.indexOf("## Phase 1 — Iteration loop");
+    expect(phase1Idx).toBeGreaterThan(-1);
+    expect(phase15Idx).toBeGreaterThan(phase1Idx);
+    expect(phaseRIdx).toBeGreaterThan(phase15Idx);
+  });
+
+  it("Phase 1.5 declares the cap=1 invariant via INLINE_FIX_USED counter", () => {
+    expect(phase15Block).toMatch(/INLINE_FIX_USED/);
+    // The counter must be initialised in Phase 1's counter declaration.
+    const phase1Block = SKILL.slice(
+      SKILL.indexOf("## Phase 1 — Iteration loop"),
+      phase15Idx,
+    );
+    expect(phase1Block).toMatch(/INLINE_FIX_USED\s*=\s*0/);
+  });
+
+  it("Phase 1.5 is gated to Done-Achieved only (skipped for blocked / Done-TimedOut / Done-ForwardFixed)", () => {
+    expect(phase15Block).toMatch(/Done-Achieved only/i);
+    expect(phase15Block).toMatch(/Skipped for every other terminal path/i);
+    expect(phase15Block).toMatch(/blocked/);
+    expect(phase15Block).toMatch(/Done-TimedOut/);
+    expect(phase15Block).toMatch(/Done-ForwardFixed/);
+  });
+
+  it("Phase 1.5 eligibility gate enumerates ALL four required preconditions", () => {
+    // (1) Step 2 = achieved, (2) cap not used, (3) retro candidate exists,
+    // (4) light-synthesis emits an eligible candidate. All four must be
+    // explicitly named — partial enumeration is a contract drift bug.
+    expect(phase15Block).toMatch(/INLINE_FIX_USED == 0/);
+    expect(phase15Block).toMatch(/Step 2 of iteration/);
+    expect(phase15Block).toMatch(/RETRO_FILE/);
+    expect(phase15Block).toMatch(/Light synthesis/);
+  });
+
+  it("Phase 1.5 eligibility category whitelist is exactly {bug, test-strategy}", () => {
+    expect(phase15Block).toMatch(/exactly one of `bug`\s+OR\s+`test-strategy`/);
+  });
+
+  it("Phase 1.5 eligibility size whitelist is exactly {xs, s}", () => {
+    expect(phase15Block).toMatch(/exactly one of `xs`\s+OR\s+`s`/);
+  });
+
+  it("Phase 1.5 eligibility confidence whitelist is exactly {medium, high}", () => {
+    expect(phase15Block).toMatch(/exactly one of `medium`\s+OR\s+`high`/);
+  });
+
+  it("Phase 1.5 path whitelist is src/, src-tauri/, e2e/ ONLY (no .claude/, no docs/, no .github/)", () => {
+    // The path filter is the single most important guard against accidental
+    // skill / documentation / CI churn during inline-fix. Lock it.
+    expect(phase15Block).toMatch(/`src\/`,?\s*`src-tauri\/`,?\s*(?:or\s+)?`e2e\/`/);
+    expect(phase15Block).toMatch(/no `\.claude\/`/);
+    expect(phase15Block).toMatch(/no `docs\/`/);
+    expect(phase15Block).toMatch(/no `\.github\/`/);
+  });
+
+  it("Phase 1.5 light synthesis is distinct from Phase 2's R2b (current-run retros only, no cross-run)", () => {
+    expect(phase15Block).toMatch(/single `general-purpose` call/);
+    expect(phase15Block).toMatch(/NOT the cross-run R2b/);
+  });
+
+  it("Phase 1.5 light-synthesis output template enumerates the structured fields it must emit", () => {
+    expect(phase15Block).toMatch(/INLINE_FIX_INELIGIBLE/);
+    expect(phase15Block).toMatch(/INLINE_FIX_ELIGIBLE/);
+    expect(phase15Block).toMatch(/^TITLE:/m);
+    expect(phase15Block).toMatch(/^CATEGORY:/m);
+    expect(phase15Block).toMatch(/^SIZE:/m);
+    expect(phase15Block).toMatch(/^CONFIDENCE:/m);
+    expect(phase15Block).toMatch(/^PATHS:/m);
+    expect(phase15Block).toMatch(/^ACCEPTANCE_SIGNAL:/m);
+    expect(phase15Block).toMatch(/^TASK_BRIEF:/m);
+  });
+
+  it("Phase 1.5 extends the loop by appending an AC to REQUIREMENTS (so Step 2 returns in_progress on next pass)", () => {
+    expect(phase15Block).toMatch(/Append a new requirement to `REQUIREMENTS`/);
+    expect(phase15Block).toMatch(/Phase 1\.5 inline-fix carry-over:/);
+  });
+
+  it("Phase 1.5 records the carry-over in the state file under `## Inline-fix carry-overs` with status=pending", () => {
+    expect(phase15Block).toMatch(/## Inline-fix carry-overs/);
+    expect(phase15Block).toMatch(/status:\s*pending/);
+  });
+
+  it("Phase 1.5 increments iteration (counts against the 30-cap, not bypasses it)", () => {
+    expect(phase15Block).toMatch(/iteration \+= 1/);
+    expect(phase15Block).toMatch(/30-cap/);
+    expect(phase15Block).toMatch(/iteration\s*>\s*30/);
+  });
+
+  it("Phase 1.5 forwards the TASK_BRIEF into the follow-on iteration's Step 4 planner", () => {
+    expect(phase15Block).toMatch(/TASK_BRIEF/);
+    expect(phase15Block).toMatch(/Step 4/);
+  });
+
+  it("Phase 1.5 re-enters Phase 1 at Step 1 (reuses the full pipeline incl. validators + expert panel + forward-fix)", () => {
+    expect(phase15Block).toMatch(/Re-enter Phase 1 at \*\*Step 1\*\*/);
+    expect(phase15Block).toMatch(/expert panel/);
+    expect(phase15Block).toMatch(/forward-fix loop/);
+  });
+
+  it("Phase 1.5 cap-of-1 is enforced on the SECOND pass (re-runs eligibility gate, sees INLINE_FIX_USED == 1, skips)", () => {
+    expect(phase15Block).toMatch(/Phase 1\.5 re-runs its eligibility gate/);
+    expect(phase15Block).toMatch(/INLINE_FIX_USED == 1/);
+  });
+
+  it("Phase 1.5 invariant: runs BEFORE Done-Achieved handler so PR stays draft (no race with merge-pr-loop)", () => {
+    // The ordering invariant is the load-bearing safety property — the
+    // rubber-duck critique on the original Phase 2 mutation called this
+    // out as the killer issue. Lock both the prose statement AND the
+    // structural ordering between Phase 1.5 and the Done-Achieved handler
+    // routing in Step 2.
+    expect(phase15Block).toMatch(/PR (?:is )?still draft/i);
+    expect(phase15Block).toMatch(/no merge-loop interaction risk/i);
+    // Step 2 routing must point to Phase 1.5 before Done-Achieved.
+    const stepTwoRouting = SKILL.match(
+      /`achieved`\s*→\s*\*\*\[Phase 1\.5\][^\n]*Done-Achieved handler/,
+    );
+    expect(stepTwoRouting, "Step 2 routing must route `achieved` through Phase 1.5 before Done-Achieved").not.toBeNull();
+  });
+
+  it("Termination table acknowledges Phase 1.5 interposing on the `achieved` path", () => {
+    const terminationIdx = SKILL.indexOf("## Termination");
+    const haltIdx = SKILL.indexOf("## Halt semantics", terminationIdx);
+    const terminationBlock = SKILL.slice(terminationIdx, haltIdx);
+    expect(terminationBlock).toMatch(/Step 2 `achieved`\s*\(after Phase 1\.5 gate\)/);
+    expect(terminationBlock).toMatch(/Phase 1\.5 interposes between/);
+  });
+
+  it("Done-Achieved handler invariant note appears INSIDE Phase 1.5 (so a future Done-Achieved rewrite cannot drop the gate)", () => {
+    expect(phase15Block).toMatch(/Done-Achieved handler invariant/i);
+    expect(phase15Block).toMatch(/INVOKED ONLY AFTER Phase 1\.5 has either skipped/i);
+  });
+
+  it("Phase 1.5 invariant: Step 4 prompt template exposes the **Inline-fix task brief:** placeholder so the carry-over candidate's scope budget reaches the planner", () => {
+    // Without this, Phase 1.5's step 6 ("Carry the parsed TASK_BRIEF into
+    // Step 4") would be prose-only — the follow-on planner could ignore
+    // the inline-fix scope budget entirely. The Step 4 prompt template
+    // must contain the conditional so an autonomous run knows to inject
+    // it when INLINE_FIX_USED == 1.
+    const stepFourIdx = SKILL.indexOf("### Step 4 — Plan");
+    const stepFiveIdx = SKILL.indexOf("### Step 5 — Implement", stepFourIdx);
+    const stepFourBlock = SKILL.slice(stepFourIdx, stepFiveIdx);
+    expect(stepFourBlock).toMatch(/INLINE_FIX_USED == 1/);
+    expect(stepFourBlock).toMatch(/\*\*Inline-fix task brief:\*\*/);
+    expect(stepFourBlock).toMatch(/TASK_BRIEF/);
+  });
+
+  it("Phase 1.5 has a single chokepoint that writes status=landed/dropped on terminal exit (no orphaned pending entries)", () => {
+    expect(phase15Block).toMatch(/State-file status flip on second-pass termination/i);
+    expect(phase15Block).toMatch(/status:\s*landed/);
+    expect(phase15Block).toMatch(/status:\s*dropped/);
+    // All three terminal paths (achieved-again, blocked, timed-out / 30-cap) must be enumerated.
+    expect(phase15Block).toMatch(/terminates `achieved` AGAIN/);
+    expect(phase15Block).toMatch(/terminates `blocked`/);
+    expect(phase15Block).toMatch(/iteration > 30/);
+    expect(phase15Block).toMatch(/never leave `status: pending`/);
+  });
+
+  it("Phase 1.5 ordering invariant: appears in SKILL.md BEFORE Phase R AND BEFORE the Done-Achieved handler reference (no race with merge-pr-loop)", () => {
+    // Structural lock — replaces the earlier occurrence-count oracle.
+    // A future PR that reintroduces a racy post-`gh pr ready` mutation
+    // would either (a) move Phase 1.5 after Phase R / done-handlers, or
+    // (b) add inline-fix branch-mutation prose to done-handlers.md. Both
+    // are caught here.
+    const phase1Idx = SKILL.indexOf("## Phase 1 — Iteration loop");
+    expect(phase1Idx).toBeGreaterThan(-1);
+    expect(phase15Idx).toBeGreaterThan(phase1Idx);
+    expect(phaseRIdx).toBeGreaterThan(phase15Idx);
+  });
+
+  it("Phase 1.5 invariant: done-handlers.md does NOT carry inline-fix branch-mutation instructions (chokepoint stays in SKILL.md)", () => {
+    // If a future PR re-introduces post-ready branch mutation, it would
+    // most likely land in done-handlers.md (since that's where the PR
+    // ready / iterate-pr label add lives). Lock that surface so it
+    // cannot reference the inline-fix counter or feature-name itself.
+    // (done-handlers.md legitimately mentions exe-task-implementer in
+    // Phase R / release-gate forward-fix — we only block inline-fix
+    // co-occurrence.)
+    expect(DONE_HANDLERS).not.toMatch(/INLINE_FIX_USED/);
+    expect(DONE_HANDLERS).not.toMatch(/inline-fix/i);
+    expect(DONE_HANDLERS).not.toMatch(/Phase 1\.5/);
   });
 });

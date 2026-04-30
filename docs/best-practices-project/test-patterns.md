@@ -43,7 +43,29 @@ await page.evaluate(() => {
 
 The contract for this event lives in `useFileWatcher.ts:51-73` and rule 13 in [`../architecture.md`](../architecture.md).
 
-## 4. Tracking IPC save calls (browser tests)
+## 4. IPC event payload fixtures
+
+> **Rule:** IPC event payloads must use shared fixtures tied to emission source. If a test creates an event payload inline, pre-commit review must verify it matches the real emit site. See `src/__tests__/fixtures/ipc-event-fixtures.ts`. Canonical: rule 26 in [`../test-strategy.md`](../test-strategy.md).
+
+In Vitest tests, import the typed factory rather than typing the payload literal — the factory's return type is `EventPayloads[K]` from `src/lib/tauri-events.ts`, which is the single source of truth for what Rust emits:
+
+```ts
+import { fileChangedReview, commentsChanged } from "@/__tests__/fixtures/ipc-event-fixtures";
+
+// Capture the listener registered by the hook under test
+const cb = vi.mocked(listenEvent).mock.calls.find((c) => c[0] === "file-changed")![1];
+
+// Fire the event with a real Rust-shaped payload (sidecar path, kind="review")
+await act(async () => {
+  cb(fileChangedReview("/workspace/notes.md.review.yaml"));
+});
+```
+
+When you add a new event in Rust, extend `EventPayloads` AND the fixture file in the same PR — drift between fixture and emit-site is a rule-26 violation that the conformance scan (`src/__tests__/ipc-event-fixture-conformance.test.ts`) will catch.
+
+> Note: this is a separate concern from §3 (browser-side `CustomEvent("mdownreview:file-changed", …)` re-dispatch). §3 covers the renderer's own DOM bus; §4 covers the original Rust→JS IPC payload that hooks listen to via `listenEvent`.
+
+## 5. Tracking IPC save calls (browser tests)
 
 In the init script, expose an array, then push from the relevant handler:
 
@@ -62,7 +84,7 @@ const calls = await page.evaluate(() =>
 );
 ```
 
-## 5. Native E2E pattern
+## 6. Native E2E pattern
 
 Use the `nativePage` fixture from `./fixtures` — connects to the real binary via CDP (WebView2 on Windows) and auto-skips on non-Windows:
 
@@ -86,7 +108,7 @@ npm run test:e2e:native:build
 
 Native specs MUST start with the rule-13 comment justifying why the scenario cannot be a browser test, and MUST NOT duplicate browser-spec assertions (rule 14).
 
-## 6. Canonical DOM selectors
+## 7. Canonical DOM selectors
 
 Stable selectors used across browser and native specs. Add to this list when introducing a new top-level region.
 
@@ -101,7 +123,7 @@ Stable selectors used across browser and native specs. Add to this list when int
 | `.source-view` | Syntax-highlighted source |
 | `.comments-panel` | Right comments sidebar |
 
-## 7. Time, debounce, and watcher tests
+## 8. Time, debounce, and watcher tests
 
 For deterministic timing tests:
 
@@ -109,7 +131,7 @@ For deterministic timing tests:
 - Canonical debounce windows: rule 5 in [`../performance.md`](../performance.md) (file watcher), rule 6 (ghost-entry rescan).
 - Assert: event ignored *inside* the window, processed *outside*.
 
-## 8. Common reliability anti-patterns
+## 9. Common reliability anti-patterns
 
 Each of these is a BLOCK by `test-expert`:
 

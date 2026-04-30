@@ -11,11 +11,19 @@ export type { UnlistenFn };
  * Discriminated map of every Tauri event the frontend subscribes to.
  *
  * Field names MUST match exactly what Rust serializes (snake_case via serde).
- * Cross-checked against:
- *   - src-tauri/src/watcher.rs (file-changed)
- *   - src-tauri/src/commands.rs (comments-changed, args-received)
+ * Cross-checked against the canonical Rust emit sites:
+ *   - src-tauri/src/watcher.rs:212 (FileChangeEvent), :219 (FolderChangeEvent),
+ *     :313 (file-changed emit), :333-337 (folder-changed emit, per-window),
+ *     :489-496 (kind classification: "content" | "review" | "deleted")
+ *   - src-tauri/src/commands/sidecar_config.rs:64-66 (folder-changed broadcast emit)
+ *   - src-tauri/src/commands/comments/mod.rs:34 (CommentsChangedEvent),
+ *     :90-95 (comments-changed app-wide emit)
  *   - src-tauri/src/update.rs (update-progress)
  *   - src-tauri/src/lib.rs (menu-* and second-instance args-received)
+ *
+ * Tests constructing these payloads MUST use the shared factories at
+ * `src/__tests__/fixtures/ipc-event-fixtures.ts` — see rule 26 in
+ * `docs/test-strategy.md`.
  */
 export interface EventPayloads {
   "file-changed": { path: string; kind: "content" | "review" | "deleted" };
