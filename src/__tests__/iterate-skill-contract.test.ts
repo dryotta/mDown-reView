@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { describe, it, expect } from "vitest";
 
 /**
  * Issue #122 — contract test for the iterate-one-issue skill's DIFF_CLASS
@@ -211,15 +211,59 @@ describe("iterate-one-issue skill — scope guard against workspace-wide formatt
     expect(sixDBlock).toMatch(/scope.diff guard|6a.pre/i);
     const guardRefIdx = sixDBlock.search(/scope.diff guard|6a.pre/i);
     const commitIdx = sixDBlock.indexOf("git commit");
+    expect(guardRefIdx, "scope-diff guard reference missing in Step 6d block").toBeGreaterThan(-1);
     expect(commitIdx, "git commit missing in Step 6d block").toBeGreaterThan(-1);
     expect(guardRefIdx).toBeLessThan(commitIdx);
   });
 
+  it("Step 6d explicitly carves out scope-guard BLOCKs from the no-revert forward-fix rule", () => {
+    // Without this carve-out, the forward-fix prompt's "no revert" rule conflicts with
+    // the scope-guard's correct recovery path (revert the off-scope file). The loop would
+    // thrash to the 5-attempt cap or pressure the implementer to wrongly absorb the file.
+    const sixD = SKILL.indexOf("#### 6d.");
+    const stepSeven = SKILL.indexOf("### Step 7");
+    const sixDBlock = SKILL.slice(sixD, stepSeven);
+    // Must mention scope-guard explicitly inside 6d.
+    expect(sixDBlock).toMatch(/[Ss]cope.guard/);
+    // Must allow revert (justify-or-revert semantics) for scope-guard BLOCKs specifically.
+    expect(sixDBlock).toMatch(/justify.or.revert|revert[\s\S]{0,160}justify|`?git checkout HEAD --/);
+  });
+
+  it("Step 6d preserves original Step 5 EXPECTED_FILES as in-scope during forward-fix", () => {
+    // Locks the EXPECTED_FILES composition. Without this clause, every forward-fix wave
+    // would re-flag every Step-5 file as "unexpected" the moment the forward-fix touched
+    // a different file inside the original scope.
+    const sixD = SKILL.indexOf("#### 6d.");
+    const stepSeven = SKILL.indexOf("### Step 7");
+    const sixDBlock = SKILL.slice(sixD, stepSeven);
+    expect(sixDBlock).toMatch(/[Oo]riginal Step 5[\s\S]{0,160}in.scope|still counts as in.scope/);
+  });
+
+  it("Step 8 iteration template captures scope-guard activity for cross-iteration retros", () => {
+    // Without this, a misbehaving implementer's formatter abuse is silently wiped each
+    // iteration — the retro author can't see a recurring pattern it has no log of.
+    const stepEight = SKILL.indexOf("### Step 8 — Record");
+    expect(stepEight, "Step 8 header not found").toBeGreaterThan(-1);
+    const stepEightFive = SKILL.indexOf("### Step 8.5", stepEight);
+    expect(stepEightFive, "Step 8.5 header not found").toBeGreaterThan(stepEight);
+    const stepEightBlock = SKILL.slice(stepEight, stepEightFive);
+    expect(stepEightBlock).toMatch(/Scope-guard:/);
+  });
+
+  it("scope-guard log lines are appended to the state file (cross-iteration retro visibility)", () => {
+    // Both branches of 6a-pre (revert + block) must tee their log lines into the
+    // state file so retros can spot patterns. Otherwise the in-stdout log evaporates.
+    const sixA = SKILL.indexOf("#### 6a. Push");
+    const sixB = SKILL.indexOf("#### 6b.");
+    const sixABlock = SKILL.slice(sixA, sixB);
+    expect(sixABlock).toMatch(/append[\s\S]{0,80}state file/i);
+  });
+
   it("neither skill nor implementer prompt instructs running a workspace-wide Rust formatter", () => {
-    // Belt-and-braces: no positive instruction to run any of the forbidden commands.
-    // Allow mentions inside `Do NOT run ...` / forbidden-list contexts; flag any standalone
-    // imperative line that asks the implementer to run them.
-    const positiveRunPattern = /(?:^|\n)\s*[-*\d.]?\s*(?:Run|Execute|Apply|Use)\s+`?cargo fmt[^`\n]*`?/i;
+    // Belt-and-braces negative assertion. Covers the imperative phrasings most likely
+    // to appear in a regression: Run/Execute/Apply/Use/Invoke/Call/Trigger/Perform/Format.
+    const positiveRunPattern =
+      /(?:^|\n)\s*[-*\d.)\s]{0,4}(?:Run|Execute|Apply|Use|Invoke|Call|Trigger|Perform|Format with)\s+`?cargo fmt[^`\n]*`?/i;
     expect(EXE_TASK_IMPLEMENTER).not.toMatch(positiveRunPattern);
     expect(SKILL).not.toMatch(positiveRunPattern);
   });

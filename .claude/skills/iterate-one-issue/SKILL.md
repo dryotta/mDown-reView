@@ -399,8 +399,8 @@ Implementers report their changed files in their Implementation Summary's `**Fil
 2. Compute `ACTUAL_FILES = git diff --name-only` (working tree against `HEAD`).
 3. `UNEXPECTED = ACTUAL_FILES − EXPECTED_FILES`.
 4. For each `path` in `UNEXPECTED`:
-   - If `path` ends in `.rs` AND `git diff -w -- "$path"` is empty (whitespace-only churn — the exact failure mode from issue #302): revert with `git checkout HEAD -- "$path"` and log `[scope-guard] reverted format-only churn: $path`.
-   - Else: do NOT auto-revert (the file may carry load-bearing edits the implementer forgot to report). Log `[scope-guard] BLOCK: unexpected file outside reported scope: $path` and surface it to 6d's forward-fix wave alongside validator/CI failures. Wave a single `exe-task-implementer` to either (a) add the file to the implementation scope by reporting it explicitly + justifying it, or (b) revert it. Re-run this guard until clean.
+   - If `path` ends in `.rs` AND `git diff -w -- "$path"` is empty (whitespace-only churn — the exact failure mode from issue #302): revert with `git checkout HEAD -- "$path"`, log `[scope-guard] reverted format-only churn: $path` to stdout, AND append the same line to the iteration's block in the state file `.claude/iterate-state-<branch-slug>.md` so retros can see cross-iteration patterns of formatter abuse.
+   - Else: do NOT auto-revert (the file may carry load-bearing edits the implementer forgot to report). Log `[scope-guard] BLOCK: unexpected file outside reported scope: $path` to stdout, append the same line to the state file's current iteration block, and surface it as a **scope-guard BLOCK** to 6d's forward-fix wave (see 6d step 1 for the justify-or-revert carve-out). Re-run this guard until clean.
 5. Only after `UNEXPECTED` is empty do we proceed to the staging block below. Never `git add -A`.
 
 The implementer prompt forbids `cargo fmt`/`cargo fmt --all`/`cargo fmt -p` directly (see `.claude/agents/exe-task-implementer.md`); this guard is the second line of defence in case an agent (or a manual fix-up commit) violates that rule.
@@ -487,13 +487,23 @@ CI is path-filtered (`.github/workflows/ci.yml`); on `prompt-only`/`docs-only` d
 
 Repeat until A, B, AND C are all green/APPROVE, or 5 attempts:
 
-1. Collect every failure: validator failures (A) + CI check failures (B) + every BLOCK from the expert panel (C).
+1. Collect every failure: validator failures (A) + CI check failures (B) + every BLOCK from the expert panel (C) + every **scope-guard BLOCK** from 6a-pre (issue #302). Scope-guard BLOCKs are a distinct category from A/B/C — they have a justify-or-revert carve-out documented in step 2 below.
 2. ONE `exe-task-implementer`:
    ```
-   Fix all of the failures below in one pass. No revert — forward fix.
+   Fix all of the failures below in one pass.
+
+   General policy: forward-fix only — no revert — for validator failures, CI failures, and expert BLOCKs.
+
+   **Scope-guard BLOCKs (issue #302) — special handling, justify-or-revert allowed:**
+   For each listed unexpected path from the scope-diff guard at 6a-pre, choose ONE:
+     (a) Revert the file with `git checkout HEAD -- "<path>"` if it was an off-scope edit you did not intend (e.g. a stray formatter run, an editor auto-format, a test fixture you touched and forgot about). Report the revert in your `Files changed` block with `(reverted off-scope)` annotation.
+     (b) Keep the edit and add `<path>` to your reported `Files changed` block with a one-line justification of why it belongs in this iteration's scope.
+   DO NOT silently absorb scope-guard-flagged files without explicit acknowledgment in the Implementation Summary.
+
    Local: <full output>
    CI: <names + logs>
    Expert blocks: <each: expert · file:line · rule · fix direction>
+   Scope-guard BLOCKs: <list of unexpected paths from 6a-pre>
    Prior attempts: <summaries>
    Minimal change per failure. Tighten existing code over new abstractions. Do NOT reopen approved concerns.
    Return Implementation Summary.
@@ -558,6 +568,7 @@ Append to state file:
 - DIFF_CLASS: <code | prompt-only | docs-only | none>
 - Commits: <SHAs from ITER_BASE_SHA..HEAD>
 - Validate+CI+Experts: <converged in K | degraded after 5>
+- Scope-guard: <K reverted, M blocked | clean>   <!-- issue #302: K = whitespace-only .rs files auto-reverted by 6a-pre; M = unexpected files surfaced as scope-guard BLOCKs into 6d. "clean" if both zero. -->
 - Expert review: <A approved / B blocked — list>
 - Goal assessor confidence: <%>
 - Summary: <one sentence>
