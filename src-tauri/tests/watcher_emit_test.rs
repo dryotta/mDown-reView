@@ -270,6 +270,63 @@ fn emit_config_changed_inner_emits_nothing_when_no_window_tracks_root() {
     assert_eq!(emitter.count(), 0, "no window tracks root; expected zero emits");
 }
 
+/// Bug B regression guard (issue #304 / FLAKE-1): the production wrapper
+/// `emit_config_changed` MUST delegate to `emit_config_changed_inner` via
+/// the `WatcherEmitter` trait. A revert to broadcast (e.g. `app.emit(...)`
+/// or `for win in app.webview_windows().values()`) would bypass the
+/// `mrsf_targets` filter and re-introduce the N×N broadcast bug. Since
+/// `tauri::test::mock_app()` is unavailable on the dev Windows host, the
+/// next-best regression oracle is a structural assertion on the source.
+#[test]
+fn emit_config_changed_wrapper_routes_through_trait_seam() {
+    let source_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/commands/sidecar_config.rs");
+    let source = std::fs::read_to_string(&source_path)
+        .expect("sidecar_config.rs must be readable for structural assertion");
+
+    // The wrapper MUST delegate to the inner helper.
+    assert!(
+        source.contains("emit_config_changed_inner("),
+        "emit_config_changed must delegate to emit_config_changed_inner \
+         (Bug B regression guard — see {})",
+        source_path.display(),
+    );
+
+    // The wrapper MUST NOT iterate webview_windows for fan-out (Bug B revert).
+    // Skip comment lines: the file's design rationale comment naturally cites
+    // the old broken pattern when explaining what was fixed.
+    let webview_iter_in_code = source.lines().any(|line| {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
+            return false;
+        }
+        trimmed.contains("webview_windows().values()")
+    });
+    assert!(
+        !webview_iter_in_code,
+        "emit_config_changed must not iterate app.webview_windows().values() \
+         — that's the Bug B broadcast pattern. Use mrsf_targets via the \
+         WatcherEmitter trait.",
+    );
+
+    // The wrapper MUST NOT call app.emit() (broadcast) — only emit_to via the trait.
+    let suspicious = source.lines().enumerate().find(|(_, line)| {
+        let trimmed = line.trim();
+        // Skip comments
+        if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("//!") {
+            return false;
+        }
+        // Look for app.emit(...) (broadcast) but allow app.emit_to(...)
+        trimmed.contains("app.emit(") || trimmed.contains(".emit(\"")
+    });
+    assert!(
+        suspicious.is_none(),
+        "emit_config_changed must not call app.emit() (broadcast) — use \
+         emit_to(label, ...) via the WatcherEmitter trait. Found: {:?}",
+        suspicious,
+    );
+}
+
 /// The recorded `path` field on both event payloads must match the canonical
 /// root passed in, so the renderer can dispatch reliably (string equality
 /// against the active workspace root in `useFileWatcher`).

@@ -49,7 +49,9 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
 
       // Phase 1: poll get_sidecar_config until the watcher's config cache
       // reflects the new sidecar_root. With the watcher fix in place, this
-      // typically takes ~300ms (debounce + reload). 5s is a generous CI budget.
+      // typically takes ~300ms (debounce + reload). 15s is a generous CI budget
+      // for slow Windows runners (matches the timeout used by other native
+      // specs e.g. e2e/native/03-file-reload.spec.ts).
       await expect
         .poll(
           async () => {
@@ -60,8 +62,8 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
           },
           {
             message:
-              "watcher should reload .mrsf.yaml and update SidecarConfigState within 5s",
-            timeout: 5_000,
+              "watcher should reload .mrsf.yaml and update SidecarConfigState within 15s",
+            timeout: 15_000,
             intervals: [200, 500, 1000],
           },
         )
@@ -90,8 +92,8 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
       // Wait for sidecar file to appear (also via expect.poll)
       await expect
         .poll(async () => fs.existsSync(sidecarPath), {
-          message: `sidecar should land at ${sidecarPath} within 5s`,
-          timeout: 5_000,
+          message: `sidecar should land at ${sidecarPath} within 15s`,
+          timeout: 15_000,
         })
         .toBe(true);
 
