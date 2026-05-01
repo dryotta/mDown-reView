@@ -28,10 +28,26 @@ flowchart TD
 
 ## Key source
 
-- **Rust:** `src-tauri/src/update.rs`, `src-tauri/src/lib.rs` (plugin registration)
+- **Rust:** `src-tauri/src/update.rs`, `src-tauri/src/lib.rs` (plugin registration — both `tauri-plugin-updater` for download/install and `tauri-plugin-process` for the post-install `relaunch()` IPC)
 - **Frontend:** `updateSlice` in `src/store/index.ts`
-- **UI:** `src/components/AboutDialog.tsx`
+- **UI:** `src/components/AboutDialog.tsx`, `src/components/UpdateBanner.tsx`
 - **CI:** release workflow files under `.github/workflows/` (triggered by the `/publish-release` skill)
+
+## Restart fallback
+
+The "Restart Now" button in `UpdateBanner` calls `restartApp()` →
+`@tauri-apps/plugin-process` `relaunch()` → `plugin:process|restart`.
+If that IPC rejects (plugin not registered, ACL denied, OS-level
+relaunch failure) the banner switches to a **manual-relaunch**
+message ("Update installed — quit and reopen mdownreview from your
+installed location to apply.") instead of leaving the user staring
+at a dead button. The new `.app` bundle has already been swapped
+in by the updater plugin at this point — quitting and reopening
+the app from its installed location (e.g. `/Applications` on
+macOS) picks it up. A static parity test
+(`src/__tests__/tauri-plugin-registration-parity.test.ts`) prevents
+the underlying class of bug (JS plugin import without matching Rust
+`init()` registration or ACL entry).
 
 ## Related rules
 

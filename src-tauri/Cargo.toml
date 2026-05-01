@@ -53,6 +53,14 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-log = { version = "2", features = ["colored"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+# `tauri-plugin-process` provides the `plugin:process|restart` IPC that
+# `restartApp()` (src/lib/tauri-commands.ts → @tauri-apps/plugin-process
+# `relaunch()`) calls after the updater finishes. Without this dep + its
+# `init()` registration in lib.rs, the updater downloads + verifies +
+# swaps the bundle correctly but the "Restart Now" button silently fails
+# (unrouted IPC), leaving the user stuck on the "Restart to apply update"
+# banner. See docs/features/updates.md.
+tauri-plugin-process = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 log = "0.4"

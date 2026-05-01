@@ -663,6 +663,14 @@ pub fn run() {
 
     let app = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // `plugin:process|restart` — invoked by `restartApp()` /
+        // `@tauri-apps/plugin-process` `relaunch()` after the updater has
+        // staged a new bundle. Must be registered or the "Restart Now"
+        // button on the update banner is a no-op (unrouted IPC). See
+        // capabilities/default.json for the matching `process:allow-restart`
+        // ACL — least-privilege over `process:default` (which would also
+        // grant `allow-exit`, a command we never invoke).
+        .plugin(tauri_plugin_process::init())
         .manage(update::PendingUpdate(std::sync::Mutex::new(None)))
         .manage(watcher::WatcherState::new(sync_tx))
         .manage(watcher::SidecarConfigState::new())
