@@ -15,6 +15,9 @@ interface CommentBadgeProps {
  * `data-severity` so callers can colour-tune via CSS without per-variant JSX.
  */
 export function CommentBadge({ count, severity, className }: CommentBadgeProps) {
+  // AC2 (issue #280): zero-count badges must not render. Guards against
+  // empty per-line gutter buckets surfacing as ghost markers when the
+  // count drops to zero through filter / resolve interactions.
   if (count <= 0) return null;
   const sev = severity ?? "none";
   const capped = count > BADGE_CAP;

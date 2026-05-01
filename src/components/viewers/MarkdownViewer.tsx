@@ -1,5 +1,6 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "@/lib/remark-github-alerts";
 import remarkMath from "remark-math";
@@ -78,11 +79,27 @@ async function ensureKatexCssLoaded(): Promise<void> {
 
 // R3: stable module-scope remark plugin tuple — no plugin closes over per-render
 // state, so this never needs to be rebuilt per render.
-const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkGithubAlerts] as const;
+//
+// Order is load-bearing: `remarkFrontmatter` MUST run FIRST so the YAML
+// `---` fence is parsed as a frontmatter node before `remarkGfm`'s table
+// parser sees it (otherwise GFM treats `---` as a table-row separator).
+// Frontmatter is recognised but not rendered (no `yaml` component
+// renderer is registered), which preserves the visual output while
+// keeping mdast `position.start.line` aligned with FILE coordinates —
+// the invariant Rule 31 (`docs/architecture.md`) and AC1 of issue #280
+// depend on for `data-source-line` to match the comment line numbers
+// produced by the Rust matcher.
+const REMARK_PLUGINS = [remarkFrontmatter, remarkGfm, remarkMath, remarkGithubAlerts] as const;
 
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
-  const { body, data } = useMemo(() => parseFrontmatter(content), [content]);
-  const headings = useMemo(() => extractHeadings(body), [body]);
+  // We still need `data` for the `<FrontmatterBlock>` rendering, but we
+  // discard the helper's `body` output and feed the raw `content` into
+  // every downstream consumer (extractHeadings, lines, ReactMarkdown,
+  // useFindInPage, the remote-image scan) so that `data-source-line`
+  // stamps and source-authored comment line numbers share the same
+  // file-coord origin. See issue #280 / Rule 31.
+  const { data } = useMemo(() => parseFrontmatter(content), [content]);
+  const headings = useMemo(() => extractHeadings(content), [content]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const readingContainerRef = useRef<HTMLDivElement>(null);
   const readingWidth = useStore((s) => s.readingWidth);
@@ -95,7 +112,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // attach comments to a comment-storage file.
   const commentable = !isSidecarFile(filePath);
 
-  const lines = useMemo(() => body.split("\n"), [body]);
+  const lines = useMemo(() => content.split("\n"), [content]);
 
   const { threads } = useComments(filePath);
 
@@ -116,7 +133,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // to revoke. The banner stays visible in either state so the user can
   // toggle the permission.
   const remoteImagesAllowed = useStore((s) => s.allowedRemoteImageDocs[filePath] === true);
-  const hasRemoteImages = useMemo(() => hasRemoteImageReferences(body), [body]);
+  const hasRemoteImages = useMemo(() => hasRemoteImageReferences(content), [content]);
   const handleAllowRemoteImages = useCallback(() => {
     useStore.getState().allowRemoteImagesForDoc(filePath);
   }, [filePath]);
@@ -145,7 +162,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   // B3: detect math syntax in the body. Cheap regex pre-scan so we only
   // pay the KaTeX cost on documents that actually use math.
-  const hasMath = useMemo(() => HAS_MATH_RE.test(body), [body]);
+  const hasMath = useMemo(() => HAS_MATH_RE.test(content), [content]);
   // L4: lazy-load `rehype-katex` so its ~200 KB JS lands in a separate chunk
   // and only when a doc actually uses math. Plugin is `null` until loaded.
   const [rehypeKatexPlugin, setRehypeKatexPlugin] = React.useState<unknown | null>(null);
@@ -222,7 +239,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // exists in the DOM by the time this useEffect fires. Only the same-tab,
   // already-mounted case is handled in the click handler directly.
   useEffect(() => {
-    if (!body) return;
+    if (!content) return;
     const fragment = useStore.getState().consumePendingFragment(filePath);
     if (!fragment) return;
     let id = fragment;
@@ -236,7 +253,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       el?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return () => cancelAnimationFrame(handle);
-  }, [filePath, body]);
+  }, [filePath, content]);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
 
@@ -291,7 +308,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // #65 G1 — Ctrl+F find-in-page. Body content drives the change signature
   // so highlights re-walk after edits/reloads. The bar's `.find-bar` class
   // is referenced by the print stylesheet to hide it on print.
-  const find = useFindInPage(bodyRef, body);
+  const find = useFindInPage(bodyRef, content);
   const openFindBar = find.openBar;
 
   useEffect(() => {
@@ -370,7 +387,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               rehypePlugins={rehypePlugins as never}
               components={components}
             >
-              {body}
+              {content}
             </ReactMarkdown>
             {commentable && selectionToolbar && (
               <SelectionToolbar

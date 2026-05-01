@@ -3,37 +3,45 @@ import { renderHook } from "@testing-library/react";
 import { useThreadsByLine } from "../useThreadsByLine";
 import type { CommentThread, MatchedComment } from "@/lib/tauri-commands";
 
+interface ThreadOverrides {
+  id?: string;
+  line?: number;
+  matchedLineNumber?: number;
+  resolved?: boolean;
+  isOrphaned?: boolean;
+  anchor_kind?: string | null;
+  replies?: MatchedComment[];
+}
+
 function makeReply(overrides: {
   id?: string;
   line?: number;
   matchedLineNumber?: number;
   resolved?: boolean;
+  isOrphaned?: boolean;
 }): MatchedComment {
   return {
     id: overrides.id ?? "r1",
     author: "test",
     text: "reply",
     line: overrides.line,
-    matchedLineNumber: overrides.matchedLineNumber,
+    matchedLineNumber: overrides.matchedLineNumber ?? 0,
+    isOrphaned: overrides.isOrphaned ?? false,
     createdAt: "2024-01-01",
     resolved: overrides.resolved ?? false,
   } as unknown as MatchedComment;
 }
 
-function makeThread(overrides: {
-  id?: string;
-  line?: number;
-  matchedLineNumber?: number;
-  resolved?: boolean;
-  replies?: MatchedComment[];
-}): CommentThread {
+function makeThread(overrides: ThreadOverrides): CommentThread {
   return {
     root: {
       id: overrides.id ?? "c1",
       author: "test",
       text: "comment",
       line: overrides.line,
-      matchedLineNumber: overrides.matchedLineNumber,
+      matchedLineNumber: overrides.matchedLineNumber ?? 0,
+      isOrphaned: overrides.isOrphaned ?? false,
+      anchor_kind: overrides.anchor_kind ?? "line",
       createdAt: "2024-01-01",
       resolved: overrides.resolved ?? false,
     },
@@ -58,28 +66,9 @@ describe("useThreadsByLine — threadsByLine", () => {
     expect(result.current.threadsByLine.get(10)?.length).toBe(1);
   });
 
-  it("falls back to root.line when matchedLineNumber is undefined", () => {
-    const threads = [makeThread({ id: "c1", line: 7 })];
-    const { result } = renderHook(() => useThreadsByLine(threads));
-    expect(result.current.threadsByLine.get(7)?.length).toBe(1);
-  });
-
-  it("falls back to line 1 when both are undefined", () => {
-    const threads = [makeThread({ id: "c1" })];
-    const { result } = renderHook(() => useThreadsByLine(threads));
-    expect(result.current.threadsByLine.get(1)?.length).toBe(1);
-  });
-
-  it("prefers matchedLineNumber over root.line", () => {
-    const threads = [makeThread({ id: "c1", line: 3, matchedLineNumber: 8 })];
-    const { result } = renderHook(() => useThreadsByLine(threads));
-    expect(result.current.threadsByLine.has(3)).toBe(false);
-    expect(result.current.threadsByLine.get(8)?.length).toBe(1);
-  });
-
   it("updates when threads change", () => {
-    const threads1 = [makeThread({ id: "c1", line: 2 })];
-    const threads2 = [makeThread({ id: "c2", line: 5 })];
+    const threads1 = [makeThread({ id: "c1", matchedLineNumber: 2 })];
+    const threads2 = [makeThread({ id: "c2", matchedLineNumber: 5 })];
     const { result, rerender } = renderHook(
       ({ threads }) => useThreadsByLine(threads),
       { initialProps: { threads: threads1 } },
@@ -144,7 +133,7 @@ describe("useThreadsByLine — commentCountByLine", () => {
       makeThread({
         id: "t1",
         matchedLineNumber: 9,
-        replies: [makeReply({ id: "r1" })],
+        replies: [makeReply({ id: "r1" })], // matchedLineNumber=0 → reply falls back to root
       }),
     ];
     const { result } = renderHook(() => useThreadsByLine(threads));
@@ -168,5 +157,58 @@ describe("useThreadsByLine — commentCountByLine", () => {
     const first = result.current.commentCountByLine;
     rerender({ t: threads });
     expect(result.current.commentCountByLine).toBe(first);
+  });
+});
+
+describe("useThreadsByLine — Rule 31 gutter exclusion (issue #280 AC2/AC7)", () => {
+  // AC2 regression: with one file-anchored + one orphan + one line-N comment,
+  // the gutter shows ONE badge at line N; nothing accumulates at line 1.
+  it("excludes file-anchored, orphan, and matchedLineNumber<=0 threads from per-line buckets", () => {
+    const fileAnchored = makeThread({
+      id: "file1",
+      anchor_kind: "file",
+      matchedLineNumber: 1, // synthetic file-anchor sentinel
+    });
+    const orphan = makeThread({
+      id: "orphan1",
+      matchedLineNumber: 0, // unresolved sentinel
+      isOrphaned: true,
+    });
+    const unknown = makeThread({
+      id: "unknown1",
+      matchedLineNumber: 0, // Anchor::Unknown sentinel
+    });
+    const realLine = makeThread({ id: "line9", matchedLineNumber: 9 });
+
+    const { result } = renderHook(() =>
+      useThreadsByLine([fileAnchored, orphan, unknown, realLine]),
+    );
+    const counts = result.current.commentCountByLine;
+    // Only the line-9 thread should bucket; line 1 must NOT collect the
+    // file-anchored sentinel even though its matchedLineNumber == 1.
+    expect(counts.size).toBe(1);
+    expect(counts.has(9)).toBe(true);
+    expect(counts.has(1)).toBe(false);
+    expect(counts.has(0)).toBe(false);
+
+    // threadsByLine likewise excludes the three sentinel threads.
+    expect(result.current.threadsByLine.size).toBe(1);
+    expect(result.current.threadsByLine.get(9)?.length).toBe(1);
+  });
+
+  // Issue #131 legacy: v1.0 sidecars where `line: 0` deserialize as
+  // `Anchor::Line { line: 0 }`. The Rust matcher synthesizes
+  // matchedLineNumber=1 with anchor_kind="line" (NOT "file") and
+  // isOrphaned=false, so they SHOULD bucket at line 1.
+  it("legacy v1.0 line=0 (matchedLineNumber=1 sentinel) buckets at line 1", () => {
+    const legacyV10 = makeThread({
+      id: "legacy",
+      anchor_kind: "line",
+      matchedLineNumber: 1,
+      line: 0,
+      isOrphaned: false,
+    });
+    const { result } = renderHook(() => useThreadsByLine([legacyV10]));
+    expect(result.current.commentCountByLine.get(1)).toBe(1);
   });
 });
