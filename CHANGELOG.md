@@ -1,3 +1,14 @@
+## v0.4.1 — 2026-05-01
+
+### Fixes
+- Register `tauri-plugin-process` so the macOS auto-update **Restart Now** button actually works. The Rust crate, ACL, and `init()` registration were missing — the IPC was unrouted and the renderer silently swallowed the rejection, leaving users stuck on "Restart to apply update". UpdateBanner now also surfaces a manual-relaunch fallback if the IPC ever rejects, and a static parity test prevents the underlying class of bug. (#347)
+- Scope per-window events with `emit_to` (instead of broadcast `emit`) and share the folder-open ViewModel across windows. (#341)
+
+### Other
+- ci: drop aspirational README-at-DMG-root verify checks. (#346)
+- ci: fix DMG verify step that fails to mount on macOS. (#345)
+- ci: fix silent macOS verify-adhoc abort on v0.4.0 release. (#343)
+
 ## v0.4.0 — 2026-05-01
 
 ### Breaking
