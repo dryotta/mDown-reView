@@ -8,7 +8,6 @@ export type FileCategory =
   | "mermaid"
   | "kql"
   | "image"
-  | "audio"
   | "text";
 
 const CATEGORY_MAP: Record<string, FileCategory> = {
@@ -32,19 +31,8 @@ const CATEGORY_MAP: Record<string, FileCategory> = {
   ".webp": "image",
   ".bmp": "image",
   ".ico": "image",
-  ".mp3": "audio",
-  ".wav": "audio",
-  ".ogg": "audio",
-  ".flac": "audio",
-  ".m4a": "audio",
-  ".aac": "audio",
 };
 
-// Audio is handled by its own dedicated viewer (AudioViewer) — it doesn't
-// share the source/visual toggle, but is listed as "visualizable" so that
-// filetype-keyed UI behaviour (toolbar, zoom store) is consistent with
-// the other media-only category, image. Zoom is not actually applied to
-// audio controls.
 const VISUALIZABLE: Set<FileCategory> = new Set([
   "markdown",
   "json",
@@ -52,7 +40,6 @@ const VISUALIZABLE: Set<FileCategory> = new Set([
   "html",
   "mermaid",
   "kql",
-  "audio",
 ]);
 
 const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
@@ -63,7 +50,6 @@ const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
   mermaid: "visual",
   kql: "visual",
   image: "visual",
-  audio: "visual",
   text: "source",
 };
 
@@ -92,7 +78,6 @@ export function isSidecarFile(path: string): boolean {
 export function getFiletypeKey(path: string, viewMode?: "source" | "visual"): string {
   const cat = getFileCategory(path);
   if (cat === "image") return ".image";
-  if (cat === "audio") return ".audio";
   const view = viewMode ?? getDefaultView(cat);
   if (view === "source") return ".source";
   switch (cat) {

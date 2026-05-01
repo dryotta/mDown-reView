@@ -3,7 +3,7 @@
 A curated set of markdown files designed to exercise every feature
 mdownreview's renderer supports. Sister-folders under
 [`../`](../) cover the other viewers (`json/`, `csv/`, `html/`,
-`mermaid/`, `kql/`, `source/`, `audio/`, `binary/`).
+`mermaid/`, `kql/`, `source/`, `binary/`).
 
 ## Index
 

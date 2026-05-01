@@ -41,13 +41,6 @@ vi.mock("../ImageViewerShell", () => ({
   ),
 }));
 
-vi.mock("../AudioViewer", () => ({
-  AudioViewer: ({ path }: { path: string }) => (
-    <div data-testid="audio-viewer" data-path={path}>AudioViewer</div>
-  ),
-  getAudioMime: (p: string) => (p.endsWith(".mp3") ? "audio/mpeg" : "audio/*"),
-}));
-
 vi.mock("../BinaryViewerShell", () => ({
   BinaryViewerShell: ({ path, size, onCommentOnFile }: { path: string; size?: number; onCommentOnFile?: () => void }) => (
     <div data-testid="binary-viewer-shell" data-path={path} data-size={size} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
@@ -117,12 +110,12 @@ describe("ViewerRouter routing", () => {
     expect(screen.getByTestId("image-viewer-shell")).toBeInTheDocument();
   });
 
-  it("audio status routes to AudioViewer (#65 F1)", () => {
-    mockUseFileContent.mockReturnValue({ status: "audio" });
+  it("audio extensions route to BinaryViewerShell (no dedicated audio viewer)", () => {
+    mockUseFileContent.mockReturnValue({ status: "binary", sizeBytes: 4096 });
     useStore.setState({ tabs: [{ path: "/music/song.mp3", scrollTop: 0 }] });
     render(<ViewerRouter path="/music/song.mp3" />);
-    expect(screen.getByTestId("audio-viewer")).toBeInTheDocument();
-    expect(screen.getByTestId("audio-viewer").dataset.path).toBe("/music/song.mp3");
+    expect(screen.getByTestId("binary-viewer-shell")).toBeInTheDocument();
+    expect(screen.getByTestId("binary-viewer-shell").dataset.path).toBe("/music/song.mp3");
   });
 
   it("loading status shows SkeletonLoader", () => {
@@ -209,11 +202,12 @@ describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () 
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/x.png");
   });
 
-  it("audio viewer surfaces a Comment-on-file button", () => {
-    mockUseFileContent.mockReturnValue({ status: "audio" });
+  it("audio file (binary) surfaces a Comment-on-file button via BinaryViewerShell", () => {
+    mockUseFileContent.mockReturnValue({ status: "binary" });
     useStore.setState({ tabs: [{ path: "/s.mp3", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/s.mp3" />);
-    fireEvent.click(expectCommentOnFileButton());
+    expect(screen.getByTestId("binary-viewer-shell").dataset.hasCommentOnFile).toBe("true");
+    fireEvent.click(screen.getByTestId("binary-shell-comment-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/s.mp3");
   });
 

@@ -6,7 +6,6 @@ import { useFileBadges } from "@/hooks/useFileBadges";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewerShell } from "./ImageViewerShell";
-import { AudioViewer } from "./AudioViewer";
 import { BinaryViewerShell } from "./BinaryViewerShell";
 import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
@@ -160,31 +159,14 @@ export function ViewerRouter({ path }: Props) {
   }
 
   // R1+R2+R3 — every routed viewer is keyed on `path`. A path change forces
-  // unmount+remount, which stops audio playback that would otherwise
-  // continue after a tab switch.
+  // unmount+remount so per-file viewer state (hex bytes, error message,
+  // scroll position) does not leak across tab switches.
   //
   // Iter 5 Group B — media/binary viewers have no `EnhancedViewer` host, so we
   // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
   // to surface the file-anchored "Comment on file" entry point universally.
   if (status === "image") {
     return <ImageViewerShell key={path} path={path} onCommentOnFile={commentOnFile} fileCommentCount={fileCommentCount} fileCommentSeverity={fileCommentSeverity} />;
-  }
-
-  if (status === "audio") {
-    return (
-      <div className="viewer-media-container">
-        <ViewerToolbar
-          activeView="visual"
-          onViewChange={() => {}}
-          hidden
-          onCommentOnFile={commentOnFile}
-          fileCommentCount={fileCommentCount}
-          fileCommentSeverity={fileCommentSeverity}
-          trailing={<FileActionsBar path={path} />}
-        />
-        <AudioViewer key={path} path={path} />
-      </div>
-    );
   }
 
   if (status === "too_large") {

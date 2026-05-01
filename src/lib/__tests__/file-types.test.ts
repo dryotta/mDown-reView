@@ -44,14 +44,14 @@ describe("getFileCategory", () => {
     expect(getFileCategory("icon.ico")).toBe("image");
   });
 
-  it("classifies audio files", () => {
-    expect(getFileCategory("song.mp3")).toBe("audio");
-    expect(getFileCategory("song.wav")).toBe("audio");
-    expect(getFileCategory("song.ogg")).toBe("audio");
-    expect(getFileCategory("song.flac")).toBe("audio");
-    expect(getFileCategory("song.m4a")).toBe("audio");
-    expect(getFileCategory("song.aac")).toBe("audio");
-    expect(getFileCategory("UPPER.MP3")).toBe("audio");
+  it("classifies audio files as text (binary fallback)", () => {
+    expect(getFileCategory("song.mp3")).toBe("text");
+    expect(getFileCategory("song.wav")).toBe("text");
+    expect(getFileCategory("song.ogg")).toBe("text");
+    expect(getFileCategory("song.flac")).toBe("text");
+    expect(getFileCategory("song.m4a")).toBe("text");
+    expect(getFileCategory("song.aac")).toBe("text");
+    expect(getFileCategory("UPPER.MP3")).toBe("text");
   });
 
   it("classifies video files as text (binary fallback)", () => {
@@ -98,10 +98,6 @@ describe("hasVisualization", () => {
     expect(hasVisualization("text")).toBe(false);
     expect(hasVisualization("image")).toBe(false);
   });
-
-  it("returns true for audio (toolbar consistency, #65 F1)", () => {
-    expect(hasVisualization("audio")).toBe(true);
-  });
 });
 
 describe("getDefaultView", () => {
@@ -120,10 +116,6 @@ describe("getDefaultView", () => {
 
   it("returns visual for image", () => {
     expect(getDefaultView("image")).toBe("visual");
-  });
-
-  it("returns visual for audio (#65 F1)", () => {
-    expect(getDefaultView("audio")).toBe("visual");
   });
 });
 
@@ -253,10 +245,10 @@ describe("Shiki language map runtime guard (#94)", () => {
 });
 
 describe("getFiletypeKey (#65 F1/F2)", () => {
-  it("returns .audio for audio files regardless of view mode", () => {
-    expect(getFiletypeKey("song.mp3")).toBe(".audio");
-    expect(getFiletypeKey("song.wav", "visual")).toBe(".audio");
-    expect(getFiletypeKey("song.ogg", "source")).toBe(".audio");
+  it("returns .source for former audio files (now text category)", () => {
+    expect(getFiletypeKey("song.mp3")).toBe(".source");
+    expect(getFiletypeKey("song.wav", "visual")).toBe(".source");
+    expect(getFiletypeKey("song.ogg", "source")).toBe(".source");
   });
 
   it("returns .source for former video files (now text category)", () => {
