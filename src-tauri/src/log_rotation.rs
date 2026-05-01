@@ -273,6 +273,56 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use tempfile::TempDir;
 
+    /// Single source of truth for `tauri-plugin-log` filename shapes used in test
+    /// fixtures. See rule 26 in docs/test-strategy.md (Test data fidelity —
+    /// forward-ref, defined by in-flight PR #312) and the canonical example at
+    /// `src-tauri/src/core/sidecar/tests.rs::regression_serde_saphyr_emit_round_trips_through_load_sidecar`.
+    ///
+    /// Why a helper instead of invoking `tauri-plugin-log`'s rotator directly:
+    /// the rotator (`tauri_plugin_log::RotatingFile`) is private to the crate and
+    /// requires a live Tauri runtime plus ~5 MB of writes to actually rotate. At
+    /// the unit layer (`docs/test-strategy.md` rule 1 — lowest layer that proves
+    /// the claim) we instead derive the shape by source review of the registered
+    /// library version and pin that version via `tauri_plugin_log_version_pin_rule_26`
+    /// below.
+    ///
+    /// Shape sources (verified by source review at the pinned version):
+    /// - **Active file**: `<file_name>.log` — built by
+    ///   `RotatingFile::new` via `dir.join(&file_name).with_extension("log")`
+    ///   (`tauri-plugin-log-2.8.0/src/lib.rs:171`). Equals our `ACTIVE_FILE`.
+    /// - **Intra-session rotated**: `<file_name>_<stamp>.log` — built by
+    ///   `RotatingFile::rename_file_to_dated` via
+    ///   `format!("{}_{}.log", self.file_name, stamp)`
+    ///   (`tauri-plugin-log-2.8.0/src/lib.rs:264-272`).
+    /// - **Our startup archive** (NOT third-party — emitted by
+    ///   `archive_active_log` above, separate concern): `<file_name>.<stamp>.log`
+    ///   plus collision suffix `<file_name>.<stamp>.<n>.log`.
+    ///
+    /// Doc-comment style note: the placeholder `<stamp>` is intentional —
+    /// substituting an actual date here would self-match the
+    /// `rule_26_guard_against_hand_built_fixture_literals` test below.
+    mod fixture_names {
+        use super::{FILE_PREFIX, FILE_SUFFIX};
+
+        /// Our startup-archive shape: `<FILE_PREFIX>.<stamp><FILE_SUFFIX>`.
+        pub(super) fn startup_archive_name(stamp: &str) -> String {
+            format!("{FILE_PREFIX}.{stamp}{FILE_SUFFIX}")
+        }
+
+        /// Our startup-archive collision shape with `.<n>` suffix.
+        pub(super) fn startup_archive_collision_name(stamp: &str, suffix: u32) -> String {
+            format!("{FILE_PREFIX}.{stamp}.{suffix}{FILE_SUFFIX}")
+        }
+
+        /// `tauri-plugin-log`'s intra-session rotation shape:
+        /// `<FILE_PREFIX>_<stamp><FILE_SUFFIX>`. Mirrors
+        /// `RotatingFile::rename_file_to_dated` at the version pinned by
+        /// `tauri_plugin_log_version_pin_rule_26`.
+        pub(super) fn plugin_intra_session_name(stamp: &str) -> String {
+            format!("{FILE_PREFIX}_{stamp}{FILE_SUFFIX}")
+        }
+    }
+
     /// Helper: write `content` to `path` and force its modified-time to
     /// `mtime` via `File::set_modified`. Stable since Rust 1.75; used in
     /// place of `thread::sleep` to keep the prune-ordering tests
@@ -346,7 +396,7 @@ mod tests {
 
         let archived = archive_active_log(dir.path(), now).unwrap().unwrap();
         let name = archived.file_name().unwrap().to_str().unwrap();
-        assert_eq!(name, "mdownreview.2026-04-30T15-30-45Z.log");
+        assert_eq!(name, fixture_names::startup_archive_name("2026-04-30T15-30-45Z"));
 
         // Round-trip the stamp back through chrono and confirm equality
         // with the `now` we injected.
@@ -370,7 +420,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let now = fake_now();
         std::fs::write(
-            dir.path().join("mdownreview.2026-04-30T15-30-45Z.log"),
+            dir.path()
+                .join(fixture_names::startup_archive_name("2026-04-30T15-30-45Z")),
             b"prev",
         )
         .unwrap();
@@ -379,7 +430,7 @@ mod tests {
         let archived = archive_active_log(dir.path(), now).unwrap().unwrap();
         assert_eq!(
             archived.file_name().unwrap().to_str().unwrap(),
-            "mdownreview.2026-04-30T15-30-45Z.1.log",
+            fixture_names::startup_archive_collision_name("2026-04-30T15-30-45Z", 1).as_str(),
             "first collision must use suffix .1"
         );
     }
@@ -394,12 +445,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let now = fake_now();
         std::fs::write(
-            dir.path().join("mdownreview.2026-04-30T15-30-45Z.log"),
+            dir.path()
+                .join(fixture_names::startup_archive_name("2026-04-30T15-30-45Z")),
             b"first",
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("mdownreview.2026-04-30T15-30-45Z.1.log"),
+            dir.path()
+                .join(fixture_names::startup_archive_collision_name("2026-04-30T15-30-45Z", 1)),
             b"second",
         )
         .unwrap();
@@ -408,7 +461,7 @@ mod tests {
         let archived = archive_active_log(dir.path(), now).unwrap().unwrap();
         assert_eq!(
             archived.file_name().unwrap().to_str().unwrap(),
-            "mdownreview.2026-04-30T15-30-45Z.2.log"
+            fixture_names::startup_archive_collision_name("2026-04-30T15-30-45Z", 2).as_str()
         );
         // Confirm the third launch's content went into the new archive.
         assert_eq!(std::fs::read(&archived).unwrap(), b"third");
@@ -416,14 +469,15 @@ mod tests {
 
     // ---- prune_logs ---------------------------------------------------------
 
+    /// Canonical regression for **rule 26 in docs/test-strategy.md** (Test data
+    /// fidelity — forward-ref, defined by in-flight PR #312): `prune_logs` must
+    /// recognize both filename shapes produced by `tauri-plugin-log` AND our
+    /// startup archiver. Fixtures here
+    /// are constructed exclusively through `fixture_names::*` so the source
+    /// stays coupled to the registered library version (pinned by
+    /// `tauri_plugin_log_version_pin_rule_26`).
     #[test]
-    fn prune_includes_plugin_intra_session_archives() {
-        // Regression: tauri-plugin-log's intra-session size rotation
-        // produces files like `mdownreview_<timestamp>.log` (note the
-        // UNDERSCORE separator, not a dot). With `RotationStrategy::
-        // KeepAll` they accumulate forever unless prune covers them.
-        // See `tauri-plugin-log` 2.x source — the parser strips
-        // `"mdownreview"` then `"_"` to extract its rotation timestamp.
+    fn prune_includes_plugin_intra_session_archives_rule_26() {
         let dir = TempDir::new().unwrap();
         let base = SystemTime::now() - Duration::from_secs(3600);
         // 6 of our startup archives (dot-separator)
@@ -437,8 +491,9 @@ mod tests {
         // 5 plugin intra-session archives (underscore-separator)
         for i in 0..5u64 {
             write_with_mtime(
-                &dir.path()
-                    .join(format!("mdownreview_2026-01-{:02}_00-00-00.log", i + 1)),
+                &dir.path().join(fixture_names::plugin_intra_session_name(
+                    &format!("2026-01-{:02}_00-00-00", i + 1),
+                )),
                 b"x",
                 base + Duration::from_secs((i + 6) * 60),
             );
@@ -471,10 +526,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         for i in 0..5 {
             std::fs::write(
-                dir.path().join(format!(
-                    "mdownreview.2026-01-{:02}T00-00-00Z.log",
-                    i + 1
-                )),
+                dir.path()
+                    .join(fixture_names::startup_archive_name(&format!(
+                        "2026-01-{:02}T00-00-00Z",
+                        i + 1
+                    ))),
                 b"x",
             )
             .unwrap();
@@ -525,26 +581,24 @@ mod tests {
         let base = SystemTime::now() - Duration::from_secs(3600);
         // Newer mtime but lexically EARLIER filename.
         write_with_mtime(
-            &dir.path().join("mdownreview.2020-01-01T00-00-00Z.log"),
+            &dir.path()
+                .join(fixture_names::startup_archive_name("2020-01-01T00-00-00Z")),
             b"new",
             base + Duration::from_secs(600),
         );
         // Older mtime but lexically LATER filename.
         write_with_mtime(
-            &dir.path().join("mdownreview.2099-01-01T00-00-00Z.log"),
+            &dir.path()
+                .join(fixture_names::startup_archive_name("2099-01-01T00-00-00Z")),
             b"old",
             base,
         );
 
         let deleted = prune_logs(dir.path(), 1).unwrap();
         assert_eq!(deleted.len(), 1);
-        assert!(
-            deleted[0]
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .starts_with("mdownreview.2099"),
+        assert_eq!(
+            deleted[0].file_name().unwrap().to_str().unwrap(),
+            fixture_names::startup_archive_name("2099-01-01T00-00-00Z").as_str(),
             "should delete file with OLDER mtime regardless of lex order"
         );
     }
@@ -652,7 +706,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("mdownreview.log"), b"active").unwrap();
         std::fs::write(
-            dir.path().join("mdownreview.2020-01-01T00-00-00Z.log"),
+            dir.path()
+                .join(fixture_names::startup_archive_name("2020-01-01T00-00-00Z")),
             b"x",
         )
         .unwrap();
@@ -662,8 +717,118 @@ mod tests {
         assert!(dir.path().join("mdownreview.log").exists());
         assert!(
             !dir.path()
-                .join("mdownreview.2020-01-01T00-00-00Z.log")
+                .join(fixture_names::startup_archive_name("2020-01-01T00-00-00Z"))
                 .exists()
         );
+    }
+
+    // ---- rule 26 (Test data fidelity) ----------------------------------------
+
+    #[test]
+    fn fixture_names_match_documented_shapes_rule_26() {
+        // Locks in the registered-version-derived shapes from rule 26 in
+        // docs/test-strategy.md (Test data fidelity — forward-ref, defined by
+        // in-flight PR #312). If these literals change, the helper has drifted
+        // from `tauri-plugin-log`'s actual emitter — re-verify against
+        // tauri-plugin-log/src/lib.rs at the pinned version.
+        use fixture_names::{
+            plugin_intra_session_name, startup_archive_collision_name, startup_archive_name,
+        };
+        assert_eq!(
+            startup_archive_name("the-stamp"),
+            "mdownreview.the-stamp.log"
+        );
+        assert_eq!(
+            startup_archive_collision_name("the-stamp", 1),
+            "mdownreview.the-stamp.1.log"
+        );
+        assert_eq!(
+            plugin_intra_session_name("the-stamp"),
+            "mdownreview_the-stamp.log"
+        );
+    }
+
+    #[test]
+    fn tauri_plugin_log_version_pin_rule_26() {
+        // Pin assertion (rule 26 in docs/test-strategy.md — forward-ref, defined
+        // by in-flight PR #312, canonical pattern from
+        // `src-tauri/src/core/sidecar/tests.rs::regression_serde_saphyr_emit_round_trips_through_load_sidecar`).
+        // Cargo.lock is the resolver's record of the registered
+        // version. If the pin moves, RE-VALIDATE `fixture_names::*` against the
+        // new emitter's filename shape BEFORE bumping the dep. CWD is `src-tauri/`
+        // under `cargo test`; Cargo.lock is CRLF on Windows, LF on Unix.
+        let lock = std::fs::read_to_string("Cargo.lock")
+            .expect("Cargo.lock missing — `cargo test` must run from src-tauri/")
+            .replace("\r\n", "\n");
+        assert!(
+            lock.contains("name = \"tauri-plugin-log\"\nversion = \"2.8.0\""),
+            "Cargo.lock no longer pins tauri-plugin-log=2.8.0 — re-validate \
+             fixture_names::plugin_intra_session_name (and the active-file \
+             derivation in fixture_names::startup_archive_name's docstring) \
+             against the new emitter shape in tauri-plugin-log/src/lib.rs \
+             (RotatingFile::new line ~171, RotatingFile::rename_file_to_dated \
+             lines ~264-272) BEFORE bumping the dep \
+             (rule 26, PR #312)."
+        );
+    }
+
+    #[test]
+    fn rule_26_guard_against_hand_built_fixture_literals() {
+        // Reads its own source file at compile time and rejects any reintroduction
+        // of hand-built `tauri-plugin-log`-shape filename literals in fixture
+        // construction. If a future test inlines `format!("<prefix>.<year>...` or
+        // `"<prefix>_<year>...` — or sneaks the date in via a `{stamp}` placeholder
+        // like `format!("<prefix>.{...` — instead of using `fixture_names::*`,
+        // this test fails with a pointer to the canonical helper. See rule 26 in
+        // docs/test-strategy.md (Test data fidelity — forward-ref, defined by
+        // in-flight PR #312).
+        //
+        // Needles cover both year-prefixed AND `format!`-with-placeholder
+        // bypasses:
+        //   - `<prefix>.<year-prefix>` / `<prefix>_<year-prefix>` (literal date
+        //     in code, e.g. `"<prefix>.2026-...`).
+        //   - `format!("<prefix>.{` / `format!("<prefix>_{` (date interpolated
+        //     via `{stamp}`/positional `{}`, which would dodge the year check).
+        // Synthetic labels like `<prefix>.archive-NN.log` and
+        // `<prefix>.startup-NN.log` are internal test fixtures, NOT third-party
+        // on-disk shapes, and remain exempt — the byte after `<prefix>.` in
+        // those is `s`/`a`, never `{`, so the placeholder needles don't catch
+        // them. (Doc comments here use the placeholders `<prefix>`, `<year>`,
+        // and `{...` to avoid self-matching the needles.)
+        //
+        // Needles are BUILT AT RUNTIME from `FILE_PREFIX` so the literal
+        // forbidden bytes (`"<prefix>.<year>`, `format!("<prefix>.{`, etc.)
+        // never appear contiguously in this file's source — otherwise the
+        // guard would self-match. Both `\"` escapes and raw strings encode `"`
+        // as a single source byte, so either form would self-match if the
+        // bytes appeared inline.
+        let src = include_str!("log_rotation.rs");
+        let q = '"';
+        let p = FILE_PREFIX;
+        let year2 = "20";
+        let dot_year = format!("{q}{p}.{year2}");
+        let underscore_year = format!("{q}{p}_{year2}");
+        let dot_year_fmt = format!("format!({q}{p}.{year2}");
+        let underscore_year_fmt = format!("format!({q}{p}_{year2}");
+        let dot_brace_fmt = format!("format!({q}{p}.{{");
+        let underscore_brace_fmt = format!("format!({q}{p}_{{");
+        let forbidden = [
+            dot_year.as_str(),
+            underscore_year.as_str(),
+            dot_year_fmt.as_str(),
+            underscore_year_fmt.as_str(),
+            dot_brace_fmt.as_str(),
+            underscore_brace_fmt.as_str(),
+        ];
+        for needle in forbidden {
+            assert!(
+                !src.contains(needle),
+                "rule 26 (PR #312) violation: hand-built tauri-plugin-log \
+                 fixture literal containing `{needle}` found in \
+                 log_rotation.rs. Use `fixture_names::startup_archive_name`, \
+                 `fixture_names::startup_archive_collision_name`, or \
+                 `fixture_names::plugin_intra_session_name` instead.",
+            );
+        }
     }
 }
