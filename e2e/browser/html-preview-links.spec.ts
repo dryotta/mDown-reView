@@ -51,8 +51,7 @@ async function getOpenUrlCalls(page: Page): Promise<string[]> {
 async function openPreview(page: Page): Promise<void> {
   await page.goto("/");
   await page.locator(".folder-tree").getByText("page.html").click();
-  // HTML defaults to source mode; switch to visual.
-  await page.getByRole("button", { name: /visual/i }).click();
+  // HTML defaults to visual (preview) mode — iframe is already mounted.
   await expect(page.locator("iframe[title='HTML preview']")).toBeVisible();
 }
 

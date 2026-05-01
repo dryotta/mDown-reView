@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import { useZoom } from "@/hooks/useZoom";
+import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
 import { ViewerToolbar } from "./ViewerToolbar";
 import { FileActionsBar } from "./FileActionsBar";
 import { ImageViewer } from "./ImageViewer";
@@ -19,9 +21,11 @@ interface Props {
  */
 export function ImageViewerShell({ path, onCommentOnFile, fileCommentCount, fileCommentSeverity }: Props) {
   const { zoom, zoomIn, zoomOut, reset } = useZoom(".image");
+  const containerRef = useRef<HTMLDivElement>(null);
+  useCtrlWheelZoom(containerRef, zoomIn, zoomOut);
 
   return (
-    <div className="viewer-media-container">
+    <div ref={containerRef} className="viewer-media-container">
       <ViewerToolbar
         activeView="visual"
         onViewChange={() => {}}
