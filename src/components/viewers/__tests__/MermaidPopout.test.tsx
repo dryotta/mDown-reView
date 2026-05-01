@@ -16,7 +16,6 @@ type CanvasProps = {
   zoom: number;
   setZoom: (v: number) => void;
   readOnly?: boolean;
-  onFitMeasured?: (v: number) => void;
 };
 type ControlsProps = {
   mode: "inline" | "popout";
@@ -116,7 +115,7 @@ describe("MermaidPopout — visibility gating", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders the dialog overlay when open", () => {
+  it("renders the dialog overlay + inner card when open", () => {
     state.mermaidPopoutOpenFor = { content: "graph TD; A-->B", path: "/x.mmd" };
     const { container } = render(<MermaidPopout />);
     const overlay = container.querySelector(
@@ -124,6 +123,13 @@ describe("MermaidPopout — visibility gating", () => {
     );
     expect(overlay).not.toBeNull();
     expect(overlay?.classList.contains("mermaid-popout-overlay")).toBe(true);
+    // aria-modal=false reflects reality: no focus trap, no backdrop dim.
+    expect(overlay?.getAttribute("aria-modal")).toBe("false");
+    // Inner card is the visible chrome (theme background, border, shadow);
+    // overlay is just a transparent click interceptor.
+    const card = container.querySelector(".mermaid-popout-card");
+    expect(card).not.toBeNull();
+    expect(overlay?.contains(card)).toBe(true);
   });
 });
 
@@ -143,6 +149,17 @@ describe("MermaidPopout — child wiring", () => {
     expect(captured.controls).not.toBeNull();
     expect(captured.controls?.mode).toBe("popout");
     expect(typeof captured.controls?.onClose).toBe("function");
+  });
+
+  it("Fit handler calls bumpZoom('.mmd', 'reset') — 1.0 ≡ fit-to-window", () => {
+    state.mermaidPopoutOpenFor = { content: "x", path: null };
+    render(<MermaidPopout />);
+    expect(captured.controls?.onFit).toBeDefined();
+    act(() => {
+      captured.controls?.onFit();
+    });
+    // useZoom('.mmd').reset() routes through bumpZoom('reset') → ZOOM_DEFAULT (1.0).
+    expect(state.bumpZoom).toHaveBeenCalledWith(".mmd", "reset");
   });
 });
 
@@ -171,28 +188,5 @@ describe("MermaidPopout — Esc keydown", () => {
     });
     fireEvent.keyDown(document, { key: "Escape" });
     expect(state.closeMermaidPopout).not.toHaveBeenCalled();
-  });
-});
-
-describe("MermaidPopout — fit-to-window seeding", () => {
-  it("seeds setZoom on first measurement when zoomByFiletype['.mmd'] is undefined", () => {
-    state = freshState({ zoomByFiletype: {} });
-    state.mermaidPopoutOpenFor = { content: "x", path: null };
-    render(<MermaidPopout />);
-    expect(captured.canvas?.onFitMeasured).toBeDefined();
-    act(() => {
-      captured.canvas?.onFitMeasured?.(0.7);
-    });
-    expect(state.setZoom).toHaveBeenCalledWith(".mmd", 0.7);
-  });
-
-  it("does NOT seed setZoom when zoomByFiletype['.mmd'] already exists", () => {
-    state = freshState({ zoomByFiletype: { ".mmd": 2 } });
-    state.mermaidPopoutOpenFor = { content: "x", path: null };
-    render(<MermaidPopout />);
-    act(() => {
-      captured.canvas?.onFitMeasured?.(0.7);
-    });
-    expect(state.setZoom).not.toHaveBeenCalled();
   });
 });
