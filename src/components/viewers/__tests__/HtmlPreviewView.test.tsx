@@ -300,6 +300,61 @@ describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
     expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
     cleanup();
   });
+  // Issue #338 / iter-1 forward-fix coverage: every blocked LinkRoute kind
+  // inside the sandboxed HTML iframe MUST call `event.preventDefault()`
+  // (so WebView2 cannot navigate) and emit a `warn()` for triage. The
+  // iframe path operates on raw HTML in `srcdoc` — there is no
+  // react-markdown sanitizer in the path, so `javascript:` actually
+  // reaches the click handler here (unlike MarkdownComponentsMap).
+  it("absolute-blocked iframe anchor click is prevented and warns", () => {
+    vi.mocked(openExternalUrl).mockClear();
+    vi.mocked(warn).mockClear();
+    const { container } = render(
+      <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const doc = iframe.contentDocument!;
+    fireEvent.load(iframe);
+
+    const anchor = doc.createElement("a");
+    anchor.setAttribute("href", "/etc/passwd");
+    anchor.textContent = "abs";
+    doc.body.appendChild(anchor);
+    const event = new doc.defaultView!.MouseEvent("click", { bubbles: true, cancelable: true });
+    anchor.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(openExternalUrl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("blocked iframe link (absolute-blocked/"),
+    );
+    cleanup();
+  });
+
+  it("scheme-blocked iframe anchor click is prevented and warns", () => {
+    vi.mocked(openExternalUrl).mockClear();
+    vi.mocked(warn).mockClear();
+    const { container } = render(
+      <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const doc = iframe.contentDocument!;
+    fireEvent.load(iframe);
+
+    const anchor = doc.createElement("a");
+    anchor.setAttribute("href", "javascript:alert(1)");
+    anchor.textContent = "js";
+    doc.body.appendChild(anchor);
+    const event = new doc.defaultView!.MouseEvent("click", { bubbles: true, cancelable: true });
+    anchor.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(openExternalUrl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("blocked iframe link (scheme-blocked/javascript)"),
+    );
+    cleanup();
+  });
 });
 
 describe("HtmlPreviewView — zoom application", () => {

@@ -208,6 +208,24 @@ describe("buildMarkdownComponents — anchor link handling", () => {
       expect(a!.getAttribute("title")).toBeNull();
     });
   });
+
+  // Issue #338 / iter-1 forward-fix coverage: each blocked LinkRoute kind
+  // (absolute-blocked / scheme-blocked / other-blocked) must NOT trigger
+  // navigation (openExternalUrl) and must record a `warn()` for triage.
+  // NB: react-markdown's default urlTransform sanitizes hostile schemes
+  // (javascript: / data: / vbscript:) to an empty href before they reach
+  // our onClick handler — so scheme-blocked is exercised in the
+  // HtmlPreviewView counterpart (raw HTML, no sanitizer in the path)
+  // not here.
+  it("absolute-blocked link click warns and does not navigate", async () => {
+    const { container } = renderMd("[link](/etc/passwd)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+    expect(openExternalUrl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("blocked link (absolute-blocked/"),
+    );
+  });
 });
 
 describe("buildMarkdownComponents — workspace fragment routing", () => {

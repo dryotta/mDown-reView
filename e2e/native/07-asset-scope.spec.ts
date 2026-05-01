@@ -13,7 +13,7 @@
 // runtime narrowing path keeps real workspaces functional.
 
 import { test, expect, setRootViaTest } from "./fixtures";
-import * as os from "os";
+import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -23,8 +23,7 @@ const TINY_PNG_BASE64 =
 
 test.describe("Asset protocol scope (issue #338 Group A3)", () => {
   test("loads workspace-local image via asset protocol", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-asset-scope-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-asset-scope");
     const mdFile = path.join(tmpDir, "doc.md");
     const pngFile = path.join(tmpDir, "logo.png");
     fs.writeFileSync(pngFile, Buffer.from(TINY_PNG_BASE64, "base64"));
@@ -55,8 +54,7 @@ test.describe("Asset protocol scope (issue #338 Group A3)", () => {
   });
 
   test("blocks file:// URL pointing outside the seeded scope", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-asset-deny-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-asset-deny");
     const mdFile = path.join(tmpDir, "doc.md");
     fs.writeFileSync(mdFile, "# Doc\n\nplaceholder\n");
 

@@ -37,6 +37,10 @@ async readDir(path: string, limit: number | null, showSidecars: boolean | null) 
  * platform/FS does not expose it). The file handle's metadata is read
  * before the body so content + mtime come from the same `open()` and the
  * caller cannot observe a torn (content_v1, mtime_v2) pair.
+ * 
+ * Workspace-allowlisted: the path is run through [`ensure_readable`] before
+ * any I/O. Mirrors `stat_file` so a malicious renderer cannot read arbitrary
+ * disk paths via the IPC.
  */
 async readTextFile(path: string) : Promise<Result<TextFileResult, string>> {
     try {
@@ -48,6 +52,8 @@ async readTextFile(path: string) : Promise<Result<TextFileResult, string>> {
 },
 /**
  * Read a binary file, returning base64-encoded content. Rejects files >10 MB.
+ * 
+ * Workspace-allowlisted via [`ensure_readable`].
  */
 async readBinaryFile(path: string) : Promise<Result<string, string>> {
     try {

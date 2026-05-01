@@ -299,6 +299,20 @@ pub fn read_binary_file_inner(path: String) -> Result<String, String> {
 /// matching the existing [`stat_file_inner`] error so the renderer can
 /// uniformly surface workspace-guard rejections.
 ///
+/// Workspace-root semantics (issue #338 / iter-1 forward-fix):
+/// `is_path_allowed` is the source of truth for containment — it scans every
+/// window's tree-watched-dirs and watched-paths. Once that has accepted the
+/// path, `classify` is invoked **only** to enforce the system-locations
+/// DENY list (Tier::System). The `workspace_root` argument to `classify`
+/// therefore becomes irrelevant for the Inside/Outside discriminator; we
+/// pass the canonical path itself so the discriminator collapses to
+/// Inside (`canonical.starts_with(canonical)` is always true) and only the
+/// Tier::System branch can reject. Passing a global "first watched dir"
+/// here would be a state-stratification leak: in multi-window setups it
+/// could classify a window-B file as Outside against window-A's root and
+/// reject a perfectly valid read. Group B's per-window state lands a
+/// proper per-window workspace_root and removes this comment.
+///
 /// TODO(#338-group-b): when group B lands the full canonicalize-then-allowlist
 /// semantics with split read/write allowlists this helper folds into the new
 /// chokepoint. Logged via `tracing::warn!` under target `fs-guard` so the
@@ -323,22 +337,16 @@ pub fn ensure_readable(
         tracing::warn!(target: "fs-guard", "[fs-guard] canonical path outside workspace: {}", canonical.display());
         return Err("path not in workspace".into());
     }
-    // Workspace root for `classify()`: use the FIRST (sorted) watched dir for
-    // a deterministic canonical-prefix check. Group B will replace this with
-    // the explicit workspace-root state owned by the new chokepoint.
-    let workspace_root = state
-        .first_watched_dir()
-        .ok_or_else(|| "no workspace registered".to_string())?;
-    match classify(&canonical, &workspace_root) {
-        Ok(Tier::Inside) => Ok(canonical),
-        Ok(Tier::Outside) => {
-            tracing::warn!(target: "fs-guard", "[fs-guard] outside workspace (tier 2): {}", canonical.display());
-            Err("path not in workspace".into())
-        }
+    // `is_path_allowed` has already vetted containment in some window's
+    // tree. We pass `&canonical` as the workspace_root placeholder so the
+    // Inside/Outside discriminator collapses to Inside; only the
+    // Tier::System branch can reject from here. See the doc comment above.
+    match classify(&canonical, &canonical) {
         Ok(Tier::System { flavor }) => {
             tracing::warn!(target: "fs-guard", "[fs-guard] system path blocked ({:?}): {}", flavor, canonical.display());
             Err("path not in workspace".into())
         }
+        Ok(Tier::Inside) | Ok(Tier::Outside) => Ok(canonical),
         Err(e) => {
             tracing::warn!(target: "fs-guard", "[fs-guard] non-canonical: {} reason={:?}", canonical.display(), e);
             Err("path not in workspace".into())

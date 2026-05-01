@@ -1,12 +1,11 @@
 import { test, expect, setRootViaTest } from "./fixtures";
-import * as os from "os";
+import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
 
 test.describe("Native File Reload (full-stack watcher)", () => {
   test("27.1 - external file modification triggers content reload", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-native-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-native");
     const tmpFile = path.join(tmpDir, "watched.md");
     fs.writeFileSync(tmpFile, "# Version 1\n\nOriginal content.");
 
@@ -29,8 +28,7 @@ test.describe("Native File Reload (full-stack watcher)", () => {
   });
 
   test("27.2 - .review.yaml sidecar modification triggers review reload", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-native-sidecar-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-native-sidecar");
     const tmpFile = path.join(tmpDir, "doc.md");
     const sidecarFile = tmpFile + ".review.yaml";
 
@@ -62,8 +60,7 @@ test.describe("Native File Reload (full-stack watcher)", () => {
   });
 
   test("27.3 - file deletion while open shows DeletedFileViewer", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-native-delete-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-native-delete");
     const tmpFile = path.join(tmpDir, "todelete.md");
     const sidecarFile = tmpFile + ".review.yaml";
     fs.writeFileSync(tmpFile, "# To Be Deleted\n\nThis file will be deleted.");

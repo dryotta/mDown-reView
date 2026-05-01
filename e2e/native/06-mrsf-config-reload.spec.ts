@@ -1,5 +1,5 @@
 import { test, expect, setRootViaTest } from "./fixtures";
-import * as os from "os";
+import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -16,8 +16,7 @@ test.describe("Native .mrsf.yaml config reload (full-stack watcher)", () => {
   test("29.1 - dropping .mrsf.yaml triggers config reload and redirects sidecar writes", async ({
     nativePage,
   }) => {
-    const rawTmpDir = path.join(os.tmpdir(), `mdownreview-mrsf-${Date.now()}`);
-    fs.mkdirSync(rawTmpDir, { recursive: true });
+    const rawTmpDir = nativeTempDir("mdownreview-mrsf");
     // Canonicalize to resolve 8.3 short names on Windows CI (RUNNER~1 vs runneradmin)
     const tmpDir = fs.realpathSync(rawTmpDir);
     const docFile = path.join(tmpDir, "readme.md");

@@ -18,6 +18,7 @@ pub mod startup_recorder;
 pub mod tracing_log_bridge;
 pub mod update;
 pub mod watcher;
+pub mod window_scope;
 
 // Re-export `#[mdr_command]` at the crate root so call sites read
 // `use crate::mdr_command;` (or `use mdown_review_lib::mdr_command;`
@@ -352,6 +353,15 @@ fn register_window_folder(
     match registry.try_claim_folder(window.label(), canonical.clone()) {
         Ok(()) => {
             let _ = window.set_title(&format!("mdownreview — {display}"));
+            // Issue #338 / iter-1 forward-fix: chokepoint asset-scope +
+            // watcher seed for late-bound folder claims (the renderer's
+            // explicit `register_window_folder` IPC).
+            window_scope::extend_window_scope(
+                window.app_handle(),
+                window.label(),
+                &registry::WindowKind::Folder(canonical.clone()),
+                &[],
+            );
             log::info!("[window] {} registered folder: {display}", window.label());
             Ok(())
         }
@@ -414,6 +424,16 @@ fn route_args_through_registry(
                         let display = folder_display_name(&path);
                         match create_app_window(handle, &label, &format!("mdownreview — {display}")) {
                             Ok(_new_win) => {
+                                // Issue #338 / iter-1 forward-fix: chokepoint
+                                // asset-scope + watcher seed for windows
+                                // created via single-instance forwarding /
+                                // OS file-open / second-instance launch.
+                                window_scope::extend_window_scope(
+                                    handle,
+                                    &label,
+                                    &registry::WindowKind::Folder(path.clone()),
+                                    &[],
+                                );
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],
@@ -466,6 +486,15 @@ fn route_args_through_registry(
                 match create_app_window(handle, &label, "mdownreview — Files") {
                     Ok(_new_win) => {
                         reg.register(label.clone(), registry::WindowKind::FileOnly);
+                        // Issue #338 / iter-1 forward-fix: chokepoint
+                        // asset-scope + watcher seed for file-only windows
+                        // created via single-instance / OS file-open.
+                        window_scope::extend_window_scope(
+                            handle,
+                            &label,
+                            &registry::WindowKind::FileOnly,
+                            &files,
+                        );
                         let file_strs: Vec<String> = files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
                         reg.push_args(&label, LaunchArgs { files: file_strs, folders: vec![] });
                         // Rule multiwin-args-delivery + multiwin-window-scoped-events.
@@ -710,32 +739,20 @@ pub fn run() {
             });
             if let Some(ref canonical) = first_canonical {
                 reg.register("main".to_string(), registry::WindowKind::Folder(canonical.clone()));
-                // Issue #338 / Group A3: narrow asset-protocol scope at runtime.
-                // The seed in tauri.conf.json (`/__mdownreview_seed__/__never__`)
-                // matches no real file; we extend at registration time so the
-                // protocol can serve assets only from windows we actually opened.
-                // Failure must NOT abort window registration (Reliable pillar) —
-                // log via tracing per docs/observability.md.
-                if let Err(e) = app.asset_protocol_scope().allow_directory(canonical, true) {
-                    tracing::warn!(target: "asset-scope", "[asset-scope] register folder {} failed: {e}", canonical.display());
-                } else {
-                    tracing::debug!(target: "asset-scope", "[asset-scope] folder allowed: {}", canonical.display());
-                }
+                // Issue #338 / iter-1 forward-fix: extend asset-scope AND
+                // seed the watcher tree-watched-dirs synchronously so the
+                // very first `read_text_file` / `read_binary_file` IPC drained
+                // by the renderer on `args-received` passes the workspace
+                // guard without waiting for `useTreeWatcher` to round-trip.
+                window_scope::extend_window_scope(app.handle(), "main", &registry::WindowKind::Folder(canonical.clone()), &[]);
             } else {
                 reg.register("main".to_string(), registry::WindowKind::FileOnly);
-                // FileOnly main window: allow each orphan file's parent
-                // directory non-recursively so siblings in those dirs do
-                // not become silently readable.
-                for file_str in &launch_args.files {
-                    let file = std::path::Path::new(file_str);
-                    if let Some(parent) = file.parent() {
-                        if let Err(e) = app.asset_protocol_scope().allow_directory(parent, false) {
-                            tracing::warn!(target: "asset-scope", "[asset-scope] register file-parent {} failed: {e}", parent.display());
-                        } else {
-                            tracing::debug!(target: "asset-scope", "[asset-scope] file-parent allowed: {}", parent.display());
-                        }
-                    }
-                }
+                let file_paths: Vec<std::path::PathBuf> = launch_args
+                    .files
+                    .iter()
+                    .map(std::path::PathBuf::from)
+                    .collect();
+                window_scope::extend_window_scope(app.handle(), "main", &registry::WindowKind::FileOnly, &file_paths);
             }
 
             // Create additional windows for extra folders (beyond the first),
@@ -755,14 +772,11 @@ pub fn run() {
                         let display = folder_display_name(&path);
                         match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
                             Ok(_new_win) => {
-                                reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
-                                // Issue #338 / Group A3: narrow asset-protocol
-                                // scope. See main-window branch above for rationale.
-                                if let Err(e) = app_handle.asset_protocol_scope().allow_directory(&path, true) {
-                                    tracing::warn!(target: "asset-scope", "[asset-scope] register folder {} failed: {e}", path.display());
-                                } else {
-                                    tracing::debug!(target: "asset-scope", "[asset-scope] folder allowed: {}", path.display());
-                                }
+                                let kind = registry::WindowKind::Folder(path.clone());
+                                reg.register(label.clone(), kind.clone());
+                                // Issue #338 / iter-1 forward-fix: chokepoint
+                                // the asset-scope + watcher seed.
+                                window_scope::extend_window_scope(&app_handle, &label, &kind, &[]);
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],

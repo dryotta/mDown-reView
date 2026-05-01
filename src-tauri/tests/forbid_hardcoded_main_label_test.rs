@@ -38,6 +38,15 @@ const ALLOW: &[(&str, &str)] = &[
     // commands/launch.rs::set_root_via_test (debug-only e2e helper).
     ("src/commands/launch.rs", "reg.push_args(\"main\", launch_args)"),
     ("src/commands/launch.rs", "app.emit_to(\"main\", \"args-received\", ())"),
+    ("src/commands/launch.rs", "app.get_webview_window(\"main\")"),
+    // commands/launch.rs::set_root_via_test — bootstrap asset-scope + watcher
+    // seed for the e2e helper window. Issue #338 / iter-1 forward-fix.
+    ("src/commands/launch.rs", "crate::window_scope::extend_window_scope(&app, \"main\","),
+    // lib.rs::setup — bootstrap window_scope chokepoint extension. Issue
+    // #338 / iter-1 forward-fix: every WindowRegistry::register site routes
+    // through window_scope::extend_window_scope so the asset-protocol scope
+    // and tree_watched_dirs are seeded synchronously.
+    ("src/lib.rs", "window_scope::extend_window_scope(app.handle(), \"main\","),
     // menu.rs::menu_event_delivery — `menu-check-updates` always targets
     // the main window because the updater backend is process-global and
     // the UpdateBanner only mounts in main. See rule

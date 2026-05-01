@@ -43,6 +43,35 @@ impl WatcherState {
         let _ = self.sync_tx.try_send(());
     }
 
+    /// Seed `tree_watched_dirs` for a window with a list of canonical dirs.
+    /// Internal API — bypasses the public `set_tree_watched_dirs` validation
+    /// (which checks for ≥1 root + dirs starts_with(root)). Use this from
+    /// `window_scope::extend_window_scope` so registration is synchronous and
+    /// `is_path_allowed` accepts paths under those dirs without waiting for
+    /// the frontend's `useTreeWatcher` to round-trip.
+    ///
+    /// Idempotent: re-calling for the same label appends (HashSet `insert`).
+    /// Lock poisoning is logged and treated as a no-op — Reliable pillar:
+    /// the registration itself must not abort.
+    pub fn seed_window_workspace(&self, window_label: &str, dirs: Vec<PathBuf>) {
+        match self.tree_watched_dirs.lock() {
+            Ok(mut guard) => {
+                let entry = guard.entry(window_label.to_string()).or_default();
+                for dir in dirs {
+                    entry.insert(dir);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "window-scope",
+                    "[window-scope] seed_window_workspace lock poisoned: {e}"
+                );
+                return;
+            }
+        }
+        let _ = self.sync_tx.try_send(());
+    }
+
     /// Defense-in-depth allowlist for system-level commands (open / reveal):
     /// a path is considered "known to the user" if it is either currently
     /// open in a tab (`watched_paths`) or sits inside an open workspace folder

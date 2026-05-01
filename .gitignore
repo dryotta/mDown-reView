@@ -26,6 +26,7 @@ dist-ssr
 # Test artifacts
 playwright-report/
 test-results/
+test-tmp-native/
 
 # Python
 __pycache__/
