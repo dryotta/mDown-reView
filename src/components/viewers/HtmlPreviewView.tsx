@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   resolveHtmlAssets,
   openExternalUrl,
@@ -11,6 +11,7 @@ import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
 import { injectAnchorTitles } from "@/lib/html-anchor-titles";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
+import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
 import { warn } from "@/logger";
 import "@/styles/html-preview.css";
 import "@/styles/viewer-banner.css";
@@ -20,21 +21,50 @@ interface Props {
   filePath?: string;
 }
 
+// Heuristic detectors for content the sandbox / CSP will block. Used to
+// suppress the warning banner on benign HTML and to make the banner text
+// contextual when the content does have something blockable. The regexes
+// are intentionally permissive (they may match inside comments or strings)
+// — the banner is informational only, the actual blocking is done by the
+// iframe sandbox + CSP.
+const SCRIPT_RE = /<script\b/i;
+const EXTERNAL_IMG_RE = /<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i;
+
 export function HtmlPreviewView({ content, filePath }: Props) {
   const [allowImages, setAllowImages] = useState(false);
   const [resolvedBase, setResolvedBase] = useState(content);
   const [resolvedContent, setResolvedContent] = useState(content);
   const [resolving, setResolving] = useState(false);
+  // Bumped on each iframe `onLoad` so the Ctrl+wheel listener re-attaches
+  // to the freshly-mounted contentDocument (srcdoc replaces the document
+  // wholesale, breaking any prior reference).
+  const [iframeDocEpoch, setIframeDocEpoch] = useState(0);
   const readingContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const revokeImagesRef = useRef<(() => void) | null>(null);
   const workspaceRoot = useStore((s) => s.root) ?? "";
-  const { zoom } = useZoom(".html");
+  const { zoom, zoomIn, zoomOut } = useZoom(".html");
   const baseDir = filePath ? dirname(filePath) : undefined;
 
   // Hard-locked sandbox — allow-same-origin only (security.md rule 12a).
   const sandbox = "allow-same-origin";
+
+  // Detect blockable content once per `content` change so the banner is
+  // suppressed entirely on benign HTML and the banner copy can be
+  // contextual when something *is* blocked.
+  const hasScript = useMemo(() => SCRIPT_RE.test(content), [content]);
+  const hasExternalImages = useMemo(() => EXTERNAL_IMG_RE.test(content), [content]);
+  const showBanner = hasScript || hasExternalImages;
+
+  // Ctrl+wheel inside the iframe content does not bubble to the parent
+  // frame, so attach the listener directly to the iframe's contentDocument.
+  // The hook re-runs on `iframeDocEpoch` change (each `srcdoc` reload) and
+  // forwards to the same `useZoom(".html")` controller the toolbar drives.
+  useCtrlWheelZoom(iframeRef, zoomIn, zoomOut, {
+    targetGetter: () => iframeRef.current?.contentDocument,
+    epoch: iframeDocEpoch,
+  });
 
   // Load persisted `allowImages` pref on mount (keyed by file path).
   // Only `allowImages` for HTML preview persists — `allowScripts` is session-only.
@@ -138,19 +168,35 @@ export function HtmlPreviewView({ content, filePath }: Props) {
 
   return (
     <div className="html-preview" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
-      <div className="viewer-info-banner">
-        ⚠ Sandboxed preview — scripts and external resources disabled
-        {resolving && <span className="viewer-info-banner-note">⏳ Resolving local images…</span>}
-        <button
-          className="comment-btn"
-          type="button"
-          aria-pressed={allowImages}
-          aria-label={allowImages ? "Disallow external images" : "Allow external images"}
-          onClick={handleToggleImages}
-        >
-          {allowImages ? "Disallow external images" : "Allow external images"}
-        </button>
-      </div>
+      {showBanner && (
+        <div className="viewer-info-banner" role="status">
+          {hasScript && hasExternalImages && (
+            <span>⚠ Scripts blocked by sandbox · external images disabled</span>
+          )}
+          {hasScript && !hasExternalImages && (
+            <span>⚠ Scripts blocked by sandbox</span>
+          )}
+          {!hasScript && hasExternalImages && (
+            <span>
+              {allowImages
+                ? "ℹ External images loaded via proxy"
+                : "ℹ External images disabled"}
+            </span>
+          )}
+          {resolving && <span className="viewer-info-banner-note">⏳ Resolving local images…</span>}
+          {hasExternalImages && (
+            <button
+              className="comment-btn"
+              type="button"
+              aria-pressed={allowImages}
+              aria-label={allowImages ? "Disallow external images" : "Allow external images"}
+              onClick={handleToggleImages}
+            >
+              {allowImages ? "Disallow external images" : "Allow external images"}
+            </button>
+          )}
+        </div>
+      )}
       <div className="html-preview-body" ref={readingContainerRef}>
         <div ref={wrapperRef} className="html-preview-wrapper">
           <iframe
@@ -161,6 +207,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
             className="html-preview-iframe"
             style={{ background: "white" }}
             onLoad={() => {
+              setIframeDocEpoch((n) => n + 1);
               const scrollIframeToFragment = (doc: Document, fragment: string) => {
                 let id = fragment;
                 try { id = decodeURIComponent(fragment); } catch { /* keep raw */ }

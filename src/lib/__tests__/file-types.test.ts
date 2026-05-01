@@ -101,16 +101,16 @@ describe("hasVisualization", () => {
 });
 
 describe("getDefaultView", () => {
-  it("returns visual for markdown, json, csv, mermaid, kql", () => {
+  it("returns visual for markdown, json, csv, html, mermaid, kql", () => {
     expect(getDefaultView("markdown")).toBe("visual");
     expect(getDefaultView("json")).toBe("visual");
     expect(getDefaultView("csv")).toBe("visual");
+    expect(getDefaultView("html")).toBe("visual");
     expect(getDefaultView("mermaid")).toBe("visual");
     expect(getDefaultView("kql")).toBe("visual");
   });
 
-  it("returns source for html and text", () => {
-    expect(getDefaultView("html")).toBe("source");
+  it("returns source for text", () => {
     expect(getDefaultView("text")).toBe("source");
   });
 

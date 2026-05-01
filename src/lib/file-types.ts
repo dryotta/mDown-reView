@@ -46,7 +46,7 @@ const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
   markdown: "visual",
   json: "visual",
   csv: "visual",
-  html: "source",
+  html: "visual",
   mermaid: "visual",
   kql: "visual",
   image: "visual",

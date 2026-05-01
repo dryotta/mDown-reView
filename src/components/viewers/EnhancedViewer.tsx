@@ -1,7 +1,8 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useState, useRef } from "react";
 import { useStore } from "@/store";
 import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey } from "@/lib/file-types";
 import { useZoom } from "@/hooks/useZoom";
+import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
 import { ViewerToolbar } from "./ViewerToolbar";
 import { FileActionsBar } from "./FileActionsBar";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -52,13 +53,25 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
   const filetypeKey = getFiletypeKey(path, showSource ? "source" : "visual");
   const { zoom, zoomIn, zoomOut, reset } = useZoom(filetypeKey);
 
+  // Ctrl+wheel (Cmd+wheel on macOS) drives the zoom controller. Listener is
+  // attached at the EnhancedViewer root so wheel events from any descendant
+  // (SourceView, MarkdownViewer, JsonTreeView, CsvTableView, MermaidView,
+  // KqlPlanView, the HtmlPreview banner) bubble up. The HTML preview iframe
+  // installs its own listener inside `contentDocument` because wheel events
+  // inside an iframe do not bubble to the parent frame.
+  const containerRef = useRef<HTMLDivElement>(null);
+  useCtrlWheelZoom(containerRef, zoomIn, zoomOut);
+
   // Categories whose visual view must fill the viewport (not scroll with
   // content). These get `enhanced-viewer--fill` which adds `height: 100%`
   // so children can resolve percentage heights.
   const needsFill = !showSource && (category === "mermaid" || category === "csv" || category === "kql" || category === "html");
 
   return (
-    <div className={`enhanced-viewer${needsFill ? " enhanced-viewer--fill" : ""}`}>
+    <div
+      ref={containerRef}
+      className={`enhanced-viewer${needsFill ? " enhanced-viewer--fill" : ""}`}
+    >
       <ViewerToolbar
         activeView={viewMode}
         onViewChange={handleViewChange}

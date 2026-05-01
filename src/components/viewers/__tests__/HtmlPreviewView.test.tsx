@@ -75,22 +75,52 @@ describe("HtmlPreviewView  hard-locked sandbox", () => {
     cleanup();
   });
 
-  it("shows safety warning banner", () => {
-    render(<HtmlPreviewView content="<p>test</p>" />);
-    expect(screen.getByText(/sandboxed preview/i)).toBeInTheDocument();
+  it("hides the banner on benign HTML (no scripts, no external images)", () => {
+    const { container } = render(<HtmlPreviewView content="<p>just text</p>" />);
+    expect(container.querySelector(".viewer-info-banner")).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("shows a contextual 'scripts blocked' banner when content has <script>", () => {
+    render(<HtmlPreviewView content="<p>hi</p><script>alert(1)</script>" />);
+    expect(screen.getByText(/scripts blocked by sandbox/i)).toBeInTheDocument();
+    // No external images → no toggle button.
+    expect(screen.queryByRole("button", { name: /external images/i })).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("shows the 'External images disabled' banner + toggle when content has remote <img>", () => {
+    render(<HtmlPreviewView content='<img src="https://example.com/x.png">' />);
+    expect(screen.getByText(/external images disabled/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /allow external images/i })).toBeInTheDocument();
+    // Script copy is NOT present.
+    expect(screen.queryByText(/scripts blocked/i)).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("combines copy when both <script> and remote <img> are present", () => {
+    render(
+      <HtmlPreviewView content='<script>x</script><img src="https://example.com/x.png">' />,
+    );
+    expect(
+      screen.getByText(/scripts blocked by sandbox.*external images disabled/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /allow external images/i })).toBeInTheDocument();
     cleanup();
   });
 
   it("banner uses shared viewer-info-banner class with no inline style (#212)", () => {
-    render(<HtmlPreviewView content="<p>test</p>" />);
-    const banner = screen.getByText(/sandboxed preview/i).closest(".viewer-info-banner");
+    render(<HtmlPreviewView content="<script>x</script>" />);
+    const banner = screen.getByText(/scripts blocked/i).closest(".viewer-info-banner");
     expect(banner).toBeInTheDocument();
     expect(banner?.getAttribute("style")).toBeNull();
     cleanup();
   });
 
   it("toggling 'Allow external images' keeps sandbox at allow-same-origin", () => {
-    const { container } = render(<HtmlPreviewView content="<p>test</p>" />);
+    const { container } = render(
+      <HtmlPreviewView content='<img src="https://example.com/x.png">' />,
+    );
     const btn = screen.getByRole("button", { name: /allow external images/i });
     expect(btn.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(btn);
@@ -109,7 +139,12 @@ describe("HtmlPreviewView  hard-locked sandbox", () => {
 
 describe("HtmlPreviewViewimage toggle persistence (#212)", () => {
   it("toggling images calls setFileViewerPref IPC for persistence", async () => {
-    render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
+    render(
+      <HtmlPreviewView
+        content='<img src="https://example.com/x.png">'
+        filePath="/wk/page.html"
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /allow external images/i }));
     await waitFor(() => {
       expect(setFileViewerPref).toHaveBeenCalledWith("/wk/page.html", true);
@@ -123,7 +158,12 @@ describe("HtmlPreviewViewimage toggle persistence (#212)", () => {
 
   it("loads persisted pref on mount", async () => {
     (getFileViewerPref as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ allow_images: true });
-    render(<HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />);
+    render(
+      <HtmlPreviewView
+        content='<img src="https://example.com/x.png">'
+        filePath="/wk/page.html"
+      />,
+    );
     await waitFor(() => {
       expect(getFileViewerPref).toHaveBeenCalledWith("/wk/page.html");
     });

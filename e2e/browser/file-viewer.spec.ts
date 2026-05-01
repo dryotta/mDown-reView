@@ -79,7 +79,7 @@ test.describe("Enhanced File Viewer", () => {
     await expect(page.getByText("Age")).toBeVisible();
   });
 
-  test("HTML file opens in source mode with visual toggle to preview", async ({ page }) => {
+  test("HTML file opens in visual (preview) mode with toggle to source", async ({ page }) => {
     const htmlContent = "<!DOCTYPE html><html><body><h1>Hello</h1></body></html>";
     await setupViewerMocks(page, [
       fileEntry("page.html"),
@@ -93,15 +93,14 @@ test.describe("Enhanced File Viewer", () => {
     // Should show toolbar
     await expect(page.locator("[role=toolbar]")).toBeVisible();
 
-    // HTML defaults to source view
-    const sourceBtn = page.getByRole("button", { name: /source/i });
-    await expect(sourceBtn).toHaveAttribute("aria-pressed", "true");
-
-    // Toggle to visual
-    await page.getByRole("button", { name: /visual/i }).click();
-
-    // Should show HTML preview with iframe
+    // HTML defaults to visual view (preview iframe).
     await expect(page.locator("iframe[title='HTML preview']")).toBeVisible();
+    const visualBtn = page.getByRole("button", { name: /visual/i });
+    await expect(visualBtn).toHaveAttribute("aria-pressed", "true");
+
+    // Toggle to source.
+    await page.getByRole("button", { name: /source/i }).click();
+    await expect(page.locator("iframe[title='HTML preview']")).not.toBeVisible();
   });
 
   test("Markdown file has source/visual toggle", async ({ page }) => {

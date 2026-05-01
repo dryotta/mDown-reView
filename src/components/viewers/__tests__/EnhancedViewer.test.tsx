@@ -76,9 +76,9 @@ describe("EnhancedViewer", () => {
     expect(screen.getByTestId("markdown-viewer")).toBeInTheDocument();
   });
 
-  it("defaults to source view for HTML", () => {
+  it("defaults to visual (preview) view for HTML", () => {
     render(<EnhancedViewer content="<h1>hi</h1>" path="/test.html" filePath="/test.html" />);
-    expect(screen.getByTestId("source-view")).toBeInTheDocument();
+    expect(screen.getByTestId("html-preview")).toBeInTheDocument();
   });
 
   it("shows source view for plain text with wrap toggle", () => {
