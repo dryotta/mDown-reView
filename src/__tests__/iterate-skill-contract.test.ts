@@ -40,6 +40,12 @@ const LEAN_EXPERT_PATH = resolve(
   "../../.claude/agents/lean-expert.md",
 );
 const LEAN_EXPERT = readFileSync(LEAN_EXPERT_PATH, "utf8");
+
+const TEST_EXPERT_PATH = resolve(
+  __dirname,
+  "../../.claude/agents/test-expert.md",
+);
+const TEST_EXPERT = readFileSync(TEST_EXPERT_PATH, "utf8");
 describe("iterate-one-issue skill — DIFF_CLASS scoping (issue #122)", () => {
   it("Step 6b classifies the diff into code | prompt-only | docs-only | none", () => {
     expect(SKILL).toMatch(/####\s+6b\.?\s+Classify diff/i);
@@ -815,5 +821,109 @@ describe("iterate-one-issue skill — Phase 1.5 inline-fix carry-over (Done-Achi
     expect(DONE_HANDLERS).not.toMatch(/INLINE_FIX_USED/);
     expect(DONE_HANDLERS).not.toMatch(/inline-fix/i);
     expect(DONE_HANDLERS).not.toMatch(/Phase 1\.5/);
+  });
+});
+
+/**
+ * Issue #331 — test-expert pre-consult must enumerate bypass vectors when
+ * reviewing source-byte regression guards (e.g. `include_str!`-based
+ * `contains` assertions). The original lapse was on PR #323 (Rule-26
+ * log-rotation guard), where rubber-duck caught three bypass vectors that
+ * test-expert's pre-consult had not red-teamed — costing one forward-fix
+ * iteration. Locking the agent prompt here parallelises that check.
+ */
+describe("test-expert agent — bypass-vector enumeration for source-byte regression guards (issue #331)", () => {
+  it("test-expert.md Always-check section embeds the bypass-vector enumeration rule with a trigger pattern", () => {
+    const alwaysCheckIdx = TEST_EXPERT.indexOf("**Always check:**");
+    const outOfScopeIdx = TEST_EXPERT.indexOf("**Out of scope", alwaysCheckIdx);
+    expect(alwaysCheckIdx).toBeGreaterThan(-1);
+    expect(outOfScopeIdx).toBeGreaterThan(alwaysCheckIdx);
+    const alwaysBlock = TEST_EXPERT.slice(alwaysCheckIdx, outOfScopeIdx);
+
+    // Rule must be present and self-identify as the issue #331 follow-on.
+    expect(alwaysBlock).toMatch(/Bypass-vector enumeration/i);
+    expect(alwaysBlock).toMatch(/issue #331/);
+
+    // Trigger pattern must enumerate BOTH halves: include_str! AND a contains/needles loop.
+    expect(alwaysBlock).toMatch(/include_str!/);
+    expect(alwaysBlock).toMatch(/contains/);
+    expect(alwaysBlock).toMatch(/forbidden|needles|bypass|bad_patterns/);
+
+    // Quantitative requirement: ≥3 vectors, each with explicit catches-it verdict.
+    expect(alwaysBlock).toMatch(/at least 3 bypass vectors/);
+    expect(alwaysBlock).toMatch(/state explicitly whether/);
+    // Each uncaught vector must propose either (a) needle/check or (b) out-of-scope rationale.
+    expect(alwaysBlock).toMatch(/needle/);
+    expect(alwaysBlock).toMatch(/out-of-scope rationale/);
+  });
+
+  it("test-expert.md cites the PR #323 worked example with all three bypass-vector categories", () => {
+    // The worked example is the prompt's concrete anchor — without it, "bypass
+    // vector" stays abstract. The PR #323 case spans three vector categories
+    // (constant-interpolation, non-year literal, concat reconstruction) — all
+    // three must be named so a future test-expert call has the templates.
+    expect(TEST_EXPERT).toMatch(/PR #323/);
+
+    // Vector 1 — constant-interpolation bypass.
+    expect(TEST_EXPERT).toMatch(/Constant-interpolation/i);
+    expect(TEST_EXPERT).toMatch(/format!\("\{FILE_PREFIX\}\.\{stamp\}\{FILE_SUFFIX\}"\)/);
+
+    // Vector 2 — non-year literal bypass.
+    expect(TEST_EXPERT).toMatch(/Non-year literal/i);
+    expect(TEST_EXPERT).toMatch(/"mdownreview\.placeholder\.log"/);
+
+    // Vector 3 — concat reconstruction.
+    expect(TEST_EXPERT).toMatch(/Concat reconstruction/i);
+    expect(TEST_EXPERT).toMatch(/concat\(\)|\.join\(""\)/);
+  });
+
+  it("test-expert.md cites the forward-fix commit that closed two of the three vectors (anchor for future regressions)", () => {
+    // Pin the commit SHA that adopted the bypass needles so a future
+    // regression has a concrete recovery reference. If the SHA is ever
+    // amended, this test will fail and force a deliberate refresh.
+    expect(TEST_EXPERT).toMatch(/9d663d8/);
+    // The placeholder needle pair from the forward-fix is the canonical
+    // "what does a bypass needle look like" example.
+    expect(TEST_EXPERT).toMatch(/format!\("<prefix>\.\{/);
+    expect(TEST_EXPERT).toMatch(/format!\("<prefix>_\{/);
+  });
+
+  it("test-expert.md mandates a `### Bypass-vector enumeration` block in the agent's output when the trigger fires", () => {
+    expect(TEST_EXPERT).toMatch(/### Bypass-vector enumeration/);
+    // Output template must enumerate the catches-it verdicts and the
+    // (a)/(b) propose alternatives so the format is consistent across runs.
+    const exampleBlock = TEST_EXPERT.slice(TEST_EXPERT.indexOf("### Bypass-vector enumeration"));
+    expect(exampleBlock).toMatch(/caught\?\s*<yes/);
+    expect(exampleBlock).toMatch(/no\s*[—-]\s*propose:/);
+  });
+
+  it("test-expert.md Output template lists Bypass-vector enumeration as a recognised section (with trigger gate)", () => {
+    const outputIdx = TEST_EXPERT.indexOf("**Output:**");
+    expect(outputIdx).toBeGreaterThan(-1);
+    const outputBlock = TEST_EXPERT.slice(outputIdx);
+    expect(outputBlock).toMatch(/### Bypass-vector enumeration/);
+    // The trigger gate must be reasserted in the Output template so a future
+    // rewrite that strips the Always-check section can't silently leave the
+    // Output expecting a section that's never produced.
+    expect(outputBlock).toMatch(/only when trigger fires|only emit when/i);
+  });
+
+  it("test-expert.md trigger pattern is scoped narrowly enough to avoid noise on every PR (issue #331 'Out of scope' constraint)", () => {
+    // The spec is explicit: "Broader bypass-vector enumeration for non-source-byte
+    // tests (e.g. behaviour-level tests). The trigger is explicitly include_str!
+    // + contains patterns; expanding scope risks noise on every PR."
+    // Verify the trigger names BOTH terms and is attached to the source-byte
+    // guard rule (not the general Always-check pyramid). Drift here would
+    // turn a narrowly-scoped check into a per-PR grind.
+    const alwaysCheckIdx = TEST_EXPERT.indexOf("**Always check:**");
+    const outOfScopeIdx = TEST_EXPERT.indexOf("**Out of scope", alwaysCheckIdx);
+    const alwaysBlock = TEST_EXPERT.slice(alwaysCheckIdx, outOfScopeIdx);
+    // Trigger words must co-locate within the same bullet (within 400 chars
+    // of "Bypass-vector enumeration" header).
+    const ruleIdx = alwaysBlock.indexOf("Bypass-vector enumeration");
+    const ruleSpan = alwaysBlock.slice(ruleIdx, ruleIdx + 600);
+    expect(ruleSpan).toMatch(/include_str!/);
+    expect(ruleSpan).toMatch(/contains/);
+    expect(ruleSpan).toMatch(/Trigger:/);
   });
 });
