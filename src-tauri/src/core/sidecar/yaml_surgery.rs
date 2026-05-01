@@ -336,13 +336,15 @@ fn format_response_entry(author: &str, text: &str, timestamp: &str, cont_indent:
     )
 }
 
-/// Single-quote a YAML scalar if it contains characters that would
+/// Double-quote a YAML scalar if it contains characters that would
 /// confuse a plain scalar.  For simple alphanumeric values, return as-is.
 fn quote_if_needed(s: &str) -> String {
     if s.is_empty()
         || s.contains(':')
         || s.contains('#')
         || s.contains('\n')
+        || s.contains('\r')
+        || s.contains('\t')
         || s.contains('\'')
         || s.contains('"')
         || s.contains('{')
@@ -361,8 +363,17 @@ fn quote_if_needed(s: &str) -> String {
         || s.starts_with(' ')
         || s.ends_with(' ')
     {
-        // Use double quotes with escaped inner double quotes.
-        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+        // Order is load-bearing: replace `\\` first so backslashes introduced
+        // by the later `\n` / `\r` / `\t` escapes are not themselves
+        // double-escaped.
+        format!(
+            "\"{}\"",
+            s.replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r")
+                .replace('\t', "\\t")
+        )
     } else {
         s.to_string()
     }
