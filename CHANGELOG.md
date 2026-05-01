@@ -1,3 +1,11 @@
+## v0.4.2 — 2026-05-01
+
+### Features
+- **Tiered link & asset policy**: workspace-relative links allowed silently, outside-workspace warned with per-tab "Allow for this session" toggle (Zustand-only, never persisted), system/dangerous paths hard-blocked. Foundation hardening lands alongside: narrowed `assetProtocol.scope` from `["**"]` to a runtime-`allow_directory` chokepoint; new `read_text_file`/`read_binary_file` workspace + system-locations guard; UNC path mis-classification fix in `resolveWorkspacePath`; new 7-kind `LinkRoute` union with compile-time exhaustiveness; new `path_classify` IPC with server-resolved workspace; typed `CommentError` enum on all 5 mutation IPCs with read-only tab self-heal; new `<ViewerBanner>` and `<Tier3Placeholder>` components; outside-workspace tab badge. Closes #338. (#339)
+
+### Fixes
+- Remove inline mermaid chrome + correct comment-bubble positioning. (#349)
+
 ## v0.4.1 — 2026-05-01
 
 ### Fixes
