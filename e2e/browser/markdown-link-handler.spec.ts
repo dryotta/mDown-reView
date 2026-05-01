@@ -37,6 +37,33 @@ async function setupMocks(page: Page): Promise<void> {
         if (cmd === "save_review_comments") return null;
         if (cmd === "get_log_path") return "/mock/log.log";
         if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
+        if (cmd === "path_classify") {
+          // Default: treat unknown paths as INSIDE so workspace-relative
+          // clicks proceed to openFile via the canonical path. Issue #338
+          // Group C: useLinkRouter awaits this IPC for tier disambiguation.
+          const a = args as { href?: string; baseDir?: string | null };
+          const href = a.href ?? "";
+          const baseDir = a.baseDir ?? "";
+          // Resolve href against baseDir for the canonical path the
+          // renderer would otherwise compute via routeLinkClick. Mirrors
+          // production canonicalize_no_verbatim minus the symlink resolve.
+          let canonical = href;
+          if (!href.startsWith("/") && baseDir) {
+            const parts = (baseDir + "/" + href).split("/");
+            const out: string[] = [];
+            for (const seg of parts) {
+              if (!seg || seg === ".") continue;
+              if (seg === "..") { out.pop(); continue; }
+              out.push(seg);
+            }
+            canonical = "/" + out.join("/");
+          }
+          // Detect tier-3 system paths (mirrors core/security/system_locations.rs).
+          if (/^\/(etc|proc|sys|dev|var\/log|root|var\/lib|run|boot)(\/|$)/.test(canonical)) {
+            return { tier: "system", flavor: "posix" };
+          }
+          return { tier: "inside", canonical };
+        }
         if (cmd === "plugin:opener|open_url") {
           (w.__OPEN_URL_CALLS__ as string[]).push((args as { url: string }).url);
           return null;

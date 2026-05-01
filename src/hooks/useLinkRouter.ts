@@ -20,6 +20,7 @@ import { useCallback } from "react";
 import { useStore } from "@/store";
 import { commands } from "@/lib/bindings";
 import { openExternalUrl } from "@/lib/tauri-commands";
+import { dirname } from "@/lib/path-utils";
 import {
   routeLinkClick,
   assertNeverLinkRoute,
@@ -52,7 +53,9 @@ export function useLinkRouter(): LinkDispatcher {
     // `docs/design-patterns.md`).
     const state = useStore.getState();
     const workspaceRoot = state.root ?? "";
-    const baseDir = ctx.filePath ?? undefined;
+    // `routeLinkClick`'s `baseDir` is the FILE's directory, not the file
+    // itself. Mirrors the pre-useLinkRouter call site in MarkdownComponentsMap.
+    const baseDir = ctx.filePath ? dirname(ctx.filePath) : undefined;
 
     const route: LinkRoute = routeLinkClick(href, {
       baseDir,
@@ -75,8 +78,9 @@ export function useLinkRouter(): LinkDispatcher {
         case "workspace-outside": {
           // Async: ask Rust for canonical-path classification so a tier-3
           // system path smuggled via a workspace-shaped relative href is
-          // caught at the canonical layer.
-          const result = await commands.pathClassify(href, ctx.filePath ?? null);
+          // caught at the canonical layer. `base_dir` is the FILE's parent
+          // dir (matches the renderer-side resolveWorkspacePath contract).
+          const result = await commands.pathClassify(href, baseDir ?? null);
           if (result.status === "error") {
             // Fail-closed — treat IPC failure as tier-3.
             void warn(`[useLinkRouter] path_classify failed: ${result.error}`);
@@ -105,7 +109,16 @@ export function useLinkRouter(): LinkDispatcher {
           }
 
           // tier === "inside" OR an outside path the user explicitly allowed.
-          const targetPath = classification.canonical;
+          // Use `route.path` (already-resolved + URL-decoded by routeLinkClick →
+          // resolveWorkspacePath) as the target. The IPC's `canonical` is the
+          // post-canonicalize form, which is fine in production but can drift
+          // in tests with stub IPC mocks. `route.path` is the renderer-side
+          // resolved path that openFile expects (consistent with prior pre-
+          // useLinkRouter behavior).
+          const targetPath =
+            (route.kind === "workspace" || route.kind === "workspace-outside") && "path" in route
+              ? route.path
+              : classification.canonical;
           const fragment = "fragment" in route ? route.fragment : undefined;
 
           if (ctx.filePath && targetPath === ctx.filePath) {
@@ -123,16 +136,60 @@ export function useLinkRouter(): LinkDispatcher {
 
         case "absolute-blocked":
         case "scheme-blocked":
+          {
+            const detail =
+              route.kind === "scheme-blocked" ? route.scheme : route.flavor;
+            void warn(
+              `[useLinkRouter] blocked link (${route.kind}/${detail}): ${route.href}`
+            );
+            return;
+          }
+
         case "other-blocked": {
-          const detail =
-            route.kind === "scheme-blocked"
-              ? route.scheme
-              : route.kind === "absolute-blocked"
-                ? route.flavor
-                : route.reason;
-          void warn(
-            `[useLinkRouter] blocked link (${route.kind}/${detail}): ${route.href}`
-          );
+          // `outside-workspace` is special: routeLinkClick short-circuits when
+          // resolveWorkspacePath returns null (path resolves above the workspace
+          // root). Per #338 spec, those paths still get a tier-2 vs tier-3
+          // disambiguation via the IPC + the per-tab allowOutsideWorkspace toggle.
+          // Other reasons (`type/length`, `no-basedir`, `decode`) are hard
+          // shape failures — never reach the IPC.
+          if (route.reason !== "outside-workspace") {
+            void warn(
+              `[useLinkRouter] blocked link (other-blocked/${route.reason}): ${route.href}`
+            );
+            return;
+          }
+          const result = await commands.pathClassify(route.href, baseDir ?? null);
+          if (result.status === "error") {
+            void warn(`[useLinkRouter] path_classify failed: ${result.error}`);
+            return;
+          }
+          const classification = result.data;
+          if (classification.tier === "system") {
+            void warn(
+              `[useLinkRouter] system path blocked (flavor=${classification.flavor}): ${route.href}`
+            );
+            return;
+          }
+          // tier === "outside" or "inside" (the IPC may resolve via canonicalize
+          // to inside even though renderer-side resolveWorkspacePath rejected).
+          if (classification.tier === "outside") {
+            const sourceTabPath = ctx.filePath;
+            const allowed = sourceTabPath
+              ? state.allowOutsideWorkspace.has(sourceTabPath)
+              : false;
+            if (!allowed) {
+              void warn(
+                `[useLinkRouter] outside-workspace blocked (toggle off): ${route.href}`
+              );
+              return;
+            }
+          }
+          // Open the canonical path the IPC computed. No fragment for
+          // outside-workspace path — routeLinkClick already stripped query/
+          // fragment before resolution; recovery would require re-parsing.
+          const targetPath = classification.canonical;
+          if (ctx.filePath && targetPath === ctx.filePath) return;
+          state.openFile(targetPath);
           return;
         }
 
