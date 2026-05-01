@@ -61,6 +61,26 @@ describe("8.1 – tab display", () => {
     setup([], null);
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
+
+  // Issue #338 / Wave-2 / AC9 — read-only badge rendered when
+  // `tab.readOnly === true` (the eager `path_classify` at openFile or
+  // the typed-CommentError self-heal sets this). Badge carries an
+  // accessible label so a11y audits surface the read-only state.
+  it("renders the read-only badge when tab.readOnly is true", () => {
+    useStore.setState({
+      tabs: [{ path: "/outside/x.md", scrollTop: 0, readOnly: true }],
+      activeTabPath: "/outside/x.md",
+    });
+    render(<TabBar />);
+    const badge = screen.getByLabelText(/read-only · outside workspace/i);
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute("title", expect.stringMatching(/read-only/i));
+  });
+
+  it("does NOT render the read-only badge when tab.readOnly is undefined or false", () => {
+    setup([{ path: "/docs/README.md" }], "/docs/README.md");
+    expect(screen.queryByLabelText(/read-only · outside workspace/i)).not.toBeInTheDocument();
+  });
 });
 
 // ─── 8.2: Tab interactions and badges ────────────────────────────────────────

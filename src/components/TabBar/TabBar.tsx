@@ -12,11 +12,13 @@ function TabItem({
   path,
   unresolvedCount,
   severity,
+  readOnly,
   tabRef,
 }: {
   path: string;
   unresolvedCount: number;
   severity?: Severity;
+  readOnly?: boolean;
   tabRef?: (el: HTMLDivElement | null) => void;
 }) {
   const activeTabPath = useStore((s) => s.activeTabPath);
@@ -39,6 +41,15 @@ function TabItem({
     >
       <span className="tab-name">{name}</span>
       <span className="tab-trailing">
+        {readOnly && (
+          <span
+            className="tab-readonly-badge"
+            title="Read-only · outside workspace"
+            aria-label="Read-only · outside workspace"
+          >
+            🔒
+          </span>
+        )}
         <CommentBadge count={unresolvedCount} severity={severity} className="tab-badge" />
         <button
           className="tab-close"
@@ -156,6 +167,7 @@ export function TabBar() {
             path={tab.path}
             unresolvedCount={fileBadges[tab.path]?.count ?? 0}
             severity={fileBadges[tab.path]?.max_severity}
+            readOnly={tab.readOnly === true}
             tabRef={setTabRef(tab.path)}
           />
         ))}

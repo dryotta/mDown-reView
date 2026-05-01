@@ -9,12 +9,10 @@ import React, {
 } from "react";
 import type { Components, ExtraProps } from "react-markdown";
 import { getSharedHighlighter } from "@/lib/shiki";
-import { openExternalUrl } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
 import { dirname } from "@/lib/path-utils";
-import { assertNeverLinkRoute, routeLinkClick } from "@/lib/url-policy";
+import { routeLinkClick } from "@/lib/url-policy";
 import { tooltipForRoute } from "@/lib/html-anchor-titles";
-import { useStore } from "@/store";
+import { useLinkRouter } from "@/hooks/useLinkRouter";
 import { lazyWithSuspense } from "../lazy";
 import {
   CommentableLi,
@@ -85,14 +83,11 @@ const MermaidEmbed = lazyWithSuspense<{ content: string }>(() =>
   import("../mermaid/MermaidEmbedded").then((m) => ({ default: m.MermaidEmbedded }))
 );
 
-// Anchor handler closes over filePath/workspaceRoot for relative-path
-// resolution and external-scheme dispatch. See MarkdownViewer for the original
-// rationale: openExternalUrl already enforces an allowlist, but we should not
-// even call it for known-bad schemes.
-//
-// Also computes a `title` tooltip per link via the shared `tooltipForRoute`
-// chokepoint so hover on a relative-path link shows the resolved workspace
-// path rather than just `./other.md`. Mirrors the behaviour the HTML preview
+// Anchor handler delegates click dispatch to `useLinkRouter` (issue #338 /
+// AC6) — the consumer-facing reduction. The component still computes a
+// synchronous `title` tooltip via the shared `tooltipForRoute` chokepoint
+// so hover on a relative-path link shows the resolved workspace path
+// rather than just `./other.md`. Mirrors the behaviour the HTML preview
 // gets via `injectAnchorTitles` in its asset-resolve pipeline.
 function makeAnchorComponent(filePath: string, workspaceRoot: string) {
   const baseDir = filePath ? dirname(filePath) : "";
@@ -103,6 +98,10 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
     title,
     ...props
   }: ComponentPropsWithoutRef<"a"> & ExtraProps) {
+    const dispatch = useLinkRouter();
+    // Tooltip is still synchronous — no IPC needed. We re-use the same
+    // `routeLinkClick` shape classifier the dispatcher uses internally so
+    // the tooltip mirrors the route the click will actually take.
     const route = href
       ? routeLinkClick(href, { baseDir: baseDir || undefined, workspaceRoot })
       : null;
@@ -110,59 +109,9 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
     const computedTitle =
       title ?? (route ? tooltipForRoute(route, workspaceRoot) ?? undefined : undefined);
     const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-      if (!route) return;
-      switch (route.kind) {
-        case "fragment":
-          // In-document scroll — let the browser handle it natively.
-          return;
-        case "absolute-blocked":
-        case "scheme-blocked":
-        case "other-blocked": {
-          // Iter 1 of #338 keeps the prior "warn + drop" UX for every
-          // blocked variant; Group C wires the tier-3 popover. Reason field
-          // varies per kind so we log the discriminator + the per-kind
-          // detail uniformly.
-          e.preventDefault();
-          const detail =
-            route.kind === "scheme-blocked" ? route.scheme :
-            route.kind === "absolute-blocked" ? route.flavor :
-            route.reason;
-          void warn(`MarkdownViewer: blocked link (${route.kind}/${detail}): ${route.href}`);
-          return;
-        }
-        case "external":
-          e.preventDefault();
-          openExternalUrl(route.href).catch((err) =>
-            warn(`[MarkdownViewer] link open failed: ${err}`),
-          );
-          return;
-        case "workspace":
-        case "workspace-outside":
-          // `workspace-outside` is reserved for Group B's IPC classifier and
-          // is not yet emitted by `routeLinkClick` in iter 1; treat it like
-          // `workspace` for now to preserve the prior behavior under the
-          // missed-UNC bug A4 just fixed.
-          e.preventDefault();
-          if (route.path === filePath) {
-            // Same-file link — file is already active; openFile would be a
-            // no-op. Scroll directly to the requested heading id (rehype-slug
-            // emits `id="…"` on every heading; ids are document-unique).
-            if (route.fragment) scrollToFragment(route.fragment);
-          } else {
-            // Cross-file link — stash the fragment for the destination viewer
-            // to consume on first render, then open the file.
-            if (route.fragment) {
-              useStore.getState().setPendingFragment({
-                path: route.path,
-                fragment: route.fragment,
-              });
-            }
-            useStore.getState().openFile(route.path);
-          }
-          return;
-        default:
-          assertNeverLinkRoute(route);
-      }
+      if (!href) return;
+      e.preventDefault();
+      void dispatch(href, { filePath: filePath || null });
     };
     return (
       <a href={href} title={computedTitle} onClick={handleClick} {...props}>
@@ -170,17 +119,6 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
       </a>
     );
   };
-}
-
-function scrollToFragment(fragment: string): void {
-  let id = fragment;
-  try {
-    id = decodeURIComponent(fragment);
-  } catch {
-    /* keep raw on malformed input */
-  }
-  const el = document.getElementById(id);
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // Build the components map for ReactMarkdown. The `pre`, `img`, and anchor

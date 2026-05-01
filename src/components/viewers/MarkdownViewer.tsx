@@ -16,6 +16,7 @@ import { FrontmatterBlock } from "./FrontmatterBlock";
 import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { MdCommentContext } from "./markdown/CommentableBlocks";
 import { buildMarkdownComponents } from "./markdown/MarkdownComponentsMap";
+import { ViewerBanner, selectBannerVariant } from "./ViewerBanner";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
 import { useComments } from "@/lib/vm/use-comments";
 import { ReadingWidthHandle } from "./ReadingWidthHandle";
@@ -122,6 +123,25 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   const handleDisallowRemoteImages = useCallback(() => {
     useStore.getState().disallowRemoteImagesForDoc(filePath);
   }, [filePath]);
+
+  // Issue #338 / AC10 — single ViewerBanner mount (tier-3 / tier-2 /
+  // external-image precedence). Iter 2 lands the contract with zero
+  // counts; tier-3/tier-2 reference scanning is deliberate follow-up
+  // scope (see issue #338 follow-up). The banner returns null when all
+  // counts are zero, so this lands the SHAPE without altering UX.
+  const allowOutsideForThisTab = useStore((s) => s.allowOutsideWorkspace.has(filePath));
+  const bannerVariant = useMemo(
+    () =>
+      selectBannerVariant({
+        tier3Count: 0,
+        tier2Count: 0,
+        externalImageCount: 0,
+        allowOutsideForThisTab,
+        allowExternalImagesForThisTab: remoteImagesAllowed,
+        tabPath: filePath || null,
+      }),
+    [allowOutsideForThisTab, remoteImagesAllowed, filePath]
+  );
 
   // B3: detect math syntax in the body. Cheap regex pre-scan so we only
   // pay the KaTeX cost on documents that actually use math.
@@ -295,6 +315,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
 
   return (
     <div className="markdown-viewer" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
+      <ViewerBanner variant={bannerVariant} />
       <FindInPageBar
         open={find.open}
         query={find.query}

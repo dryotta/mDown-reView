@@ -2,18 +2,18 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { RefObject } from "react";
 import {
   resolveHtmlAssets,
-  openExternalUrl,
   getFileViewerPref,
   setFileViewerPref,
 } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
-import { assertNeverLinkRoute, routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
 import { injectAnchorTitles } from "@/lib/html-anchor-titles";
 import { useStore } from "@/store";
 import { useZoom } from "@/hooks/useZoom";
 import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
+import { useLinkRouter } from "@/hooks/useLinkRouter";
 import { warn } from "@/logger";
+import { ViewerBanner, selectBannerVariant } from "./ViewerBanner";
 import "@/styles/html-preview.css";
 import "@/styles/viewer-banner.css";
 
@@ -70,7 +70,30 @@ export function HtmlPreviewView({ content, filePath }: Props) {
   const revokeImagesRef = useRef<(() => void) | null>(null);
   const workspaceRoot = useStore((s) => s.root) ?? "";
   const { zoom, zoomIn, zoomOut } = useZoom(".html");
-  const baseDir = filePath ? dirname(filePath) : undefined;
+  const dispatchLink = useLinkRouter();
+
+  // ── Issue #338 / AC10 — single ViewerBanner mount (tier-3 / tier-2 /
+  // external-image precedence). Iter 2 lands the banner shape with
+  // zero counts; tier-3/tier-2 reference scanning is deliberate
+  // follow-up scope. The banner returns null when all counts are zero.
+  const allowOutsideForThisTab = useStore((s) =>
+    filePath ? s.allowOutsideWorkspace.has(filePath) : false
+  );
+  const allowExternalImagesForThisTab = useStore((s) =>
+    filePath ? s.allowedRemoteImageDocs[filePath] === true : false
+  );
+  const bannerVariant = useMemo(
+    () =>
+      selectBannerVariant({
+        tier3Count: 0,
+        tier2Count: 0,
+        externalImageCount: 0,
+        allowOutsideForThisTab,
+        allowExternalImagesForThisTab,
+        tabPath: filePath ?? null,
+      }),
+    [allowOutsideForThisTab, allowExternalImagesForThisTab, filePath]
+  );
 
   // Hard-locked sandbox — allow-same-origin only (security.md rule 12a).
   const sandbox = "allow-same-origin";
@@ -210,6 +233,7 @@ export function HtmlPreviewView({ content, filePath }: Props) {
 
   return (
     <div className="html-preview" data-zoom={zoom}>
+      <ViewerBanner variant={bannerVariant} />
       {showBanner && (
         <div className="viewer-info-banner" role="status">
           {hasScript && hasExternalImages && (
@@ -263,61 +287,13 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                   if (!anchor) return;
                   const href = anchor.getAttribute("href");
                   if (href === null) return;
-                  const route = routeLinkClick(href, { baseDir, workspaceRoot });
-                  switch (route.kind) {
-                    case "fragment":
-                      // Native fragment scroll inside `srcdoc` iframes is
-                      // unreliable in WebView2 (the synthetic `about:srcdoc`
-                      // URL doesn't update its hash, so the browser skips
-                      // the scroll). Always scroll explicitly.
-                      event.preventDefault();
-                      scrollIframeToFragment(doc, route.fragment);
-                      return;
-                    case "absolute-blocked":
-                    case "scheme-blocked":
-                    case "other-blocked": {
-                      // Iter 1 of #338 keeps the prior "warn + drop" UX for
-                      // every blocked variant; Group C wires the tier-3
-                      // popover.
-                      event.preventDefault();
-                      const detail =
-                        route.kind === "scheme-blocked" ? route.scheme :
-                        route.kind === "absolute-blocked" ? route.flavor :
-                        route.reason;
-                      void warn(
-                        `HtmlPreviewView: blocked iframe link (${route.kind}/${detail}): ${route.href}`
-                      );
-                      return;
-                    }
-                    case "external":
-                      event.preventDefault();
-                      openExternalUrl(route.href).catch((e) =>
-                        warn(`[HtmlPreviewView] link open failed: ${e}`)
-                      );
-                      return;
-                    case "workspace":
-                    case "workspace-outside":
-                      // `workspace-outside` reserved for Group B's IPC
-                      // classifier; treat as workspace in iter 1.
-                      event.preventDefault();
-                      if (filePath && route.path === filePath) {
-                        // Same-file link — scroll inside this iframe; openFile
-                        // would be a no-op and `srcDoc` doesn't navigate to a
-                        // sub-URL, so we have to do the scroll ourselves.
-                        if (route.fragment) scrollIframeToFragment(doc, route.fragment);
-                      } else {
-                        if (route.fragment) {
-                          useStore.getState().setPendingFragment({
-                            path: route.path,
-                            fragment: route.fragment,
-                          });
-                        }
-                        useStore.getState().openFile(route.path);
-                      }
-                      return;
-                    default:
-                      assertNeverLinkRoute(route);
-                  }
+                  // Per-AC6 — every link click goes through the single
+                  // `useLinkRouter` dispatcher. The hook handles fragment
+                  // scrolling (using the iframe doc when supplied),
+                  // external-scheme dispatch, workspace-relative
+                  // navigation, and tier-3 fail-closed blocking.
+                  event.preventDefault();
+                  void dispatchLink(href, { filePath: filePath ?? null, iframeDoc: doc });
                 });
               };
               const consumePendingForThisFile = (doc: Document) => {

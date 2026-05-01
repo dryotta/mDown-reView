@@ -44,11 +44,24 @@ vi.mock("@/store", () => {
       state.pendingFragment = null;
       return p.fragment;
     }),
+    // Issue #338 / Wave-2 — ViewerBanner subscribes to per-tab allow flags.
+    allowOutsideWorkspace: new Set<string>(),
+    allowedRemoteImageDocs: {} as Record<string, boolean>,
   };
   const useStore = (selector: (s: typeof state) => unknown) => selector(state);
   (useStore as unknown as { getState: () => typeof state }).getState = () => state;
   return { useStore };
 });
+
+// Issue #338 / Wave-2 — iframe link clicks delegate to `useLinkRouter` (the
+// consumer-facing reduction). Mock the hook so unit tests can assert the
+// dispatcher was invoked with the correct (href, ctx) without exercising the
+// IPC `path_classify` chain. Per-route warn coverage lives in
+// `useLinkRouter.test.ts`.
+const mockDispatch = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/hooks/useLinkRouter", () => ({
+  useLinkRouter: () => mockDispatch,
+}));
 
 import { HtmlPreviewView } from "../HtmlPreviewView";
 import { openExternalUrl, fetchRemoteAsset, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
@@ -189,103 +202,80 @@ describe("HtmlPreviewView  comment mode removed", () => {
   });
 });
 
-describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
-  it("safe-mode iframe click on anchor calls openExternalUrl", () => {
+describe("HtmlPreviewView — iframe link dispatch (Wave-2)", () => {
+  beforeEach(() => {
+    mockDispatch.mockClear();
+  });
+
+  it("anchor click in iframe delegates to useLinkRouter with iframeDoc", () => {
     const { container } = render(
       <HtmlPreviewView content='<a href="https://example.com">link</a>' filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    // In safe mode (allow-same-origin), the onLoad handler installs a
-    // click listener on contentDocument. jsdom exposes contentDocument
-    // directly, so we simulate a click there.
     const doc = iframe.contentDocument;
     if (!doc) {
-      // jsdom should provide contentDocument for srcdoc iframes
       throw new Error("contentDocument is null — jsdom limitation");
     }
-    // Fire the iframe load event to trigger handler installation.
     fireEvent.load(iframe);
-    // Now simulate a click on the anchor within the contentDocument.
-    // jsdom doesn't parse srcdoc into the contentDocument, so we need to
-    // create a synthetic anchor inside it.
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "https://example.com");
     anchor.textContent = "link";
     doc.body.appendChild(anchor);
     fireEvent.click(anchor);
-    expect(openExternalUrl).toHaveBeenCalledWith("https://example.com");
+    expect(mockDispatch).toHaveBeenCalledWith("https://example.com", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
+    });
+    // The component never calls `openExternalUrl` directly anymore.
+    expect(openExternalUrl).not.toHaveBeenCalled();
     cleanup();
   });
 
-  it("same-file workspace fragment click scrolls inside the iframe (no openFile)", async () => {
-    const { useStore } = await import("@/store");
+  it("workspace fragment click delegates to useLinkRouter (no inline routing)", () => {
     const { container } = render(
       <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const doc = iframe.contentDocument!;
     fireEvent.load(iframe);
-
-    const target = doc.createElement("h2");
-    target.id = "section-y";
-    target.textContent = "Section Y";
-    const scrollSpy = vi.fn();
-    target.scrollIntoView = scrollSpy;
-    doc.body.appendChild(target);
-
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "./page.html#section-y");
     anchor.textContent = "same";
     doc.body.appendChild(anchor);
     fireEvent.click(anchor);
-
-    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(useStore.getState().openFile).not.toHaveBeenCalled();
+    expect(mockDispatch).toHaveBeenCalledWith("./page.html#section-y", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
+    });
     cleanup();
   });
 
-  it("cross-file workspace fragment click sets pendingFragment then opens the file", async () => {
-    const { useStore } = await import("@/store");
+  it("cross-file fragment click delegates to useLinkRouter", () => {
     const { container } = render(
       <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const doc = iframe.contentDocument!;
     fireEvent.load(iframe);
-
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "./other.html#section-x");
     anchor.textContent = "other";
     doc.body.appendChild(anchor);
     fireEvent.click(anchor);
-
-    expect(useStore.getState().setPendingFragment).toHaveBeenCalledWith({
-      path: "/wk/other.html",
-      fragment: "section-x",
+    expect(mockDispatch).toHaveBeenCalledWith("./other.html#section-x", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
     });
-    expect(useStore.getState().openFile).toHaveBeenCalledWith("/wk/other.html");
     cleanup();
   });
 
-  // Regression: fragment-only links (`<a href="#section">`) inside the
-  // sandboxed `srcdoc` iframe must scroll explicitly. WebView2 does not
-  // perform native fragment navigation against `about:srcdoc`, so the
-  // browser-default code path silently skipped the scroll. Issue
-  // surfaced manually with site/index.html in dev.
-  it("fragment-only link scrolls inside iframe (no native default)", async () => {
+  it("fragment-only anchor click is intercepted (preventDefault) and dispatched", () => {
     const { container } = render(
       <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const doc = iframe.contentDocument!;
     fireEvent.load(iframe);
-
-    const target = doc.createElement("section");
-    target.id = "how-it-works";
-    const scrollSpy = vi.fn();
-    target.scrollIntoView = scrollSpy;
-    doc.body.appendChild(target);
-
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "#how-it-works");
     anchor.textContent = "jump";
@@ -295,93 +285,80 @@ describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
       cancelable: true,
     });
     anchor.dispatchEvent(event);
-
     expect(event.defaultPrevented).toBe(true);
-    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(mockDispatch).toHaveBeenCalledWith("#how-it-works", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
+    });
     cleanup();
   });
-  // Issue #338 / iter-1 forward-fix coverage: every blocked LinkRoute kind
-  // inside the sandboxed HTML iframe MUST call `event.preventDefault()`
-  // (so WebView2 cannot navigate) and emit a `warn()` for triage. The
-  // iframe path operates on raw HTML in `srcdoc` — there is no
-  // react-markdown sanitizer in the path, so `javascript:` actually
-  // reaches the click handler here (unlike MarkdownComponentsMap).
-  it("absolute-blocked iframe anchor click is prevented and warns", () => {
-    vi.mocked(openExternalUrl).mockClear();
-    vi.mocked(warn).mockClear();
+
+  // Blocked-route arms (absolute / scheme / other) MUST still preventDefault
+  // at the component level so WebView2 cannot navigate while the async hook
+  // resolves the IPC. Per-route warn assertions live in `useLinkRouter.test.ts`.
+  it("absolute-blocked iframe anchor click is preventDefault'd and dispatched", () => {
     const { container } = render(
       <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const doc = iframe.contentDocument!;
     fireEvent.load(iframe);
-
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "/etc/passwd");
     anchor.textContent = "abs";
     doc.body.appendChild(anchor);
     const event = new doc.defaultView!.MouseEvent("click", { bubbles: true, cancelable: true });
     anchor.dispatchEvent(event);
-
     expect(event.defaultPrevented).toBe(true);
+    expect(mockDispatch).toHaveBeenCalledWith("/etc/passwd", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
+    });
     expect(openExternalUrl).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("blocked iframe link (absolute-blocked/"),
-    );
     cleanup();
   });
 
-  it("scheme-blocked iframe anchor click is prevented and warns", () => {
-    vi.mocked(openExternalUrl).mockClear();
-    vi.mocked(warn).mockClear();
+  it("scheme-blocked iframe anchor click is preventDefault'd and dispatched", () => {
     const { container } = render(
       <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const doc = iframe.contentDocument!;
     fireEvent.load(iframe);
-
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "javascript:alert(1)");
     anchor.textContent = "js";
     doc.body.appendChild(anchor);
     const event = new doc.defaultView!.MouseEvent("click", { bubbles: true, cancelable: true });
     anchor.dispatchEvent(event);
-
     expect(event.defaultPrevented).toBe(true);
+    expect(mockDispatch).toHaveBeenCalledWith("javascript:alert(1)", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
+    });
     expect(openExternalUrl).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("blocked iframe link (scheme-blocked/javascript)"),
-    );
     cleanup();
   });
 
-  // other-blocked arm: workspace-relative path that resolves outside the
-  // workspace root (`/wk/page.html` + `../../etc/passwd` → `/etc/passwd`,
-  // outside `/wk`). Proves the `other-blocked` switch arm doesn't fall
-  // through to the `default: assertNeverLinkRoute` branch.
-  it("other-blocked iframe anchor click is prevented and warns", () => {
-    vi.mocked(openExternalUrl).mockClear();
-    vi.mocked(warn).mockClear();
+  it("other-blocked iframe anchor click is preventDefault'd and dispatched", () => {
     const { container } = render(
       <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
     );
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const doc = iframe.contentDocument!;
     fireEvent.load(iframe);
-
     const anchor = doc.createElement("a");
     anchor.setAttribute("href", "../../etc/passwd");
     anchor.textContent = "outside";
     doc.body.appendChild(anchor);
     const event = new doc.defaultView!.MouseEvent("click", { bubbles: true, cancelable: true });
     anchor.dispatchEvent(event);
-
     expect(event.defaultPrevented).toBe(true);
+    expect(mockDispatch).toHaveBeenCalledWith("../../etc/passwd", {
+      filePath: "/wk/page.html",
+      iframeDoc: doc,
+    });
     expect(openExternalUrl).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("blocked iframe link (other-blocked/outside-workspace)"),
-    );
     cleanup();
   });
 });

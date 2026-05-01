@@ -84,6 +84,14 @@ export interface TabsSlice {
   setViewMode: (path: string, mode: "source" | "visual") => void;
   /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
   setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
+  /**
+   * Mutate `Tab.readOnly` for the matching path (issue #338 / AC9). Used by
+   * the comments slice's typed-error self-heal: when an `add_comment` IPC
+   * rejects with `CommentError { kind: "outside-workspace" }`, the renderer
+   * flips `readOnly` so the next comment-input render is disabled before
+   * the user retries. No-op when no tab matches `path`.
+   */
+  setTabReadOnly: (path: string, readOnly: boolean) => void;
 }
 
 export function filterStaleTabs(
@@ -242,6 +250,11 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           ...s.fileMetaByPath,
           [path]: { ...s.fileMetaByPath[path], ...patch },
         },
+      })),
+
+    setTabReadOnly: (path, readOnly) =>
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly } : t)),
       })),
   };
 }
