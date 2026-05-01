@@ -158,7 +158,13 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          APP_PATH=$(ls -d src-tauri/target/release/bundle/macos/*.app src-tauri/target/*/release/bundle/macos/*.app 2>/dev/null | head -1)
+          # Use matrix.target_dir (single, always-correct path) like the DMG verify step.
+          # A dual-glob `ls a/*.app b/*.app` here aborted the script silently under
+          # `set -e -o pipefail` whenever one glob didn't expand: bash kept the literal,
+          # ls errored on it (stderr suppressed), and pipefail propagated the non-zero
+          # exit through `| head -1`. Single glob matches the bundle path Tauri actually
+          # produced and avoids that booby-trap.
+          APP_PATH=$(ls -d ${{ matrix.target_dir }}/bundle/macos/*.app 2>/dev/null | head -1)
           [ -n "$APP_PATH" ] || { echo "::error::No .app bundle found"; exit 1; }
           codesign -dv --verbose=4 "$APP_PATH" 2>&1 | tee codesign.log
           grep -q 'Signature=adhoc' codesign.log || { echo "::error::App is not ad-hoc signed"; exit 1; }
