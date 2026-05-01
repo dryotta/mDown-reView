@@ -31,6 +31,23 @@ pub fn match_comments(
         .map(|comment| {
             let orig_line = comment.line;
             let orig_end = comment.end_line;
+            let selected_text = comment.selected_text.as_deref();
+
+            // File-level comments have no line and no selected_text —
+            // they are always anchored at line 1 and never orphaned (#131).
+            // Synthetic file-level: not a re-anchor decision, no [matching] emit.
+            // This branch must run BEFORE the line_count==0 early-return so a
+            // legacy file-level comment on an empty file is not misclassified
+            // as orphan (issue #280 forward-fix B).
+            if orig_line.is_none() && selected_text.is_none() {
+                return MatchedComment {
+                    comment: comment.clone(),
+                    matched_line_number: 1,
+                    is_orphaned: false,
+                    anchored_text: None,
+                    original_line: None,
+                };
+            }
 
             if line_count == 0 {
                 emit_match_event(
@@ -43,21 +60,6 @@ pub fn match_comments(
                     is_orphaned: true,
                     anchored_text: None,
                     original_line: orig_line,
-                };
-            }
-
-            let selected_text = comment.selected_text.as_deref();
-
-            // File-level comments have no line and no selected_text —
-            // they are always anchored at line 1 and never orphaned (#131).
-            // Synthetic file-level: not a re-anchor decision, no [matching] emit.
-            if orig_line.is_none() && selected_text.is_none() {
-                return MatchedComment {
-                    comment: comment.clone(),
-                    matched_line_number: 1,
-                    is_orphaned: false,
-                    anchored_text: None,
-                    original_line: None,
                 };
             }
 
@@ -247,6 +249,14 @@ fn emit_match_event(
     let warn_outcome = matches!(outcome, "exact-ambiguous" | "orphan" | "fuzzy");
     let suppress_warn = cmd == "get_file_badges";
 
+    // Pre-format Option fields as `<n|none>` strings so tracing always emits
+    // the field (tracing skips Option=None on the wire). This matches the
+    // schema documented in `docs/observability.md` `[matching]` and lets
+    // grep/analyzer tooling rely on stable field-presence.
+    let orig_line_s = orig_line.map_or_else(|| "none".to_string(), |n| n.to_string());
+    let orig_end_s = orig_end.map_or_else(|| "none".to_string(), |n| n.to_string());
+    let matched_end_s = matched_end.map_or_else(|| "none".to_string(), |n| n.to_string());
+
     if warn_outcome && !suppress_warn {
         tracing::warn!(
             target: "matching",
@@ -254,11 +264,12 @@ fn emit_match_event(
             file = file_path_hash,
             comment_id,
             outcome,
-            orig_line = orig_line.map(|n| n as u64),
-            orig_end = orig_end.map(|n| n as u64),
+            orig_line = orig_line_s.as_str(),
+            orig_end = orig_end_s.as_str(),
             matched_line,
-            matched_end = matched_end.map(|n| n as u64),
+            matched_end = matched_end_s.as_str(),
             re_derived,
+            "[matching]"
         );
     } else if crate::startup_recorder::ipc_trace_enabled() {
         tracing::info!(
@@ -267,11 +278,12 @@ fn emit_match_event(
             file = file_path_hash,
             comment_id,
             outcome,
-            orig_line = orig_line.map(|n| n as u64),
-            orig_end = orig_end.map(|n| n as u64),
+            orig_line = orig_line_s.as_str(),
+            orig_end = orig_end_s.as_str(),
             matched_line,
-            matched_end = matched_end.map(|n| n as u64),
+            matched_end = matched_end_s.as_str(),
             re_derived,
+            "[matching]"
         );
     }
 }
@@ -374,6 +386,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].matched_line_number, 2);
         assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].original_line, Some(2));
     }
 
     #[test]
@@ -386,6 +399,7 @@ mod tests {
         assert!(!result[0].is_orphaned);
         assert!(result[0].anchored_text.is_some());
         assert_eq!(result[0].anchored_text.as_deref(), Some("hello world"));
+        assert_eq!(result[0].original_line, Some(1));
     }
 
     #[test]
@@ -400,6 +414,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(result[0].is_orphaned);
         assert_eq!(result[0].matched_line_number, 1);
+        assert_eq!(result[0].original_line, Some(1));
     }
 
     #[test]
@@ -411,10 +426,17 @@ mod tests {
         let lines: Vec<&str> = vec![];
         let result = match_comments(&comments, &lines, "/test", "test");
         assert_eq!(result.len(), 2);
+        // Line-anchored comment on empty file → orphan, original_line preserved.
         assert!(result[0].is_orphaned);
         assert_eq!(result[0].matched_line_number, 1);
-        assert!(result[1].is_orphaned);
+        assert_eq!(result[0].original_line, Some(5));
+        // File-level synthetic case (issue #280 forward-fix B): the synthetic
+        // file-level branch runs BEFORE the line_count==0 early-return, so
+        // file-level comments on empty files stay anchored at line 1 and are
+        // NOT orphaned (preserves the #131 file-level invariant).
+        assert!(!result[1].is_orphaned);
         assert_eq!(result[1].matched_line_number, 1);
+        assert_eq!(result[1].original_line, None);
     }
 
     #[test]
@@ -438,6 +460,7 @@ mod tests {
         assert_eq!(result[0].matched_line_number, 2);
         assert!(!result[0].is_orphaned);
         assert!(result[0].anchored_text.is_some());
+        assert_eq!(result[0].original_line, Some(1));
     }
 
     #[test]
@@ -453,6 +476,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].matched_line_number, 4);
         assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].original_line, Some(3));
     }
 
     #[test]
@@ -465,6 +489,8 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(result[0].is_orphaned);
         assert_eq!(result[0].matched_line_number, 3);
+        // original_line preserved even though fallback clamps to 3.
+        assert_eq!(result[0].original_line, Some(100));
     }
 
     #[test]
@@ -477,6 +503,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(!result[0].is_orphaned);
         assert_eq!(result[0].matched_line_number, 1);
+        assert_eq!(result[0].original_line, None);
     }
 
     // --- Tests for levenshtein and fuzzy_score live in core::fuzzy ---
@@ -496,6 +523,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].matched_line_number, 3);
         assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].original_line, Some(4));
     }
 
     #[test]
@@ -507,6 +535,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].matched_line_number, 2);
         assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].original_line, None);
     }
 
     #[test]
@@ -521,6 +550,7 @@ mod tests {
         assert_eq!(result[0].matched_line_number, 3);
         assert!(!result[0].is_orphaned);
         assert!(result[0].anchored_text.is_some());
+        assert_eq!(result[0].original_line, Some(2));
     }
 
     #[test]
@@ -534,5 +564,6 @@ mod tests {
         assert_eq!(result[0].matched_line_number, 2);
         assert!(!result[0].is_orphaned);
         assert_eq!(result[0].anchored_text.as_deref(), Some("hello World!"));
+        assert_eq!(result[0].original_line, Some(2));
     }
 }

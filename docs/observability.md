@@ -87,7 +87,7 @@ The `[log-rotation]` target is intentionally separate from `[startup]` because t
            re_derived=<bool>
 ```
 
-Emitted by the comment matcher (`src-tauri/src/core/matching.rs::match_comments`) once per Line-anchored comment per call, capturing the matcher's per-comment decision. The `outcome` field is the string label for which step of the 4-step re-anchoring algorithm was used (see [`docs/architecture.md`](architecture.md) §4-step re-anchoring) plus the `exact-orig` / `exact-relocated` distinction for whether the original line was preserved or shifted. `re_derived` is `true` whenever the matcher rewrote `comment.line`.
+Emitted by the comment matcher (`src-tauri/src/core/matching.rs::match_comments`) once per Line-anchored comment per call, capturing the matcher's per-comment decision. The current implementation emits `[matching]` for `Anchor::Line` comments only — the matcher's `match_comments` domain. `Anchor::WordRange` and typed-anchor (`Anchor::Unknown`, `Anchor::File`) decisions bypass the matcher and therefore do not emit. Future iterations may extend coverage. The `outcome` field is the string label for which step of the 4-step re-anchoring algorithm was used (see [`docs/architecture.md`](architecture.md) §4-step re-anchoring) plus the `exact-orig` / `exact-relocated` distinction for whether the original line was preserved or shifted. `re_derived` is `true` whenever the matcher rewrote `comment.line`.
 
 `cmd` is the caller name (`get_file_comments` or `get_file_badges`). `file` is the lowercase-hex sha256 of the absolute file path, truncated to 8 chars — used for cross-line correlation without leaking the path itself to the log file.
 

@@ -109,9 +109,20 @@ fn assert_schema(line: &LogLine, expected_outcome: &str, expected_cmd: &str) {
     assert_eq!(file_value.len(), 8, "file hash must be 8 hex chars: {}", file_value);
     assert!(file_value.chars().all(|c| c.is_ascii_hexdigit()),
         "file hash must be hex: {}", file_value);
-    assert!(line.message.contains("comment_id="));
-    assert!(line.message.contains("matched_line="));
-    assert!(line.message.contains("re_derived="));
+    assert!(line.message.contains("comment_id="),
+        "missing comment_id field: {}", line.message);
+    assert!(line.message.contains("orig_line="),
+        "missing orig_line field: {}", line.message);
+    assert!(line.message.contains("orig_end="),
+        "missing orig_end field: {}", line.message);
+    assert!(line.message.contains("matched_line="),
+        "missing matched_line field: {}", line.message);
+    assert!(line.message.contains("matched_end="),
+        "missing matched_end field: {}", line.message);
+    assert!(line.message.contains("re_derived="),
+        "missing re_derived field: {}", line.message);
+    assert!(line.message.contains("[matching]"),
+        "missing [matching] prefix: {}", line.message);
 }
 
 #[test]
@@ -142,6 +153,13 @@ fn every_outcome_class_emits_matching_schema() {
     assert_eq!(m[0].level, log::Level::Info);
     assert_schema(m[0], "exact-relocated", "get_file_comments");
     assert!(m[0].message.contains("re_derived=true"));
+    // Concrete value: original line preserved on the wire so analyzers can
+    // surface "originally line 1 → relocated to N".
+    assert!(
+        m[0].message.contains("orig_line=1"),
+        "expected orig_line=1: {}",
+        m[0].message
+    );
 
     // exact-ambiguous: line=None + multiple matches → WARN regardless of gate.
     set_ipc_trace_enabled(false);
@@ -265,4 +283,34 @@ fn warn_suppressed_for_get_file_badges_caller() {
     for line in &m {
         assert_eq!(line.level, log::Level::Info);
     }
+}
+
+#[test]
+fn synthetic_file_level_on_empty_file_no_matching_emit() {
+    // Issue #280 forward-fix B: a legacy file-level comment (line=None,
+    // selected_text=None) on an empty file must take the synthetic
+    // file-level branch BEFORE the line_count==0 early-return — so it
+    // stays anchored at line 1, is NOT orphaned, and emits NO [matching]
+    // line (it is not a re-anchor decision).
+    let _g = test_lock().lock().unwrap_or_else(|p| p.into_inner());
+    install();
+    set_ipc_trace_enabled(true);
+    drain();
+
+    let comments = vec![make_comment("c-file-level", None, None)];
+    let lines: Vec<&str> = vec![];
+    let result = match_comments(&comments, &lines, "/tmp/empty.md", "get_file_comments");
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].matched_line_number, 1);
+    assert!(!result[0].is_orphaned);
+    assert_eq!(result[0].original_line, None);
+
+    let evts = drain();
+    let m = matching_lines(&evts);
+    assert!(
+        m.is_empty(),
+        "synthetic file-level on empty file must not emit [matching]; got {:?}",
+        m
+    );
 }

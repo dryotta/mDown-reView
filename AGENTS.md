@@ -54,7 +54,7 @@ Every rule is numbered and citable as "violates rule N in `docs/X.md`". Each doc
 | [`docs/security.md`](docs/security.md) | File-read bounds, path canonicalization, sidecar atomicity, CSP (incl. no-inline-style index.html), capability ACL, markdown XSS posture |
 | [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture, cross-hook communication |
 | [`docs/test-strategy.md`](docs/test-strategy.md) | Three-layer pyramid, coverage floors, IPC mock hygiene, console-spy contract |
-| [`docs/observability.md`](docs/observability.md) | `[ipc]` + `[startup]` log schemas, `#[mdr_command]` macro contract, `StartupRecorder` phases, `--trace` launch flag + `MDR_IPC_TRACE` gating |
+| [`docs/observability.md`](docs/observability.md) | `[ipc]` + `[startup]` + `[matching]` log schemas, `#[mdr_command]` macro contract, `StartupRecorder` phases, `--trace` launch flag + `MDR_IPC_TRACE` gating |
 | [`docs/best-practices-common/`](docs/best-practices-common/) | **Project-agnostic, stack-specific** patterns (composition, rerender, JS perf, bundle hygiene, Tauri v2). Distilled from external sources with attribution. Project-specific docs above always override. |
 | [`docs/best-practices-project/`](docs/best-practices-project/) | **mdownreview-specific** knowledge files: hot-paths, bug categories, test patterns. Single-area files for use by review agents under the per-knowledge-file dispatch protocol. |
 
