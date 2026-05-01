@@ -337,6 +337,13 @@ fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
     create_app_window(app, &new_label, "mdownreview")
         .map(|_| {
             reg.register(new_label.clone(), registry::WindowKind::FileOnly);
+            // Issue #338 / Group A foundation: every `WindowRegistry::register`
+            // site routes through `window_scope::extend_window_scope` so the
+            // chokepoint discipline is structural, not customary. Empty FileOnly
+            // windows have no files to grant scope for — the call is a
+            // documented no-op for this variant — but skipping it would
+            // normalise the bypass for future maintainers.
+            window_scope::extend_window_scope(app, &new_label, &registry::WindowKind::FileOnly, &[]);
             log::info!("[window] new-window: created {new_label}");
         })
         .map_err(|e| format!("failed to create window: {e}"))
