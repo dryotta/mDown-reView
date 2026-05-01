@@ -92,13 +92,15 @@ async function ensureKatexCssLoaded(): Promise<void> {
 const REMARK_PLUGINS = [remarkFrontmatter, remarkGfm, remarkMath, remarkGithubAlerts] as const;
 
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
-  // We still need `data` for the `<FrontmatterBlock>` rendering, but we
-  // discard the helper's `body` output and feed the raw `content` into
-  // every downstream consumer (extractHeadings, lines, ReactMarkdown,
-  // useFindInPage, the remote-image scan) so that `data-source-line`
+  // Iter 2 of issue #280 made the visual-viewer pipeline file-coordinate
+  // end-to-end. We retain `parseFrontmatter` only to extract `data` for
+  // `<FrontmatterBlock>`; the matching `body` field (frontmatter-stripped
+  // content) is no longer consumed — every downstream consumer
+  // (extractHeadings, lines split, ReactMarkdown, useFindInPage, the
+  // remote-image scan) now receives the raw `content` so `data-source-line`
   // stamps and source-authored comment line numbers share the same
   // file-coord origin. See issue #280 / Rule 31.
-  const { data } = useMemo(() => parseFrontmatter(content), [content]);
+  const data = useMemo(() => parseFrontmatter(content), [content]);
   const headings = useMemo(() => extractHeadings(content), [content]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const readingContainerRef = useRef<HTMLDivElement>(null);
