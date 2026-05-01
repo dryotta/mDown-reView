@@ -298,7 +298,7 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
   //   4. 6d step 3 explicitly re-runs 6a-noaction against forward-fix Implementation Summaries.
   //   5. Step 8.5 retro context block + the PR comment include scope non-action data so
   //      Phase 2 synthesis can consume it as cross-run pattern signal.
-  //   6. State file frontmatter carries `state_schema_version: 1` for forward compatibility.
+  //   6. State file frontmatter carries `state_schema_version: 2` for forward compatibility.
 
   it("Step 6 has a 6a-noaction sub-step that parses Did NOT do (scope) from implementer summaries", () => {
     expect(SKILL).toMatch(/#####\s+6a-noaction/);
@@ -435,7 +435,10 @@ describe("iterate-one-issue skill — consume implementer scope non-action repor
     expect(zeroG).toBeGreaterThan(-1);
     expect(zeroH).toBeGreaterThan(zeroG);
     const block = SKILL.slice(zeroG, zeroH);
-    expect(block).toMatch(/state_schema_version:\s*1/);
+    // Bumped from 1 → 2 by issue #316 Wave 1 (added Env-flake retries field
+    // to Step 8-record's iteration block). The schema-version field exists;
+    // the value is part of the contract, so pin the current version explicitly.
+    expect(block).toMatch(/state_schema_version:\s*2/);
   });
 
   it("worked example — synthetic 'rustfmt outside declared files' is locked into SKILL.md text", () => {
@@ -925,5 +928,174 @@ describe("test-expert agent — bypass-vector enumeration for source-byte regres
     expect(ruleSpan).toMatch(/include_str!/);
     expect(ruleSpan).toMatch(/contains/);
     expect(ruleSpan).toMatch(/Trigger:/);
+  });
+});
+
+const VALIDATOR_PATH = resolve(
+  __dirname,
+  "../../.claude/agents/exe-implementation-validator.md",
+);
+const VALIDATOR = readFileSync(VALIDATOR_PATH, "utf8");
+
+const TEST_STRATEGY_PATH = resolve(__dirname, "../../docs/test-strategy.md");
+const TEST_STRATEGY = readFileSync(TEST_STRATEGY_PATH, "utf8");
+
+describe("exe-implementation-validator + iterate-one-issue  ENVIRONMENTAL native-E2E classification rule 27 (issue #316)", () => {
+  it("validator doc declares the three host-state signatures verbatim", () => {
+    expect(VALIDATOR).toContain("0x8007139F");
+    expect(VALIDATOR).toContain("ERROR_SERVICE_NOT_ACTIVE");
+    expect(VALIDATOR).toContain("CDP HTTP did not become ready");
+  });
+
+  it("validator doc declares the diff-scope precondition path list", () => {
+    expect(VALIDATOR).toContain("e2e/native/");
+    expect(VALIDATOR).toContain("src-tauri/src/lib.rs");
+    expect(VALIDATOR).toContain("src-tauri/src/main.rs");
+    expect(VALIDATOR).toContain("src-tauri/tauri.conf.json");
+    expect(VALIDATOR).toContain("src-tauri/Cargo.toml");
+    expect(VALIDATOR).toContain("src-tauri/Cargo.lock");
+    expect(VALIDATOR).toContain("src-tauri/build.rs");
+    expect(VALIDATOR).toContain("playwright.native.config.ts");
+    expect(VALIDATOR).toContain("scripts/stage-cli.mjs");
+    expect(VALIDATOR).toContain("src-tauri/binaries");
+  });
+
+  it("validator doc declares the structured YAML output marker", () => {
+    expect(VALIDATOR).toContain("<!-- iterate-validator-classification -->");
+    expect(VALIDATOR).toContain("classification: ENVIRONMENTAL");
+    expect(VALIDATOR).toContain("suite: native-e2e");
+    expect(VALIDATOR).toContain("environmental_failure: true");
+    expect(VALIDATOR).toContain("retry_recommended: true");
+  });
+
+  it("validator doc has positive transcript example: HRESULT + non-native diff -> ENVIRONMENTAL", () => {
+    // Pin proximity: a transcript block contains a non-native diff path,
+    // both env-flake signatures, and the ENVIRONMENTAL verdict header,
+    // all within a single ~600-char window.
+    const positive = VALIDATOR.match(
+      /src-tauri\/tests\/watcher_emit_test\.rs[\s\S]{0,600}0x8007139F[\s\S]{0,600}CDP HTTP at http:\/\/localhost:9222\/json\/version did not become ready[\s\S]{0,600}### Native E2E: ENVIRONMENTAL/,
+    );
+    expect(
+      positive,
+      "validator must include a transcript fixture: non-native diff + 0x8007139F + CDP HTTP not ready -> ENVIRONMENTAL verdict",
+    ).not.toBeNull();
+  });
+
+  it("validator doc has negative transcript example: HRESULT + e2e/native diff -> FAIL", () => {
+    const negative = VALIDATOR.match(
+      /e2e\/native\/global-setup\.ts[\s\S]{0,600}0x8007139F[\s\S]{0,600}CDP HTTP[\s\S]{0,600}did not become ready[\s\S]{0,600}### Native E2E: FAIL[\s\S]{0,200}e2e\/native\/global-setup\.ts/,
+    );
+    expect(
+      negative,
+      "validator must include a transcript fixture: e2e/native/global-setup.ts diff + env signatures -> FAIL (env classification disqualified)",
+    ).not.toBeNull();
+  });
+
+  it("validator doc has negative transcript example: HRESULT + Rust startup diff -> FAIL", () => {
+    const negative = VALIDATOR.match(
+      /# Diff[\s\S]{0,200}src-tauri\/src\/lib\.rs[\s\S]{0,600}(?:0x8007139F|ERROR_SERVICE_NOT_ACTIVE)[\s\S]{0,600}CDP HTTP[\s\S]{0,600}did not become ready[\s\S]{0,600}### Native E2E: FAIL[\s\S]{0,200}src-tauri\/src\/lib\.rs/,
+    );
+    expect(
+      negative,
+      "validator must include a transcript fixture: src-tauri/src/lib.rs diff + env signatures -> FAIL (env classification disqualified)",
+    ).not.toBeNull();
+  });
+
+  it("validator doc has negative transcript example: real test failure (no env-flake signature) -> FAIL", () => {
+    // A real-failure transcript: assertion error and NO env-flake token,
+    // with a FAIL verdict that explicitly cites "no env-flake signature".
+    const realFail = VALIDATOR.match(
+      /expect\(received\)\.toBe\(expected\)[\s\S]{0,600}### Native E2E: FAIL[\s\S]{0,200}no env-flake signature/,
+    );
+    expect(
+      realFail,
+      "validator must include a transcript fixture: real assertion failure -> FAIL with explicit 'no env-flake signature' rationale",
+    ).not.toBeNull();
+    // Sanity: this transcript block must not contain the env-flake tokens
+    // (otherwise the proximity match is meaningless).
+    const blockStart = VALIDATOR.indexOf("expect(received).toBe(expected)");
+    const blockEnd = VALIDATOR.indexOf("no env-flake signature", blockStart);
+    const block = VALIDATOR.slice(blockStart, blockEnd);
+    expect(block).not.toMatch(/0x8007139F|ERROR_SERVICE_NOT_ACTIVE|CDP HTTP did not become ready/);
+  });
+
+  it("SKILL.md Step 6d.0 cites rule 27 in test-strategy.md", () => {
+    expect(SKILL).toContain("rule 27 in `docs/test-strategy.md`");
+    expect(SKILL).toContain("#### 6d.0");
+    expect(SKILL).toContain("classification: ENVIRONMENTAL");
+    expect(SKILL).toContain("suite: native-e2e");
+  });
+
+  it("SKILL.md Step 6d.0 declares retry-cap and free-from-budget semantics", () => {
+    expect(SKILL).toContain("One retry total");
+    expect(SKILL).toContain("Does NOT consume the 5-attempt forward-fix budget");
+  });
+
+  it("SKILL.md 8-record iteration block declares Env-flake retries field", () => {
+    expect(SKILL).toContain("Env-flake retries:");
+  });
+
+  it("test-strategy.md rule 27 cites issue #316 and the env-flake signatures", () => {
+    expect(TEST_STRATEGY).toMatch(/^27\. Native-E2E WebView2 host-state failures matching/m);
+    expect(TEST_STRATEGY).toContain("Issue #316");
+    expect(TEST_STRATEGY).toContain("0x8007139F");
+    expect(TEST_STRATEGY).toContain("ERROR_SERVICE_NOT_ACTIVE");
+    expect(TEST_STRATEGY).toContain("CDP HTTP did not become ready");
+    expect(TEST_STRATEGY).toContain("6d.0");
+    // Expanded path list (issue #316 forward-fixes): all 10 disqualifying paths.
+    expect(TEST_STRATEGY).toContain("e2e/native/");
+    expect(TEST_STRATEGY).toContain("src-tauri/src/lib.rs");
+    expect(TEST_STRATEGY).toContain("src-tauri/src/main.rs");
+    expect(TEST_STRATEGY).toContain("src-tauri/tauri.conf.json");
+    expect(TEST_STRATEGY).toContain("src-tauri/Cargo.toml");
+    expect(TEST_STRATEGY).toContain("src-tauri/Cargo.lock");
+    expect(TEST_STRATEGY).toContain("src-tauri/build.rs");
+    expect(TEST_STRATEGY).toContain("playwright.native.config.ts");
+    expect(TEST_STRATEGY).toContain("scripts/stage-cli.mjs");
+    expect(TEST_STRATEGY).toContain("src-tauri/binaries");
+  });
+
+  it("SKILL.md 6d step 1 excludes A from the failure bundle when ENVIRONMENTAL", () => {
+    // Wave-1 forward-fix (architect medium NIT + rubber-duck #3): without this carve-out,
+    // the forward-fix loop would treat the env-flake as an actionable A failure and pressure
+    // the implementer to "fix" host-state issues it cannot address from code.
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop");
+    expect(sixD, "Step 6d header not found").toBeGreaterThan(-1);
+    const stepSeven = SKILL.indexOf("### Step 7");
+    const sixDBlock = SKILL.slice(sixD, stepSeven);
+    expect(sixDBlock).toContain("Exclude validator A from the failure bundle when its classification is `ENVIRONMENTAL`");
+  });
+
+  it("SKILL.md 6d.0 outcomes enumerate scope-guard BLOCK as a 4th signal", () => {
+    // Wave-1 forward-fix (architect High BLOCK + bug-expert + rubber-duck): the env-retry
+    // outcome state machine must consider scope-guard BLOCKs alongside A/B/C; otherwise a
+    // scope-guard BLOCK would be silently dropped when validator A is ENVIRONMENTAL.
+    const sixD0 = SKILL.indexOf("#### 6d.0");
+    expect(sixD0, "Step 6d.0 header not found").toBeGreaterThan(-1);
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
+    const sixD0Block = SKILL.slice(sixD0, sixD);
+    expect(sixD0Block).toMatch(/scope-guard BLOCK from 6a-pre/);
+  });
+
+  it("SKILL.md 6d.0 outcomes enumerate hang/timeout as a terminal outcome (wave-2 forward-fix)", () => {
+    // Rubber-duck wave-2 #1: without a hang/timeout outcome, a retry that
+    // never returns leaves the orchestrator in undefined state.
+    const sixD0 = SKILL.indexOf("#### 6d.0");
+    expect(sixD0, "Step 6d.0 header not found").toBeGreaterThan(-1);
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
+    const sixD0Block = SKILL.slice(sixD0, sixD);
+    expect(sixD0Block).toMatch(/hangs \/ times out/);
+    expect(sixD0Block).toContain("timeout — suite: native-e2e");
+  });
+
+  it("SKILL.md 6d.0 serializes env-retry before 6d (no concurrent execution)", () => {
+    // Rubber-duck wave-2 #3: pin the serialization decision so the deleted
+    // concurrent-execution paragraph cannot be silently re-introduced.
+    const sixD0 = SKILL.indexOf("#### 6d.0");
+    expect(sixD0, "Step 6d.0 header not found").toBeGreaterThan(-1);
+    const sixD = SKILL.indexOf("#### 6d. Forward-fix loop", sixD0);
+    const sixD0Block = SKILL.slice(sixD0, sixD);
+    expect(sixD0Block).toContain("Sequencing guarantee");
+    expect(sixD0Block).not.toContain("in parallel with normal 6d attempt 1's forward-fix wave");
   });
 });
