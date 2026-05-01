@@ -199,6 +199,19 @@ interface OnboardingSlice {
   setDefaultHandler: () => Promise<void>;
 }
 
+// ── Outside-workspace allow slice (issue #338 / AC7) ──────────────────────
+// Per-tab opt-in to follow tier-2 (outside-workspace) references. NEVER
+// persisted (security: trust decisions must not silently survive an app
+// restart — same rationale as `allowedRemoteImageDocs`). Excluded from
+// `partialize` below; a regression test
+// (`__tests__/allowOutsideWorkspace.test.ts`) asserts the persisted
+// snapshot does not include this key.
+interface OutsideWorkspaceSlice {
+  allowOutsideWorkspace: Set<string>;
+  allowOutsideForTab: (tabPath: string) => void;
+  disallowOutsideForTab: (tabPath: string) => void;
+}
+
 // ── Combined store ─────────────────────────────────────────────────────────
 
 export type Store = WorkspaceSlice &
@@ -211,7 +224,8 @@ export type Store = WorkspaceSlice &
   ViewerPrefsSlice &
   TabHistorySlice &
   CommentsSlice &
-  MermaidPopoutSlice;
+  MermaidPopoutSlice &
+  OutsideWorkspaceSlice;
 
 export const useStore = create<Store>()(
   persist(
@@ -272,6 +286,24 @@ export const useStore = create<Store>()(
       sidecarConfigDialogOpen: false,
       openSidecarConfig: () => set({ sidecarConfigDialogOpen: true }),
       closeSidecarConfig: () => set({ sidecarConfigDialogOpen: false }),
+
+      // Outside-workspace allow slice (issue #338 / AC7).
+      // Session-only — see comment on `OutsideWorkspaceSlice` and the
+      // exclusion in `partialize` below.
+      allowOutsideWorkspace: new Set<string>(),
+      allowOutsideForTab: (tabPath) =>
+        set((s) =>
+          s.allowOutsideWorkspace.has(tabPath)
+            ? s
+            : { allowOutsideWorkspace: new Set([...s.allowOutsideWorkspace, tabPath]) }
+        ),
+      disallowOutsideForTab: (tabPath) =>
+        set((s) => {
+          if (!s.allowOutsideWorkspace.has(tabPath)) return s;
+          const next = new Set(s.allowOutsideWorkspace);
+          next.delete(tabPath);
+          return { allowOutsideWorkspace: next };
+        }),
 
       // Watcher
       ghostEntries: [],
