@@ -4,8 +4,36 @@
 // `src/__tests__/event-chokepoint.test.ts` for the architectural assertion.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { debug } from "@/logger";
 
 export type { UnlistenFn };
+
+/**
+ * Lazily-resolved current-window label. Tauri's `getCurrentWebviewWindow()`
+ * reads `window.__TAURI_INTERNALS__.metadata` which is undefined in
+ * jsdom (vitest), so eager evaluation at module load breaks every
+ * test that imports anything that imports this file. Resolve on
+ * first call instead and cache the result. The first invocation
+ * also logs the label so the log file shows which window each
+ * subsequent `[tauri-events] received` line came from.
+ *
+ * The fallback `"unknown"` is purely a test-environment placeholder;
+ * in production Tauri always populates the metadata.
+ */
+let cachedLabel: string | null = null;
+function currentLabel(): string {
+  if (cachedLabel !== null) return cachedLabel;
+  try {
+    cachedLabel = getCurrentWebviewWindow().label;
+  } catch {
+    cachedLabel = "unknown";
+  }
+  void debug(
+    `[tauri-events] listener-target initialised — window-label=${cachedLabel}`,
+  );
+  return cachedLabel;
+}
 
 /**
  * Discriminated map of every Tauri event the frontend subscribes to.
@@ -77,10 +105,37 @@ export type EventName = keyof EventPayloads;
  * Subscribe to a typed Tauri event. The callback receives the deserialized
  * payload directly (no event wrapper). Returns an `UnlistenFn` promise that
  * callers must `.then(fn => fn()).catch(() => {})` in their effect cleanup.
+ *
+ * **Window-scoped by default.** All listeners register with
+ * `target = WebviewWindow { label: <this-window-label> }` so Tauri's
+ * `match_any_or_filter` (verified in `tauri::event::listener::match_any_or_filter`)
+ * delivers `emit_to(label, …)` events ONLY to listeners whose label
+ * matches the emit target — and `emit(…)` (broadcast) still fires
+ * every listener because broadcasts pass `None` filter and `unwrap_or(true)`
+ * matches every label. Without this scoping, the default
+ * `EventTarget::Any` listener short-circuits the filter and EVERY
+ * window receives EVERY `emit_to` — re-introducing the multi-window
+ * broadcast bug at the listener layer (rule
+ * `multiwin-window-scoped-events` in
+ * `docs/best-practices-common/tauri/v2-patterns.md`).
+ *
+ * Logs each receive at debug level with the window label so a log
+ * file from a multi-window session shows which window's listener
+ * fired for every event.
  */
 export function listenEvent<K extends EventName>(
   name: K,
   callback: (payload: EventPayloads[K]) => void,
 ): Promise<UnlistenFn> {
-  return listen<EventPayloads[K]>(name, (event) => callback(event.payload));
+  const label = currentLabel();
+  return listen<EventPayloads[K]>(
+    name,
+    (event) => {
+      void debug(
+        `[tauri-events] received event=${name} window-label=${label}`,
+      );
+      callback(event.payload);
+    },
+    { target: { kind: "WebviewWindow", label } },
+  );
 }

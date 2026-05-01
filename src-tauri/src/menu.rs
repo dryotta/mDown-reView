@@ -101,11 +101,27 @@ pub fn dispatch_menu_event<E: MenuEmitter>(
     firing_label: &str,
 ) -> bool {
     let Some((event_name, delivery)) = menu_event_delivery(action, firing_label) else {
+        log::info!(
+            "[menu] dispatch action={action:?} firing-label={firing_label:?} \
+             delivery=none (rust-handled or unknown)"
+        );
         return false;
     };
     match delivery {
-        MenuEventDelivery::Targeted(target) => emitter.emit_to(target, event_name),
-        MenuEventDelivery::Broadcast => emitter.broadcast(event_name),
+        MenuEventDelivery::Targeted(target) => {
+            log::info!(
+                "[menu] dispatch action={action:?} firing-label={firing_label:?} \
+                 event={event_name:?} delivery=emit_to(target={target:?})"
+            );
+            emitter.emit_to(target, event_name);
+        }
+        MenuEventDelivery::Broadcast => {
+            log::info!(
+                "[menu] dispatch action={action:?} firing-label={firing_label:?} \
+                 event={event_name:?} delivery=broadcast"
+            );
+            emitter.broadcast(event_name);
+        }
     }
     true
 }

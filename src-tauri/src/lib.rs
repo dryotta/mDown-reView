@@ -786,8 +786,10 @@ pub fn run() {
             // on whatever window the user is actually looking at.
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
+                log::info!("[menu] on_menu_event raw-id={id:?}");
 
                 let Some((encoded_label, action)) = parse_menu_id(id) else {
+                    log::info!("[menu] raw-id has no label prefix — ignoring");
                     return;
                 };
 
@@ -802,6 +804,11 @@ pub fn run() {
                 let label: &str = label_owned.as_str();
                 #[cfg(not(target_os = "macos"))]
                 let label: &str = encoded_label;
+
+                log::info!(
+                    "[menu] resolved encoded-label={encoded_label:?} \
+                     firing-label={label:?} action={action:?}"
+                );
 
                 let Some(window) = app.get_webview_window(label) else {
                     log::warn!("[menu] no window for label {label:?} (action {action:?})");
