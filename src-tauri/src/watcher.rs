@@ -150,6 +150,21 @@ impl WatcherState {
         out
     }
 
+    /// Pick a deterministic "first" tree-watched directory across all
+    /// windows. Used by the temporary `commands::fs::ensure_readable` guard
+    /// (issue #338 group A2) as the `workspace_root` argument to
+    /// `core::security::system_locations::classify`. Sorts the merged set
+    /// of watched dirs by path so the choice is stable across runs even
+    /// though `tree_watched_dirs` is `HashMap<String, HashSet<PathBuf>>`.
+    /// Returns `None` when no window has registered a tree-watched dir
+    /// yet (ensure_readable will fail closed in that case).
+    pub fn first_watched_dir(&self) -> Option<PathBuf> {
+        let guard = self.tree_watched_dirs.lock().ok()?;
+        let mut all: Vec<PathBuf> = guard.values().flat_map(|s| s.iter().cloned()).collect();
+        all.sort();
+        all.into_iter().next()
+    }
+
     /// Clone the per-window tree-watched-dir map for callers that need to
     /// compute targeted emit lists (e.g. `mrsf_targets`) without holding the
     /// internal lock. Returns an empty map on lock poisoning so callers can

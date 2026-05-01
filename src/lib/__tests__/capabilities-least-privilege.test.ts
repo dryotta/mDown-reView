@@ -7,15 +7,36 @@ const CAPABILITIES_PATH = resolve(
   "../../../src-tauri/capabilities/default.json",
 );
 
+const TAURI_CONF_PATH = resolve(
+  __dirname,
+  "../../../src-tauri/tauri.conf.json",
+);
+
 interface Capabilities {
   identifier: string;
   windows: string[];
   permissions: string[];
 }
 
+interface TauriConf {
+  app: {
+    security: {
+      assetProtocol?: {
+        enable: boolean;
+        scope: string[];
+      };
+    };
+  };
+}
+
 function loadCapabilities(): Capabilities {
   const raw = readFileSync(CAPABILITIES_PATH, "utf-8");
   return JSON.parse(raw) as Capabilities;
+}
+
+function loadTauriConf(): TauriConf {
+  const raw = readFileSync(TAURI_CONF_PATH, "utf-8");
+  return JSON.parse(raw) as TauriConf;
 }
 
 const OVERLY_BROAD_PERMISSIONS = [
@@ -85,5 +106,28 @@ describe("Tauri capabilities least-privilege", () => {
 
   it("scopes capabilities to main and dynamically created windows", () => {
     expect(caps.windows).toEqual(["main", "win-*"]);
+  });
+});
+
+// Issue #338 / Group A3 — Tiered link & asset policy (foundation).
+// The static `assetProtocol.scope` in tauri.conf.json must be a non-matching
+// seed; real allowances are extended at runtime via
+// `app.asset_protocol_scope().allow_directory(...)` from src-tauri/src/lib.rs
+// when each window's WindowKind::Folder / WindowKind::FileOnly is registered.
+// See rule 17 in docs/security.md (least-privilege asset-protocol scope) and
+// the runtime-narrowing model. We avoid snapshotting the entire conf JSON to
+// prevent drift on every unrelated capability/CSP edit (test-strategy.md
+// IPC mock hygiene principle: assert the load-bearing field, not the document).
+describe("Tauri assetProtocol scope (issue #338, Group A3)", () => {
+  const conf = loadTauriConf();
+  const scope = conf.app.security.assetProtocol?.scope;
+
+  it("is enabled (the protocol itself stays on for in-workspace assets)", () => {
+    expect(conf.app.security.assetProtocol?.enable).toBe(true);
+  });
+
+  it("uses a non-matching seed, not the legacy [\"**\"] glob", () => {
+    expect(scope).toEqual(["/__mdownreview_seed__/__never__"]);
+    expect(scope).not.toEqual(["**"]);
   });
 });

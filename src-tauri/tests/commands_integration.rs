@@ -1,5 +1,5 @@
 use mdown_review_lib::commands::{
-    read_binary_file, read_dir_inner, read_text_file, search_in_document,
+    read_binary_file_inner, read_dir_inner, read_text_file_inner, search_in_document,
     stat_file_inner, CommentsChangedEvent, LaunchArgs, MrsfComment, MrsfSidecar,
 };
 use mdown_review_lib::core::sidecar::{load_sidecar, save_sidecar};
@@ -14,7 +14,7 @@ fn read_text_file_returns_utf8_content() {
     let mut tmp = tempfile::NamedTempFile::new().unwrap();
     writeln!(tmp, "Hello, world!").unwrap();
     let path = tmp.path().to_str().unwrap().to_string();
-    let result = read_text_file(path);
+    let result = read_text_file_inner(path);
     assert!(result.is_ok());
     assert!(result.unwrap().content.contains("Hello, world!"));
 }
@@ -25,7 +25,7 @@ fn read_text_file_returns_size_and_line_count() {
     // 3 lines, each terminated with \n → 3 lines per str::lines
     tmp.write_all(b"alpha\nbeta\ngamma\n").unwrap();
     let path = tmp.path().to_str().unwrap().to_string();
-    let result = read_text_file(path).unwrap();
+    let result = read_text_file_inner(path).unwrap();
     assert_eq!(result.content, "alpha\nbeta\ngamma\n");
     assert_eq!(result.size_bytes, 17);
     assert_eq!(result.line_count, 3);
@@ -37,7 +37,7 @@ fn read_text_file_rejects_binary() {
     tmp.write_all(&[0x48, 0x65, 0x00, 0x6c, 0x6c, 0x6f])
         .unwrap(); // null byte in first 512
     let path = tmp.path().to_str().unwrap().to_string();
-    let result = read_text_file(path);
+    let result = read_text_file_inner(path);
     assert_eq!(result.unwrap_err(), "binary_file");
 }
 
@@ -52,7 +52,7 @@ fn read_text_file_returns_mtime_ms() {
     let mut tmp = tempfile::NamedTempFile::new().unwrap();
     writeln!(tmp, "hello").unwrap();
     let path = tmp.path().to_str().unwrap().to_string();
-    let result = read_text_file(path).unwrap();
+    let result = read_text_file_inner(path).unwrap();
     let mtime_ms = result
         .mtime_ms
         .expect("read_text_file must return mtime_ms on supported FS");
@@ -75,7 +75,7 @@ fn read_text_file_rejects_too_large() {
         tmp.write_all(&chunk).unwrap();
     }
     let path = tmp.path().to_str().unwrap().to_string();
-    let result = read_text_file(path);
+    let result = read_text_file_inner(path);
     assert_eq!(result.unwrap_err(), "file_too_large");
 }
 
@@ -345,7 +345,7 @@ fn read_binary_file_returns_base64() {
     let png_bytes: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
     std::fs::write(&path, &png_bytes).unwrap();
 
-    let result = read_binary_file(path.to_string_lossy().into_owned());
+    let result = read_binary_file_inner(path.to_string_lossy().into_owned());
     assert!(result.is_ok());
     let b64 = result.unwrap();
     use base64::Engine;
@@ -362,14 +362,14 @@ fn read_binary_file_rejects_too_large() {
     let data = vec![0u8; 11 * 1024 * 1024];
     std::fs::write(&path, &data).unwrap();
 
-    let result = read_binary_file(path.to_string_lossy().into_owned());
+    let result = read_binary_file_inner(path.to_string_lossy().into_owned());
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), "file_too_large");
 }
 
 #[test]
 fn read_binary_file_missing_file() {
-    let result = read_binary_file("/nonexistent/file.png".into());
+    let result = read_binary_file_inner("/nonexistent/file.png".into());
     assert!(result.is_err());
 }
 

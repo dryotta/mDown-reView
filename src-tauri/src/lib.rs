@@ -710,8 +710,32 @@ pub fn run() {
             });
             if let Some(ref canonical) = first_canonical {
                 reg.register("main".to_string(), registry::WindowKind::Folder(canonical.clone()));
+                // Issue #338 / Group A3: narrow asset-protocol scope at runtime.
+                // The seed in tauri.conf.json (`/__mdownreview_seed__/__never__`)
+                // matches no real file; we extend at registration time so the
+                // protocol can serve assets only from windows we actually opened.
+                // Failure must NOT abort window registration (Reliable pillar) —
+                // log via tracing per docs/observability.md.
+                if let Err(e) = app.asset_protocol_scope().allow_directory(canonical, true) {
+                    tracing::warn!(target: "asset-scope", "[asset-scope] register folder {} failed: {e}", canonical.display());
+                } else {
+                    tracing::debug!(target: "asset-scope", "[asset-scope] folder allowed: {}", canonical.display());
+                }
             } else {
                 reg.register("main".to_string(), registry::WindowKind::FileOnly);
+                // FileOnly main window: allow each orphan file's parent
+                // directory non-recursively so siblings in those dirs do
+                // not become silently readable.
+                for file_str in &launch_args.files {
+                    let file = std::path::Path::new(file_str);
+                    if let Some(parent) = file.parent() {
+                        if let Err(e) = app.asset_protocol_scope().allow_directory(parent, false) {
+                            tracing::warn!(target: "asset-scope", "[asset-scope] register file-parent {} failed: {e}", parent.display());
+                        } else {
+                            tracing::debug!(target: "asset-scope", "[asset-scope] file-parent allowed: {}", parent.display());
+                        }
+                    }
+                }
             }
 
             // Create additional windows for extra folders (beyond the first),
@@ -732,6 +756,13 @@ pub fn run() {
                         match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
                             Ok(_new_win) => {
                                 reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
+                                // Issue #338 / Group A3: narrow asset-protocol
+                                // scope. See main-window branch above for rationale.
+                                if let Err(e) = app_handle.asset_protocol_scope().allow_directory(&path, true) {
+                                    tracing::warn!(target: "asset-scope", "[asset-scope] register folder {} failed: {e}", path.display());
+                                } else {
+                                    tracing::debug!(target: "asset-scope", "[asset-scope] folder allowed: {}", path.display());
+                                }
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],

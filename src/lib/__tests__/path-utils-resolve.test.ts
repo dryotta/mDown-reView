@@ -77,3 +77,43 @@ describe("resolveWorkspacePath", () => {
     expect(resolveWorkspacePath(root, baseDir, "../../sibling.md")).toBeNull();
   });
 });
+
+describe("resolveWorkspacePath UNC rejection (issue #338 foundation)", () => {
+  const root = "/work/repo";
+  const baseDir = "/work/repo/docs";
+
+  it("rejects UNC path with literal double-backslash", () => {
+    expect(
+      resolveWorkspacePath(root, baseDir, "\\\\server\\share\\x.md"),
+    ).toBeNull();
+  });
+
+  it("rejects UNC path with URL-encoded double-backslash", () => {
+    expect(
+      resolveWorkspacePath(root, baseDir, "%5C%5Cserver%5Cshare%5Cx.md"),
+    ).toBeNull();
+  });
+
+  it("rejects UNC path with mixed-separator", () => {
+    expect(
+      resolveWorkspacePath(root, baseDir, "\\\\server/share/x.md"),
+    ).toBeNull();
+  });
+
+  it("rejects POSIX-encoded forward-slash UNC after decode", () => {
+    expect(
+      resolveWorkspacePath(root, baseDir, "//server/share/x.md"),
+    ).toBeNull();
+  });
+
+  it("still resolves normal relative paths within workspace", () => {
+    expect(resolveWorkspacePath(root, baseDir, "./sibling.md")).toEqual({
+      path: "/work/repo/docs/sibling.md",
+      fragment: null,
+    });
+    expect(resolveWorkspacePath(root, baseDir, "../sibling.md")).toEqual({
+      path: "/work/repo/sibling.md",
+      fragment: null,
+    });
+  });
+});

@@ -62,6 +62,14 @@ export function resolveWorkspacePath(
     return null;
   }
 
+  // UNC reject (issue #338 foundation): `\\server\share\...` and the URL-encoded
+  // form `%5C%5Cserver%5Cshare%5C...` are tier-3 absolute paths, not
+  // workspace-root-relative. Detect BEFORE the `\\`→`/` normalize; the post-decode
+  // form already contains literal backslashes. Defense-in-depth at the rest level
+  // catches encoded UNC pre-decode (decodeURIComponent bug protection).
+  if (/^\\\\/.test(decoded) || /^\/\//.test(decoded)) return null;
+  if (/^%5[Cc]%5[Cc]/.test(rest)) return null;
+
   // Reject Windows-drive absolute prefixes — those are OS roots, not
   // workspace-relative.
   const normalized = decoded.replace(/\\/g, "/");

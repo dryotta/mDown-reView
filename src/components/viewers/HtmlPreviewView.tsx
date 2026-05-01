@@ -7,7 +7,7 @@ import {
   setFileViewerPref,
 } from "@/lib/tauri-commands";
 import { dirname } from "@/lib/path-utils";
-import { routeLinkClick } from "@/lib/url-policy";
+import { assertNeverLinkRoute, routeLinkClick } from "@/lib/url-policy";
 import { rewriteRemoteImages } from "@/lib/html-image-rewrite";
 import { injectAnchorTitles } from "@/lib/html-anchor-titles";
 import { useStore } from "@/store";
@@ -273,12 +273,22 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                       event.preventDefault();
                       scrollIframeToFragment(doc, route.fragment);
                       return;
-                    case "blocked":
+                    case "absolute-blocked":
+                    case "scheme-blocked":
+                    case "other-blocked": {
+                      // Iter 1 of #338 keeps the prior "warn + drop" UX for
+                      // every blocked variant; Group C wires the tier-3
+                      // popover.
                       event.preventDefault();
+                      const detail =
+                        route.kind === "scheme-blocked" ? route.scheme :
+                        route.kind === "absolute-blocked" ? route.flavor :
+                        route.reason;
                       void warn(
-                        `HtmlPreviewView: blocked iframe link (${route.reason}): ${route.href}`
+                        `HtmlPreviewView: blocked iframe link (${route.kind}/${detail}): ${route.href}`
                       );
                       return;
+                    }
                     case "external":
                       event.preventDefault();
                       openExternalUrl(route.href).catch((e) =>
@@ -286,6 +296,9 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                       );
                       return;
                     case "workspace":
+                    case "workspace-outside":
+                      // `workspace-outside` reserved for Group B's IPC
+                      // classifier; treat as workspace in iter 1.
                       event.preventDefault();
                       if (filePath && route.path === filePath) {
                         // Same-file link — scroll inside this iframe; openFile
@@ -302,6 +315,8 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                         useStore.getState().openFile(route.path);
                       }
                       return;
+                    default:
+                      assertNeverLinkRoute(route);
                   }
                 });
               };

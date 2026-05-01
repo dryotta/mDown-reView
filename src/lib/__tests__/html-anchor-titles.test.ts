@@ -38,7 +38,7 @@ describe("tooltipForRoute", () => {
   });
 
   it("returns null for blocked routes (caller should omit title)", () => {
-    const route: LinkRoute = { kind: "blocked", href: "javascript:x", reason: "blocked-scheme" };
+    const route: LinkRoute = { kind: "scheme-blocked", href: "javascript:x", scheme: "javascript" };
     expect(tooltipForRoute(route, "/wk")).toBeNull();
   });
 

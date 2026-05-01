@@ -189,8 +189,24 @@ pub struct TextFileResult {
 /// platform/FS does not expose it). The file handle's metadata is read
 /// before the body so content + mtime come from the same `open()` and the
 /// caller cannot observe a torn (content_v1, mtime_v2) pair.
+///
+/// Workspace-allowlisted: the path is run through [`ensure_readable`] before
+/// any I/O. Mirrors `stat_file` so a malicious renderer cannot read arbitrary
+/// disk paths via the IPC.
 #[mdr_command]
-pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
+pub fn read_text_file(
+    path: String,
+    state: tauri::State<'_, crate::watcher::WatcherState>,
+) -> Result<TextFileResult, String> {
+    let canonical = ensure_readable(&path, state.inner())?;
+    read_text_file_inner(canonical.to_string_lossy().into_owned())
+}
+
+/// Inner implementation, decoupled from `tauri::State` and from the workspace
+/// guard so unit/integration tests can exercise the pure-I/O behaviour
+/// (binary detection, size cap, mtime piggyback) without spinning up a
+/// `tauri::App` or registering a workspace.
+pub fn read_text_file_inner(path: String) -> Result<TextFileResult, String> {
     use std::io::Read;
 
     // Open once; pull metadata + content from the same handle so mtime
@@ -240,8 +256,21 @@ pub fn read_text_file(path: String) -> Result<TextFileResult, String> {
 }
 
 /// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
+///
+/// Workspace-allowlisted via [`ensure_readable`].
 #[mdr_command]
-pub fn read_binary_file(path: String) -> Result<String, String> {
+pub fn read_binary_file(
+    path: String,
+    state: tauri::State<'_, crate::watcher::WatcherState>,
+) -> Result<String, String> {
+    let canonical = ensure_readable(&path, state.inner())?;
+    read_binary_file_inner(canonical.to_string_lossy().into_owned())
+}
+
+/// Inner implementation of [`read_binary_file`], without the workspace guard.
+/// Mirrors [`read_text_file_inner`] so tests can exercise the pure-I/O
+/// behaviour (size cap, base64 encode) without touching `WatcherState`.
+pub fn read_binary_file_inner(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| {
         tracing::error!("[rust] command error: {}", e);
         e.to_string()
@@ -254,6 +283,67 @@ pub fn read_binary_file(path: String) -> Result<String, String> {
 
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+/// Reject a read request whose canonical path is either outside the watcher
+/// allowlist OR inside a system-locations bucket per
+/// [`crate::core::security::system_locations`]. Used by [`read_text_file`] and
+/// [`read_binary_file`] to close the "no workspace guard" gap called out in
+/// issue #338's review of the existing IPC surface.
+///
+/// Returns the canonical [`PathBuf`] on success so callers perform the actual
+/// I/O against the canonicalized form (defense-in-depth against TOCTOU
+/// symlink swaps between the guard check and the read).
+///
+/// All rejection paths return the literal string `"path not in workspace"` —
+/// matching the existing [`stat_file_inner`] error so the renderer can
+/// uniformly surface workspace-guard rejections.
+///
+/// TODO(#338-group-b): when group B lands the full canonicalize-then-allowlist
+/// semantics with split read/write allowlists this helper folds into the new
+/// chokepoint. Logged via `tracing::warn!` under target `fs-guard` so the
+/// review-time grep for the prefix returns every guard event.
+pub fn ensure_readable(
+    path_str: &str,
+    state: &crate::watcher::WatcherState,
+) -> Result<std::path::PathBuf, String> {
+    use crate::core::security::system_locations::{classify, Tier};
+
+    let raw = std::path::Path::new(path_str);
+    // First containment check on the raw path (cheap; matches existing
+    // `stat_file_inner` pattern at line ~292).
+    if !state.is_path_allowed(raw) {
+        tracing::warn!(target: "fs-guard", "[fs-guard] path outside workspace: {}", path_str);
+        return Err("path not in workspace".into());
+    }
+    // Then canonicalize and re-check containment + system-locations.
+    let canonical = canonicalize_no_verbatim(raw)
+        .map_err(|e| format!("canonicalize failed: {e}"))?;
+    if !state.is_path_allowed(&canonical) {
+        tracing::warn!(target: "fs-guard", "[fs-guard] canonical path outside workspace: {}", canonical.display());
+        return Err("path not in workspace".into());
+    }
+    // Workspace root for `classify()`: use the FIRST (sorted) watched dir for
+    // a deterministic canonical-prefix check. Group B will replace this with
+    // the explicit workspace-root state owned by the new chokepoint.
+    let workspace_root = state
+        .first_watched_dir()
+        .ok_or_else(|| "no workspace registered".to_string())?;
+    match classify(&canonical, &workspace_root) {
+        Ok(Tier::Inside) => Ok(canonical),
+        Ok(Tier::Outside) => {
+            tracing::warn!(target: "fs-guard", "[fs-guard] outside workspace (tier 2): {}", canonical.display());
+            Err("path not in workspace".into())
+        }
+        Ok(Tier::System { flavor }) => {
+            tracing::warn!(target: "fs-guard", "[fs-guard] system path blocked ({:?}): {}", flavor, canonical.display());
+            Err("path not in workspace".into())
+        }
+        Err(e) => {
+            tracing::warn!(target: "fs-guard", "[fs-guard] non-canonical: {} reason={:?}", canonical.display(), e);
+            Err("path not in workspace".into())
+        }
+    }
 }
 
 /// Lightweight `stat`: returns just the byte size of a file, with no content

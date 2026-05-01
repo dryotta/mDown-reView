@@ -12,7 +12,7 @@ import { getSharedHighlighter } from "@/lib/shiki";
 import { openExternalUrl } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
 import { dirname } from "@/lib/path-utils";
-import { routeLinkClick } from "@/lib/url-policy";
+import { assertNeverLinkRoute, routeLinkClick } from "@/lib/url-policy";
 import { tooltipForRoute } from "@/lib/html-anchor-titles";
 import { useStore } from "@/store";
 import { lazyWithSuspense } from "../lazy";
@@ -115,10 +115,21 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
         case "fragment":
           // In-document scroll — let the browser handle it natively.
           return;
-        case "blocked":
+        case "absolute-blocked":
+        case "scheme-blocked":
+        case "other-blocked": {
+          // Iter 1 of #338 keeps the prior "warn + drop" UX for every
+          // blocked variant; Group C wires the tier-3 popover. Reason field
+          // varies per kind so we log the discriminator + the per-kind
+          // detail uniformly.
           e.preventDefault();
-          void warn(`MarkdownViewer: blocked link (${route.reason}): ${route.href}`);
+          const detail =
+            route.kind === "scheme-blocked" ? route.scheme :
+            route.kind === "absolute-blocked" ? route.flavor :
+            route.reason;
+          void warn(`MarkdownViewer: blocked link (${route.kind}/${detail}): ${route.href}`);
           return;
+        }
         case "external":
           e.preventDefault();
           openExternalUrl(route.href).catch((err) =>
@@ -126,6 +137,11 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
           );
           return;
         case "workspace":
+        case "workspace-outside":
+          // `workspace-outside` is reserved for Group B's IPC classifier and
+          // is not yet emitted by `routeLinkClick` in iter 1; treat it like
+          // `workspace` for now to preserve the prior behavior under the
+          // missed-UNC bug A4 just fixed.
           e.preventDefault();
           if (route.path === filePath) {
             // Same-file link — file is already active; openFile would be a
@@ -144,6 +160,8 @@ function makeAnchorComponent(filePath: string, workspaceRoot: string) {
             useStore.getState().openFile(route.path);
           }
           return;
+        default:
+          assertNeverLinkRoute(route);
       }
     };
     return (
