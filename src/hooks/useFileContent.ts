@@ -3,7 +3,7 @@ import { readTextFile, statFile } from "@/lib/tauri-commands";
 import { getFileCategory } from "@/lib/file-types";
 import { useStore } from "@/store/index";
 
-export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "audio" | "error";
+export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "error";
 
 export interface FileContent {
   status: FileStatus;
@@ -45,10 +45,6 @@ export function useFileContent(path: string): FileContent {
 
     if (getFileCategory(path) === "image") {
       setState({ status: "image" }); // eslint-disable-line react-hooks/set-state-in-effect
-      return;
-    }
-    if (getFileCategory(path) === "audio") {
-      setState({ status: "audio" });
       return;
     }
 

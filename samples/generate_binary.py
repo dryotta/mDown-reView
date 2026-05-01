@@ -1,11 +1,15 @@
-"""Generate small audio + binary fixtures for samples/.
+"""Generate small binary fixtures for samples/binary/.
 
 Outputs:
-- samples/audio/tone-440hz-1s.wav          (1 second, 440 Hz, mono, 16-bit)
-- samples/audio/chord-1s.wav               (1 second, A-major chord, mono)
+- samples/binary/tone-440hz-1s.wav         (1 second, 440 Hz, mono, 16-bit WAV)
+- samples/binary/chord-1s.wav              (1 second, A-major chord, mono WAV)
 - samples/binary/archive.zip               (small ZIP with three text files)
 - samples/binary/random-256.bin            (256 bytes of pseudo-random data)
 - samples/binary/header-only.bin           (8-byte header — for binary placeholder)
+
+The two .wav files are kept here (not in a separate audio/ folder) because
+mdownreview no longer ships a dedicated audio viewer — audio files are
+displayed in BinaryPlaceholder like any other binary blob.
 
 All using stdlib only.
 """
@@ -48,16 +52,14 @@ def chord_samples(freqs: list[float], seconds: float, sample_rate: int = 22050, 
 
 
 def main() -> int:
-    audio = ROOT / "samples" / "audio"
     binary = ROOT / "samples" / "binary"
-    audio.mkdir(parents=True, exist_ok=True)
     binary.mkdir(parents=True, exist_ok=True)
 
-    # 1-second 440Hz tone (concert A)
-    write_wave(audio / "tone-440hz-1s.wav", sine_samples(440, 1.0))
+    # 1-second 440Hz tone (concert A) — exercises the audio icon in BinaryPlaceholder
+    write_wave(binary / "tone-440hz-1s.wav", sine_samples(440, 1.0))
 
     # 1-second A-major chord (A4 + C#5 + E5)
-    write_wave(audio / "chord-1s.wav", chord_samples([440.0, 554.37, 659.25], 1.0))
+    write_wave(binary / "chord-1s.wav", chord_samples([440.0, 554.37, 659.25], 1.0))
 
     # Small ZIP with three text files
     zip_path = binary / "archive.zip"
@@ -76,7 +78,7 @@ def main() -> int:
     # An 8-byte file with a recognizable header (no extension recognition).
     (binary / "header-only.bin").write_bytes(b"\x7fELF\x02\x01\x01\x00")
 
-    files = list(audio.glob("*.wav")) + list(binary.glob("*"))
+    files = list(binary.glob("*"))
     print(f"wrote {len(files)} fixture(s):")
     for f in sorted(files):
         size = f.stat().st_size

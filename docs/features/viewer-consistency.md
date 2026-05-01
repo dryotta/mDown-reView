@@ -54,7 +54,7 @@ These render structured content in a non-line-based visual form. In visual mode,
 
 ### Tier 3 — Media viewers
 
-**Viewers:** ImageViewer, AudioViewer, VideoViewer, PdfViewer
+**Viewers:** ImageViewer
 
 These render non-text content that cannot be meaningfully commented at line granularity. Only file-level commenting is available — there is no source toggle.
 
@@ -63,7 +63,7 @@ These render non-text content that cannot be meaningfully commented at line gran
 | File-level comment (toolbar button) | ✅ |
 | ViewerToolbar | ✅ |
 | FileActionsBar (reveal in folder) | ✅ |
-| Zoom (useZoom + ZoomControl) | ✅ where applicable (image, pdf) |
+| Zoom (useZoom + ZoomControl) | ✅ where applicable (image) |
 | Keyed on `path` for clean remount | ✅ |
 
 ### Tier 4 — Placeholder viewers
@@ -107,7 +107,7 @@ These apply to **every** viewer in every tier, no exceptions:
 
 6. **File meta propagation.** When `useFileContent` resolves (or falls back to `statFile`), the result is written to the Zustand `fileMetaByPath` cache via `setFileMeta` so StatusBar and other observers don't issue redundant IPC.
 
-7. **Consistent zoom.** Viewers that support zoom use the shared `useZoom(filetypeKey)` hook and `ZoomControl` component. Custom zoom state (e.g. a local `scale` variable with custom buttons) is not permitted — it breaks keyboard shortcuts (Ctrl+=/−/0), persistence, and the per-filetype zoom store. Viewers where zoom is not meaningful (audio, video) or where the embedded renderer owns zoom (PDF iframe) may omit `ZoomControl` from the toolbar — document the reason in this file.
+7. **Consistent zoom.** Viewers that support zoom use the shared `useZoom(filetypeKey)` hook and `ZoomControl` component. Custom zoom state (e.g. a local `scale` variable with custom buttons) is not permitted — it breaks keyboard shortcuts (Ctrl+=/−/0), persistence, and the per-filetype zoom store. Viewers where zoom is not meaningful may omit `ZoomControl` from the toolbar — document the reason in this file.
 
 ## Checklist for adding a new viewer
 
