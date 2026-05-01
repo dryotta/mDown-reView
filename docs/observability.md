@@ -76,6 +76,27 @@ If the rotator encountered any errors during pre-init (failed `app_log_dir` reso
 
 The `[log-rotation]` target is intentionally separate from `[startup]` because the line shape (`archived`/`pruned_count`/`errors`) does not match the `[startup] phase=<name> t_ms=<n>` schema documented above. Keeping them on different targets means analyzers that filter `target="startup"` see a clean phase stream.
 
+### `[matching]` schema
+
+```
+[matching] cmd=<caller-name> file=<sha8(path)> comment_id=<uuid>
+           outcome=<exact-orig|exact-relocated|exact-ambiguous|line-fallback|
+                    plausibility|fuzzy|orphan>
+           orig_line=<n|none> orig_end=<n|none>
+           matched_line=<n> matched_end=<n|none>
+           re_derived=<bool>
+```
+
+Emitted by the comment matcher (`src-tauri/src/core/matching.rs::match_comments`) once per Line-anchored comment per call, capturing the matcher's per-comment decision. The `outcome` field is the string label for which step of the 4-step re-anchoring algorithm was used (see [`docs/architecture.md`](architecture.md) §4-step re-anchoring) plus the `exact-orig` / `exact-relocated` distinction for whether the original line was preserved or shifted. `re_derived` is `true` whenever the matcher rewrote `comment.line`.
+
+`cmd` is the caller name (`get_file_comments` or `get_file_badges`). `file` is the lowercase-hex sha256 of the absolute file path, truncated to 8 chars — used for cross-line correlation without leaking the path itself to the log file.
+
+`tracing::warn!` always-on for `outcome ∈ {exact-ambiguous, orphan, fuzzy}` — these signal user-visible regressions (ambiguous reanchor, lost match, low-confidence fuzzy) and are surfaced even in release builds. WARN is suppressed when `cmd == "get_file_badges"` to avoid folder-badge refresh spam (badges aggregate over many files, repeating WARNs add no signal beyond the first call).
+
+`tracing::info!` for all outcomes is gated on `--trace` / `MDR_IPC_TRACE` via `startup_recorder::ipc_trace_enabled()` — same gate as `[ipc]` info-level lines (see [Enabling extra trace detail](#enabling-extra-trace-detail) below).
+
+Rule 31 in [`docs/architecture.md`](architecture.md) defines the sentinel values that may appear as `matched_line`. Typed-anchor-only / `Anchor::File` paths bypass `match_comments` and therefore do NOT emit `[matching]` events — the matcher's domain is Line anchors. Future iterations may extend coverage to WordRange / typed paths.
+
 ## Source of truth
 
 | Component | File |

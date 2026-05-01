@@ -175,7 +175,7 @@ pub fn get_file_comments_inner(file_path: &str, config_state: &SidecarConfigStat
         Vec::new()
     } else {
         let lines_str: Vec<&str> = doc.lines().iter().map(String::as_str).collect();
-        crate::core::matching::match_comments(&line_only, &lines_str)
+        crate::core::matching::match_comments(&line_only, &lines_str, file_path, "get_file_comments")
     };
 
     // WordRange: per-comment dispatch through `resolve_anchor` (consumes
@@ -190,19 +190,27 @@ pub fn get_file_comments_inner(file_path: &str, config_state: &SidecarConfigStat
             matched_line_number: 0,
             is_orphaned: matches!(outcome, MatchOutcome::Orphan),
             anchored_text: None,
+            original_line: None,
         });
     }
 
     // File / Unknown: synthetic Exact match without touching `doc`. File
     // anchors land at line 1 (#131 invariant) so the panel sort and
-    // line-keyed UI consumers behave consistently.
+    // line-keyed UI consumers behave consistently. `Anchor::Unknown`
+    // surfaces as orphaned (issue #280 AC7) so the toolbar pill makes
+    // unresolved typed anchors visible — see Rule 31 in
+    // `docs/architecture.md`. The matcher's `[matching]` schema does NOT
+    // cover this path (Line-anchor domain only); these are not re-anchor
+    // decisions.
     for c in zero_io {
         let matched_line_number = if matches!(c.anchor, Anchor::File) { 1 } else { 0 };
+        let is_orphaned = matches!(c.anchor, Anchor::Unknown { .. });
         matched.push(MatchedComment {
             comment: c,
             matched_line_number,
-            is_orphaned: false,
+            is_orphaned,
             anchored_text: None,
+            original_line: None,
         });
     }
 

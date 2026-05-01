@@ -1316,10 +1316,12 @@ mod wave1c_typed_dispatch {
             .threads;
         assert_eq!(threads.len(), 1, "exactly one root thread");
         let root = &threads[0].root;
-        // Unknown anchors resolve as FileLevel (not orphaned)
+        // Issue #280 AC7: Unknown anchors now surface as orphaned so the
+        // toolbar's orphan pill makes them visible — they are not authored
+        // by the current renderer and the user cannot otherwise see them.
         assert!(
-            !root.is_orphaned,
-            "Unknown anchor must resolve as FileLevel, not orphan"
+            root.is_orphaned,
+            "AC7: Unknown anchor must surface as orphaned (toolbar pill visibility)"
         );
         assert!(
             matches!(root.comment.anchor, Anchor::Unknown { .. }),
@@ -1349,10 +1351,12 @@ mod wave1c_typed_dispatch {
             .expect("get_file_comments ok")
             .threads;
         assert_eq!(threads.len(), 1);
-        // Unknown anchors resolve as FileLevel, so they are NOT orphaned
+        // Issue #280 AC7: Unknown anchors surface as orphaned regardless of
+        // whether the typed payload would resolve — the renderer can't
+        // author them today, so they belong in the orphan pill.
         assert!(
-            !threads[0].root.is_orphaned,
-            "Unknown anchor resolves as FileLevel, not orphaned"
+            threads[0].root.is_orphaned,
+            "AC7: Unknown anchor surfaces as orphaned"
         );
     }
 }

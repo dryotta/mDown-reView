@@ -630,7 +630,16 @@ export type JsonPathAnchor = { json_path: string; scalar_text?: string | null }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type KqlPipelineStep = { step: number; operator: string; details: string; isSource: boolean }
 export type LaunchArgs = { files: string[]; folders: string[] }
-export type MatchedComment = ({ id: string; author: string; timestamp: string; text: string; resolved: boolean; line?: number | null; end_line?: number | null; start_column?: number | null; end_column?: number | null; selected_text?: string | null; anchored_text?: string | null; selected_text_hash?: string | null; commit?: string | null; type?: string | null; severity?: string | null; reply_to?: string | null; anchor_kind?: string | null; image_rect?: ImageRectAnchor | null; csv_cell?: CsvCellAnchor | null; json_path?: JsonPathAnchor | null; html_range?: HtmlRangeAnchor | null; html_element?: HtmlElementAnchor | null; word_range?: WordRangePayload | null; anchor_history?: AnchorWire[] | null; reactions?: Reaction[] | null }) & { matchedLineNumber: number; isOrphaned: boolean; anchoredText?: string | null }
+export type MatchedComment = ({ id: string; author: string; timestamp: string; text: string; resolved: boolean; line?: number | null; end_line?: number | null; start_column?: number | null; end_column?: number | null; selected_text?: string | null; anchored_text?: string | null; selected_text_hash?: string | null; commit?: string | null; type?: string | null; severity?: string | null; reply_to?: string | null; anchor_kind?: string | null; image_rect?: ImageRectAnchor | null; csv_cell?: CsvCellAnchor | null; json_path?: JsonPathAnchor | null; html_range?: HtmlRangeAnchor | null; html_element?: HtmlElementAnchor | null; word_range?: WordRangePayload | null; anchor_history?: AnchorWire[] | null; reactions?: Reaction[] | null }) & { matchedLineNumber: number; isOrphaned: boolean; anchoredText?: string | null; 
+/**
+ * The line value verbatim from `MrsfComment.line` BEFORE the matcher
+ * rewrote `comment.line` during 4-step re-anchoring. `None` for
+ * legacy file-level comments, `Anchor::File`, `Anchor::Unknown`, and
+ * `Anchor::WordRange` paths that bypass `match_comments`. Used by the
+ * UI to surface "originally line X → re-anchored to Y" without a
+ * silent reanchor (issue #280 AC5).
+ */
+originalLine?: number | null }
 /**
  * Direction to migrate sidecars.
  */
