@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { __resetForTests, renderMermaid } from "../mermaid-singleton";
 
@@ -13,8 +13,8 @@ vi.mock("mermaid", () => ({
 async function getMermaidMock() {
   const mod = await import("mermaid");
   return mod.default as unknown as {
-    initialize: ReturnType<typeof vi.fn>;
-    render: ReturnType<typeof vi.fn>;
+    initialize: Mock<(opts: Record<string, unknown>) => void>;
+    render: Mock<(id: string, content: string) => Promise<{ svg: string }>>;
   };
 }
 
@@ -22,9 +22,9 @@ beforeEach(async () => {
   const mermaid = await getMermaidMock();
   mermaid.initialize.mockReset();
   mermaid.render.mockReset();
-  mermaid.render.mockImplementation(async (_id: string, _content: string) => ({
-    svg: "<svg/>",
-  }));
+  mermaid.render.mockImplementation((_id: string, _content: string) =>
+    Promise.resolve({ svg: "<svg/>" }),
+  );
   __resetForTests();
 });
 
@@ -69,10 +69,12 @@ describe("renderMermaid", () => {
 
   it("serializes concurrent calls so renders never interleave", async () => {
     const mermaid = await getMermaidMock();
-    mermaid.render.mockImplementation(async (_id: string, _content: string) => {
-      await new Promise((r) => setTimeout(r, 10));
-      return { svg: "<svg/>" };
-    });
+    mermaid.render.mockImplementation(
+      (_id: string, _content: string) =>
+        new Promise<{ svg: string }>((resolve) =>
+          setTimeout(() => resolve({ svg: "<svg/>" }), 10),
+        ),
+    );
 
     const [a, b] = await Promise.all([
       renderMermaid({ theme: "default", id: "a", content: "graph TD; A;" }),
@@ -103,9 +105,7 @@ describe("renderMermaid", () => {
   it("propagates render errors to the caller", async () => {
     const mermaid = await getMermaidMock();
     const boom = new Error("boom");
-    mermaid.render.mockImplementationOnce(async () => {
-      throw boom;
-    });
+    mermaid.render.mockImplementationOnce(() => Promise.reject(boom));
 
     await expect(
       renderMermaid({ theme: "default", id: "a", content: "graph TD; A;" }),

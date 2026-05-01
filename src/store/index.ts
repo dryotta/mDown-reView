@@ -25,7 +25,13 @@ import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
 import { createCommentsSlice, type CommentsSlice } from "./comments";
 import { createMermaidPopoutSlice, type MermaidPopoutSlice } from "./mermaidPopoutSlice";
 import { migrateV1StripVerbatim } from "./migrations/v1-strip-verbatim";
-import { canonicalizeOrFallback } from "./canonicalize";
+import { createWorkspaceSlice, type WorkspaceSlice } from "./workspace";
+import {
+  createUpdateSlice,
+  type UpdateChannel,
+  type UpdateSlice,
+  type UpdateStatus,
+} from "./update";
 
 export type { OnboardingState, Tab, TabsSlice, FileMeta };
 export { MAX_TABS, filterStaleTabs };
@@ -63,24 +69,7 @@ export interface PendingLineCompose {
 }
 
 // ── Workspace slice ────────────────────────────────────────────────────────
-
-interface WorkspaceSlice {
-  root: string | null;
-  expandedFolders: Record<string, boolean>;
-  /**
-   * Set the workspace root. Canonicalises the incoming path via the Rust
-   * IPC so the stored form matches what `scan_review_files` emits (long
-   * form, no `\\?\` verbatim prefix) — without this, ghost-entry detection
-   * fails on Windows paths in 8.3 short-name form (e.g. `RUNNER~1`).
-   * Returns a Promise that callers SHOULD await before relying on the
-   * stored value, but workspace-open flows tolerate missed awaits because
-   * the canonicalised value just lands a moment later.
-   */
-  setRoot: (root: string | null) => Promise<void>;
-  toggleFolder: (path: string) => void;
-  setFolderExpanded: (path: string, expanded: boolean) => void;
-  closeFolder: () => void;
-}
+// Extracted to ./workspace.ts (rule 23 — file-size budget).
 
 // ── Tabs slice ─────────────────────────────────────────────────────────────
 // Defined in `./tabs.ts` (extracted to keep this file under the 500-line
@@ -163,23 +152,10 @@ interface WatcherSlice {
   recordSave: (path: string) => void;
 }
 
+export type { UpdateStatus, UpdateChannel };
+
 // ── Update slice ──────────────────────────────────────────────────────
-
-// "error" is treated identically to "idle" by the banner (silent fallback); reserved for future telemetry
-export type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-export type UpdateChannel = "stable" | "canary";
-
-interface UpdateSlice {
-  updateStatus: UpdateStatus;
-  updateVersion: string | null;
-  updateProgress: number; // 0–100 during download
-  updateChannel: UpdateChannel;
-  setUpdateStatus: (status: UpdateStatus) => void;
-  setUpdateVersion: (version: string | null) => void;
-  setUpdateProgress: (progress: number) => void;
-  setUpdateChannel: (channel: UpdateChannel) => void;
-  dismissUpdate: () => void;
-}
+// Extracted to ./update.ts (rule 23 — file-size budget).
 
 // ── Recent slice ──────────────────────────────────────────────────────────
 
@@ -240,21 +216,8 @@ export type Store = WorkspaceSlice &
 export const useStore = create<Store>()(
   persist(
     (set, get) => ({
-      // Workspace
-      root: null,
-      expandedFolders: {},
-      setRoot: async (root) => {
-        const canonical = root === null ? null : await canonicalizeOrFallback(root);
-        set({ root: canonical, expandedFolders: {} });
-        get().closeMermaidPopout();
-      },
-      toggleFolder: (path) =>
-        set((s) => ({
-          expandedFolders: { ...s.expandedFolders, [path]: !s.expandedFolders[path] },
-        })),
-      setFolderExpanded: (path, expanded) =>
-        set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
-      closeFolder: () => { set({ root: null, expandedFolders: {} }); get().closeMermaidPopout(); },
+      // Workspace (delegated to ./workspace.ts)
+      ...createWorkspaceSlice(set, get),
 
       // Tabs (delegated to ./tabs.ts)
       ...createTabsSlice(set, get),
@@ -330,16 +293,8 @@ export const useStore = create<Store>()(
           lastSaveByPath: { ...s.lastSaveByPath, [path]: Date.now() },
         })),
 
-      // Update
-      updateStatus: "idle",
-      updateVersion: null,
-      updateProgress: 0,
-      updateChannel: "stable" as UpdateChannel,
-      setUpdateStatus: (status) => set({ updateStatus: status }),
-      setUpdateVersion: (version) => set({ updateVersion: version }),
-      setUpdateProgress: (progress) => set({ updateProgress: progress }),
-      setUpdateChannel: (channel) => set({ updateChannel: channel }),
-      dismissUpdate: () => set({ updateStatus: "idle", updateVersion: null, updateProgress: 0 }),
+      // Update (delegated to ./update.ts)
+      ...createUpdateSlice(set),
 
       // Recent items
       recentItems: [],
