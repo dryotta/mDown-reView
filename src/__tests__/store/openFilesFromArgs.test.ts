@@ -1,10 +1,26 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useStore, openFilesFromArgs } from "@/store/index";
+import { registerWindowFolder } from "@/lib/tauri-commands";
+
+// Mock `registerWindowFolder` so it resolves successfully in jsdom — without
+// this, the unmocked `@tauri-apps/api/core.invoke` throws a TypeError in jsdom
+// (no `__TAURI_INTERNALS__`), and Section C5's rollback path would clear
+// `store.root`, breaking the happy-path assertions in this file. The
+// rejection-path behaviour is exercised by a dedicated regression test below.
+vi.mock("@/lib/tauri-commands", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/tauri-commands")>("@/lib/tauri-commands");
+  return {
+    ...actual,
+    registerWindowFolder: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 const initialState = useStore.getState();
 
 beforeEach(() => {
   useStore.setState(initialState, true);
+  vi.mocked(registerWindowFolder).mockResolvedValue(undefined);
 });
 
 // Helper: always call openFilesFromArgs with the current store state
@@ -138,5 +154,19 @@ describe("openFilesFromArgs – recent items tracking", () => {
     expect(useStore.getState().root).toBe("/second");
     const items = useStore.getState().recentItems;
     expect(items[0]).toMatchObject({ path: "/second", type: "folder" });
+  });
+});
+
+describe("openFilesFromArgs – registerWindowFolder rejection (rule multiwin-rejection-affects-store)", () => {
+  it("rolls back store.root when registerWindowFolder rejects", async () => {
+    // Simulate the Rust side rejecting the claim (e.g. another window
+    // already owns this folder — Rust focuses that window for us). The
+    // optimistic `setRoot` must be reverted so the store does not
+    // retain a ghost root pointing at a folder this window does not own.
+    vi.mocked(registerWindowFolder).mockRejectedValueOnce("folder already open in window 'win-1'");
+
+    await callOpenFilesFromArgs([], ["/contested/folder"]);
+
+    expect(useStore.getState().root).toBeNull();
   });
 });

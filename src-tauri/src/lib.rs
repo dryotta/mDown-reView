@@ -400,21 +400,48 @@ fn route_args_through_registry(
                 }
             }
             registry::RouteDecision::CreateFolder { path } => {
+                // Rule multiwin-atomic-registry-mutations: pre-register a
+                // FileOnly slot for the new label, then `try_claim_folder`
+                // atomically. This collapses the previous read-then-register
+                // race where two concurrent CLI launches both saw `route_folder`
+                // return `CreateFolder` for the same canonical path and both
+                // proceeded to `register`, breaking one-folder-one-window.
                 let label = reg.next_label();
-                let display = folder_display_name(&path);
-                match create_app_window(handle, &label, &format!("mdownreview — {display}")) {
-                    Ok(new_win) => {
-                        reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
-                        reg.push_args(&label, LaunchArgs {
-                            folders: vec![path.to_string_lossy().into_owned()],
-                            files: vec![],
-                        });
-                        // Rule multiwin-args-delivery: signal the new window to re-drain
-                        // in case its initial mount drain fired before push_args.
-                        let _ = new_win.emit("args-received", ());
-                        log::info!("[window] {ctx}: created {label}");
+                reg.register(label.clone(), registry::WindowKind::FileOnly);
+                match reg.try_claim_folder(&label, path.clone()) {
+                    Ok(()) => {
+                        let display = folder_display_name(&path);
+                        match create_app_window(handle, &label, &format!("mdownreview — {display}")) {
+                            Ok(new_win) => {
+                                reg.push_args(&label, LaunchArgs {
+                                    folders: vec![path.to_string_lossy().into_owned()],
+                                    files: vec![],
+                                });
+                                // Rule multiwin-args-delivery: signal the new window to re-drain
+                                // in case its initial mount drain fired before push_args.
+                                let _ = new_win.emit("args-received", ());
+                                log::info!("[window] {ctx}: created {label}");
+                            }
+                            Err(e) => {
+                                // Window build failed after we claimed the folder —
+                                // unregister so a subsequent launch can claim it.
+                                reg.unregister(&label);
+                                log::error!("[window] {ctx}: folder window failed: {e}");
+                            }
+                        }
                     }
-                    Err(e) => log::error!("[window] {ctx}: folder window failed: {e}"),
+                    Err(existing_label) => {
+                        // Race lost: another concurrent launch claimed the
+                        // folder first. Drop the pre-registered FileOnly slot
+                        // and focus the winning window instead.
+                        reg.unregister(&label);
+                        if let Some(win) = handle.get_webview_window(&existing_label) {
+                            focus_window(&win);
+                        }
+                        log::info!(
+                            "[window] {ctx}: folder claim race lost to {existing_label}, focusing existing"
+                        );
+                    }
                 }
             }
             _ => {}
