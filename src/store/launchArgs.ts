@@ -35,7 +35,18 @@ export async function openFilesFromArgs(
     try {
       await registerWindowFolder(canonicalFolder);
     } catch (err) {
-      void warn(`[launchArgs] register_window_folder failed: ${err}`); // fire-and-forget log
+      // Rule `multiwin-rejection-affects-store` (issue #315 Section C5):
+      // Rust rejected the folder claim — most commonly because another
+      // window already owns it (Rust focuses that window for us). Roll
+      // back the optimistic `setRoot` so the store does not retain a
+      // ghost root pointing at a folder this window does not actually
+      // own. Without the rollback the user sees an empty tree under the
+      // claimed root while the real owner window has focus, which is the
+      // worst of both worlds.
+      void warn(
+        `[launchArgs] register_window_folder failed: ${err}; rolling back store.root` // fire-and-forget log
+      );
+      await store.setRoot(null);
     }
   }
   const alreadyOpen = new Set(store.tabs.map((t) => t.path));

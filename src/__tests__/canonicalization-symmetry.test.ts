@@ -43,14 +43,13 @@ const INTAKE_PATHS: readonly string[] = ["store/launchArgs.ts", "hooks/useOpenFi
  * Files that are KNOWN-CURRENT-VIOLATORS of the canonicalisation
  * contract. Each entry is a debt marker tracked against the issue's
  * Section C4 fix; removing the entry is part of the C4 PR.
+ *
+ * Section C4 (iter-7) landed `canonicalizeOrFallback` in
+ * `useOpenFileTab.ts`, so the prior debt entry is removed and the
+ * lint is now strict for both intake paths. New intake paths added
+ * without canonicalisation trip the lint immediately.
  */
-const EXPECTED_VIOLATORS: readonly string[] = [
-  // TODO: removed by issue #315 Section C4 fix — useOpenFileTab must
-  // canonicalise via `canonicalizeOrFallback` so the two intake paths
-  // (launchArgs + open-file-tab event) agree on path form. Until then
-  // the entry is a debt marker, NOT a permanent allowlist.
-  "hooks/useOpenFileTab.ts",
-];
+const EXPECTED_VIOLATORS: readonly string[] = [];
 
 /**
  * The substring every intake path must contain. We deliberately match

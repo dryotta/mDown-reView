@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { listenEvent } from "@/lib/tauri-events";
 import { useStore } from "@/store";
+import { canonicalizeOrFallback } from "@/store/canonicalize";
 import { debug } from "@/logger";
 
 /**
@@ -8,14 +9,22 @@ import { debug } from "@/logger";
  * file path as a tab. The backend emits this when a file is routed to an
  * existing folder window (AddToWindow) or a file-only window is created
  * with initial files (CreateFileOnly).
+ *
+ * Rule `multiwin-canonicalize-at-ingest` (issue #315 Section C4): the two
+ * renderer-side intake paths into the store (`openFilesFromArgs` and
+ * `useOpenFileTab`) MUST canonicalise symmetrically. Without this hook
+ * canonicalising, an intake-via-CLI path stored as `RUNNER~1\…` (Windows
+ * 8.3 short name) would mismatch an intake-via-event path stored as the
+ * long form, producing duplicate tabs and breaking ghost-entry matching.
  */
 export function useOpenFileTab() {
   useEffect(() => {
-    const unlisten = listenEvent("open-file-tab", (paths) => {
+    const unlisten = listenEvent("open-file-tab", async (paths) => {
       void debug(`[useOpenFileTab] received ${paths.length} file(s)`); // fire-and-forget log
       const { openFile } = useStore.getState();
       for (const filePath of paths) {
-        openFile(filePath);
+        const canonical = await canonicalizeOrFallback(filePath);
+        openFile(canonical);
       }
     });
 
