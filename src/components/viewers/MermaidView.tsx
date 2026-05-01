@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 
 import { MermaidCanvas } from "./mermaid/MermaidCanvas";
 import { MermaidControls } from "./mermaid/MermaidControls";
@@ -11,7 +11,7 @@ interface Props {
   content: string;
   /** Optional file path; when provided, MermaidRenderer stamps data-source-line for click-to-comment. */
   path?: string;
-  /** Per-filetype zoom from EnhancedViewer's useZoom('.mmd'). */
+  /** Per-filetype zoom from EnhancedViewer's useZoom('.mmd'). 1.0 = "fits the viewing area". */
   zoom?: number;
 }
 
@@ -21,9 +21,8 @@ interface Props {
  * Render + theme + transform + pan/zoom now live in MermaidCanvas (which
  * composes MermaidRenderer). This file only owns:
  *   1. Wiring the shared `.mmd` zoom (via `useStore`) into MermaidCanvas.
- *   2. Capturing the most recent fit-to-window scale and routing the Fit
- *      button click to it. EnhancedViewer is the zoom source-of-truth — we
- *      mutate via setZoom('.mmd', …) rather than holding local zoom state.
+ *   2. Routing the Fit button click to a zoom reset (1.0 ≡ fit-to-window
+ *      under the hybrid scale model owned by MermaidCanvas).
  *   3. Showing the inline Fit + Pop-out controls ONLY for the dedicated
  *      viewer path (signalled by the presence of `path`). The embedded
  *      markdown-block path (MarkdownComponentsMap → MermaidView, until
@@ -32,27 +31,14 @@ interface Props {
  */
 export function MermaidView({ content, path, zoom = 1 }: Props) {
   const setZoom = useStore((s) => s.setZoom);
+  const bumpZoom = useStore((s) => s.bumpZoom);
   const openMermaidPopout = useStore((s) => s.openMermaidPopout);
 
-  // Fit logic: store the most recent fit scale in a ref. On Fit-button
-  // click, write it to the shared '.mmd' zoom. On first measurement (when
-  // '.mmd' zoom is undefined), seed the shared zoom too so the initial
-  // open lands at fit-to-window rather than 100%.
-  const lastFitRef = useRef<number | null>(null);
-  const handleFitMeasured = useCallback(
-    (fit: number) => {
-      lastFitRef.current = fit;
-      const current = useStore.getState().zoomByFiletype[".mmd"];
-      if (current === undefined) {
-        setZoom(".mmd", fit);
-      }
-    },
-    [setZoom],
-  );
-
+  // 1.0 ≡ fit under MermaidCanvas's scale model, so "Fit" is just a zoom
+  // reset. Same chokepoint chrome's ViewerToolbar uses for Cmd+0 etc.
   const handleFitClick = useCallback(() => {
-    if (lastFitRef.current !== null) setZoom(".mmd", lastFitRef.current);
-  }, [setZoom]);
+    bumpZoom(".mmd", "reset");
+  }, [bumpZoom]);
 
   const handlePopout = useCallback(() => {
     openMermaidPopout(content, path ?? null);
@@ -69,7 +55,6 @@ export function MermaidView({ content, path, zoom = 1 }: Props) {
         zoom={zoom}
         setZoom={(v) => setZoom(".mmd", v)}
         readOnly={false}
-        onFitMeasured={handleFitMeasured}
       />
       {path !== undefined && (
         <MermaidControls

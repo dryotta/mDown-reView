@@ -5,17 +5,39 @@
  * toolbar / tab bar / status bar remain visible above and below.
  * `.main-area { position: relative }` (added in app.css) anchors the
  * absolute positioning here.
+ *
+ * DOM:
+ *   .mermaid-popout-overlay  ← transparent full-bleed click interceptor
+ *     .mermaid-popout-card   ← visible card (border + shadow + theme bg)
+ *
+ * The overlay is transparent and full-bleed only so pointer events in
+ * the gap between the card and the main-area edges are intercepted
+ * (and not routed to the underlying viewer). Visual chrome lives on
+ * the inner `.mermaid-popout-card`.
  */
 .mermaid-popout-overlay {
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: var(--color-background, #ffffff);
-  display: flex;
-  flex-direction: column;
 }
 
-/* Floating control bar at bottom-center for popout mode. */
+.mermaid-popout-card {
+  position: absolute;
+  inset: 24px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Floating control bar at bottom-center for popout mode. Anchored to the
+   nearest positioned ancestor — `.mermaid-popout-card` (which has
+   position: absolute). */
 .mermaid-popout-bar {
   position: absolute;
   bottom: 16px;
@@ -39,7 +61,7 @@
   border-radius: 3px;
 }
 .mermaid-popout-bar button:hover {
-  background: var(--color-hover, #f3f4f6);
+  background: var(--color-tab-hover, #f3f4f6);
 }
 .mermaid-popout-bar-zoom-display {
   font-size: 12px;
@@ -60,7 +82,7 @@
   font-size: 12px;
 }
 .mermaid-popout-close:hover {
-  background: var(--color-hover, #f3f4f6);
+  background: var(--color-tab-hover, #f3f4f6);
 }
 
 /* Embedded mermaid block — hover-revealed pop-out button.

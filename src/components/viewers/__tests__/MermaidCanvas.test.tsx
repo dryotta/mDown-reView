@@ -103,19 +103,16 @@ afterEach(() => {
 async function renderCanvas(overrides: {
   zoom?: number;
   setZoom?: (v: number) => void;
-  onFitMeasured?: (v: number) => void;
   content?: string;
   path?: string | null;
 } = {}) {
   const setZoom = overrides.setZoom ?? vi.fn();
-  const onFitMeasured = overrides.onFitMeasured ?? vi.fn();
   const utils = render(
     <MermaidCanvas
       content={overrides.content ?? "graph TD; A --> B"}
       path={overrides.path ?? null}
       zoom={overrides.zoom ?? 1}
       setZoom={setZoom}
-      onFitMeasured={onFitMeasured}
     />,
   );
   // Wait for the async renderMermaid → useLayoutEffect → svg injection.
@@ -127,7 +124,7 @@ async function renderCanvas(overrides: {
   // Stub pointer-capture for jsdom (mirror ImageViewer.test.tsx:76-77).
   canvas.setPointerCapture = vi.fn();
   canvas.releasePointerCapture = vi.fn();
-  return { ...utils, canvas, transform, setZoom, onFitMeasured };
+  return { ...utils, canvas, transform, setZoom };
 }
 
 describe("MermaidCanvas — composition", () => {
@@ -139,16 +136,29 @@ describe("MermaidCanvas — composition", () => {
     expect(transform.contains(container.querySelector('[title="Mermaid diagram"]'))).toBe(true);
   });
 
-  it("applies the initial transform on render (translate(0px, 0px) scale(1))", async () => {
-    const { transform } = await renderCanvas({ zoom: 1 });
+  it("applies the initial transform on render and bakes scale into SVG dimensions", async () => {
+    // Hybrid scale model: scale is baked into svg.style.width/height
+    // (committed scale), and the wrapper transform's scale = effective /
+    // committed. After handleSvgReady, committed = effective = zoom × fit
+    // = 1 × 0.4 = 0.4, so transform scale ratio = 1.
+    const { container, transform } = await renderCanvas({ zoom: 1 });
     expect(transform.style.transform).toContain("translate(0px, 0px)");
     expect(transform.style.transform).toContain("scale(1)");
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    // bbox 2000×1500 baked at scale 0.4 → 800×600 (fits the 800×600 container).
+    expect(svg.style.width).toBe("800px");
+    expect(svg.style.height).toBe("600px");
+    // maxWidth disabled so the SVG can grow past mermaid's inline `max-width: 100%`.
+    expect(svg.style.maxWidth).toBe("none");
   });
 });
 
 describe("MermaidCanvas — wheel gestures", () => {
   it("vertical wheel pans (deltaY 100 → pan.y -= 100)", async () => {
-    const { canvas, transform } = await renderCanvas({ zoom: 1 });
+    // Start at zoom=2: under the 100%-as-fit model effective scale = 0.8,
+    // scaledH=1200 vs container 600 → limitY=300, so pan -100 has room.
+    // (At zoom=1 effective=fit=0.4, scaledH=container.h, limitY=0, no pan.)
+    const { canvas, transform } = await renderCanvas({ zoom: 2 });
     await act(async () => {
       fireEvent.wheel(canvas, { deltaY: 100, clientX: 200, clientY: 200 });
     });
@@ -161,13 +171,15 @@ describe("MermaidCanvas — wheel gestures", () => {
     await act(async () => {
       fireEvent.wheel(canvas, { deltaY: -100, ctrlKey: true, clientX: 200, clientY: 200 });
     });
-    // newZoom = 1 * (1 - (-100)*0.001) = 1.1
+    // newZoom = 1 * (1 - (-100)*0.001) = 1.1. The ratio S'/S = newZoom/zoom
+    // (fit cancels) so the formula is identical to the old natural-scale
+    // model and `setZoom` still receives the zoom value, not the effective.
     expect(setZoom).toHaveBeenCalledTimes(1);
     expect(setZoom.mock.calls[0][0]).toBeCloseTo(1.1, 5);
   });
 
   it("shift+wheel pans horizontally (deltaY 100 → pan.x -= 100)", async () => {
-    const { canvas, transform } = await renderCanvas({ zoom: 1 });
+    const { canvas, transform } = await renderCanvas({ zoom: 2 });
     await act(async () => {
       fireEvent.wheel(canvas, { deltaY: 100, shiftKey: true, clientX: 200, clientY: 200 });
     });
@@ -230,10 +242,13 @@ describe("MermaidCanvas — wheel gestures", () => {
 
 describe("MermaidCanvas — pan re-clamp on zoom change", () => {
   it("re-clamps panRef when zoom decreases past the previous limit", async () => {
-    // bbox 2000×1500, container 800×600. At zoom=1 limitX=600 so a wheel
-    // pan of (-100,0) is allowed. Drop zoom to 0.4 → scaledW=800=container,
-    // limitX=0 → pan must snap back to (0,0) on the zoom-effect path.
-    const { canvas, transform, rerender } = await renderCanvas({ zoom: 1 });
+    // Start at zoom=2.5 (effective = 2.5 × 0.4 = 1.0): scaledH=1500 vs
+    // container 600 → limitY=450, so a wheel pan of (0,-100) is allowed.
+    // Drop zoom to 1 → effective=0.4 → scaledH=600=container → limitY=0,
+    // pan must snap back to (0,0) on the zoom-effect path. The wrapper
+    // scale ratio drops from 1.0/1.0=1 (committed at initial bake) to
+    // 0.4/1.0=0.4 (new effective / committed).
+    const { canvas, transform, rerender } = await renderCanvas({ zoom: 2.5 });
     await act(async () => {
       fireEvent.wheel(canvas, { deltaY: 100, clientX: 200, clientY: 200 });
     });
@@ -243,9 +258,8 @@ describe("MermaidCanvas — pan re-clamp on zoom change", () => {
         <MermaidCanvas
           content="graph TD; A --> B"
           path={null}
-          zoom={0.4}
+          zoom={1}
           setZoom={vi.fn()}
-          onFitMeasured={vi.fn()}
         />,
       );
     });
@@ -256,7 +270,9 @@ describe("MermaidCanvas — pan re-clamp on zoom change", () => {
 
 describe("MermaidCanvas — pointer drag", () => {
   it("drag-pan: setPointerCapture called; pan updates; cursor cycles grab → grabbing → grab", async () => {
-    const { canvas, transform } = await renderCanvas({ zoom: 1 });
+    // Use zoom=2 (effective 0.8) so pan limits give room for a (50,80)
+    // delta — at zoom=1 (effective=fit=0.4) scaledW=container.w → no pan.
+    const { canvas, transform } = await renderCanvas({ zoom: 2 });
     expect(canvas.className).toContain("mermaid-canvas--interactive");
     expect(canvas.className).not.toContain("mermaid-canvas--dragging");
 
@@ -285,18 +301,47 @@ describe("MermaidCanvas — pointer drag", () => {
   });
 });
 
-describe("MermaidCanvas — fit measurement + reset", () => {
-  it("emits onFitMeasured with min(cw/bw, ch/bh, 1) when SVG renders", async () => {
-    const onFitMeasured = vi.fn();
-    await renderCanvas({ onFitMeasured });
-    // bbox 2000×1500 inside 800×600 → fit = min(0.4, 0.4, 1) = 0.4
-    await waitFor(() => expect(onFitMeasured).toHaveBeenCalled());
-    const last = onFitMeasured.mock.calls[onFitMeasured.mock.calls.length - 1][0];
-    expect(last).toBeCloseTo(0.4, 5);
+describe("MermaidCanvas — fit-to-window + reset + bake", () => {
+  it("sizes SVG to fit the container at zoom=1 (uncapped fit, allows scaling up too)", async () => {
+    const { container } = await renderCanvas({ zoom: 1 });
+    // bbox 2000×1500 in 800×600 → fit = min(0.4, 0.4) = 0.4 (no `,1` cap).
+    // Effective = 1 × 0.4 = 0.4. SVG baked at 2000×0.4 = 800px wide.
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    expect(svg.style.width).toBe("800px");
+    expect(svg.style.height).toBe("600px");
   });
 
-  it("resets pan to (0,0) when content changes", async () => {
-    const { canvas, transform, rerender } = await renderCanvas({ zoom: 1, content: "graph TD; A --> B" });
+  it("upscales SVG when natural is smaller than container (fit > 1, no `,1` cap)", async () => {
+    // Override getBBox shim for this test: tiny diagram 200×150 in 800×600.
+    Object.defineProperty(SVGElement.prototype, "getBBox", {
+      configurable: true,
+      value: () => ({ x: 0, y: 0, width: 200, height: 150 }),
+    });
+    const { container } = await renderCanvas({ zoom: 1 });
+    // fit = min(800/200, 600/150) = min(4, 4) = 4.
+    // Effective = 1 × 4 = 4. SVG baked at 200×4 = 800px wide.
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    expect(svg.style.width).toBe("800px");
+    expect(svg.style.height).toBe("600px");
+  });
+
+  it("caps baked SVG dimensions at 8192px to prevent pathological growth", async () => {
+    // Container 2000×2000, bbox 2000×1500 (default shim) → fit=min(1,1.33)=1.
+    // At zoom=ZOOM_MAX=8 effective=8, would bake at 16000×12000.
+    // Cap kicks in: k = min(8192/16000, 8192/12000) = 0.512 → 8192×6144.
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 2000 });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 2000 });
+    const { container } = await renderCanvas({ zoom: 8 });
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    expect(parseFloat(svg.style.width)).toBeCloseTo(8192, 0);
+    expect(parseFloat(svg.style.height)).toBeCloseTo(6144, 0);
+  });
+
+  it("resets pan to (0,0) when content changes and re-bakes SVG dimensions", async () => {
+    const { canvas, container, transform, rerender } = await renderCanvas({
+      zoom: 2,
+      content: "graph TD; A --> B",
+    });
     await act(async () => {
       fireEvent.wheel(canvas, { deltaY: 100, clientX: 200, clientY: 200 });
     });
@@ -307,13 +352,18 @@ describe("MermaidCanvas — fit measurement + reset", () => {
         <MermaidCanvas
           content="graph TD; X --> Y"
           path={null}
-          zoom={1}
+          zoom={2}
           setZoom={vi.fn()}
-          onFitMeasured={vi.fn()}
         />,
       );
     });
     // Content effect resets panRef; useLayoutEffect re-applies.
     expect(transform.style.transform).toContain("translate(0px, 0px)");
+    // Re-bake fired (handleSvgReady runs again on new svg) — SVG dims still
+    // reflect natural × effective at the new content's measurement.
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    // bbox 2000×1500 (shim is module-level), zoom=2, fit=0.4 → effective=0.8.
+    expect(svg.style.width).toBe("1600px");
+    expect(svg.style.height).toBe("1200px");
   });
 });
