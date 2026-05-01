@@ -8,41 +8,30 @@ import "@/styles/welcome-view.css";
 interface WelcomeViewProps {
   onOpenFile: () => void;
   onOpenFolder: () => void;
-  /**
-   * Called when the user clicks a recent folder. MUST go through the
-   * shared `useDialogActions().openFolderPath` callback so the
-   * register-then-setRoot ordering matches the toolbar dialog flow —
-   * if the folder is already open in another window, the registry
-   * rejects the call and focuses the existing window instead of
-   * cloning the folder into the current one.
-   *
-   * Rust-First MVVM (`docs/principles.md`): WelcomeView is View only;
-   * the IPC + store mutation belongs in the ViewModel hook.
-   */
-  onOpenRecentFolder: (path: string) => void | Promise<void>;
 }
 
-export function WelcomeView({
-  onOpenFile,
-  onOpenFolder,
-  onOpenRecentFolder,
-}: WelcomeViewProps) {
+export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
   const recentItems = useStore((s) => s.recentItems);
-  const openFile = useStore((s) => s.openFile);
-  const addRecentItem = useStore((s) => s.addRecentItem);
+  const openSettings = useStore((s) => s.openSettings);
+  const openFolderPath = useStore((s) => s.openFolderPath);
+  const openFilePath = useStore((s) => s.openFilePath);
   const pathStatus = useRecentItemStatus(recentItems);
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const mod = isMac ? "⌘" : "Ctrl";
 
+  // Recent-item clicks delegate to the workspace slice's single
+  // canonical entry points (`openFolderPath` / `openFilePath`) — same
+  // entry points the toolbar dialog flow uses (rule 16: cross-slice
+  // user actions group into one store action). The folder branch is
+  // why bug 2 happened pre-fix: WelcomeView used to inline its own
+  // register-then-setRoot sequence and drift from the toolbar.
   const handleRecentClick = (item: RecentItem) => {
-    const status = pathStatus[item.path];
-    if (status === "missing") return;
+    if (pathStatus[item.path] === "missing") return;
     if (item.type === "folder") {
-      void onOpenRecentFolder(item.path);
+      void openFolderPath(item.path);
     } else {
-      openFile(item.path);
-      addRecentItem(item.path, "file");
+      openFilePath(item.path);
     }
   };
 
@@ -76,7 +65,7 @@ export function WelcomeView({
         <button
           type="button"
           className="welcome-settings-link"
-          onClick={() => useStore.getState().openSettings()}
+          onClick={openSettings}
         >
           Set up CLI, file associations, and agent integration → Settings
         </button>

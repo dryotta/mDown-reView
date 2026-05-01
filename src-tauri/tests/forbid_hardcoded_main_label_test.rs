@@ -37,17 +37,12 @@ const ALLOW: &[(&str, &str)] = &[
     ("src/lib.rs", ".get(\"main\")"),
     // commands/launch.rs::set_root_via_test (debug-only e2e helper).
     ("src/commands/launch.rs", "reg.push_args(\"main\", launch_args)"),
-    ("src/commands/launch.rs", "app.get_webview_window(\"main\")"),
-    // commands/launch.rs::set_root_via_test — emit args-received scoped
-    // to the bootstrap window the helper just pushed args for.
-    ("src/commands/launch.rs", ".emit_to(\"main\", \"args-received\", ())"),
-    // lib.rs::on_menu_event — `menu-check-updates` always targets the
-    // main window because the updater backend is process-global and
-    // the UpdateBanner only mounts there. Encoded in
-    // `menu_event_delivery` as `MenuEventDelivery::Main` and dispatched
-    // here. See `docs/best-practices-common/tauri/v2-patterns.md` rule
-    // `multiwin-window-scoped-events` (per-event table).
-    ("src/lib.rs", "MenuEventDelivery::Main => app.emit_to(\"main\", event_name, ())"),
+    ("src/commands/launch.rs", "app.emit_to(\"main\", \"args-received\", ())"),
+    // menu.rs::menu_event_delivery — `menu-check-updates` always targets
+    // the main window because the updater backend is process-global and
+    // the UpdateBanner only mounts in main. See rule
+    // `multiwin-window-scoped-events` in v2-patterns.md.
+    ("src/menu.rs", "\"menu-check-updates\" => MenuEventDelivery::Targeted(\"main\")"),
     // lib.rs::tests — unit tests for menu-id encoders pass `"main"` as a
     // synthetic window label to pure functions. The literal is the input
     // to the test, not a hardcoded runtime call site.

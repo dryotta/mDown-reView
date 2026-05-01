@@ -134,7 +134,7 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 
 **Per-event target & emit method.** Every event in `src/lib/tauri-events.ts::EventPayloads` MUST be emitted via the method in the "Required emit method" column. The "Target (rule)" column is the rule's prescription; the "Current call site" + "Current state" columns document today's reality so the table cannot lie about shipped code (Docs Reflect Shipped Code, `docs/principles.md`). Enforcement: `event-emit-target.test.ts` parses this table, asserts parity with `EventPayloads`, and forbids the broadcast pattern `.emit("<window-scoped-event>", …)` in non-test Rust code.
 
-**`WebviewWindow::emit` is NOT window-scoped.** Tauri 2.x's `Emitter::emit` calls `manager.emit(...)` regardless of receiver — verified at `tauri-2.10.3/src/lib.rs::Emitter::emit` (line 952) which delegates to `tauri-2.10.3/src/manager/mod.rs::emit` (line 532) which iterates `webview.webviews_lock().values()`. Calling `emit` on `App`, `AppHandle`, `Window`, `Webview`, or `WebviewWindow` all behave identically as a global broadcast (Tauri's own unit test at `manager/mod.rs:887-901` asserts this). The ONLY way to scope delivery to one window is `emit_to(label, …)`; for a subset, use `emit_filter(...)`.
+**Always `emit_to(label, …)` for window-scoped delivery.** `WebviewWindow::emit` is NOT window-scoped: Tauri 2.x's `Emitter::emit` calls `AppManager::emit` regardless of receiver, and that helper iterates every webview. Calling `emit` on `App`, `AppHandle`, `Window`, `Webview`, or `WebviewWindow` all behave identically as a global broadcast (Tauri ships a unit test under `tauri::manager` that asserts this). The ONLY way to scope delivery to one window is `emit_to(label, …)`; for a subset, use `emit_filter(...)`.
 
 | Event | Target (rule) | Required emit method | Current call site | Current state |
 |---|---|---|---|---|
@@ -145,22 +145,22 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 | `comments-changed` | set (windows with the file open) | `emit_filter` (registry-owns-path predicate) | `commands/comments/mod.rs:90` (`Emitter::emit` on `AppHandle`) | ❌ violates `multiwin-window-scoped-events` — global emit; should be `emit_filter` on registry-owns-path predicate. Future C2 fix. |
 | `update-progress` | one (`"main"`) | `emit_to("main", …)` | `update.rs:115,123` (`Emitter::emit` on `AppHandle`) | ❌ violates `multiwin-window-scoped-events` — broadcast; should be `emit_to("main", …)`. Future H2 fix. |
 | `sidecar-config-changed` | all | `app.emit(…)` | `commands/sidecar_config.rs:65-67` (manual `for win in app.webview_windows().values()` loop) | ❌ violates `multiwin-emit-filter` — manual loop over `app.webview_windows()`; should be `app.emit(…)`. Future C2 fix. |
-| `menu-open-file` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-open-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-close-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-close-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-close-all-tabs` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-toggle-comments-pane` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-next-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-prev-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-theme-system` | all | `app.emit(…)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-theme-light` | all | `app.emit(…)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-theme-dark` | all | `app.emit(…)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-about` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-check-updates` | one (`"main"`) | `emit_to("main", …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
-| `menu-help-settings` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu_event_delivery` | ✅ |
+| `menu-open-file` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-open-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-close-folder` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-close-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-close-all-tabs` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-toggle-comments-pane` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-next-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-prev-tab` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-theme-system` | all | `app.emit(…)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-theme-light` | all | `app.emit(…)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-theme-dark` | all | `app.emit(…)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-about` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-check-updates` | one (`"main"`) | `emit_to("main", …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
+| `menu-help-settings` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
 
-Legend: **one** = exactly one window (`emit_to(label, …)` on `AppHandle`/`WebviewWindow`), **set** = subset of windows determined by registry predicate (`emit_filter`), **all** = every window must react (`app.emit(…)` — never a manual loop, which violates `multiwin-emit-filter`); use **all** only for genuinely global state changes.
+Legend: **one** = exactly one window (`AppHandle::emit_to(label, …)` — `WebviewWindow::emit` is broadcast, see above), **set** = subset of windows determined by registry predicate (`emit_filter`), **all** = every window must react (`app.emit(…)` — never a manual loop, which violates `multiwin-emit-filter`); use **all** only for genuinely global state changes.
 
 ### `multiwin-emit-filter`
 
@@ -207,10 +207,13 @@ When creating a new window and pushing launch args into the registry for it to d
 **Pattern:**
 ```rust
 match builder.build() {
-    Ok(new_win) => {
+    Ok(_new_win) => {
         reg.register(label.clone(), kind);
         reg.push_args(&label, args);
-        let _ = new_win.emit("args-received", ());  // ensure frontend re-drains
+        // Window-scoped via AppHandle::emit_to (rule
+        // multiwin-window-scoped-events). `WebviewWindow::emit` would
+        // broadcast — see that rule's prose.
+        let _ = handle.emit_to(&label, "args-received", ());
     }
     Err(e) => log::error!("window creation failed: {e}"),
 }

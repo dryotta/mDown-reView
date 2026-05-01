@@ -82,7 +82,7 @@ export default function App() {
   const settingsDialogOpen = useStore((s) => s.settingsDialogOpen);
   const closeSettings = useStore((s) => s.closeSettings);
 
-  const { handleOpenFile, handleOpenFolder, openFolderPath } = useDialogActions();
+  const { handleOpenFile, handleOpenFolder } = useDialogActions();
 
   // Per spec design decision 3: any top-toolbar button click closes the
   // mermaid popout. Close BEFORE opening the dialog so the close also
@@ -219,7 +219,6 @@ export default function App() {
               <WelcomeView
                 onOpenFile={handleOpenFile}
                 onOpenFolder={handleOpenFolder}
-                onOpenRecentFolder={openFolderPath}
               />
             )}
           </ErrorBoundary>
