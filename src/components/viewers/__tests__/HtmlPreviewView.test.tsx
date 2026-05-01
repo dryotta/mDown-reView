@@ -355,6 +355,35 @@ describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
     );
     cleanup();
   });
+
+  // other-blocked arm: workspace-relative path that resolves outside the
+  // workspace root (`/wk/page.html` + `../../etc/passwd` → `/etc/passwd`,
+  // outside `/wk`). Proves the `other-blocked` switch arm doesn't fall
+  // through to the `default: assertNeverLinkRoute` branch.
+  it("other-blocked iframe anchor click is prevented and warns", () => {
+    vi.mocked(openExternalUrl).mockClear();
+    vi.mocked(warn).mockClear();
+    const { container } = render(
+      <HtmlPreviewView content="<p>test</p>" filePath="/wk/page.html" />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const doc = iframe.contentDocument!;
+    fireEvent.load(iframe);
+
+    const anchor = doc.createElement("a");
+    anchor.setAttribute("href", "../../etc/passwd");
+    anchor.textContent = "outside";
+    doc.body.appendChild(anchor);
+    const event = new doc.defaultView!.MouseEvent("click", { bubbles: true, cancelable: true });
+    anchor.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(openExternalUrl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("blocked iframe link (other-blocked/outside-workspace)"),
+    );
+    cleanup();
+  });
 });
 
 describe("HtmlPreviewView — zoom application", () => {

@@ -295,9 +295,16 @@ pub fn read_binary_file_inner(path: String) -> Result<String, String> {
 /// I/O against the canonicalized form (defense-in-depth against TOCTOU
 /// symlink swaps between the guard check and the read).
 ///
-/// All rejection paths return the literal string `"path not in workspace"` —
-/// matching the existing [`stat_file_inner`] error so the renderer can
-/// uniformly surface workspace-guard rejections.
+/// All rejection paths return one of four distinct sentinels so tests (and
+/// the renderer's CommentsPanel filter) can identify which guard fired:
+///
+/// * `"path not in workspace"` — both `is_path_allowed` checks (raw and
+///   post-canonicalize containment). Matched verbatim by
+///   `src/components/comments/CommentsPanel.tsx`.
+/// * `"canonicalize failed"` — `canonicalize_no_verbatim` errored.
+/// * `"system path blocked"` — classify returned `Tier::System` (post
+///   containment, the OS-locations DENY list fired).
+/// * `"path not canonicalizable"` — classify returned a `NonCanonicalErr`.
 ///
 /// Workspace-root semantics (issue #338 / iter-1 forward-fix):
 /// `is_path_allowed` is the source of truth for containment — it scans every
@@ -307,16 +314,8 @@ pub fn read_binary_file_inner(path: String) -> Result<String, String> {
 /// therefore becomes irrelevant for the Inside/Outside discriminator; we
 /// pass the canonical path itself so the discriminator collapses to
 /// Inside (`canonical.starts_with(canonical)` is always true) and only the
-/// Tier::System branch can reject. Passing a global "first watched dir"
-/// here would be a state-stratification leak: in multi-window setups it
-/// could classify a window-B file as Outside against window-A's root and
-/// reject a perfectly valid read. Group B's per-window state lands a
-/// proper per-window workspace_root and removes this comment.
-///
-/// TODO(#338-group-b): when group B lands the full canonicalize-then-allowlist
-/// semantics with split read/write allowlists this helper folds into the new
-/// chokepoint. Logged via `tracing::warn!` under target `fs-guard` so the
-/// review-time grep for the prefix returns every guard event.
+/// Tier::System branch can reject. Group B's per-window state lands a
+/// proper per-window workspace_root.
 pub fn ensure_readable(
     path_str: &str,
     state: &crate::watcher::WatcherState,
@@ -332,7 +331,10 @@ pub fn ensure_readable(
     }
     // Then canonicalize and re-check containment + system-locations.
     let canonical = canonicalize_no_verbatim(raw)
-        .map_err(|e| format!("canonicalize failed: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(target: "fs-guard", "[fs-guard] canonicalize failed for {}: {e}", path_str);
+            "canonicalize failed".to_string()
+        })?;
     if !state.is_path_allowed(&canonical) {
         tracing::warn!(target: "fs-guard", "[fs-guard] canonical path outside workspace: {}", canonical.display());
         return Err("path not in workspace".into());
@@ -344,12 +346,12 @@ pub fn ensure_readable(
     match classify(&canonical, &canonical) {
         Ok(Tier::System { flavor }) => {
             tracing::warn!(target: "fs-guard", "[fs-guard] system path blocked ({:?}): {}", flavor, canonical.display());
-            Err("path not in workspace".into())
+            Err("system path blocked".into())
         }
         Ok(Tier::Inside) | Ok(Tier::Outside) => Ok(canonical),
         Err(e) => {
             tracing::warn!(target: "fs-guard", "[fs-guard] non-canonical: {} reason={:?}", canonical.display(), e);
-            Err("path not in workspace".into())
+            Err("path not canonicalizable".into())
         }
     }
 }

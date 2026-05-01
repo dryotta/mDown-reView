@@ -170,3 +170,33 @@ fn test_read_text_file_dot_dot_traversal_rejects() {
     let err = ensure_readable(traversal.to_str().unwrap(), &state).unwrap_err();
     assert_eq!(err, "path not in workspace");
 }
+
+// ── distinct sentinel coverage ─────────────────────────────────────────────
+//
+// `ensure_readable` uses four distinct error strings so a test can prove
+// which guard branch fired (vs. the iter-0 design where every rejection
+// returned the same string). The Tier::System branch is reachable only when
+// `is_path_allowed` accepts the path AND `classify` then rejects. Seeding
+// `tree_watched_dirs[label] = {"/"}` makes any absolute Unix path pass
+// containment so `/etc/hosts` survives to the classify call and triggers
+// the new `"system path blocked"` sentinel — distinct from the
+// containment-rejection sentinel `"path not in workspace"`.
+#[cfg(unix)]
+#[test]
+fn test_read_text_file_classify_system_branch_rejects() {
+    let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+    let state = WatcherState::new(tx);
+    // Seed `tree_watched_dirs[main] = {"/"}` via the public setter so the
+    // raw + canonical containment checks accept any absolute Unix path
+    // (covers `/etc/hosts`). The follow-up `classify` call is the only
+    // gate left — exercising the new `"system path blocked"` sentinel.
+    state
+        .set_tree_watched_dirs("main", "/".to_string(), vec!["/".to_string()])
+        .unwrap();
+
+    let err = ensure_readable("/etc/hosts", &state).unwrap_err();
+    assert_eq!(
+        err, "system path blocked",
+        "expected the classify Tier::System branch sentinel, not the containment sentinel"
+    );
+}

@@ -226,6 +226,20 @@ describe("buildMarkdownComponents — anchor link handling", () => {
       expect.stringContaining("blocked link (absolute-blocked/"),
     );
   });
+
+  // other-blocked arm: workspace-relative path that resolves outside the
+  // workspace root (`/docs/x.md` + `../../etc/passwd` → `/etc/passwd`,
+  // outside `/docs`). Proves the `other-blocked` switch arm doesn't fall
+  // through to the `default: assertNeverLinkRoute` branch.
+  it("other-blocked link click warns and does not navigate", async () => {
+    const { container } = renderMd("[link](../../etc/passwd)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+    expect(openExternalUrl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("blocked link (other-blocked/outside-workspace)"),
+    );
+  });
 });
 
 describe("buildMarkdownComponents — workspace fragment routing", () => {
