@@ -1,150 +1,87 @@
-import { useState, useEffect, useLayoutEffect, useRef, useId } from "react";
+import { useCallback, useRef } from "react";
+
+import { MermaidCanvas } from "./mermaid/MermaidCanvas";
+import { MermaidControls } from "./mermaid/MermaidControls";
+
+import { useStore } from "@/store";
+
 import "@/styles/mermaid-view.css";
 
 interface Props {
   content: string;
-  /** Optional file path. When provided, a file-level comment badge is shown. */
+  /** Optional file path; when provided, MermaidRenderer stamps data-source-line for click-to-comment. */
   path?: string;
-  /** Zoom level from the shared useZoom hook, driven by EnhancedViewer. */
+  /** Per-filetype zoom from EnhancedViewer's useZoom('.mmd'). */
   zoom?: number;
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
- * Map a rendered SVG flowchart node to a 1-based line number in the original
- * mermaid source. Heuristic, in priority order:
- *   1. ID-based: mermaid v10 emits ids like `flowchart-A-1`. Strip the
- *      `flowchart-` prefix and trailing index, then whole-word match the
- *      remaining identifier (e.g. `A`) against each source line.
- *   2. Label text: read the node's `textContent` and substring-match each
- *      source line.
- *   3. Otherwise → null. Caller falls back to a file-level anchor.
+ * Slim shell for the dedicated `.mmd` viewer (issue #276 — c2-mermaidview).
  *
- * Limitations: non-flowchart diagrams (sequence, gantt, …) don't follow the
- * `flowchart-X-N` id convention and may not have unique label tokens, so most
- * of their nodes will fall through to the file-level fallback. That is by
- * design — the click handler still fires (no crash), the comment just lacks
- * a precise line anchor.
+ * Render + theme + transform + pan/zoom now live in MermaidCanvas (which
+ * composes MermaidRenderer). This file only owns:
+ *   1. Wiring the shared `.mmd` zoom (via `useStore`) into MermaidCanvas.
+ *   2. Capturing the most recent fit-to-window scale and routing the Fit
+ *      button click to it. EnhancedViewer is the zoom source-of-truth — we
+ *      mutate via setZoom('.mmd', …) rather than holding local zoom state.
+ *   3. Showing the inline Fit + Pop-out controls ONLY for the dedicated
+ *      viewer path (signalled by the presence of `path`). The embedded
+ *      markdown-block path (MarkdownComponentsMap → MermaidView, until
+ *      c3-markdownmap swaps it for MermaidEmbedded) passes no path and
+ *      therefore renders no controls inside the markdown body.
  */
-function mapNodeToSourceLine(node: SVGGElement, lines: string[]): number | null {
-  const id = node.id || node.getAttribute("data-id") || "";
-  // Mermaid v10/v11 emits ids like `<mermaidId>-flowchart-<source>-<n>` (the
-  // leading `<mermaidId>-` is the container's `useId`). Match anywhere in
-  // the id with a greedy capture so identifiers containing dashes (e.g.
-  // `Some-Name`) survive intact.
-  const m = id.match(/-flowchart-(.+)-\d+$/) ?? id.match(/^flowchart-(.+)-\d+$/);
-  if (m && m[1]) {
-    const re = new RegExp(`\\b${escapeRegExp(m[1])}\\b`);
-    for (let i = 0; i < lines.length; i++) {
-      if (re.test(lines[i])) return i + 1;
-    }
-  }
-  const label = (node.textContent ?? "").trim();
-  if (label) {
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(label)) return i + 1;
-    }
-  }
-  return null;
-}
-
 export function MermaidView({ content, path, zoom = 1 }: Props) {
-  const [svg, setSvg] = useState<string>("");
-  const [error, setError] = useState<string>("");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const reactId = useId();
-  const mermaidId = `mermaid-${reactId.replace(/:/g, "")}`;
+  const setZoom = useStore((s) => s.setZoom);
+  const openMermaidPopout = useStore((s) => s.openMermaidPopout);
 
-  const filePath = path ?? null;
-
-  useEffect(() => {
-    let cancelled = false;
-    async function renderDiagram() {
-      try {
-        const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" });
-        const { svg: renderedSvg } = await mermaid.render(mermaidId, content);
-        if (!cancelled) {
-          setSvg(renderedSvg);
-          setError("");
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(`Error rendering diagram: ${err instanceof Error ? err.message : String(err)}`);
-          setSvg("");
-        }
+  // Fit logic: store the most recent fit scale in a ref. On Fit-button
+  // click, write it to the shared '.mmd' zoom. On first measurement (when
+  // '.mmd' zoom is undefined), seed the shared zoom too so the initial
+  // open lands at fit-to-window rather than 100%.
+  const lastFitRef = useRef<number | null>(null);
+  const handleFitMeasured = useCallback(
+    (fit: number) => {
+      lastFitRef.current = fit;
+      const current = useStore.getState().zoomByFiletype[".mmd"];
+      if (current === undefined) {
+        setZoom(".mmd", fit);
       }
-    }
-    if (content.trim()) {
-      void renderDiagram();
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [content, mermaidId]);
+    },
+    [setZoom],
+  );
 
-  // Inject the rendered SVG via direct innerHTML rather than React's
-  // `dangerouslySetInnerHTML`. The walk effect below mutates attributes on
-  // the resulting SVG nodes (`data-source-line`, inline `cursor`); using
-  // `dangerouslySetInnerHTML` causes React to re-apply innerHTML on every
-  // re-render — even when the svg string hasn't changed — wiping those
-  // mutations. Setting it ourselves keeps the DOM stable across renders so
-  // attributes set in the walk effect persist.
-  // D1 — useLayoutEffect (paired with the walk effect below). Both must
-  // run before browser paint and in declaration order, so the SVG is
-  // injected first and only then walked. Using `useEffect` here would let
-  // the walk run against an empty container.
-  useLayoutEffect(() => {
-    const wrapper = containerRef.current;
-    if (!wrapper) return;
-    if (svg) {
-      wrapper.innerHTML = svg;
-    } else {
-      wrapper.innerHTML = "";
-    }
-  }, [svg]);
+  const handleFitClick = useCallback(() => {
+    if (lastFitRef.current !== null) setZoom(".mmd", lastFitRef.current);
+  }, [setZoom]);
 
-  // After mermaid emits the SVG, walk it to stamp `data-source-line`
-  // attributes for downstream tooling.
-  useLayoutEffect(() => {
-    if (!filePath) return;
-    const wrapper = containerRef.current;
-    if (!svg || !wrapper) return;
-    const svgEl = wrapper.querySelector("svg");
-    if (!svgEl) return;
-    const lines = content.split("\n");
-    const nodes = Array.from(svgEl.querySelectorAll("g.node")) as SVGGElement[];
-    for (const n of nodes) {
-      const line = mapNodeToSourceLine(n, lines);
-      if (line !== null) n.setAttribute("data-source-line", String(line));
-    }
-  }, [svg, content, filePath]);
+  const handlePopout = useCallback(() => {
+    openMermaidPopout(content, path ?? null);
+  }, [openMermaidPopout, content, path]);
 
   return (
     <div
       className="mermaid-view"
       style={{ display: "flex", flexDirection: "column", height: "100%" }}
     >
-      <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
-        {error && (
-          <div
-            className="mermaid-error"
-            style={{ color: "var(--color-danger, #cf222e)", padding: 16 }}
-          >
-            {error}
-          </div>
-        )}
-        {svg && (
-          <div
-            ref={containerRef}
-            title="Mermaid diagram"
-            style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
-          />
-        )}
-      </div>
+      <MermaidCanvas
+        content={content}
+        path={path ?? null}
+        zoom={zoom}
+        setZoom={(v) => setZoom(".mmd", v)}
+        readOnly={false}
+        onFitMeasured={handleFitMeasured}
+      />
+      {path !== undefined && (
+        <MermaidControls
+          mode="inline"
+          zoom={zoom}
+          onZoomIn={() => useStore.getState().bumpZoom(".mmd", "in")}
+          onZoomOut={() => useStore.getState().bumpZoom(".mmd", "out")}
+          onReset={() => useStore.getState().bumpZoom(".mmd", "reset")}
+          onFit={handleFitClick}
+          onPopout={handlePopout}
+        />
+      )}
     </div>
   );
 }

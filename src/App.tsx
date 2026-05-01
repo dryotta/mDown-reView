@@ -17,6 +17,7 @@ import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
+import { MermaidPopout } from "@/components/viewers/mermaid/MermaidPopout";
 import { AboutDialog } from "@/components/AboutDialog";
 import { SettingsView } from "@/components/SettingsView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -44,6 +45,7 @@ export default function App() {
   const setTheme = useStore((s) => s.setTheme);
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
+  const closeMermaidPopout = useStore((s) => s.closeMermaidPopout);
   const { checkForUpdate } = useUpdateActions();
   useUpdateProgress();
 
@@ -81,6 +83,19 @@ export default function App() {
   const closeSettings = useStore((s) => s.closeSettings);
 
   const { handleOpenFile, handleOpenFolder } = useDialogActions();
+
+  // Per spec design decision 3: any top-toolbar button click closes the
+  // mermaid popout. Close BEFORE opening the dialog so the close also
+  // fires on dialog cancellation (no openFile/setRoot path will run).
+  // toggleCommentsPane closes via the slice itself (see store/index.ts).
+  const handleOpenFileClick = useCallback(() => {
+    closeMermaidPopout();
+    void handleOpenFile();
+  }, [closeMermaidPopout, handleOpenFile]);
+  const handleOpenFolderClick = useCallback(() => {
+    closeMermaidPopout();
+    void handleOpenFolder();
+  }, [closeMermaidPopout, handleOpenFolder]);
 
   // Shared close-folder handler: resets store root AND unregisters from
   // the Rust WindowRegistry so the folder can be re-opened elsewhere.
@@ -121,8 +136,8 @@ export default function App() {
   useFileWatcher();
 
   const menuCallbacks = {
-    handleOpenFile,
-    handleOpenFolder,
+    handleOpenFile: handleOpenFileClick,
+    handleOpenFolder: handleOpenFolderClick,
     toggleCommentsPane,
     setTheme,
     setAboutOpen,
@@ -160,10 +175,10 @@ export default function App() {
       <ErrorBoundary>
         <div className="toolbar">
           <div className="toolbar-btn-group">
-            <button className="toolbar-btn" onClick={handleOpenFile} title="Open file(s)">
+            <button className="toolbar-btn" onClick={handleOpenFileClick} title="Open file(s)">
               <IconFile /> Open File
             </button>
-            <button className="toolbar-btn" onClick={handleOpenFolder} title="Open folder">
+            <button className="toolbar-btn" onClick={handleOpenFolderClick} title="Open folder">
               <IconFolder /> Open Folder
             </button>
             <button
@@ -211,6 +226,10 @@ export default function App() {
             <CommentsPanel filePath={activeTabPath} />
           </ErrorBoundary>
         )}
+
+        <ErrorBoundary>
+          <MermaidPopout />
+        </ErrorBoundary>
       </div>
 
       <ErrorBoundary>

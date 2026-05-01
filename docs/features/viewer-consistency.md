@@ -101,6 +101,8 @@ These apply to **every** viewer in every tier, no exceptions:
 
 3. **All viewer actions surface through the toolbar.** File-type-specific features (hex view toggle for binary, export PNG/SVG for Mermaid, fit/original-size for images) are exposed as toolbar controls — not as standalone buttons in the viewer body. This keeps all actions discoverable in one consistent location. The viewer body renders content only; the toolbar renders controls.
 
+   **Mermaid exception (issue #276).** The mermaid viewers also expose two viewer-body controls: a small floating top-right Pop-out button on the dedicated `.mmd` viewer and (hover-revealed) on embedded `mermaid` blocks. The pop-out overlay (`MermaidPopout`) opens an in-app overlay with its own floating zoom + Fit + Close bar because no chrome toolbar is visible while the overlay is mounted. The chrome ViewerToolbar zoom controls continue to drive the same `.mmd` zoom value via `useZoom('.mmd')` so the surface-vs-chrome split is consistent. This is the only deliberate viewer-body-controls exception and exists because the popout requirement structurally precludes routing every interaction through the chrome toolbar.
+
 4. **FileActionsBar in the toolbar trailing slot.** The "Reveal in folder" action appears via `<FileActionsBar>` in the `ViewerToolbar` `trailing` prop. It must not be duplicated in the viewer body.
 
 5. **`key={path}` on the viewer root.** Path changes force unmount → remount. This prevents stale state (old error messages, old media playback, old hex bytes) from leaking across tab switches.

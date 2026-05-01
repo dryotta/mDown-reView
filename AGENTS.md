@@ -99,7 +99,7 @@ Summary only — full rationale in [`docs/principles.md`](docs/principles.md).
 | Rust logging | `tauri-plugin-log`, `tracing`, `tracing-subscriber` |
 | Single-instance | `tauri-plugin-single-instance` |
 | Frontend | React 19, TypeScript |
-| State | Zustand (`workspaceSlice`, `tabsSlice`, `commentsSlice`, `uiSlice`, `updateSlice`, `watcherSlice`) |
+| State | Zustand (`workspaceSlice`, `tabsSlice`, `commentsSlice`, `uiSlice`, `updateSlice`, `watcherSlice`, `mermaidPopoutSlice`) |
 | Markdown rendering | `react-markdown` + `remark-gfm` + `@shikijs/rehype` + `rehype-slug` |
 | Syntax highlighting | Shiki (`@shikijs/rehype` in MarkdownViewer, direct API in SourceView) |
 | Linting | ESLint 9 (flat config) + `@typescript-eslint` + `eslint-plugin-react` + React compiler rules |
@@ -142,6 +142,12 @@ src/
       ViewerRouter.tsx      ← routes to appropriate viewer (incl. ghost detection)
       BinaryPlaceholder.tsx
       MermaidView.tsx
+      mermaid/
+        MermaidRenderer.tsx     ← render primitive (theme + SVG inject + walk)
+        MermaidCanvas.tsx       ← interaction shell (gestures + imperative transform)
+        MermaidControls.tsx     ← floating chrome (inline + popout modes)
+        MermaidEmbedded.tsx     ← embedded-block wrapper with hover popout button
+        MermaidPopout.tsx       ← portal-style overlay
     comments/               ← CommentInput, CommentThread, CommentsPanel, CommentBadge, CommentMarker, SelectionToolbar
     AboutDialog.tsx
     ErrorBoundary.tsx

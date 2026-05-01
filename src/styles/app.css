@@ -188,6 +188,7 @@ body,
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative; /* anchors .mermaid-popout-overlay (issue #276) */
 }
 
 /* ── Drag handle ───────────────────────────────────────────────────── */

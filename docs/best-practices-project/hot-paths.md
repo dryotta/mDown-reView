@@ -33,7 +33,7 @@ First-look checks: confirm Shiki is highlighting per-document, not per-line; con
 
 ### `hot-path: mermaid-render`
 
-**File:** `src/components/viewers/MermaidView.tsx`
+**File:** `src/components/viewers/mermaid/MermaidRenderer.tsx` (render hot path); pan/zoom hot loop in `src/components/viewers/mermaid/MermaidCanvas.tsx`
 
 Sensitive to:
 - Mermaid render is synchronous and blocks the main thread — large diagrams freeze the UI.

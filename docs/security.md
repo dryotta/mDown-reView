@@ -35,7 +35,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 12a. **HTML-preview iframe sandbox is hard-locked to `allow-same-origin` only — never paired with `allow-scripts`.** `HtmlPreviewView` (`src/components/viewers/HtmlPreviewView.tsx`) sets `sandbox="allow-same-origin"` unconditionally: CSS and fonts render, no JavaScript runs, and the host can reach into `contentDocument` to install a click handler that routes anchors through `routeLinkClick` (`src/lib/url-policy.ts`). Combining `allow-same-origin` with `allow-scripts` would re-grant the iframe full host-origin access (DOM, storage, IPC) — defeating the sandbox entirely; the toggle does not exist. No script is ever spliced into the iframe's `srcDoc` and no `postMessage` bridge runs.
 13. Markdown anchor clicks open only `http(s)` URLs, blocking `file://`, `javascript:`, etc. (`MarkdownViewer.tsx:146-148`.)
 14. Local image `src` is piped through `convertFileSrc` so the WebView loads via `asset:`, never raw `file://`. (`MarkdownViewer.tsx:302-309`.)
-15. Mermaid runs with `securityLevel: "strict"`. (`MermaidView.tsx:21`.)
+15. Mermaid runs with `securityLevel: "strict"`. (`mermaid-singleton.ts:56`.)
 16. `SourceView`'s `dangerouslySetInnerHTML` payload comes only from Shiki output, `escapeHtml`, or search highlight built from `escapeHtml`-segmented pieces. (`SourceView.tsx:184-190`; `useSourceHighlighting.ts:8-10`.)
 
 ### Process-level hardening
@@ -73,7 +73,7 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 - **Sidecar `selected_text` and `text` have no per-field length limit** (`core/types.rs:17-45`); the file-level 10 MB cap (rule 3) bounds total sidecar size, but a single comment can still occupy most of that budget.
 - **Full file paths are logged unredacted** (across `commands/*.rs` `tracing::error!` sites and `watcher.rs:158`). Shared logs leak workspace structure and usernames.
 - **MRSF schema version gate.** `load_sidecar` rejects sidecars with unsupported major versions (> 1) via `reject_unsupported_version`. Minor versions within major 1 are accepted per spec §5.
-- **Mermaid SVG injected via `dangerouslySetInnerHTML`** (`MermaidView.tsx:89`) relies on upstream `securityLevel: "strict"` with no defense in depth.
+- **Mermaid SVG injected via direct `innerHTML`** (`MermaidRenderer.tsx:129`) relies on upstream `securityLevel: "strict"` with no defense in depth.
 - **Supply-chain rule is not codified.** No `deny.toml` / `cargo-deny` or npm audit gate in CI.
 - **`patch_comment` in `core/sidecar.rs` is public and internally reachable.** Future wiring without `with_sidecar_mut` would bypass atomic-save.
 - **Launch-args race on macOS "Open With"** (`lib.rs:258-287`): if `get_launch_args` fires between the `is_none` check and emit, files can be silently lost.

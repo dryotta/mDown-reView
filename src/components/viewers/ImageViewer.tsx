@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useImageData } from "@/hooks/useImageData";
 import { extname } from "@/lib/path-utils";
+import { clampPan } from "@/lib/pan-utils";
 import "@/styles/image-viewer.css";
 
 interface Props {
@@ -21,29 +22,6 @@ const MIME_MAP: Record<string, string> = {
   ".bmp": "image/bmp",
   ".ico": "image/x-icon",
 };
-
-/**
- * R2 — clamp pan so the image never leaves the viewport entirely. Limits are
- * symmetric: when the (zoomed) image is wider than the container, pan.x is
- * allowed within ±overflow/2; otherwise pinned at 0. Same for y.
- */
-function clampPan(
-  pan: { x: number; y: number },
-  container: { w: number; h: number },
-  imgNatural: { w: number; h: number },
-  zoom: number,
-): { x: number; y: number } {
-  const scaledW = imgNatural.w * zoom;
-  const scaledH = imgNatural.h * zoom;
-  const overflowX = Math.max(0, scaledW - container.w);
-  const overflowY = Math.max(0, scaledH - container.h);
-  const limitX = overflowX / 2;
-  const limitY = overflowY / 2;
-  return {
-    x: Math.max(-limitX, Math.min(limitX, pan.x)),
-    y: Math.max(-limitY, Math.min(limitY, pan.y)),
-  };
-}
 
 export function ImageViewer({ path, zoom, fit }: Props) {
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
