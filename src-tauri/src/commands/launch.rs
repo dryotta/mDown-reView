@@ -189,8 +189,11 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
     reg.push_args("main", launch_args);
 
     if let Some(window) = app.get_webview_window("main") {
+        // Rule multiwin-window-scoped-events: target the main window
+        // explicitly — `WebviewWindow::emit` is a broadcast (see
+        // tauri-2.10.3/src/manager/mod.rs::emit).
         window
-            .emit("args-received", ())
+            .emit_to("main", "args-received", ())
             .map_err(|e| e.to_string())?;
     }
 

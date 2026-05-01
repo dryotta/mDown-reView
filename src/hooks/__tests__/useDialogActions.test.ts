@@ -113,4 +113,73 @@ describe("useDialogActions", () => {
     await act(async () => { await result.current.handleOpenFile(); });
     expect(useStore.getState().tabs).toHaveLength(0);
   });
+
+  // ── openFolderPath: shared by toolbar + welcome-view recent folders ──
+  //
+  // The original bug was WelcomeView reimplementing the open-folder
+  // sequence in the wrong order (setRoot before registerWindowFolder),
+  // so clicking a recent folder already open in another window cloned
+  // the folder into the current window instead of activating the other
+  // window. Fixing that recurrence requires both call sites to share
+  // ONE callback — `openFolderPath` is that callback.
+
+  it("openFolderPath calls registerWindowFolder before setRoot", async () => {
+    const callOrder: string[] = [];
+    vi.mocked(registerWindowFolder).mockImplementation(async () => {
+      callOrder.push("register");
+    });
+    const origSetRoot = useStore.getState().setRoot;
+    const setRootSpy = vi.fn(async (root: string | null) => {
+      callOrder.push("setRoot");
+      await origSetRoot(root);
+    });
+    useStore.setState({ setRoot: setRootSpy });
+
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => {
+      await result.current.openFolderPath("/test/recent-folder");
+    });
+
+    expect(callOrder).toEqual(["register", "setRoot"]);
+    expect(registerWindowFolder).toHaveBeenCalledWith("/test/recent-folder");
+  });
+
+  it("openFolderPath does NOT set root when registerWindowFolder rejects", async () => {
+    vi.mocked(registerWindowFolder).mockRejectedValue(
+      "folder already open in window 'w1'",
+    );
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => {
+      await result.current.openFolderPath("/test/recent-folder");
+    });
+    // Root should remain null — registration was rejected and the
+    // current window's state must be untouched (the existing window
+    // is focused by Rust before the rejection returns).
+    expect(useStore.getState().root).toBeNull();
+  });
+
+  it("openFolderPath adds a recent item on success", async () => {
+    vi.mocked(registerWindowFolder).mockResolvedValue(undefined);
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => {
+      await result.current.openFolderPath("/test/recent-folder");
+    });
+    expect(useStore.getState().recentItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "/test/recent-folder", type: "folder" }),
+      ]),
+    );
+  });
+
+  it("openFolderPath does NOT add a recent item when registration rejects", async () => {
+    vi.mocked(registerWindowFolder).mockRejectedValue(
+      "folder already open in window 'w1'",
+    );
+    const beforeCount = useStore.getState().recentItems.length;
+    const { result } = renderHook(() => useDialogActions());
+    await act(async () => {
+      await result.current.openFolderPath("/test/recent-folder");
+    });
+    expect(useStore.getState().recentItems).toHaveLength(beforeCount);
+  });
 });

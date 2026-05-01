@@ -2,35 +2,44 @@ import { useStore } from "@/store";
 import type { RecentItem } from "@/store";
 import { useRecentItemStatus } from "@/hooks/useRecentItemStatus";
 import { basename, dirname } from "@/lib/path-utils";
-import { registerWindowFolder } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
 import { IconFile, IconFolder } from "@/components/Icons";
 import "@/styles/welcome-view.css";
 
 interface WelcomeViewProps {
   onOpenFile: () => void;
   onOpenFolder: () => void;
+  /**
+   * Called when the user clicks a recent folder. MUST go through the
+   * shared `useDialogActions().openFolderPath` callback so the
+   * register-then-setRoot ordering matches the toolbar dialog flow —
+   * if the folder is already open in another window, the registry
+   * rejects the call and focuses the existing window instead of
+   * cloning the folder into the current one.
+   *
+   * Rust-First MVVM (`docs/principles.md`): WelcomeView is View only;
+   * the IPC + store mutation belongs in the ViewModel hook.
+   */
+  onOpenRecentFolder: (path: string) => void | Promise<void>;
 }
 
-export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
+export function WelcomeView({
+  onOpenFile,
+  onOpenFolder,
+  onOpenRecentFolder,
+}: WelcomeViewProps) {
   const recentItems = useStore((s) => s.recentItems);
   const openFile = useStore((s) => s.openFile);
-  const setRoot = useStore((s) => s.setRoot);
   const addRecentItem = useStore((s) => s.addRecentItem);
   const pathStatus = useRecentItemStatus(recentItems);
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const mod = isMac ? "⌘" : "Ctrl";
 
-  const handleRecentClick = async (item: RecentItem) => {
+  const handleRecentClick = (item: RecentItem) => {
     const status = pathStatus[item.path];
     if (status === "missing") return;
     if (item.type === "folder") {
-      await setRoot(item.path);
-      addRecentItem(item.path, "folder");
-      registerWindowFolder(item.path).catch((err) =>
-        warn(`[WelcomeView] register_window_folder failed: ${err}`)
-      );
+      void onOpenRecentFolder(item.path);
     } else {
       openFile(item.path);
       addRecentItem(item.path, "file");

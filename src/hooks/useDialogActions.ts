@@ -25,22 +25,50 @@ export function useDialogActions() {
     }
   }, [openFile, addRecentItem]);
 
+  /**
+   * Shared "open folder by canonical path" action.
+   *
+   * Both the toolbar (after `showOpenDialog` returns) and the welcome-view
+   * recent-folder list MUST go through this single ViewModel callback so
+   * the register-then-setRoot ordering can never drift between the two
+   * call sites (Rust-First MVVM in `docs/principles.md` — components are
+   * View only).
+   *
+   * Order matters: `register_window_folder` (Rust at `lib.rs::register_window_folder`)
+   * rejects with "folder already open in window 'X'" when the folder is
+   * claimed by another window, AND focuses that other window before
+   * returning. We MUST call it before `setRoot` so a rejected registration
+   * leaves THIS window's state untouched and the user sees the existing
+   * window come forward instead.
+   */
+  // allow-chained-invokes: registerWindowFolder must reject before
+  // setRoot runs — see comment above. Sequential, not parallelizable.
+  const openFolderPath = useCallback(
+    async (folder: string) => {
+      try {
+        await registerWindowFolder(folder);
+        await setRoot(folder);
+        addRecentItem(folder, "folder");
+      } catch (err) {
+        if (err && typeof err === "string" && err.includes("already open")) {
+          void warn(`[useDialogActions] folder already open in another window`);
+        }
+      }
+    },
+    [setRoot, addRecentItem],
+  );
+
   const handleOpenFolder = useCallback(async () => {
-    // allow-chained-invokes: showOpenDialog returns the user-selected path that must feed registerWindowFolder, which rejects if the folder is already open in another window — setRoot must not run on a rejected registration. Sequential, not parallelizable.
     try {
       const selected = await showOpenDialog({ directory: true, multiple: false });
       if (typeof selected === "string") {
-        await registerWindowFolder(selected);
-        await setRoot(selected);
-        addRecentItem(selected, "folder");
+        await openFolderPath(selected);
       }
-    } catch (err) {
-      // Distinguish registry rejection from user cancellation
-      if (err && typeof err === "string" && err.includes("already open")) {
-        void warn(`[useDialogActions] folder already open in another window`);
-      }
+    } catch {
+      // User cancelled the dialog. Folder-already-open rejections are
+      // surfaced inside `openFolderPath`.
     }
-  }, [setRoot, addRecentItem]);
+  }, [openFolderPath]);
 
-  return { handleOpenFile, handleOpenFolder };
+  return { handleOpenFile, handleOpenFolder, openFolderPath };
 }
