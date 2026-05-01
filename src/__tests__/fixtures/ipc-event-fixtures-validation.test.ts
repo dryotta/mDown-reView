@@ -19,6 +19,9 @@ import {
   commentsChanged,
   folderChanged,
   updateProgress,
+  updateProgressStarted,
+  updateProgressTick,
+  updateProgressFinished,
 } from "./ipc-event-fixtures";
 
 describe("ipc-event-fixtures — semantic validation (issue #311 forward-fix)", () => {
@@ -75,6 +78,49 @@ describe("ipc-event-fixtures — semantic validation (issue #311 forward-fix)", 
     it("throws on a sidecar path (commands/comments/mod.rs always emits source)", () => {
       expect(() => commentsChanged("/x/notes.md.review.yaml")).toThrow(/source/i);
       expect(() => commentsChanged("/x/notes.md.review.json")).toThrow(/source/i);
+    });
+  });
+
+  describe("updateProgressStarted (issue #327)", () => {
+    it("returns the canonical Started payload", () => {
+      expect(updateProgressStarted()).toEqual({
+        event: "Started",
+        content_length: 1000,
+        chunk_length: 0,
+      });
+    });
+    it("accepts a custom contentLength", () => {
+      expect(updateProgressStarted(54321)).toEqual({
+        event: "Started",
+        content_length: 54321,
+        chunk_length: 0,
+      });
+    });
+    it("throws when contentLength is negative (Option<u64> at src-tauri/src/update.rs:24)", () => {
+      expect(() => updateProgressStarted(-1)).toThrow(/>= 0/);
+    });
+  });
+
+  describe("updateProgressTick (issue #327)", () => {
+    it("returns the canonical Progress payload", () => {
+      expect(updateProgressTick()).toEqual({
+        event: "Progress",
+        content_length: null,
+        chunk_length: 100,
+      });
+    });
+    it("throws when chunkLength is negative (usize at src-tauri/src/update.rs:25)", () => {
+      expect(() => updateProgressTick(-5)).toThrow(/>= 0/);
+    });
+  });
+
+  describe("updateProgressFinished (issue #327)", () => {
+    it("returns the canonical Finished payload", () => {
+      expect(updateProgressFinished()).toEqual({
+        event: "Finished",
+        content_length: null,
+        chunk_length: 0,
+      });
     });
   });
 

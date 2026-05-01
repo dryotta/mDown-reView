@@ -290,3 +290,57 @@ export function updateProgress(
   assertValidUpdateProgressShape(payload, "updateProgress");
   return payload;
 }
+
+/**
+ * `update-progress` "Started" — emitted at the beginning of an update
+ * download. Payload struct: `src-tauri/src/update.rs:21-26`
+ * (`UpdateProgressEvent { event, content_length, chunk_length }`); emit
+ * site at `src-tauri/src/update.rs:115`. The Started event carries the
+ * total `content_length` (bytes to download) and `chunk_length: 0` —
+ * verified against `tauri-plugin-updater`'s `DownloadEvent::Started`
+ * dispatch path at `src-tauri/src/update.rs:106-114`.
+ *
+ * **Validation:** throws if `contentLength` is negative — the upstream
+ * `Option<u64>` cannot represent a negative byte count.
+ */
+export function updateProgressStarted(
+  contentLength: number = 1000,
+): UpdateProgressPayload {
+  if (contentLength < 0) {
+    throw new Error(
+      `updateProgressStarted: contentLength must be >= 0, got ${contentLength}. ` +
+        `Maps to Option<u64> at src-tauri/src/update.rs:24.`,
+    );
+  }
+  return { event: "Started", content_length: contentLength, chunk_length: 0 };
+}
+
+/**
+ * `update-progress` "Progress" — emitted per chunk during update download.
+ * `content_length: null` (only the Started event carries the total);
+ * `chunk_length` is the per-tick byte count. See
+ * `src-tauri/src/update.rs:106-115` for the canonical payload shape.
+ *
+ * **Validation:** throws if `chunkLength` is negative — `usize` cannot
+ * represent a negative count.
+ */
+export function updateProgressTick(
+  chunkLength: number = 100,
+): UpdateProgressPayload {
+  if (chunkLength < 0) {
+    throw new Error(
+      `updateProgressTick: chunkLength must be >= 0, got ${chunkLength}. ` +
+        `Maps to usize at src-tauri/src/update.rs:25.`,
+    );
+  }
+  return { event: "Progress", content_length: null, chunk_length: chunkLength };
+}
+
+/**
+ * `update-progress` "Finished" — emitted after the update download
+ * completes. `content_length: null`, `chunk_length: 0`. Emit site at
+ * `src-tauri/src/update.rs:118-123`.
+ */
+export function updateProgressFinished(): UpdateProgressPayload {
+  return { event: "Finished", content_length: null, chunk_length: 0 };
+}
