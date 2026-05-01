@@ -24,7 +24,6 @@
     "targets": ["app", "dmg", "nsis"],
     "createUpdaterArtifacts": "v1Compatible",
     "externalBin": ["binaries/mdownreview-cli"],
-    "resources": ["dmg/README.txt"],
     "macOS": {
       "signingIdentity": "-",
       "entitlements": "entitlements.plist"

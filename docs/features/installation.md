@@ -56,9 +56,11 @@ The `mdownreview-cli` binary embedded inside the `.app` bundle (`externalBin`) i
 
 No UAC on Windows, no `sudo` on macOS — both install paths run entirely in user space. NSIS uses `installMode: currentUser` (`tauri.conf.json`) and `site/install.sh` falls back from `/usr/local/bin` to `~/.local/bin` rather than escalating.
 
-## DMG layout (macOS)
+## DMG (macOS)
 
-The `.dmg` ships with a custom layout (`tauri.conf.json` `bundle.macOS.dmg`): 660×400 window, app icon at (180,170), Applications symlink at (480,170), background image at `src-tauri/dmg/background.png` (placeholder ships as a flat fill until design lands a real asset). A `README.txt` is bundled at `bundle.resources` so it appears at the DMG root with the unsigned-binary unquarantine instructions. The release workflow (`.github/workflows/release.yml` "Verify DMG layout") asserts these structural expectations on every macOS build.
+The `.dmg` ships with Tauri's default DMG bundler layout (window size, app/Applications-folder positions, no custom background). The release workflow (`.github/workflows/release.yml` "Verify DMG layout") asserts that the DMG mounts cleanly and contains the `Applications` symlink alongside `mdownreview.app`.
+
+> The unsigned-binary unquarantine instructions live in the GitHub release notes (see `release.yml` `--notes` block) and on `https://dryotta.github.io/mdownreview/` — not inside the DMG. Tauri v2's DMG bundler does not support arbitrary files at the DMG root via config, and `bundle.resources` ships files inside the .app bundle (Contents/Resources/), not at the mount root.
 
 ## NSIS installer hooks (Windows)
 
@@ -104,9 +106,8 @@ Each command file with OS divergence follows the **platform sub-module pattern**
 
 - `site/install.sh` — macOS install script
 - `site/install.ps1` — Windows install script
-- `src-tauri/tauri.conf.json` — bundle config (`signingIdentity`, `externalBin`, `bundle.targets`, `bundle.macOS.dmg` layout, `bundle.windows.nsis.installerHooks`)
+- `src-tauri/tauri.conf.json` — bundle config (`signingIdentity`, `externalBin`, `bundle.targets`, `bundle.windows.nsis.installerHooks`)
 - `src-tauri/installer/installer-hooks.nsh` — NSIS POST/PREINSTALL macros (HKCU PATH)
-- `src-tauri/dmg/` — DMG layout assets (background image placeholder, `README.txt` shipped at DMG root via `bundle.resources`)
 - `src-tauri/src/core/onboarding.rs` — schema-versioned onboarding state (load/save on injectable path)
 - `src-tauri/src/commands/{onboarding,cli_shim,default_handler}.rs` — 6 platform-integration IPC commands
 - `src/store/index.ts` — `OnboardingSlice` (state + actions) consumed by SettingsView and WelcomeView
