@@ -137,17 +137,20 @@ test.describe("mermaid popout (issue #276)", () => {
     await expect(page.locator(".mermaid-popout-overlay")).not.toBeVisible();
   });
 
-  test("renders the dedicated viewer for .mmd files with the floating Pop-out button", async ({
+  test("renders the dedicated viewer for .mmd files with no inline canvas chrome", async ({
     page,
   }) => {
     await setupMocks(page);
     await page.goto("/");
     await page.locator(".folder-tree").getByText("flow.mmd").click();
     await expect(page.locator(".mermaid-canvas svg")).toBeVisible({ timeout: 15_000 });
-    await expect(
-      page.locator(".mermaid-canvas-actions button", { hasText: "Fit" }),
-    ).toBeVisible();
-    await expect(page.locator('button[aria-label="Pop out"]')).toBeVisible();
+    // Inline Fit / Pop-out chrome was removed: zoom + reset live in the
+    // chrome ViewerToolbar (single source of truth via useZoom), and Pop-out
+    // is a no-op when the viewer already IS the full-window view. The
+    // hover-Pop-out affordance only lives on `MermaidEmbedded`.
+    await expect(page.locator(".mermaid-canvas-actions")).toHaveCount(0);
+    await expect(page.locator('button[aria-label="Pop out"]')).toHaveCount(0);
+    await expect(page.locator('button[aria-label="Fit to window"]')).toHaveCount(0);
   });
 
   test("Ctrl+wheel zooms the popout content", async ({ page }) => {

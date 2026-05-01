@@ -18,13 +18,12 @@ type CanvasProps = {
   readOnly?: boolean;
 };
 type ControlsProps = {
-  mode: "inline" | "popout";
   zoom: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
   onFit: () => void;
-  onClose?: () => void;
+  onClose: () => void;
 };
 const captured: { canvas: CanvasProps | null; controls: ControlsProps | null } = {
   canvas: null,
@@ -143,11 +142,10 @@ describe("MermaidPopout — child wiring", () => {
     expect(captured.canvas?.path).toBe("/y.mmd");
   });
 
-  it('renders MermaidControls with mode="popout" and a close handler', () => {
+  it("renders MermaidControls with a close handler", () => {
     state.mermaidPopoutOpenFor = { content: "graph TD; A-->B", path: null };
     render(<MermaidPopout />);
     expect(captured.controls).not.toBeNull();
-    expect(captured.controls?.mode).toBe("popout");
     expect(typeof captured.controls?.onClose).toBe("function");
   });
 

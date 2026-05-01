@@ -315,6 +315,24 @@
  * MarkdownViewer's onClick. The pseudo-element is purely visual.
  */
 
+/* Block-level wrappers (`-block` for paragraphs / headings / blockquotes /
+ * fenced code / images / hr / etc., `-li` for list items) need their own
+ * positioning context so the absolute pseudo-elements below resolve
+ * relative to the wrapper they belong to — NOT escape upward to the
+ * `.markdown-body { position: relative }` and stack at the document's
+ * top-left. (The `-cell` rule below documents the same constraint.)
+ *
+ * Once the wrappers are positioned, the `left` offset on the bubbles is
+ * NEGATIVE so the bubble draws in the gutter to the LEFT of the wrapper
+ * (top-level blocks: `.markdown-body`'s 28 px padding-left; nested list
+ * items: the parent `<ul>`'s 2 em padding-left where bullet markers sit
+ * — visually consistent with the per-block-gutter intent documented at
+ * the top of this section). */
+.md-commentable-block,
+.md-commentable-li {
+  position: relative;
+}
+
 /* Cells need their own positioning context for the ::before badge. */
 .md-commentable-cell {
   position: relative;
@@ -334,7 +352,11 @@
 .md-commentable-cell::before {
   content: "+";
   position: absolute;
-  left: 4px;
+  /* No `top` — pseudo falls back to its static-flow Y (the wrapper's
+   * top), which keeps the click hit-area tall enough to capture clicks
+   * on thin wrappers like `<hr>` whose vertical center can be only a
+   * few pixels below the wrapper top. The bubble variant
+   * (`.has-comments::before`) explicitly sets `top: 4px`. */
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -351,6 +373,23 @@
   border: none;
   box-sizing: border-box;
   z-index: 5;
+}
+/* Block / list-item: the `+` sits in the gutter to the LEFT of the
+ * wrapper. `-24px` lines up with the body's 28 px padding-left for
+ * top-level blocks (visually identical to the pre-fix placement, just
+ * per-block instead of escaping to `.markdown-body`). For nested list
+ * items the same `-24px` lands in the parent `<ul>`'s 2 em padding
+ * column where bullet markers sit — visually consistent with the
+ * "left ~28 px of any commentable block is the gutter" intent
+ * documented at the top of this section. */
+.md-commentable-block::before,
+.md-commentable-li::before {
+  left: -24px;
+}
+/* Table cell: the `+` lives INSIDE the cell padding (cells have no
+ * external gutter to spill into without breaking the table grid). */
+.md-commentable-cell::before {
+  left: 4px;
 }
 
 .md-commentable-block:hover::before,
@@ -375,13 +414,21 @@
   border-radius: 0;
   width: 16px;
   height: 16px;
-  left: 4px;
   top: 4px;
   opacity: 1;
   -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
     no-repeat center / 16px 16px;
   mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='black'><path d='M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6A1.5 1.5 0 0 1 13 11.5H7.5l-3.1 2.7a.5.5 0 0 1-.83-.38V11.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z'/></svg>")
     no-repeat center / 16px 16px;
+}
+/* `-22px` puts the 16 px bubble flush within the same 28 px gutter the
+ * 20 px hover `+` uses (`-24px` for the larger glyph). */
+.md-commentable-block.has-comments::before,
+.md-commentable-li.has-comments::before {
+  left: -22px;
+}
+.md-commentable-cell.has-comments::before {
+  left: 4px;
 }
 
 /* Stacked bubbles for ≥2 comments: render the back bubble via ::after,
@@ -392,7 +439,6 @@
 .md-commentable-cell.has-comments:not([data-comment-count="1"])::after {
   content: "";
   position: absolute;
-  left: 6px;
   top: 6px;
   width: 16px;
   height: 16px;
@@ -404,6 +450,15 @@
     no-repeat center / 16px 16px;
   z-index: 4;
   pointer-events: none;
+}
+/* Back bubble sits 2 px down-and-right of the front (block/li:
+ * front=`-22px`, back=`-20px`; cell: front=`4px`, back=`6px`). */
+.md-commentable-block.has-comments:not([data-comment-count="1"])::after,
+.md-commentable-li.has-comments:not([data-comment-count="1"])::after {
+  left: -20px;
+}
+.md-commentable-cell.has-comments:not([data-comment-count="1"])::after {
+  left: 6px;
 }
 
 .comment-edit {

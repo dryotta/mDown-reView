@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/vm/use-comments", () => ({
@@ -18,9 +18,6 @@ vi.mock("@/lib/mermaid-singleton", () => ({
 const storeState = {
   zoomByFiletype: {} as Record<string, number>,
   setZoom: vi.fn(),
-  bumpZoom: vi.fn(),
-  openMermaidPopout: vi.fn(),
-  closeMermaidPopout: vi.fn(),
 };
 
 vi.mock("@/store", () => {
@@ -39,8 +36,6 @@ beforeEach(() => {
   });
   storeState.zoomByFiletype = {};
   storeState.setZoom.mockReset();
-  storeState.bumpZoom.mockReset();
-  storeState.openMermaidPopout.mockReset();
 });
 
 describe("MermaidView", () => {
@@ -63,30 +58,29 @@ describe("MermaidView", () => {
     errSpy.mockRestore();
   });
 
-  it("hides inline controls when no path is provided (embedded markdown-block path)", async () => {
-    render(<MermaidView content="graph TD; A-->B;" />);
-    // Wait for async mermaid render to settle so React's act warning doesn't fire.
+  it("renders no inline canvas chrome regardless of `path` (zoom + reset live in chrome ViewerToolbar; Pop-out belongs to MermaidEmbedded only)", async () => {
+    // Embedded path (no `path`) — was always chrome-less.
+    const { rerender, container } = render(<MermaidView content="graph TD; A-->B;" />);
     await waitFor(() => {
       expect(screen.getByTitle("Mermaid diagram")).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: /fit/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /pop out/i })).not.toBeInTheDocument();
-    // Zoom in/out/reset live in the chrome ViewerToolbar — never inside MermaidView.
-    expect(screen.queryByRole("button", { name: /zoom in/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /zoom out/i })).not.toBeInTheDocument();
-  });
+    for (const name of [/fit/i, /pop out/i, /zoom in/i, /zoom out/i]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(container.querySelector(".mermaid-canvas-actions")).toBeNull();
 
-  it("shows Fit + Pop-out (but not zoom in/out) when path is provided (dedicated viewer)", async () => {
-    render(<MermaidView content="graph TD; A-->B;" path="/tmp/diagram.mmd" />);
-    expect(await screen.findByRole("button", { name: /fit/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /pop out/i })).toBeInTheDocument();
-    // Flush the async mermaid render before ending the test.
+    // Dedicated viewer path (with `path`) — now also chrome-less. Earlier
+    // iterations rendered Fit + Pop-out here; both were removed because Fit
+    // duplicates the chrome ViewerToolbar's reset and Pop-out is a no-op
+    // when the viewer already IS the full-window view.
+    rerender(<MermaidView content="graph TD; A-->B;" path="/tmp/diagram.mmd" />);
     await waitFor(() => {
       expect(screen.getByTitle("Mermaid diagram")).toBeInTheDocument();
     });
-    // Chrome ViewerToolbar is the only zoom in/out surface.
-    expect(screen.queryByRole("button", { name: /zoom in/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /zoom out/i })).not.toBeInTheDocument();
+    for (const name of [/fit/i, /pop out/i, /zoom in/i, /zoom out/i]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(container.querySelector(".mermaid-canvas-actions")).toBeNull();
   });
 
   it("accepts zoom prop and applies it to the canvas transform wrapper", async () => {
@@ -99,18 +93,5 @@ describe("MermaidView", () => {
     const transformDiv = container.querySelector(".mermaid-canvas-transform") as HTMLElement | null;
     expect(transformDiv).not.toBeNull();
     expect(transformDiv!.style.transform).toContain("scale(1.5)");
-  });
-
-  it("clicking Pop-out invokes openMermaidPopout(content, path)", async () => {
-    const content = "graph TD; A-->B;";
-    const path = "/tmp/diagram.mmd";
-    render(<MermaidView content={content} path={path} />);
-    fireEvent.click(await screen.findByRole("button", { name: /pop out/i }));
-    expect(storeState.openMermaidPopout).toHaveBeenCalledTimes(1);
-    expect(storeState.openMermaidPopout).toHaveBeenCalledWith(content, path);
-    // Flush async render.
-    await waitFor(() => {
-      expect(screen.getByTitle("Mermaid diagram")).toBeInTheDocument();
-    });
   });
 });
