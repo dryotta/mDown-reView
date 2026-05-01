@@ -54,7 +54,7 @@ pub(crate) fn route_args_through_registry(
                             &label,
                             &format!("mdownreview — {display}"),
                         ) {
-                            Ok(new_win) => {
+                            Ok(_new_win) => {
                                 // Issue #338 / iter-1 forward-fix: chokepoint
                                 // asset-scope + watcher seed for windows
                                 // created via single-instance forwarding /
@@ -74,7 +74,10 @@ pub(crate) fn route_args_through_registry(
                                 );
                                 // Rule multiwin-args-delivery: signal the new window to re-drain
                                 // in case its initial mount drain fired before push_args.
-                                let _ = new_win.emit("args-received", ());
+                                // Rule multiwin-window-scoped-events: emit_to scopes delivery to
+                                // exactly this label; WebviewWindow::emit is a global broadcast
+                                // (see tauri-2.10.3/src/manager/mod.rs::emit).
+                                let _ = handle.emit_to(label.as_str(), "args-received", ());
                                 log::info!("[window] {ctx}: created {label}");
                             }
                             Err(e) => {
@@ -109,13 +112,15 @@ pub(crate) fn route_args_through_registry(
             registry::RouteDecision::AddToWindow { label, files } => {
                 if let Some(win) = handle.get_webview_window(&label) {
                     crate::focus_window(&win);
-                    let _ = win.emit("open-file-tab", &files);
+                    // Rule multiwin-window-scoped-events: emit_to(label, ...) scopes delivery;
+                    // WebviewWindow::emit is a global broadcast.
+                    let _ = handle.emit_to(label.as_str(), "open-file-tab", &files);
                 }
             }
             registry::RouteDecision::CreateFileOnly { files } => {
                 let label = reg.next_label();
                 match crate::create_app_window(handle, &label, "mdownreview — Files") {
-                    Ok(new_win) => {
+                    Ok(_new_win) => {
                         reg.register(label.clone(), registry::WindowKind::FileOnly);
                         // Issue #338 / iter-1 forward-fix: chokepoint
                         // asset-scope + watcher seed for file-only windows
@@ -136,7 +141,8 @@ pub(crate) fn route_args_through_registry(
                             },
                         );
                         // Rule multiwin-args-delivery: signal the new window to re-drain.
-                        let _ = new_win.emit("args-received", ());
+                        // Rule multiwin-window-scoped-events: emit_to(label, ...) scopes delivery.
+                        let _ = handle.emit_to(label.as_str(), "args-received", ());
                         log::info!("[window] {ctx}: created file-only window {label}");
                     }
                     Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),

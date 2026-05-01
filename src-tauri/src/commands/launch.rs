@@ -210,12 +210,7 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
     // chokepoint. Folder kind is recursive; logged-and-tolerated on
     // canonicalize failure.
     if let Ok(canonical) = canonical_folder {
-        crate::window_scope::extend_window_scope(
-            &app,
-            "main",
-            &crate::registry::WindowKind::Folder(canonical),
-            &[],
-        );
+        crate::window_scope::extend_window_scope(&app, "main", &crate::registry::WindowKind::Folder(canonical), &[]);
     }
 
     // Rule multiwin-window-scoped-events: AppHandle::emit_to scopes
