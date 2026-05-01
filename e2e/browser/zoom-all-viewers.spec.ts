@@ -4,7 +4,10 @@ import type { Page } from "@playwright/test";
 const FIXTURES_DIR = "/e2e/fixtures";
 
 // Each entry: [filename, extension, viewer selector for the zoom root]
-// HTML uses an iframe — zoom applies to the wrapper but content is isolated.
+// HTML zoom is verified separately in zoom-html.spec.ts because the
+// fontSize-based oracle does not apply to the iframe `contentDocument`
+// (CSS `zoom` is applied directly on `documentElement`, not via wrapper
+// font-size) — see HtmlPreviewView.tsx zoom effect for the rationale.
 // Mermaid uses transform:scale, not font-size zoom — excluded per issue #157.
 // KQL zoom was added in this PR (useZoom in KqlPlanView) and verified by unit
 // test; the e2e test is deferred because the mock IPC doesn't populate the

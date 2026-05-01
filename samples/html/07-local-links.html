@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Local links — into the workspace</title>
+  <link rel="stylesheet" href="./css/reset.css">
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Local links — opening sibling files in mdownreview</h1>
+
+    <p>
+      Inside the HTML preview iframe, an anchor <code>href</code> that does
+      <em>not</em> match an external scheme (<code>http</code>,
+      <code>https</code>, <code>mailto</code>, <code>tel</code>) and is not a
+      pure <code>#fragment</code> is treated as a
+      <strong>workspace-relative path</strong>. The viewer's click handler
+      (<code>routeLinkClick</code> in <code>src/lib/url-policy.ts</code>)
+      resolves it against this file's directory, asserts it stays inside the
+      workspace root, and then calls
+      <code>useStore.getState().openFile(path)</code> to open the file in a
+      new mdownreview tab.
+    </p>
+
+    <div class="toolbar">
+      <strong>Click any link below</strong>
+      <span class="muted">— it should open in mdownreview, not navigate the iframe.</span>
+      <span class="spacer"></span>
+      <span class="badge good">workspace-routed</span>
+    </div>
+
+    <h2>Other HTML samples (sibling directory)</h2>
+    <ul>
+      <li><a href="./01-simple.html">01 · Simple HTML</a></li>
+      <li><a href="./02-styled.html">02 · Inline-styled HTML</a></li>
+      <li><a href="./03-script-sandbox-test.html">03 · Sandbox test (JS must NOT execute)</a></li>
+      <li><a href="./04-with-images.html">04 · HTML with images</a></li>
+      <li><a href="./05-local-css.html">05 · Single local stylesheet</a></li>
+      <li><a href="./06-multi-stylesheet.html">06 · Three cascading local stylesheets</a></li>
+      <li><a href="./08-anchors-and-toc.html">08 · Anchors + TOC + cross-file fragments</a></li>
+      <li><a href="./09-link-schemes.html">09 · Allowed vs blocked link schemes</a></li>
+    </ul>
+
+    <h2>Markdown samples (relative-up navigation)</h2>
+    <ul>
+      <li><a href="../markdown/01-gfm-basics.md">../markdown/01-gfm-basics.md</a></li>
+      <li><a href="../markdown/03-code-blocks.md">../markdown/03-code-blocks.md</a></li>
+      <li><a href="../markdown/05-math-katex.md">../markdown/05-math-katex.md</a></li>
+      <li><a href="../markdown/06-mermaid.md">../markdown/06-mermaid.md</a></li>
+      <li><a href="../markdown/11-kitchen-sink.md">../markdown/11-kitchen-sink.md</a></li>
+      <li><a href="../markdown/README.md">../markdown/README.md</a></li>
+    </ul>
+
+    <h2>Other viewers</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>JSON</h3>
+        <p class="meta">routes to <code>JsonView</code></p>
+        <ul>
+          <li><a href="../json/01-simple.json">01-simple.json</a></li>
+          <li><a href="../json/03-deeply-nested.json">03-deeply-nested.json</a></li>
+          <li><a href="../json/05-config.jsonc">05-config.jsonc</a></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>CSV</h3>
+        <p class="meta">routes to <code>CsvView</code></p>
+        <ul>
+          <li><a href="../csv/01-simple.csv">01-simple.csv</a></li>
+          <li><a href="../csv/03-wide-many-columns.csv">03-wide-many-columns.csv</a></li>
+          <li><a href="../csv/04-tab-separated.tsv">04-tab-separated.tsv</a></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Source</h3>
+        <p class="meta">routes to <code>SourceView</code> (Shiki)</p>
+        <ul>
+          <li><a href="../source/cache.rs">cache.rs</a></li>
+          <li><a href="../source/cache.go">cache.go</a></li>
+          <li><a href="../source/hooks.ts">hooks.ts</a></li>
+          <li><a href="../source/Dockerfile">Dockerfile</a></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Mermaid</h3>
+        <p class="meta">routes to <code>MermaidView</code></p>
+        <ul>
+          <li><a href="../mermaid/01-flowchart.mmd">01-flowchart.mmd</a></li>
+          <li><a href="../mermaid/02-sequence.mmd">02-sequence.mmd</a></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Images</h3>
+        <p class="meta">routes to <code>ImageViewer</code></p>
+        <ul>
+          <li><a href="../images/01-photo.jpg">01-photo.jpg</a></li>
+          <li><a href="../images/12-diagram.svg">12-diagram.svg</a></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Binary</h3>
+        <p class="meta">routes to <code>BinaryPlaceholder</code></p>
+        <ul>
+          <li><a href="../binary/archive.zip">archive.zip</a></li>
+          <li><a href="../binary/tone-440hz-1s.wav">tone-440hz-1s.wav</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Edge cases — should be <span class="bad">blocked</span></h2>
+    <p>
+      These point outside the workspace root and must be rejected by
+      <code>resolveWorkspacePath</code>; clicking them should
+      <em>not</em> open anything (DevTools console will show
+      <code>HtmlPreviewView: blocked iframe link (outside-workspace): …</code>).
+    </p>
+    <ul>
+      <li><a href="../../../etc/passwd">../../../etc/passwd</a></li>
+      <li><a href="../../../../Windows/System32/drivers/etc/hosts">../../../../Windows/System32/drivers/etc/hosts</a></li>
+    </ul>
+
+    <h2>What to spot-check</h2>
+    <ol>
+      <li>Each sibling-folder link opens that file in a new tab in
+        mdownreview (or focuses an existing tab).</li>
+      <li>The HTML iframe itself never navigates — its content stays on
+        this page.</li>
+      <li>The blocked links above produce a console <code>warn</code> and
+        do not open anything.</li>
+    </ol>
+  </div>
+</body>
+</html>

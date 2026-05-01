@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Local CSS — multiple stylesheets cascading</title>
+  <link rel="stylesheet" href="./css/reset.css">
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Local CSS — three stylesheets, cascading</h1>
+
+    <p>
+      This page links <strong>three</strong> local stylesheets in order:
+    </p>
+<pre><code>&lt;link rel="stylesheet" href="./css/reset.css"&gt;
+&lt;link rel="stylesheet" href="./css/theme.css"&gt;
+&lt;link rel="stylesheet" href="./css/layout.css"&gt;</code></pre>
+    <p>
+      Each <code>&lt;link&gt;</code> is independently inlined by
+      <code>resolve_html_assets</code> in the order it appears, so the cascade
+      is preserved — <code>reset.css</code> first (box-sizing + base type),
+      then <code>theme.css</code> (palette via custom properties), then
+      <code>layout.css</code> (grid + cards consuming those properties).
+    </p>
+
+    <div class="toolbar">
+      <strong>Toolbar</strong>
+      <span class="muted">styled by <code>layout.css</code></span>
+      <span class="spacer"></span>
+      <span class="badge good">cascade ok</span>
+    </div>
+
+    <h2>Card grid (responsive)</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Reset</h3>
+        <p class="meta"><code>reset.css</code></p>
+        <p>Box model, base typography, link colour inheritance.</p>
+      </div>
+      <div class="card">
+        <h3>Theme</h3>
+        <p class="meta"><code>theme.css</code></p>
+        <p>Palette via CSS custom properties — <code>--accent</code>,
+          <code>--card-bg</code>, etc.</p>
+      </div>
+      <div class="card">
+        <h3>Layout</h3>
+        <p class="meta"><code>layout.css</code></p>
+        <p>Page frame, toolbar, responsive card grid using
+          <code>grid-template-columns: repeat(auto-fit, …)</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Cascade order</h3>
+        <p class="meta">specificity + source order</p>
+        <p>The <code>&lt;link&gt;</code> tags are inlined in declaration order
+          so <code>layout.css</code> wins ties.</p>
+      </div>
+    </div>
+
+    <h2>Two-column section</h2>
+    <div class="cols-2">
+      <div>
+        <h3>What works</h3>
+        <ul>
+          <li>Custom properties (<code>--accent</code>) defined in
+            <code>theme.css</code> are read by <code>layout.css</code>.</li>
+          <li>Media query in <code>layout.css</code> collapses to a single
+            column under 600px viewport width.</li>
+          <li>Multiple stylesheets do not double-inline; each is replaced
+            once.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What to spot-check</h3>
+        <ul>
+          <li>Resize the window — the grid should flow.</li>
+          <li>Inspect the iframe DOM: there should be three
+            <code>&lt;style&gt;</code> blocks instead of three
+            <code>&lt;link&gt;</code> tags.</li>
+          <li>No CSP violation entries in DevTools.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Tabular data</h2>
+    <table class="layout">
+      <thead>
+        <tr><th>File</th><th>Role</th><th>Affects</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>reset.css</code></td><td>Reset</td><td>box-sizing, base type</td></tr>
+        <tr><td><code>theme.css</code></td><td>Tokens + type</td><td>colours, headings, code</td></tr>
+        <tr><td><code>layout.css</code></td><td>Layout</td><td>page, toolbar, grid, cols-2, table</td></tr>
+      </tbody>
+    </table>
+
+    <p class="muted">
+      Back to <a href="./05-local-css.html">05 — single stylesheet</a> ·
+      <a href="./07-local-links.html">07 — local links</a>.
+    </p>
+  </div>
+</body>
+</html>

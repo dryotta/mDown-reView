@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Anchors — in-page TOC + cross-file fragments</title>
+  <link rel="stylesheet" href="./css/reset.css">
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <style>
+    nav.toc {
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--card-edge);
+      margin-bottom: 1rem;
+      z-index: 1;
+    }
+    section { padding-top: 1rem; }
+    h2 { scroll-margin-top: 4rem; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Anchors — in-page TOC + cross-file fragments</h1>
+
+    <p>
+      The HTML preview's click router (<code>routeLinkClick</code>) classifies
+      <code>href</code>s into four buckets:
+    </p>
+    <ul>
+      <li><code>#fragment</code> — scroll to the element with that
+        <code>id</code> inside this iframe.</li>
+      <li><code>./other.html#fragment</code> or
+        <code>../markdown/file.md#fragment</code> — open that workspace file
+        in a new tab and queue the fragment for scroll on load via
+        <code>setPendingFragment</code>.</li>
+      <li>External (<code>https://…</code>, <code>mailto:</code>) — hand off
+        to the OS via <code>openExternalUrl</code>.</li>
+      <li>Anything else (<code>javascript:</code>, <code>file:</code>,
+        <code>data:</code>) — drop with a warn.</li>
+    </ul>
+
+    <nav class="toc" aria-label="Table of contents">
+      <strong>Jump to:</strong>
+      <a href="#alpha">Alpha</a> ·
+      <a href="#beta">Beta</a> ·
+      <a href="#gamma">Gamma</a> ·
+      <a href="#delta">Delta with spaces &amp; punctuation</a> ·
+      <a href="#unicode-café">Unicode (#unicode-café)</a> ·
+      <a href="#bottom">Bottom</a>
+    </nav>
+
+    <section id="alpha">
+      <h2>Alpha — clean ASCII id</h2>
+      <p>
+        Plain id <code>alpha</code>. Clicking <code>#alpha</code> in the TOC
+        should smooth-scroll here. The iframe's <code>about:srcdoc</code> URL
+        means the browser's built-in fragment scroll is unreliable, so the
+        click handler always scrolls explicitly via
+        <code>scrollIntoView({ behavior: "smooth" })</code>.
+      </p>
+      <p><a href="#bottom">→ jump to bottom</a></p>
+    </section>
+
+    <section id="beta">
+      <h2>Beta</h2>
+      <p>Same shape, different anchor.</p>
+    </section>
+
+    <section id="gamma">
+      <h2>Gamma</h2>
+      <p>Yet another section, just for scroll-distance.</p>
+    </section>
+
+    <section id="delta">
+      <h2>Delta with spaces &amp; punctuation</h2>
+      <p>
+        The id here is the simple slug <code>delta</code>; the TOC entry above
+        uses <code>#delta</code>. Heading text with punctuation does not need
+        to match the id verbatim.
+      </p>
+    </section>
+
+    <section id="unicode-café">
+      <h2>Unicode anchor — café</h2>
+      <p>
+        The fragment <code>#unicode-café</code> contains a non-ASCII
+        character. The click handler decodes the URL-encoded form
+        (<code>%C3%A9</code>) before <code>getElementById</code>, so both
+        <code>#unicode-café</code> and <code>#unicode-caf%C3%A9</code> work.
+      </p>
+    </section>
+
+    <h2>Cross-file fragments — open another doc and scroll</h2>
+    <p>
+      These open a <em>different</em> file and queue a fragment for the
+      destination viewer to honour:
+    </p>
+    <ul>
+      <li><a href="./05-local-css.html#what-to-spot-check">05-local-css.html#what-to-spot-check</a>
+        — opens the single-stylesheet sample, scrolls to the spot-check
+        section. (Cross-file fragments work when the destination has an
+        explicit <code>id</code>; HTML pages don't auto-slug headings.)</li>
+      <li><a href="../markdown/11-kitchen-sink.md#heading-anchors">../markdown/11-kitchen-sink.md#heading-anchors</a>
+        — opens the kitchen-sink markdown, scrolls to "Heading anchors".
+        rehype-slug on the markdown side generates the id.</li>
+      <li><a href="../markdown/01-gfm-basics.md#links">../markdown/01-gfm-basics.md#links</a>
+        — opens GFM basics, scrolls to "Links".</li>
+      <li><a href="../markdown/01-gfm-basics.md#blockquotes--single-nested-with-content">
+        ../markdown/01-gfm-basics.md#blockquotes--single-nested-with-content</a>
+        — slug generated from "## Blockquotes — single, nested, with
+        content".</li>
+    </ul>
+
+    <h2>Self-link with fragment</h2>
+    <p>
+      <a href="./08-anchors-and-toc.html#alpha">./08-anchors-and-toc.html#alpha</a>
+      — same file as we're on. The handler detects this case
+      (<code>route.path === filePath</code>) and scrolls inside <em>this</em>
+      iframe rather than re-opening the tab.
+    </p>
+
+    <p style="height: 50vh"></p>
+
+    <section id="bottom">
+      <h2>Bottom</h2>
+      <p><a href="#top">↑ jump to top</a> (no <code>#top</code> id exists, so
+        nothing happens — the click is dropped silently because
+        <code>getElementById("top")</code> returns <code>null</code>).</p>
+      <p><a href="#alpha">↑ jump to Alpha</a></p>
+    </section>
+  </div>
+</body>
+</html>
