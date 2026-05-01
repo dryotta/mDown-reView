@@ -13,6 +13,7 @@
     "clipboard-manager:allow-write-text",
     "opener:allow-open-url",
     "opener:allow-default-urls",
-    "updater:default"
+    "updater:default",
+    "process:allow-restart"
   ]
 }
