@@ -1,5 +1,5 @@
 import { test, expect, setRootViaTest } from "./fixtures";
-import * as os from "os";
+import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -29,8 +29,7 @@ test.describe("Scroll Stability", () => {
 
   test("29.1 - programmatic scroll position is stable (no oscillation from feedback loop)", async ({ nativePage }) => {
     // Create a large file that definitely overflows the viewport
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-scroll-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-scroll");
     const tmpFile = path.join(tmpDir, "large.md");
 
     // Generate 200 lines of content to ensure scrolling is needed
@@ -111,8 +110,7 @@ test.describe("Scroll Stability", () => {
 
   test("29.2 - scroll position is stable after settling (no jitter)", async ({ nativePage }) => {
     // Create a large source file (non-markdown) to test SourceView scroll too
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-scroll-src-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-scroll-src");
     const tmpFile = path.join(tmpDir, "large.ts");
 
     // Generate a large TypeScript file
@@ -183,8 +181,7 @@ test.describe("Scroll Stability", () => {
   });
 
   test("29.3 - wheel scroll moves content and settles without fighting", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-scroll-wheel-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-scroll-wheel");
     const tmpFile = path.join(tmpDir, "scroll-test.md");
 
     const lines: string[] = ["# Wheel Scroll Test", ""];

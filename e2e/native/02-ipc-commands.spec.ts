@@ -1,12 +1,11 @@
 import { test, expect } from "./fixtures";
-import * as os from "os";
+import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
 
 test.describe("Native IPC commands", () => {
   test("28.1 - add_comment writes an atomic YAML sidecar", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-ipc-save-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-ipc-save");
     const sourceFile = path.join(tmpDir, "doc.md");
     fs.writeFileSync(sourceFile, "# Doc");
 
@@ -45,7 +44,7 @@ test.describe("Native IPC commands", () => {
   });
 
   test("28.2 - scan_review_files finds sidecars in a directory tree", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-ipc-scan-${Date.now()}`);
+    const tmpDir = nativeTempDir("mdownreview-ipc-scan");
     const subDir = path.join(tmpDir, "sub");
     fs.mkdirSync(subDir, { recursive: true });
 
@@ -72,8 +71,7 @@ test.describe("Native IPC commands", () => {
   });
 
   test("28.3 - read_dir hides .review.yaml and .review.json sidecars", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-ipc-readdir-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-ipc-readdir");
 
     fs.writeFileSync(path.join(tmpDir, "visible.md"), "# Visible");
     fs.writeFileSync(path.join(tmpDir, "visible.md.review.yaml"), `mrsf_version: "1.0"\ndocument: visible.md\ncomments: []\n`);
@@ -95,8 +93,7 @@ test.describe("Native IPC commands", () => {
   });
 
   test("28.4 - read_text_file rejects files larger than 10 MB", async ({ nativePage }) => {
-    const tmpDir = path.join(os.tmpdir(), `mdownreview-ipc-large-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDir = nativeTempDir("mdownreview-ipc-large");
     const bigFile = path.join(tmpDir, "big.txt");
     // Write 11 MB of data
     const chunk = Buffer.alloc(1024 * 1024, "x");
@@ -107,6 +104,19 @@ test.describe("Native IPC commands", () => {
     fs.closeSync(fd);
 
     try {
+      // Register tmpDir as a tree-watched dir so the iter-1 workspace
+      // guard (`commands::fs::ensure_readable`) accepts the IPC call.
+      // Without this, `read_text_file` rejects with "path not in workspace"
+      // BEFORE getting to the size check, masking the file_too_large signal
+      // we actually want to assert.
+      await nativePage.evaluate((root: string) => {
+        // @ts-ignore
+        return window.__TAURI_INTERNALS__.invoke("update_tree_watched_dirs", {
+          root,
+          dirs: [root],
+        });
+      }, tmpDir);
+
       const result = await nativePage.evaluate((filePath: string) => {
         // @ts-ignore
         return window.__TAURI_INTERNALS__.invoke("read_text_file", { path: filePath })

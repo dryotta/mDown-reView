@@ -18,6 +18,32 @@ use super::{
     Anchor, CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor, JsonPathAnchor,
     MrsfComment, Reaction, WordRangePayload,
 };
+
+// ── Path classification (issue #338, Group B foundation) ───────────────────
+//
+// Wire-level result of the `path_classify` IPC. Tagged enum with kebab-case
+// discriminator. Per `docs/architecture.md` rule 1: Rust owns the policy
+// decision; the renderer receives the post-decision shape, never the raw
+// `Tier` primitive (which stays `pub(crate)` in `core::security::system_locations`).
+//
+// The `canonical` field is INTENTIONALLY OMITTED on the `System` variant
+// to avoid leaking system paths to the UI (defense-in-depth for AC8 of
+// issue #338 — tier-3 placeholders never echo full system paths).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+#[serde(tag = "tier", rename_all = "kebab-case")]
+pub enum PathClassification {
+    Inside { canonical: String },
+    Outside { canonical: String },
+    System { flavor: PathClassificationFlavor },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum PathClassificationFlavor {
+    Posix,
+    Windows,
+    Unc,
+}
 // Note: CsvCellAnchor, HtmlElementAnchor, HtmlRangeAnchor, ImageRectAnchor,
 // JsonPathAnchor are still imported for MrsfCommentRepr backward compat fields.
 

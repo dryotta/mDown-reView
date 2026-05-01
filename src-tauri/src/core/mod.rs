@@ -11,6 +11,7 @@ pub mod mrsf_version;
 pub mod onboarding;
 pub mod paths;
 pub mod scanner;
+pub mod security;
 pub mod severity;
 pub mod sidecar;
 pub mod threads;

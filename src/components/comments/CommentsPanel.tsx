@@ -7,10 +7,31 @@ import { CommentThread } from "./CommentThread";
 import { CommentInput } from "./CommentInput";
 import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
 import { deriveAnchor } from "@/lib/anchor-derive";
-import { error as logError } from "@/logger";
+import { error as logError, warn as logWarn } from "@/logger";
 import { emitCommentFlash, flashElement, onCommentFlash } from "@/lib/comment-flash";
 import type { CommentAnchor, MatchedComment } from "@/lib/tauri-commands";
+import type { CommentError } from "@/lib/bindings";
 import "@/styles/comments.css";
+
+/**
+ * Narrow an unknown rejection to the typed `CommentError` discriminated
+ * union (issue #338 / Wave-2). Comment IPCs unwrap their `Result<T, E>`
+ * via `tauri-commands.unwrap`, which re-throws typed errors verbatim —
+ * so the catch handler receives the raw `{ kind, ... }` shape.
+ *
+ * Legacy string-based rejections (e.g. `new Error("path not in workspace")`)
+ * still fall through to the existing error-banner path; this guard
+ * deliberately rejects them so the typed-error self-heal only fires
+ * for the canonical wire shape.
+ */
+function isCommentError(err: unknown): err is CommentError {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "kind" in err &&
+    typeof (err as { kind: unknown }).kind === "string"
+  );
+}
 
 interface Props {
   filePath: string;
@@ -156,8 +177,30 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
       // for retry without forcing the user to wait on the IPC round-trip).
       setShowFileLevelInput(false);
       void addComment(filePath, text, { kind: "file" }).catch((e) => {
-        // The most common cause is `path not in workspace` — surface it to
-        // the user (not just the log) so they don't lose the comment
+        // Issue #338 / Wave-2 — typed CommentError self-heal. The IPC
+        // now returns a discriminated `{ kind: "outside-workspace", path }`
+        // instead of a string-match prose, so we branch on the canonical
+        // wire shape rather than `msg.includes("path not in workspace")`.
+        // Legacy string-based rejections still fall through to the
+        // existing error-banner path below for backwards compatibility.
+        if (isCommentError(e) && e.kind === "outside-workspace") {
+          // Mark the tab read-only so subsequent comment-input mounts
+          // are pre-disabled — the user no longer needs to retry to
+          // discover the workspace boundary. The eager `path_classify`
+          // at openFile time normally sets this; the self-heal handles
+          // the race where the workspace allowlist changed between the
+          // open and the write attempt.
+          useStore.getState().setTabReadOnly(filePath, true);
+          void logWarn(
+            `[CommentsPanel] outside-workspace blocked; tab ${filePath} marked read-only`
+          );
+          setFileLevelError(
+            "Could not save comment: this file is outside the workspace and is read-only."
+          );
+          return;
+        }
+        // The most common cause used to be `path not in workspace` — surface it
+        // to the user (not just the log) so they don't lose the comment
         // silently. The Rust side also logs via `tracing::warn!` to the
         // unified log so future "comment didn't save" reports are
         // diagnosable from `%LocalAppData%\com.mdownreview.desktop\logs\`.

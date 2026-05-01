@@ -18,7 +18,11 @@
  * WatcherSlice) stays type-safe.
  */
 import type { StoreApi } from "zustand";
+
+import { commands } from "@/lib/bindings";
+
 import type { Store } from "./index";
+
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
 export const MAX_TABS = 5;
@@ -33,6 +37,17 @@ export interface Tab {
    * always set it. Treat `undefined` as 0 (oldest) when sorting.
    */
   lastAccessedAt?: number;
+  /**
+   * Read-only flag (issue #338 / AC9). `true` when this tab's path canonical
+   * is OUTSIDE `tree_watched_dirs` per the `path_classify` IPC. Set eagerly
+   * at `openFile` time so the comment-input UI can disable the selection
+   * toolbar and surface a "Read-only · outside workspace" badge BEFORE the
+   * user attempts a comment write.
+   *
+   * `undefined` until the eager classification settles (or when openFile is
+   * called without a workspace context). Session-only — never persisted.
+   */
+  readOnly?: boolean;
 }
 
 /** Per-path cached file metadata, populated by `useFileContent` after a successful read. */
@@ -69,6 +84,14 @@ export interface TabsSlice {
   setViewMode: (path: string, mode: "source" | "visual") => void;
   /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
   setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
+  /**
+   * Mutate `Tab.readOnly` for the matching path (issue #338 / AC9). Used by
+   * the comments slice's typed-error self-heal: when an `add_comment` IPC
+   * rejects with `CommentError { kind: "outside-workspace" }`, the renderer
+   * flips `readOnly` so the next comment-input render is disabled before
+   * the user retries. No-op when no tab matches `path`.
+   */
+  setTabReadOnly: (path: string, readOnly: boolean) => void;
 }
 
 export function filterStaleTabs(
@@ -155,6 +178,13 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         activeTabPath: path,
       });
       if (recordHistory) get().pushHistory(path);
+      // Issue #338 / AC9 — eagerly classify the just-opened tab so the
+      // comment-input UI can branch on `readOnly` BEFORE the user attempts
+      // a write. Fire-and-forget; on IPC failure we leave readOnly
+      // undefined (fail-closed: the next comment write attempt's typed
+      // CommentError will self-heal the flag — see comments slice in the
+      // Wave-2 migration scope).
+      void classifyAndMarkReadOnly(path, set);
     },
 
     closeTab: (path) => {
@@ -221,5 +251,31 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           [path]: { ...s.fileMetaByPath[path], ...patch },
         },
       })),
+
+    setTabReadOnly: (path, readOnly) =>
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly } : t)),
+      })),
   };
+}
+
+/**
+ * Eagerly classify the just-opened tab via the `path_classify` IPC and
+ * patch `readOnly` on the matching tab entry (issue #338 / AC9).
+ *
+ * Fail-closed: any IPC failure leaves `readOnly` undefined. The next
+ * comment-write attempt's typed CommentError self-heals the flag from
+ * the canonical Rust answer (see comments slice — Wave-2 migration).
+ */
+async function classifyAndMarkReadOnly(path: string, set: SliceSet): Promise<void> {
+  try {
+    const result = await commands.pathClassify(path, null);
+    if (result.status !== "ok") return;
+    const isReadOnly = result.data.tier !== "inside";
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly: isReadOnly } : t)),
+    }));
+  } catch {
+    // Defense-in-depth — already covered by the Result branch above.
+  }
 }

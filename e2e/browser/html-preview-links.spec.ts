@@ -30,6 +30,25 @@ async function setupHtmlPreviewMocks(page: Page, htmlBody: string): Promise<void
         if (cmd === "save_review_comments") return null;
         if (cmd === "get_log_path") return "/mock/log.log";
         if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
+        if (cmd === "path_classify") {
+          // Issue #338: useLinkRouter awaits this for tier disambiguation.
+          // Treat unknown paths as INSIDE so link clicks proceed.
+          const a = args as { href?: string; baseDir?: string | null };
+          const href = a.href ?? "";
+          const baseDir = a.baseDir ?? "";
+          let canonical = href;
+          if (!href.startsWith("/") && baseDir) {
+            const parts = (baseDir + "/" + href).split("/");
+            const out: string[] = [];
+            for (const seg of parts) {
+              if (!seg || seg === ".") continue;
+              if (seg === "..") { out.pop(); continue; }
+              out.push(seg);
+            }
+            canonical = "/" + out.join("/");
+          }
+          return { tier: "inside", canonical };
+        }
         if (cmd === "plugin:opener|open_url") {
           (w.__OPEN_URL_CALLS__ as string[]).push((args as { url: string }).url);
           return null;

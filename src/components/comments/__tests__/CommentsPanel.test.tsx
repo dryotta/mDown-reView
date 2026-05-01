@@ -445,6 +445,33 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     await Promise.resolve();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  // ── Issue #338 / Wave-2 — typed CommentError self-heal ───────────────────
+  // When the comment IPC rejects with the canonical wire shape
+  // `{ kind: "outside-workspace", path }` the panel marks the tab read-only
+  // (so the next composer mount is pre-disabled) AND surfaces a banner
+  // explaining the workspace boundary. Legacy string-based rejections
+  // continue to fall through to the existing error-banner path.
+  it("CommentError 'outside-workspace' marks the tab read-only and surfaces a workspace banner", async () => {
+    // Seed the store with a tab matching FILE so setTabReadOnly's map can
+    // patch a real entry.
+    useStore.setState({
+      tabs: [{ path: FILE, scrollTop: 0 }],
+      activeTabPath: FILE,
+    });
+    mockAddComment.mockRejectedValueOnce({ kind: "outside-workspace", path: FILE });
+
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "note" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toMatch(/outside the workspace/i);
+    // Self-heal: the matching tab entry is now read-only.
+    const tab = useStore.getState().tabs.find((t) => t.path === FILE);
+    expect(tab?.readOnly).toBe(true);
+  });
 });
 
 // ─── Iter 6 Group A C5 — file-level "+" composer draftKey persistence ───────

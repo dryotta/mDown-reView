@@ -18,7 +18,7 @@
  * keeps its original lack-of-title, never that we corrupt the HTML.
  */
 
-import { routeLinkClick, type LinkRoute, type RouteLinkContext } from "./url-policy";
+import { assertNeverLinkRoute, routeLinkClick, type LinkRoute, type RouteLinkContext } from "./url-policy";
 
 // `<a` followed by attribute glob then closing `>`. `[^>]*` deliberately
 // non-greedy across `>`-in-attribute-quotes — safe failure mode is a missed
@@ -36,7 +36,11 @@ export function tooltipForRoute(
       return `#${decodeFragment(route.fragment)}`;
     case "external":
       return route.href;
-    case "workspace": {
+    case "workspace":
+    case "workspace-outside": {
+      // `workspace-outside` is reserved for Group B's IPC classifier and is
+      // not yet emitted by `routeLinkClick` in iter 1; iter 1 keeps the
+      // workspace tooltip shape — Group C will distinguish them visually.
       const root = workspaceRoot.replace(/\\/g, "/").replace(/\/+$/, "");
       const path = route.path.replace(/\\/g, "/");
       const rel = root && (path === root || path.startsWith(`${root}/`))
@@ -44,8 +48,12 @@ export function tooltipForRoute(
         : path;
       return route.fragment ? `${rel}#${decodeFragment(route.fragment)}` : rel;
     }
-    case "blocked":
+    case "absolute-blocked":
+    case "scheme-blocked":
+    case "other-blocked":
       return null;
+    default:
+      return assertNeverLinkRoute(route);
   }
 }
 

@@ -110,6 +110,14 @@ async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Prom
   if (cmd === "get_file_comments")
     return { threads: [], sidecar_mtime_ms: null } satisfies GetFileCommentsResult;
   if (cmd === "tokenize_words") return [] as WordSpan[];
+  if (cmd === "path_classify") {
+    // Issue #338 / Group B-foundation default: treat unmocked paths as
+    // INSIDE the workspace so existing openFile-driven tests don't flip
+    // `Tab.readOnly` on every open. Tests exercising the tier-2/tier-3
+    // branches override via mockResolvedValueOnce on `commands.pathClassify`.
+    const path = (_args?.href as string | undefined) ?? "";
+    return { tier: "inside", canonical: path } as never;
+  }
   if (cmd === "update_comment") return undefined;
   if (cmd === "set_author") return "";
   if (cmd === "get_author") return "Test User";

@@ -10,6 +10,7 @@ extern crate self as mdown_review_lib;
 pub mod commands;
 pub mod core;
 pub mod instance_scope;
+pub mod launch_routing;
 pub mod log_rotation;
 pub mod macros;
 pub mod menu;
@@ -18,6 +19,7 @@ pub mod startup_recorder;
 pub mod tracing_log_bridge;
 pub mod update;
 pub mod watcher;
+pub mod window_scope;
 
 // Re-export `#[mdr_command]` at the crate root so call sites read
 // `use crate::mdr_command;` (or `use mdown_review_lib::mdr_command;`
@@ -61,14 +63,14 @@ pub const BINDINGS_HEADER: &str = "/* eslint-disable */\n// @ts-nocheck\n// AUTO
 // ---------------------------------------------------------------------------
 
 /// Raise and focus a window (un-minimize → show → set-focus).
-fn focus_window(win: &tauri::WebviewWindow) {
+pub(crate) fn focus_window(win: &tauri::WebviewWindow) {
     let _ = win.unminimize();
     let _ = win.show();
     let _ = win.set_focus();
 }
 
 /// Extract a human-readable name from a path (last component, or full path).
-fn folder_display_name(path: &std::path::Path) -> String {
+pub(crate) fn folder_display_name(path: &std::path::Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
@@ -267,7 +269,7 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
 /// `Window::set_menu` and `WindowBuilder::menu` are documented no-ops on
 /// macOS (tauri::window::Window::set_menu rustdoc) and would just allocate a
 /// menu that never gets attached.
-fn create_app_window(
+pub(crate) fn create_app_window(
     handle: &tauri::AppHandle,
     label: &str,
     title: &str,
@@ -335,6 +337,13 @@ fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
     create_app_window(app, &new_label, "mdownreview")
         .map(|_| {
             reg.register(new_label.clone(), registry::WindowKind::FileOnly);
+            // Issue #338 / Group A foundation: every `WindowRegistry::register`
+            // site routes through `window_scope::extend_window_scope` so the
+            // chokepoint discipline is structural, not customary. Empty FileOnly
+            // windows have no files to grant scope for — the call is a
+            // documented no-op for this variant — but skipping it would
+            // normalise the bypass for future maintainers.
+            window_scope::extend_window_scope(app, &new_label, &registry::WindowKind::FileOnly, &[]);
             log::info!("[window] new-window: created {new_label}");
         })
         .map_err(|e| format!("failed to create window: {e}"))
@@ -352,6 +361,13 @@ fn register_window_folder(
     match registry.try_claim_folder(window.label(), canonical.clone()) {
         Ok(()) => {
             let _ = window.set_title(&format!("mdownreview — {display}"));
+            // #338 iter-1 forward-fix: chokepoint asset-scope + watcher seed.
+            window_scope::extend_window_scope(
+                window.app_handle(),
+                window.label(),
+                &registry::WindowKind::Folder(canonical.clone()),
+                &[],
+            );
             log::info!("[window] {} registered folder: {display}", window.label());
             Ok(())
         }
@@ -380,110 +396,11 @@ fn unregister_window_folder(
     Ok(())
 }
 
-/// Route incoming `LaunchArgs` through the `WindowRegistry`, creating new
-/// windows for unknown folders and focusing existing ones.  Shared by the
-/// single-instance callback, `setup()`, and `RunEvent::Opened`.
-fn route_args_through_registry(
-    handle: &tauri::AppHandle,
-    args: &LaunchArgs,
-    ctx: &str,
-) {
-    let Some(reg) = handle.try_state::<registry::WindowRegistry>() else {
-        return;
-    };
-    for folder in &args.folders {
-        let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(folder))
-            .unwrap_or_else(|_| std::path::PathBuf::from(folder));
-        match reg.route_folder(&canonical) {
-            registry::RouteDecision::FocusExisting(label) => {
-                if let Some(win) = handle.get_webview_window(&label) {
-                    focus_window(&win);
-                }
-            }
-            registry::RouteDecision::CreateFolder { path } => {
-                // Rule multiwin-atomic-registry-mutations: pre-register a
-                // FileOnly slot for the new label, then `try_claim_folder`
-                // atomically. This collapses the previous read-then-register
-                // race where two concurrent CLI launches both saw `route_folder`
-                // return `CreateFolder` for the same canonical path and both
-                // proceeded to `register`, breaking one-folder-one-window.
-                let label = reg.next_label();
-                reg.register(label.clone(), registry::WindowKind::FileOnly);
-                match reg.try_claim_folder(&label, path.clone()) {
-                    Ok(()) => {
-                        let display = folder_display_name(&path);
-                        match create_app_window(handle, &label, &format!("mdownreview — {display}")) {
-                            Ok(_new_win) => {
-                                reg.push_args(&label, LaunchArgs {
-                                    folders: vec![path.to_string_lossy().into_owned()],
-                                    files: vec![],
-                                });
-                                // Rule multiwin-args-delivery + multiwin-window-scoped-events:
-                                // emit_to scoped via AppHandle (one canonical form across the
-                                // codebase — see rule body in v2-patterns.md).
-                                let _ = handle.emit_to(&label, "args-received", ());
-                                log::info!("[window] {ctx}: created {label}");
-                            }
-                            Err(e) => {
-                                // Window build failed after we claimed the folder —
-                                // unregister so a subsequent launch can claim it.
-                                reg.unregister(&label);
-                                log::error!("[window] {ctx}: folder window failed: {e}");
-                            }
-                        }
-                    }
-                    Err(existing_label) => {
-                        // Race lost: another concurrent launch claimed the
-                        // folder first. Drop the pre-registered FileOnly slot
-                        // and focus the winning window instead.
-                        reg.unregister(&label);
-                        if let Some(win) = handle.get_webview_window(&existing_label) {
-                            focus_window(&win);
-                        }
-                        log::info!(
-                            "[window] {ctx}: folder claim race lost to {existing_label}, focusing existing"
-                        );
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    for file in &args.files {
-        let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(file))
-            .unwrap_or_else(|_| std::path::PathBuf::from(file));
-        match reg.route_file(&canonical) {
-            registry::RouteDecision::AddToWindow { label, files } => {
-                if let Some(win) = handle.get_webview_window(&label) {
-                    focus_window(&win);
-                    // Rule multiwin-window-scoped-events: route to the
-                    // owning window only via the AppHandle form.
-                    let _ = handle.emit_to(&label, "open-file-tab", &files);
-                }
-            }
-            registry::RouteDecision::CreateFileOnly { files } => {
-                let label = reg.next_label();
-                match create_app_window(handle, &label, "mdownreview — Files") {
-                    Ok(_new_win) => {
-                        reg.register(label.clone(), registry::WindowKind::FileOnly);
-                        let file_strs: Vec<String> = files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
-                        reg.push_args(&label, LaunchArgs { files: file_strs, folders: vec![] });
-                        // Rule multiwin-args-delivery + multiwin-window-scoped-events.
-                        let _ = handle.emit_to(&label, "args-received", ());
-                        log::info!("[window] {ctx}: created file-only window {label}");
-                    }
-                    Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),
-                }
-            }
-            registry::RouteDecision::FocusExisting(label) => {
-                if let Some(win) = handle.get_webview_window(&label) {
-                    focus_window(&win);
-                }
-            }
-            _ => {}
-        }
-    }
-}
+// Route incoming `LaunchArgs` through the `WindowRegistry` — extracted to
+// `launch_routing.rs` to keep `lib.rs` under the file-size budget (rule 23
+// of `docs/architecture.md`). Shared by single-instance, `setup()`, and
+// `RunEvent::Opened`.
+use launch_routing::route_args_through_registry;
 
 /// Build the `tauri_specta::Builder` carrying every IPC command.
 ///
@@ -549,6 +466,7 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,
                 commands::word_tokens::tokenize_words,
+                commands::path_classify::path_classify,
                 commands::sidecar_config::get_sidecar_config,
                 commands::sidecar_config::set_sidecar_config,
                 commands::sidecar_config::migrate_sidecars_cmd,
@@ -710,8 +628,18 @@ pub fn run() {
             });
             if let Some(ref canonical) = first_canonical {
                 reg.register("main".to_string(), registry::WindowKind::Folder(canonical.clone()));
+                // #338 iter-1 forward-fix: extend asset-scope AND seed
+                // tree-watched-dirs synchronously so the renderer's first
+                // file-read IPC passes the workspace guard.
+                window_scope::extend_window_scope(app.handle(), "main", &registry::WindowKind::Folder(canonical.clone()), &[]);
             } else {
                 reg.register("main".to_string(), registry::WindowKind::FileOnly);
+                let file_paths: Vec<std::path::PathBuf> = launch_args
+                    .files
+                    .iter()
+                    .map(std::path::PathBuf::from)
+                    .collect();
+                window_scope::extend_window_scope(app.handle(), "main", &registry::WindowKind::FileOnly, &file_paths);
             }
 
             // Create additional windows for extra folders (beyond the first),
@@ -731,7 +659,10 @@ pub fn run() {
                         let display = folder_display_name(&path);
                         match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
                             Ok(_new_win) => {
-                                reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
+                                let kind = registry::WindowKind::Folder(path.clone());
+                                reg.register(label.clone(), kind.clone());
+                                // #338 iter-1 forward-fix: chokepoint asset-scope + watcher seed.
+                                window_scope::extend_window_scope(&app_handle, &label, &kind, &[]);
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],

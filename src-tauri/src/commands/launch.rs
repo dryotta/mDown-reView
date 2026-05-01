@@ -180,6 +180,23 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
             .collect();
     }
 
+    // Canonicalize BEFORE `path` is moved into `launch_args`. Issue #338 /
+    // iter-1 forward-fix: extend the asset-protocol scope and seed the
+    // watcher's tree-watched-dirs synchronously so the renderer's initial
+    // `read_text_file` / `read_binary_file` IPC drained on `args-received`
+    // passes the workspace guard. Without this, native E2E tests that rely
+    // on `set_root_via_test` get rejected by `ensure_readable` before
+    // `useTreeWatcher` round-trips. Failure to canonicalize is
+    // logged-and-tolerated (Reliable pillar).
+    let canonical_folder = crate::core::paths::canonicalize_no_verbatim(folder).map_err(|e| {
+        tracing::warn!(
+            target: "window-scope",
+            "[window-scope] set_root_via_test canonicalize {} failed: {e}",
+            folder.display()
+        );
+        e
+    });
+
     let launch_args = LaunchArgs {
         files,
         folders: vec![path],
@@ -187,6 +204,14 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
 
     let reg = app.state::<crate::registry::WindowRegistry>();
     reg.push_args("main", launch_args);
+
+    // Issue #338 / iter-1: extend asset-protocol scope and seed
+    // watcher's tree-watched-dirs synchronously via the window_scope
+    // chokepoint. Folder kind is recursive; logged-and-tolerated on
+    // canonicalize failure.
+    if let Ok(canonical) = canonical_folder {
+        crate::window_scope::extend_window_scope(&app, "main", &crate::registry::WindowKind::Folder(canonical), &[]);
+    }
 
     // Rule multiwin-window-scoped-events: AppHandle::emit_to scopes
     // delivery to the "main" window without needing a window handle —

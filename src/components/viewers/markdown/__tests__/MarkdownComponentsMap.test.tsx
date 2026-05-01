@@ -14,12 +14,22 @@ vi.mock("@/lib/tauri-commands", async () => ({
 
 vi.mock("@/logger");
 
+// Issue #338 / Wave-2 — anchor click dispatch is delegated to
+// `useLinkRouter` (the consumer-facing reduction). We mock the hook
+// here so the unit test can assert the dispatcher was called with the
+// correct (href, ctx) without exercising the IPC `path_classify` chain.
+const mockDispatch = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/hooks/useLinkRouter", () => ({
+  useLinkRouter: () => mockDispatch,
+}));
+
 import { openExternalUrl } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
 
 beforeEach(() => {
   vi.mocked(openExternalUrl).mockClear();
   vi.mocked(warn).mockClear();
+  mockDispatch.mockClear();
 });
 
 vi.mock("@/lib/shiki", () => ({
@@ -152,7 +162,7 @@ describe("buildMarkdownComponents — block wrappings carry data-source-line", (
 });
 
 describe("buildMarkdownComponents — anchor link handling", () => {
-  it("external link click calls openExternalUrl", async () => {
+  it("external link click dispatches via useLinkRouter", async () => {
     const { container } = renderMd("[link](https://example.com)\n");
     await waitFor(() => {
       const a = container.querySelector("a");
@@ -160,20 +170,19 @@ describe("buildMarkdownComponents — anchor link handling", () => {
     });
     const a = container.querySelector("a")!;
     fireEvent.click(a);
-    expect(openExternalUrl).toHaveBeenCalledWith("https://example.com");
+    expect(mockDispatch).toHaveBeenCalledWith("https://example.com", {
+      filePath: "/docs/x.md",
+    });
+    // The component itself never calls `openExternalUrl` — the hook does.
+    expect(openExternalUrl).not.toHaveBeenCalled();
   });
 
-  it("openExternalUrl failure produces a warn() call", async () => {
-    vi.mocked(openExternalUrl).mockRejectedValueOnce(new Error("plugin unavailable"));
-    const { container } = renderMd("[link](https://example.com)\n");
-    await waitFor(() => {
-      expect(container.querySelector("a")).not.toBeNull();
-    });
+  it("relative link click dispatches via useLinkRouter with href + filePath", async () => {
+    const { container } = renderMd("[link](./other.md)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
     fireEvent.click(container.querySelector("a")!);
-    await waitFor(() => {
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("[MarkdownViewer] link open failed:"),
-      );
+    expect(mockDispatch).toHaveBeenCalledWith("./other.md", {
+      filePath: "/docs/x.md",
     });
   });
 
@@ -208,64 +217,58 @@ describe("buildMarkdownComponents — anchor link handling", () => {
       expect(a!.getAttribute("title")).toBeNull();
     });
   });
-});
 
-describe("buildMarkdownComponents — workspace fragment routing", () => {
-  beforeEach(async () => {
-    const { useStore } = await import("@/store");
-    useStore.setState({ pendingFragment: null });
+  // Issue #338 / Wave-2 — anchor clicks delegate to `useLinkRouter`. The
+  // hook handles tier-classification, fail-closed warning, and dispatch
+  // internally; the component-level test just asserts the dispatcher was
+  // invoked with the raw href + filePath context, regardless of route kind.
+  // Per-route warn coverage lives in `useLinkRouter.test.ts`.
+  it("absolute-blocked link click delegates to dispatcher (no inline navigation)", async () => {
+    const { container } = renderMd("[link](/etc/passwd)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+    expect(mockDispatch).toHaveBeenCalledWith("/etc/passwd", {
+      filePath: "/docs/x.md",
+    });
+    expect(openExternalUrl).not.toHaveBeenCalled();
   });
 
-  it("same-file fragment click scrolls to the matching id (no openFile, no pending)", async () => {
-    const { useStore } = await import("@/store");
-    const openFile = vi.fn();
-    useStore.setState({ openFile });
+  it("other-blocked link click delegates to dispatcher (no inline navigation)", async () => {
+    const { container } = renderMd("[link](../../etc/passwd)\n");
+    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
+    fireEvent.click(container.querySelector("a")!);
+    expect(mockDispatch).toHaveBeenCalledWith("../../etc/passwd", {
+      filePath: "/docs/x.md",
+    });
+    expect(openExternalUrl).not.toHaveBeenCalled();
+  });
+});
 
-    // Insert a target heading the same way rehype-slug would.
-    const target = document.createElement("h2");
-    target.id = "section-x";
-    target.textContent = "Section X";
-    const scrollSpy = vi.fn();
-    target.scrollIntoView = scrollSpy;
-    document.body.appendChild(target);
-
+describe("buildMarkdownComponents — workspace dispatcher routing", () => {
+  it("same-file fragment click delegates to dispatcher", async () => {
     const { container } = renderMd("[same](./x.md#section-x)\n");
     await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
     fireEvent.click(container.querySelector("a")!);
-
-    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(openFile).not.toHaveBeenCalled();
-    expect(useStore.getState().pendingFragment).toBeNull();
-
-    document.body.removeChild(target);
+    expect(mockDispatch).toHaveBeenCalledWith("./x.md#section-x", {
+      filePath: "/docs/x.md",
+    });
   });
 
-  it("cross-file fragment click sets pendingFragment then opens the new file", async () => {
-    const { useStore } = await import("@/store");
-    const openFile = vi.fn();
-    useStore.setState({ openFile });
-
+  it("cross-file fragment click delegates to dispatcher", async () => {
     const { container } = renderMd("[other](./other.md#part-2)\n");
     await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
     fireEvent.click(container.querySelector("a")!);
-
-    expect(useStore.getState().pendingFragment).toEqual({
-      path: "/docs/other.md",
-      fragment: "part-2",
+    expect(mockDispatch).toHaveBeenCalledWith("./other.md#part-2", {
+      filePath: "/docs/x.md",
     });
-    expect(openFile).toHaveBeenCalledWith("/docs/other.md");
   });
 
-  it("cross-file link without fragment does NOT set pendingFragment", async () => {
-    const { useStore } = await import("@/store");
-    const openFile = vi.fn();
-    useStore.setState({ openFile, pendingFragment: null });
-
+  it("cross-file link without fragment delegates to dispatcher", async () => {
     const { container } = renderMd("[other](./other.md)\n");
     await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
     fireEvent.click(container.querySelector("a")!);
-
-    expect(useStore.getState().pendingFragment).toBeNull();
-    expect(openFile).toHaveBeenCalledWith("/docs/other.md");
+    expect(mockDispatch).toHaveBeenCalledWith("./other.md", {
+      filePath: "/docs/x.md",
+    });
   });
 });

@@ -37,6 +37,10 @@ async readDir(path: string, limit: number | null, showSidecars: boolean | null) 
  * platform/FS does not expose it). The file handle's metadata is read
  * before the body so content + mtime come from the same `open()` and the
  * caller cannot observe a torn (content_v1, mtime_v2) pair.
+ * 
+ * Workspace-allowlisted: the path is run through [`ensure_readable`] before
+ * any I/O. Mirrors `stat_file` so a malicious renderer cannot read arbitrary
+ * disk paths via the IPC.
  */
 async readTextFile(path: string) : Promise<Result<TextFileResult, string>> {
     try {
@@ -48,6 +52,8 @@ async readTextFile(path: string) : Promise<Result<TextFileResult, string>> {
 },
 /**
  * Read a binary file, returning base64-encoded content. Rejects files >10 MB.
+ * 
+ * Workspace-allowlisted via [`ensure_readable`].
  */
 async readBinaryFile(path: string) : Promise<Result<string, string>> {
     try {
@@ -183,7 +189,7 @@ async getFileComments(filePath: string) : Promise<Result<GetFileCommentsResult, 
  * by `invoke("add_comment", { ... })` on the JS side. Grouping arguments
  * into a struct would change the wire contract.
  */
-async addComment(filePath: string, author: string, text: string, anchor: NewCommentAnchor | null, commentType: string | null, severity: string | null, document: string | null) : Promise<Result<null, string>> {
+async addComment(filePath: string, author: string, text: string, anchor: NewCommentAnchor | null, commentType: string | null, severity: string | null, document: string | null) : Promise<Result<null, CommentError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("add_comment", { filePath, author, text, anchor, commentType, severity, document }) };
 } catch (e) {
@@ -194,7 +200,7 @@ async addComment(filePath: string, author: string, text: string, anchor: NewComm
 /**
  * Create a reply to an existing comment, save to sidecar.
  */
-async addReply(filePath: string, parentId: string, author: string, text: string) : Promise<Result<null, string>> {
+async addReply(filePath: string, parentId: string, author: string, text: string) : Promise<Result<null, CommentError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("add_reply", { filePath, parentId, author, text }) };
 } catch (e) {
@@ -205,7 +211,7 @@ async addReply(filePath: string, parentId: string, author: string, text: string)
 /**
  * Edit a comment's text, save to sidecar.
  */
-async editComment(filePath: string, commentId: string, text: string) : Promise<Result<null, string>> {
+async editComment(filePath: string, commentId: string, text: string) : Promise<Result<null, CommentError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("edit_comment", { filePath, commentId, text }) };
 } catch (e) {
@@ -216,7 +222,7 @@ async editComment(filePath: string, commentId: string, text: string) : Promise<R
 /**
  * Delete a comment (with reply reparenting per MRSF §9.1), save to sidecar.
  */
-async deleteComment(filePath: string, commentId: string) : Promise<Result<null, string>> {
+async deleteComment(filePath: string, commentId: string) : Promise<Result<null, CommentError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_comment", { filePath, commentId }) };
 } catch (e) {
@@ -233,7 +239,7 @@ async computeAnchorHash(text: string) : Promise<string> {
 /**
  * Apply a [`CommentPatch`] to a single comment.
  */
-async updateComment(filePath: string, commentId: string, patch: CommentPatch) : Promise<Result<null, string>> {
+async updateComment(filePath: string, commentId: string, patch: CommentPatch) : Promise<Result<null, CommentError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_comment", { filePath, commentId, patch }) };
 } catch (e) {
@@ -370,6 +376,18 @@ async tokenizeWords(text: string) : Promise<Result<WordSpan[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Classify `href` (optionally resolved against `base_dir`) for the workspace
+ * associated with the calling window.
+ */
+async pathClassify(href: string, baseDir: string | null) : Promise<Result<PathClassification, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("path_classify", { href, baseDir }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getSidecarConfig(root: string) : Promise<Result<SidecarConfigResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_sidecar_config", { root }) };
@@ -494,6 +512,31 @@ export type CliShimStatus = "done" | "missing" | "broken" | "unsupported"
  */
 export type CommentAnchor = { line: number; end_line?: number | null; start_column?: number | null; end_column?: number | null; selected_text?: string | null; selected_text_hash?: string | null }
 /**
+ * Tagged error returned by comment-mutation IPCs. Discriminated with an
+ * internal `kind` tag (kebab-case on the wire) so the TS side can branch
+ * on `err.kind` without parsing prose.
+ */
+export type CommentError = 
+/**
+ * Canonical path outside the per-window workspace allowlist.
+ * AC3 of #338: the renderer surfaces this as a tab-level "read-only"
+ * indicator. The path is included so the consumer can self-heal the
+ * corresponding tab without a separate IPC round-trip.
+ */
+{ kind: "outside-workspace"; path: string } | 
+/**
+ * Canonical path matches the system-locations DENY list.
+ * AC11 of #338: tier-3 hard-block, no allow-toggle.
+ */
+{ kind: "system-blocked" } | 
+/**
+ * I/O or sidecar-shape failure. Catch-all for now; future iters may
+ * split this further. Carries the original error text so the renderer
+ * can surface it verbatim in a toast (matches the pre-#338 string
+ * surface — no information lost).
+ */
+{ kind: "io"; message: string }
+/**
  * Patch payloads for `update_comment`. Discriminated enum (serde adjacent
  * `kind`/`data` tags) so the TS side can branch cleanly. Every per-comment
  * mutation flows through this enum so the IPC surface stays a single
@@ -617,6 +660,8 @@ export type OnboardingState = { schema_version: number; last_seen_sections?: str
  * natural home elsewhere.
  */
 author?: string | null }
+export type PathClassification = { tier: "inside"; canonical: string } | { tier: "outside"; canonical: string } | { tier: "system"; flavor: PathClassificationFlavor }
+export type PathClassificationFlavor = "posix" | "windows" | "unc"
 /**
  * Outcome of a `check_path_exists` probe. Serialized as a bare lowercase
  * string ("file" / "dir" / "missing") so the wire shape matches the prior

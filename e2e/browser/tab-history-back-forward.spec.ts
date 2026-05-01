@@ -36,6 +36,24 @@ async function setupMocks(page: Page): Promise<void> {
         if (cmd === "check_path_exists") return "file";
         if (cmd === "get_log_path") return "/mock/log.log";
         if (cmd === "get_file_comments") return { threads: [], sidecar_mtime_ms: null };
+        if (cmd === "path_classify") {
+          // Issue #338: useLinkRouter awaits this for tier disambiguation.
+          const a = args as { href?: string; baseDir?: string | null };
+          const href = a.href ?? "";
+          const baseDir = a.baseDir ?? "";
+          let canonical = href;
+          if (!href.startsWith("/") && baseDir) {
+            const parts = (baseDir + "/" + href).split("/");
+            const out: string[] = [];
+            for (const seg of parts) {
+              if (!seg || seg === ".") continue;
+              if (seg === "..") { out.pop(); continue; }
+              out.push(seg);
+            }
+            canonical = "/" + out.join("/");
+          }
+          return { tier: "inside", canonical };
+        }
         return null;
       };
     },

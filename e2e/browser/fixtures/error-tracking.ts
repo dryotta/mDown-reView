@@ -253,6 +253,13 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             }
             if (cmd === "get_file_badges") return {};
             if (cmd === "tokenize_words") return [];
+            if (cmd === "path_classify") {
+              // Issue #338 default — see Vitest mock for rationale. Treat
+              // unmocked paths as INSIDE the workspace so openFile-driven
+              // specs don't flip Tab.readOnly on every open.
+              const href = (args as { href?: string } | undefined)?.href ?? "";
+              return { tier: "inside", canonical: href };
+            }
             if (cmd === "update_comment") return undefined;
             if (cmd === "set_author") return "";
             if (cmd === "get_author") return "Test User";
