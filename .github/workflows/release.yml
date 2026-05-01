@@ -179,13 +179,35 @@ jobs:
           DMG=$(ls -t ${{ matrix.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
           [ -n "$DMG" ] || { echo "::error::No DMG found to verify"; exit 1; }
           echo "Verifying DMG layout: $DMG"
-          MOUNT=$(hdiutil attach -nobrowse -readonly -plist "$DMG" \
-            | /usr/libexec/PlistBuddy -c "Print :system-entities:0:mount-point" /dev/stdin 2>/dev/null \
-            || true)
-          if [ -z "$MOUNT" ] || [ ! -d "$MOUNT" ]; then
-            # Fallback: parse mount point from plain hdiutil output
-            MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk '/\/Volumes\// {sub(/^[^\/]*/, ""); print; exit}')
+          # Defensive: detach any existing mount of THIS DMG before attaching ourselves.
+          # Tauri's bundle_dmg.sh has historically left the DMG attached in some
+          # failure modes (tauri-apps/tauri#3055, electron-builder#3115), which makes
+          # our `hdiutil attach` below fail silently with "Resource busy".
+          DMG_ABS=$(cd "$(dirname "$DMG")" && pwd)/$(basename "$DMG")
+          hdiutil info | awk -v target="$DMG_ABS" '
+            BEGIN { path="" }
+            /^=+$/ { path=""; next }
+            $1 == "image-path" { sub(/^image-path[ \t]*:[ \t]*/, ""); path=$0; next }
+            $1 ~ /^\/dev\/disk[0-9]+$/ && path == target { print $1 }
+          ' | while IFS= read -r dev; do
+            hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+          done
+          # Single attach with stderr captured. Avoid PlistBuddy ":system-entities:0:mount-point":
+          # Tauri DMGs put the GUID-partition-scheme entity at index 0 (no mount-point);
+          # the actual filesystem entity with mount-point is at index 1+. PlistBuddy errors
+          # there were silently swallowed by 2>/dev/null + ||true, leaving the DMG mounted
+          # while the fallback retried and tripped "Resource busy".
+          if ! ATTACH_OUT=$(hdiutil attach -nobrowse -readonly "$DMG" 2>&1); then
+            echo "::error::hdiutil attach failed"
+            echo "$ATTACH_OUT"
+            exit 1
           fi
+          echo "$ATTACH_OUT"
+          # Use match()+substr() — `sub(/^[^\/]*/, "")` is broken for hdiutil lines that
+          # already start with `/dev/...` (it strips zero chars and prints the whole line,
+          # so $MOUNT becomes the entire `/dev/diskN  Apple_HFS  /Volumes/Foo` row and
+          # `[ -d "$MOUNT" ]` fails). match()/substr() also preserves spaces in volume names.
+          MOUNT=$(echo "$ATTACH_OUT" | awk 'match($0, /\/Volumes\/.*/) { print substr($0, RSTART); exit }')
           [ -n "$MOUNT" ] && [ -d "$MOUNT" ] || { echo "::error::Failed to mount DMG"; exit 1; }
           trap 'hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true' EXIT
           echo "Mounted at: $MOUNT"
