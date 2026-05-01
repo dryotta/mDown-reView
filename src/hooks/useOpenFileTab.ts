@@ -19,18 +19,18 @@ import { debug } from "@/logger";
  */
 export function useOpenFileTab() {
   useEffect(() => {
-    const unlisten = listenEvent("open-file-tab", (paths) => {
+    // Tauri's `listen()` accepts both sync and async handlers — the
+    // returned Promise is awaited by the runtime. The async signature
+    // also lets the unit test await the listener to observe completed
+    // canonicalize+openFile work before assertions.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    const unlisten = listenEvent("open-file-tab", async (paths) => {
       void debug(`[useOpenFileTab] received ${paths.length} file(s)`); // fire-and-forget log
-      // Wrap async canonicalize work in a void IIFE so the listener
-      // signature stays sync (Tauri's listen() expects a void-returning
-      // handler — see @typescript-eslint/no-misused-promises).
-      void (async () => {
-        const { openFile } = useStore.getState();
-        for (const filePath of paths) {
-          const canonical = await canonicalizeOrFallback(filePath);
-          openFile(canonical);
-        }
-      })();
+      const { openFile } = useStore.getState();
+      for (const filePath of paths) {
+        const canonical = await canonicalizeOrFallback(filePath);
+        openFile(canonical);
+      }
     });
 
     return () => {
