@@ -1,55 +1,36 @@
 import "@/styles/mermaid-popout.css";
-import "@/styles/mermaid-view.css";
 
 interface Props {
-  /** "inline" → small floating top-right buttons (Fit + Pop-out) used inside the dedicated `.mmd` viewer's MermaidCanvas.
-   *  "popout" → bottom-centred floating bar (− / 100% / + / Fit) plus a top-right close button used inside MermaidPopout. */
-  mode: "inline" | "popout";
-  /** Current zoom value (e.g. 1.21 for 121%). */
+  /** Bottom-centred floating bar (− / 100% / + / Fit) plus a top-right close
+   *  button used inside `MermaidPopout`. The previous `mode="inline"` variant
+   *  used to render Fit + Pop-out at the dedicated `.mmd` viewer's top-right;
+   *  it was removed because zoom + reset live in the chrome `ViewerToolbar`
+   *  and Pop-out is a no-op when the viewer already IS the full-window view. */
   zoom: number;
-  /** Required for both modes — chrome ViewerToolbar shortcuts continue to drive these too (single source of truth via useZoom). */
+  /** Handlers — chrome ViewerToolbar shortcuts also drive these via the
+   *  same `useZoom` source-of-truth so the popout bar stays in sync. */
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
   /** Mermaid-specific: compute fit-to-window scale and apply via setZoom. */
   onFit: () => void;
-  /** Inline mode: opens the popout overlay. Required when mode === "inline". */
-  onPopout?: () => void;
-  /** Popout mode: closes the overlay (X button). Required when mode === "popout". */
-  onClose?: () => void;
+  /** Closes the overlay (X button). */
+  onClose: () => void;
 }
 
 /**
- * Floating Mermaid canvas controls. Pure controlled component — all state
- * (zoom + handlers) flows in via props. `useZoom` in the parent is the
- * single source of truth so chrome ViewerToolbar shortcuts stay in sync.
+ * Floating Mermaid popout chrome — controlled component, all state and
+ * handlers flow in via props so `useZoom` in the parent is the single
+ * source of truth.
  */
 export function MermaidControls({
-  mode,
   zoom,
   onZoomIn,
   onZoomOut,
   onReset,
   onFit,
-  onPopout,
   onClose,
 }: Props) {
-  if (mode === "inline") {
-    return (
-      <div className="mermaid-canvas-actions">
-        <button type="button" title="Fit to window" aria-label="Fit to window" onClick={onFit}>
-          Fit
-        </button>
-        {onPopout ? (
-          <button type="button" title="Pop out" aria-label="Pop out" onClick={onPopout}>
-            ⤢
-          </button>
-        ) : null}
-      </div>
-    );
-  }
-
-  // mode === "popout"
   const percent = `${Math.round(zoom * 100)}%`;
   return (
     <>

@@ -20,7 +20,7 @@ import "@/styles/mermaid-popout.css";
  *     <div class="mermaid-popout-card">      ← visible card with border,
  *                                              shadow, theme background
  *       <MermaidCanvas .../>
- *       <MermaidControls mode="popout" .../>
+ *       <MermaidControls .../>
  *     </div>
  *   </div>
  *
@@ -90,7 +90,6 @@ function PopoutInner({ content, path }: { content: string; path: string | null }
           readOnly
         />
         <MermaidControls
-          mode="popout"
           zoom={zoom}
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
