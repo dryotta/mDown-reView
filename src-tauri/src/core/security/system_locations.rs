@@ -31,6 +31,13 @@ const POSIX_SYSTEM_PREFIXES: &[&str] = &[
     "/var/lib/",
     "/run/",
     "/boot/",
+    // macOS resolves /etc -> /private/etc and /var -> /private/var via
+    // symlinks; canonicalize_no_verbatim returns the post-resolve form, so
+    // the literal canonical paths must also be in the deny list. Without
+    // these, `/etc/passwd` would canonicalize to `/private/etc/passwd` and
+    // bypass the prefix match entirely (security regression on macOS).
+    "/private/etc/",
+    "/private/var/",
 ];
 
 /// HOME-relative directory prefixes (joined with `$HOME` / `%USERPROFILE%` at runtime).

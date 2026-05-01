@@ -86,6 +86,36 @@ fn classify_posix_system_root() {
     );
 }
 
+// On macOS, `/etc` is a symlink to `/private/etc` and `/var` is a symlink to
+// `/private/var`. `canonicalize_no_verbatim` returns the post-resolve form, so
+// the deny list must include the canonical paths or `/etc/passwd` (which
+// resolves to `/private/etc/passwd`) would slip through every prefix match.
+#[cfg(unix)]
+#[test]
+fn classify_posix_system_macos_canonical_etc() {
+    let workspace = Path::new("/tmp/work");
+    let file = Path::new("/private/etc/passwd");
+    assert_eq!(
+        classify(file, workspace).unwrap(),
+        Tier::System {
+            flavor: SystemFlavor::Posix
+        }
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn classify_posix_system_macos_canonical_var() {
+    let workspace = Path::new("/tmp/work");
+    let file = Path::new("/private/var/log/system.log");
+    assert_eq!(
+        classify(file, workspace).unwrap(),
+        Tier::System {
+            flavor: SystemFlavor::Posix
+        }
+    );
+}
+
 // ---------- Windows system -------------------------------------------------
 
 #[cfg(windows)]
