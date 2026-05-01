@@ -49,6 +49,14 @@ flowchart LR
 - **Store fields:** `src/store/tabs.ts` — `fileMetaByPath`, `lastFileReloadedAt`, `lastCommentsReloadedAt`, `activeTabPath` (all session-only, never persisted — rule 15 in [`docs/architecture.md`](../architecture.md))
 - **Hook contract:** `src/hooks/useFileContent.ts` (calls `setFileMeta` on success); `src/lib/vm/use-comments.ts` (calls `setLastCommentsReloadedAt`)
 
+## Multi-window behavior
+
+The toolbar, viewer toolbar, and status bar are mounted **per window**. Each window owns its own native menu (built via `WebviewWindowBuilder::menu(...)` at construction time, never `app.set_menu()`), its own tab strip, and its own status-bar timer; menu events fire only against the window that originated them.
+
+Per-window state (tabs, active file, folder-tree expansion, pane sizes) is isolated per window — it never leaks across windows. Cross-window synchronized state (theme, author name, recent items, reading width, update channel) is declared in the exported `CROSS_WINDOW_SYNCED_KEYS` constant in `src/store/index.ts` and propagated via `useCrossWindowPrefsSync` so a theme toggle in one window updates every other window.
+
+For the canonical rule set governing per-window menus, window-scoped events, registry lifecycle, state isolation, label conventions, and the cross-window allowlist, see [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md) — the `multiwin-*` rules.
+
 ## Related rules
 
 - IPC chokepoint + structured returns — rules 1-3 in [`docs/architecture.md`](../architecture.md).
@@ -57,3 +65,4 @@ flowchart LR
 - Status-bar 60-second tick + scalar selectors — rule 20 in [`docs/performance.md`](../performance.md), rule 19 in [`docs/architecture.md`](../architecture.md).
 - Native menu events forwarded as Tauri events — rule 24 in [`docs/architecture.md`](../architecture.md).
 - File-size budgets for the chrome files — rule 23 in [`docs/architecture.md`](../architecture.md).
+- Multi-window menu/event/state contracts — `multiwin-*` rules in [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md).

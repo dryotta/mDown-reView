@@ -45,3 +45,4 @@ sequenceDiagram
 - Listener cleanup on unmount (`unlisten` discipline) — [`docs/design-patterns.md`](../design-patterns.md).
 - Debounce isolation tests — rules 19 + 20 in [`docs/test-strategy.md`](../test-strategy.md).
 - Save-loop prevention — [`docs/security.md`](../security.md) §sidecar atomicity.
+- Per-window watcher allowlist scope and `emit_to`/`emit_filter` event delivery — `multiwin-allowlist-scope` and `multiwin-window-scoped-events` in [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md).
