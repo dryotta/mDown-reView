@@ -459,6 +459,7 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 watcher::update_watched_files,
                 commands::fs::update_tree_watched_dirs,
                 commands::word_tokens::tokenize_words,
+                commands::path_classify::path_classify,
                 commands::sidecar_config::get_sidecar_config,
                 commands::sidecar_config::set_sidecar_config,
                 commands::sidecar_config::migrate_sidecars_cmd,

@@ -252,6 +252,49 @@ pub(crate) fn classify(
 // Tests
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Wire conversion (issue #338 / Group B)
+// ---------------------------------------------------------------------------
+//
+// One-way dependency: `core::types::wire` does NOT import this module; this
+// module imports the wire shape and provides the (Tier, canonical) -> wire
+// conversion. The internal `Tier` / `SystemFlavor` stay `pub(crate)` so the
+// IPC boundary cannot accidentally serialise the raw policy primitive.
+//
+// The `Tier::Inside` / `Tier::Outside` variants are unit (no payload), so the
+// conversion takes the canonical path as a separate parameter rather than
+// adding a `canonical: PathBuf` field to those variants — keeps the
+// classifier's hot path allocation-free.
+
+use crate::core::types::wire::{PathClassification, PathClassificationFlavor};
+
+impl From<SystemFlavor> for PathClassificationFlavor {
+    fn from(f: SystemFlavor) -> Self {
+        match f {
+            SystemFlavor::Posix => PathClassificationFlavor::Posix,
+            SystemFlavor::Windows => PathClassificationFlavor::Windows,
+            SystemFlavor::Unc => PathClassificationFlavor::Unc,
+        }
+    }
+}
+
+/// Convert an internal classification + its canonical path into the wire
+/// `PathClassification`. Note the `System` variant intentionally drops the
+/// canonical (defense-in-depth — never echo a system path to the UI).
+pub(crate) fn tier_to_wire(t: &Tier, canonical: &Path) -> PathClassification {
+    match t {
+        Tier::Inside => PathClassification::Inside {
+            canonical: canonical.to_string_lossy().into_owned(),
+        },
+        Tier::Outside => PathClassification::Outside {
+            canonical: canonical.to_string_lossy().into_owned(),
+        },
+        Tier::System { flavor } => PathClassification::System {
+            flavor: PathClassificationFlavor::from(*flavor),
+        },
+    }
+}
+
 #[cfg(test)]
 #[path = "system_locations_tests.rs"]
 mod tests;

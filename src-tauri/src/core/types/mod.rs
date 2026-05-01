@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 pub mod wire;
-pub use wire::{AnchorWire, LineAnchorPayload, MrsfCommentRepr};
+pub use wire::{
+    AnchorWire, LineAnchorPayload, MrsfCommentRepr, PathClassification, PathClassificationFlavor,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct DirEntry {
