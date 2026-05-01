@@ -244,12 +244,7 @@ export const useStore = create<Store>()(
       root: null,
       expandedFolders: {},
       setRoot: async (root) => {
-        if (root === null) {
-          set({ root: null, expandedFolders: {} });
-          get().closeMermaidPopout();
-          return;
-        }
-        const canonical = await canonicalizeOrFallback(root);
+        const canonical = root === null ? null : await canonicalizeOrFallback(root);
         set({ root: canonical, expandedFolders: {} });
         get().closeMermaidPopout();
       },

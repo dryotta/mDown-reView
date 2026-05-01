@@ -36,7 +36,7 @@ Failure modes:
 
 ### `category: subscription-leaks` -- memory and listener leaks
 
-Hot files: `src/hooks/*.ts`, `src/components/viewers/MermaidView.tsx`, anything using `ResizeObserver` / `IntersectionObserver`.
+Hot files: `src/hooks/*.ts`, `src/components/viewers/mermaid/MermaidRenderer.tsx`, `src/components/viewers/mermaid/MermaidCanvas.tsx`, anything using `ResizeObserver` / `IntersectionObserver`.
 
 Failure modes:
 - `listen()` subscriptions in `useEffect` without `unlisten()` in cleanup.

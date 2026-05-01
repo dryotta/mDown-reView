@@ -122,6 +122,29 @@ export function MermaidCanvas({ content, path, zoom, setZoom, readOnly, onFitMea
     onFitMeasured?.(fit);
   }, [onFitMeasured]);
 
+  // Re-clamp pan whenever zoom changes (Fit / Reset / chrome shortcuts /
+  // popout open) so a previously-allowed pan offset can't leave the diagram
+  // off-screen at the new scale. NOT a layout effect — running after paint
+  // is fine because applyTransform() in the per-render layout effect above
+  // has already painted at the new zoom; this just nudges pan back inside
+  // the new limits and triggers one more transform write.
+  useEffect(() => {
+    const c = containerRef.current;
+    const nat = naturalRef.current;
+    if (!c || nat.w <= 0 || nat.h <= 0) return;
+    const next = clampPan(
+      panRef.current,
+      { w: c.clientWidth, h: c.clientHeight },
+      nat,
+      zoom,
+    );
+    if (next.x !== panRef.current.x || next.y !== panRef.current.y) {
+      panRef.current = next;
+      applyTransform();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyTransform reads live refs/zoom
+  }, [zoom]);
+
   // ResizeObserver — recompute fit when the container resizes. We DO NOT
   // auto-apply; the parent owns the seed-vs-keep decision.
   useEffect(() => {
@@ -136,10 +159,17 @@ export function MermaidCanvas({ content, path, zoom, setZoom, readOnly, onFitMea
       const fit = Math.min(cw / nat.w, ch / nat.h, 1);
       fitScaleRef.current = fit;
       onFitMeasured?.(fit);
+      // Re-clamp pan against the new container dims at current zoom so
+      // shrinking the window doesn't leave the diagram off-screen.
+      const next = clampPan(panRef.current, { w: cw, h: ch }, nat, zoom);
+      if (next.x !== panRef.current.x || next.y !== panRef.current.y) {
+        panRef.current = next;
+        scheduleApply();
+      }
     });
     ro.observe(c);
     return () => ro.disconnect();
-  }, [onFitMeasured]);
+  }, [onFitMeasured, zoom]);
 
   // Wheel — preventDefault always (we own scroll inside the canvas).
   // ctrl/meta = cursor-anchored zoom; shift = horizontal pan; else vertical.

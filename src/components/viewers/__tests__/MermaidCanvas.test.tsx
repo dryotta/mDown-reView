@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor, cleanup, fireEvent, act } from "@testing-library/react";
+import { ZOOM_MAX } from "@/store/viewerPrefs";
 
 // ── Mocks (must be hoisted) ──────────────────────────────────────────
 vi.mock("@/lib/mermaid-singleton", () => ({
@@ -185,6 +186,71 @@ describe("MermaidCanvas — wheel gestures", () => {
     for (const call of setZoom.mock.calls) {
       expect(call[0]).toBeLessThanOrEqual(8.0);
     }
+    // Strengthen the oracle: with deltaY=-1000 cursor-anchored zoom for
+    // 100 ticks starting at 7.9 the loop must hit the ceiling at least
+    // once.
+    const maxCalled = Math.max(...setZoom.mock.calls.map((c) => c[0] as number));
+    expect(maxCalled).toBeCloseTo(ZOOM_MAX, 5);
+  });
+
+  it("pinch: two pointers update zoom proportionally to distance ratio", async () => {
+    const setZoom = vi.fn();
+    const { canvas } = await renderCanvas({ zoom: 1, setZoom });
+    // Two pointers down — initial distance = 100.
+    await act(async () => {
+      fireEvent.pointerDown(canvas, {
+        pointerId: 1,
+        clientX: 100,
+        clientY: 100,
+        isPrimary: true,
+      });
+      fireEvent.pointerDown(canvas, {
+        pointerId: 2,
+        clientX: 200,
+        clientY: 100,
+        isPrimary: false,
+      });
+    });
+    // Move second pointer further away — new distance 200, ratio 2.0.
+    await act(async () => {
+      fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 300, clientY: 100 });
+    });
+    expect(setZoom).toHaveBeenCalled();
+    const last = setZoom.mock.calls[setZoom.mock.calls.length - 1][0] as number;
+    expect(last).toBeCloseTo(2.0, 5);
+    // Pointer up clears pinch state — subsequent move must NOT call setZoom.
+    setZoom.mockClear();
+    await act(async () => {
+      fireEvent.pointerUp(canvas, { pointerId: 2 });
+      fireEvent.pointerUp(canvas, { pointerId: 1 });
+    });
+    expect(setZoom).not.toHaveBeenCalled();
+  });
+});
+
+describe("MermaidCanvas — pan re-clamp on zoom change", () => {
+  it("re-clamps panRef when zoom decreases past the previous limit", async () => {
+    // bbox 2000×1500, container 800×600. At zoom=1 limitX=600 so a wheel
+    // pan of (-100,0) is allowed. Drop zoom to 0.4 → scaledW=800=container,
+    // limitX=0 → pan must snap back to (0,0) on the zoom-effect path.
+    const { canvas, transform, rerender } = await renderCanvas({ zoom: 1 });
+    await act(async () => {
+      fireEvent.wheel(canvas, { deltaY: 100, clientX: 200, clientY: 200 });
+    });
+    expect(transform.style.transform).toContain("translate(0px, -100px)");
+    await act(async () => {
+      rerender(
+        <MermaidCanvas
+          content="graph TD; A --> B"
+          path={null}
+          zoom={0.4}
+          setZoom={vi.fn()}
+          onFitMeasured={vi.fn()}
+        />,
+      );
+    });
+    expect(transform.style.transform).toContain("translate(0px, 0px)");
+    expect(transform.style.transform).toContain("scale(0.4)");
   });
 });
 

@@ -10,11 +10,11 @@
  * has no business reason to survive an app restart and would bloat the
  * persisted snapshot.
  *
- * Cross-slice closing (rule 16): callers that need to dismiss the popout as a
- * side-effect of another action (e.g. closing the tab whose dedicated mermaid
- * viewer fed the popout) invoke `closeMermaidPopout` from the cross-slice
- * action wired in `src/store/index.ts` and `src/store/tabs.ts`. That wiring
- * lives outside this slice and is added in a separate task.
+ * Close-on-context-change: this slice is closed by store actions that change
+ * app context — `setRoot`, `closeFolder`, `toggleCommentsPane` (in
+ * `./index.ts`); `openFile`, `closeTab`, `closeAllTabs`, `setActiveTab` (in
+ * `./tabs.ts`). The popout component itself only subscribes to Esc keydown
+ * for additional close. Cross-slice action grouping per architecture rule 16.
  */
 import type { StoreApi } from "zustand";
 import type { Store } from "./index";

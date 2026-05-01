@@ -90,9 +90,41 @@ test.describe("mermaid popout (issue #276)", () => {
     await expect(page.locator(".mermaid-popout-overlay")).not.toBeVisible();
   });
 
-  test("opening another file closes the popout", async ({ page }) => {
-    await openEmbeddedPopout(page);
+  test("opening another file via tab bar closes the popout", async ({ page }) => {
+    // The popout overlay sits inside `.main-area` and visually covers the
+    // folder tree, so dismiss-by-folder-click is impossible by design (per
+    // spec design decision 1). The tab bar lives inside `.toolbar` which
+    // stays above the overlay — open both files first, switch to diagram.md,
+    // open the popout, then click the flow.mmd tab to trigger close-on-
+    // context-change wiring (`setActiveTab` → `closeMermaidPopout`).
+    await setupMocks(page);
+    await page.goto("/");
+    // Open both files so each has a tab.
     await page.locator(".folder-tree").getByText("flow.mmd").click();
+    await expect(page.locator(".mermaid-canvas svg")).toBeVisible({ timeout: 15_000 });
+    await page.locator(".folder-tree").getByText("diagram.md").click();
+    await expect(page.locator(".markdown-body .mermaid-embedded svg")).toBeVisible({
+      timeout: 15_000,
+    });
+    // Open popout from the embedded block in diagram.md.
+    await page.locator(".markdown-body .mermaid-embedded").first().hover();
+    await page.locator(".mermaid-embedded__popout-btn").first().click();
+    await expect(page.locator(".mermaid-popout-overlay")).toBeVisible();
+    // Click the flow.mmd tab in the tab bar (visible above the overlay).
+    await page.locator(".tab-bar").getByText("flow.mmd").click();
+    await expect(page.locator(".mermaid-popout-overlay")).not.toBeVisible();
+  });
+
+  test("clicking the Open File toolbar button closes the popout (even if dialog is cancelled)", async ({
+    page,
+  }) => {
+    await openEmbeddedPopout(page);
+    // No dialog mock installed — the showOpenDialog plugin call will reject
+    // / no-op, but the popout must close on the click itself.
+    await page
+      .locator('.toolbar-btn[title*="Open file" i]')
+      .first()
+      .click();
     await expect(page.locator(".mermaid-popout-overlay")).not.toBeVisible();
   });
 
@@ -116,5 +148,26 @@ test.describe("mermaid popout (issue #276)", () => {
       page.locator(".mermaid-canvas-actions button", { hasText: "Fit" }),
     ).toBeVisible();
     await expect(page.locator('button[aria-label="Pop out"]')).toBeVisible();
+  });
+
+  test("Ctrl+wheel zooms the popout content", async ({ page }) => {
+    await openEmbeddedPopout(page);
+    const transform = page.locator(".mermaid-popout-overlay .mermaid-canvas-transform");
+    await expect(transform).toBeVisible();
+    const before = await transform.getAttribute("style");
+    // Playwright's `mouse.wheel` does not expose ctrlKey; dispatch a real
+    // WheelEvent through the page so the canvas's native (non-passive)
+    // wheel listener takes the cursor-anchored zoom branch.
+    await page.evaluate(() => {
+      const el = document.querySelector(
+        ".mermaid-popout-overlay .mermaid-canvas",
+      ) as HTMLElement | null;
+      el?.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -200, ctrlKey: true, cancelable: true, bubbles: true }),
+      );
+    });
+    await expect
+      .poll(async () => transform.getAttribute("style"), { timeout: 2000 })
+      .not.toBe(before);
   });
 });

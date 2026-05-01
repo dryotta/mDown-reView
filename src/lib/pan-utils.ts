@@ -17,8 +17,10 @@ export function clampPan(
   const overflowY = Math.max(0, scaledH - container.h);
   const limitX = overflowX / 2;
   const limitY = overflowY / 2;
-  return {
-    x: Math.max(-limitX, Math.min(limitX, pan.x)),
-    y: Math.max(-limitY, Math.min(limitY, pan.y)),
-  };
+  const x = Math.max(-limitX, Math.min(limitX, pan.x));
+  const y = Math.max(-limitY, Math.min(limitY, pan.y));
+  // Normalise -0 → +0. `Math.max(-0, …)` and `Math.min(0, -0)` can both
+  // produce -0, which sneaks into `style.transform` strings as `-0px` and
+  // breaks `Object.is`-based assertions like `toEqual({ x: 0, y: 0 })`.
+  return { x: x === 0 ? 0 : x, y: y === 0 ? 0 : y };
 }

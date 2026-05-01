@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { renderMermaid, type MermaidTheme } from "@/lib/mermaid-singleton";
 import { useTheme } from "@/hooks/useTheme";
+import { warn } from "@/logger";
 
 interface Props {
   content: string;
@@ -159,7 +160,10 @@ export function MermaidRenderer({ content, path, readOnly, onSvgReady }: Props) 
     // > 5000 nodes is unreadable; keep paint bounded.
     const limit = Math.min(nodes.length, NODE_WALK_CAP);
     if (nodes.length > NODE_WALK_CAP) {
-      console.warn("[mermaid] node walk capped at 5000");
+      // Fire-and-forget: warn() is async (tauri-plugin-log IPC) but we're
+      // running inside a layout effect — we can't await. Errors are
+      // non-essential telemetry.
+      void warn(`[mermaid] node walk capped at ${NODE_WALK_CAP}`);
     }
     for (let i = 0; i < limit; i++) {
       const n = nodes[i] as SVGGElement;

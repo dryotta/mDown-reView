@@ -12,7 +12,10 @@ vi.mock("@/hooks/useTheme", () => ({
   useTheme: () => useThemeMock(),
 }));
 
+vi.mock("@/logger", () => ({ warn: vi.fn() }));
+
 import { MermaidRenderer } from "../mermaid/MermaidRenderer";
+import { warn as loggerWarn } from "@/logger";
 
 beforeEach(() => {
   renderMermaidMock.mockReset();
@@ -119,20 +122,22 @@ describe("MermaidRenderer", () => {
     parts.push("</svg>");
     renderMermaidMock.mockResolvedValueOnce({ svg: parts.join("") });
 
-    // Local console.warn spy so the test-setup.ts afterEach guard does not flag.
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(loggerWarn).mockClear();
     const { container } = render(
       <MermaidRenderer content="N0\nN1\nN2" path="/tmp/x.md" readOnly={false} />,
     );
     await waitFor(() => {
       expect(container.querySelectorAll("g.node").length).toBe(N);
     });
-    // Walk is synchronous in a useLayoutEffect right after innerHTML; by the
-    // time the assertion above passes, the walk has run.
-    expect(warnSpy).toHaveBeenCalledWith("[mermaid] node walk capped at 5000");
+    // Walk runs in a useLayoutEffect after innerHTML; wait for the warn call
+    // to avoid a fragile synchronous-timing assertion.
+    await waitFor(() => {
+      expect(vi.mocked(loggerWarn)).toHaveBeenCalledWith(
+        expect.stringContaining("capped at 5000"),
+      );
+    });
     // Node at index 5000 (the 5001st) must NOT have the attribute.
     const allNodes = container.querySelectorAll("g.node");
     expect(allNodes[5000]?.getAttribute("data-source-line")).toBeNull();
-    warnSpy.mockRestore();
   });
 });
