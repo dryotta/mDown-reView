@@ -2,8 +2,6 @@ import { useStore } from "@/store";
 import type { RecentItem } from "@/store";
 import { useRecentItemStatus } from "@/hooks/useRecentItemStatus";
 import { basename, dirname } from "@/lib/path-utils";
-import { registerWindowFolder } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
 import { IconFile, IconFolder } from "@/components/Icons";
 import "@/styles/welcome-view.css";
 
@@ -14,26 +12,26 @@ interface WelcomeViewProps {
 
 export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
   const recentItems = useStore((s) => s.recentItems);
-  const openFile = useStore((s) => s.openFile);
-  const setRoot = useStore((s) => s.setRoot);
-  const addRecentItem = useStore((s) => s.addRecentItem);
+  const openSettings = useStore((s) => s.openSettings);
+  const openFolderPath = useStore((s) => s.openFolderPath);
+  const openFilePath = useStore((s) => s.openFilePath);
   const pathStatus = useRecentItemStatus(recentItems);
 
   const isMac = navigator.platform.toUpperCase().includes("MAC");
   const mod = isMac ? "⌘" : "Ctrl";
 
-  const handleRecentClick = async (item: RecentItem) => {
-    const status = pathStatus[item.path];
-    if (status === "missing") return;
+  // Recent-item clicks delegate to the workspace slice's single
+  // canonical entry points (`openFolderPath` / `openFilePath`) — same
+  // entry points the toolbar dialog flow uses (rule 16: cross-slice
+  // user actions group into one store action). The folder branch is
+  // why bug 2 happened pre-fix: WelcomeView used to inline its own
+  // register-then-setRoot sequence and drift from the toolbar.
+  const handleRecentClick = (item: RecentItem) => {
+    if (pathStatus[item.path] === "missing") return;
     if (item.type === "folder") {
-      await setRoot(item.path);
-      addRecentItem(item.path, "folder");
-      registerWindowFolder(item.path).catch((err) =>
-        warn(`[WelcomeView] register_window_folder failed: ${err}`)
-      );
+      void openFolderPath(item.path);
     } else {
-      openFile(item.path);
-      addRecentItem(item.path, "file");
+      openFilePath(item.path);
     }
   };
 
@@ -67,7 +65,7 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
         <button
           type="button"
           className="welcome-settings-link"
-          onClick={() => useStore.getState().openSettings()}
+          onClick={openSettings}
         >
           Set up CLI, file associations, and agent integration → Settings
         </button>

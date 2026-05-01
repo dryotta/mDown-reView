@@ -12,6 +12,7 @@ pub mod core;
 pub mod instance_scope;
 pub mod log_rotation;
 pub mod macros;
+pub mod menu;
 pub mod registry;
 pub mod startup_recorder;
 pub mod tracing_log_bridge;
@@ -412,14 +413,15 @@ fn route_args_through_registry(
                     Ok(()) => {
                         let display = folder_display_name(&path);
                         match create_app_window(handle, &label, &format!("mdownreview — {display}")) {
-                            Ok(new_win) => {
+                            Ok(_new_win) => {
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],
                                 });
-                                // Rule multiwin-args-delivery: signal the new window to re-drain
-                                // in case its initial mount drain fired before push_args.
-                                let _ = new_win.emit("args-received", ());
+                                // Rule multiwin-args-delivery + multiwin-window-scoped-events:
+                                // emit_to scoped via AppHandle (one canonical form across the
+                                // codebase — see rule body in v2-patterns.md).
+                                let _ = handle.emit_to(&label, "args-received", ());
                                 log::info!("[window] {ctx}: created {label}");
                             }
                             Err(e) => {
@@ -454,18 +456,20 @@ fn route_args_through_registry(
             registry::RouteDecision::AddToWindow { label, files } => {
                 if let Some(win) = handle.get_webview_window(&label) {
                     focus_window(&win);
-                    let _ = win.emit("open-file-tab", &files);
+                    // Rule multiwin-window-scoped-events: route to the
+                    // owning window only via the AppHandle form.
+                    let _ = handle.emit_to(&label, "open-file-tab", &files);
                 }
             }
             registry::RouteDecision::CreateFileOnly { files } => {
                 let label = reg.next_label();
                 match create_app_window(handle, &label, "mdownreview — Files") {
-                    Ok(new_win) => {
+                    Ok(_new_win) => {
                         reg.register(label.clone(), registry::WindowKind::FileOnly);
                         let file_strs: Vec<String> = files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
                         reg.push_args(&label, LaunchArgs { files: file_strs, folders: vec![] });
-                        // Rule multiwin-args-delivery: signal the new window to re-drain.
-                        let _ = new_win.emit("args-received", ());
+                        // Rule multiwin-args-delivery + multiwin-window-scoped-events.
+                        let _ = handle.emit_to(&label, "args-received", ());
                         log::info!("[window] {ctx}: created file-only window {label}");
                     }
                     Err(e) => log::error!("[window] {ctx}: file-only window failed: {e}"),
@@ -718,13 +722,14 @@ pub fn run() {
                         let label = reg.next_label();
                         let display = folder_display_name(&path);
                         match create_app_window(&app_handle, &label, &format!("mdownreview — {display}")) {
-                            Ok(new_win) => {
+                            Ok(_new_win) => {
                                 reg.register(label.clone(), registry::WindowKind::Folder(path.clone()));
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],
                                 });
-                                let _ = new_win.emit("args-received", ());
+                                // Rule multiwin-window-scoped-events: AppHandle::emit_to.
+                                let _ = app_handle.emit_to(&label, "args-received", ());
                                 log::info!("[window] setup: created {label} for {}", path.display());
                             }
                             Err(e) => log::error!("[window] setup: window for {} failed: {e}", path.display()),
@@ -781,8 +786,10 @@ pub fn run() {
             // on whatever window the user is actually looking at.
             app.on_menu_event(|app, event| {
                 let id = event.id().as_ref();
+                log::info!("[menu] on_menu_event raw-id={id:?}");
 
                 let Some((encoded_label, action)) = parse_menu_id(id) else {
+                    log::info!("[menu] raw-id has no label prefix — ignoring");
                     return;
                 };
 
@@ -797,6 +804,11 @@ pub fn run() {
                 let label: &str = label_owned.as_str();
                 #[cfg(not(target_os = "macos"))]
                 let label: &str = encoded_label;
+
+                log::info!(
+                    "[menu] resolved encoded-label={encoded_label:?} \
+                     firing-label={label:?} action={action:?}"
+                );
 
                 let Some(window) = app.get_webview_window(label) else {
                     log::warn!("[menu] no window for label {label:?} (action {action:?})");
@@ -836,25 +848,16 @@ pub fn run() {
                     return;
                 }
 
-                // Forward to the correct window as a frontend Tauri event
-                let event_name = match action {
-                    "open-file" => "menu-open-file",
-                    "open-folder" => "menu-open-folder",
-                    "close-folder" => "menu-close-folder",
-                    "close-tab" => "menu-close-tab",
-                    "close-all-tabs" => "menu-close-all-tabs",
-                    "toggle-comments-pane" => "menu-toggle-comments-pane",
-                    "next-tab" => "menu-next-tab",
-                    "prev-tab" => "menu-prev-tab",
-                    "theme-system" => "menu-theme-system",
-                    "theme-light" => "menu-theme-light",
-                    "theme-dark" => "menu-theme-dark",
-                    "about" => "menu-about",
-                    "check-updates" => "menu-check-updates",
-                    "help-settings" => "menu-help-settings",
-                    _ => return,
-                };
-                let _ = window.emit(event_name, ());
+                // Forward to the correct window via the testable
+                // `menu::dispatch_menu_event` seam (rule
+                // `multiwin-window-scoped-events`). Tauri's
+                // `Emitter::emit` broadcasts on every receiver, so the
+                // dispatcher uses an explicit `MenuEmitter` trait that
+                // distinguishes `emit_to(label, …)` from
+                // `emit(…)` — integration tests mock the trait to
+                // prove the right shape reaches the emitter even
+                // though the call site uses a variable event name.
+                let _ = menu::dispatch_menu_event(app, action, label);
             });
 
             // Start file watcher

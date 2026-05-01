@@ -7,10 +7,17 @@
  * matches what `scan_review_files` emits — without this, ghost-entry
  * detection fails on Windows paths in 8.3 short-name form.
  *
- * Cross-slice action: `setRoot` and `closeFolder` close the mermaid
- * popout (rule 16 — issue #276).
+ * Cross-slice actions:
+ * - `setRoot` and `closeFolder` close the mermaid popout (rule 16 — issue #276).
+ * - `openFolderPath` orchestrates `registerWindowFolder` IPC →
+ *   `setRoot` → `addRecentItem` for ALL "open this folder" entry points
+ *   (toolbar dialog, welcome-view recents, future drag-drop) so the
+ *   register-then-setRoot ordering can never drift between callers.
+ * - `openFilePath` symmetrically orchestrates `openFile` + `addRecentItem`.
  */
 import type { StoreApi } from "zustand";
+import { registerWindowFolder } from "@/lib/tauri-commands";
+import { warn } from "@/logger";
 import { canonicalizeOrFallback } from "./canonicalize";
 import type { Store } from "./index";
 
@@ -30,6 +37,17 @@ export interface WorkspaceSlice {
   toggleFolder: (path: string) => void;
   setFolderExpanded: (path: string, expanded: boolean) => void;
   closeFolder: () => void;
+  /**
+   * Open a folder by canonical path — single canonical entry point used
+   * by the toolbar dialog flow and the welcome-view recent list. Calls
+   * `register_window_folder` BEFORE `setRoot`: when the folder is
+   * already claimed by another window, Rust focuses that window and
+   * returns Err — `setRoot` must NOT run on rejection. See rule
+   * `multiwin-window-folder-claim` in `v2-patterns.md`.
+   */
+  openFolderPath: (folder: string) => Promise<void>;
+  /** Open a file as a tab + record in recents. Single entry point. */
+  openFilePath: (path: string) => void;
 }
 
 type SliceSet = StoreApi<Store>["setState"];
@@ -53,6 +71,38 @@ export function createWorkspaceSlice(set: SliceSet, get: SliceGet): WorkspaceSli
     closeFolder: () => {
       set({ root: null, expandedFolders: {} });
       get().closeMermaidPopout();
+    },
+    // allow-chained-invokes: register MUST resolve before setRoot —
+    // a rejection (folder already open in another window) keeps THIS
+    // window's state untouched; the existing window is focused by Rust.
+    openFolderPath: async (folder) => {
+      try {
+        await registerWindowFolder(folder);
+        await get().setRoot(folder);
+        get().addRecentItem(folder, "folder");
+      } catch (err) {
+        // Tauri's IPC chokepoint wraps `Result<_, String>` rejections
+        // in `new Error(string)` (see `src/lib/tauri-commands.ts::unwrap`),
+        // so check `err.message`. The "already open" path is expected
+        // (Rust focused the existing window already); other rejections
+        // are real failures and MUST be logged — pre-PR shape always
+        // logged unconditionally.
+        const message =
+          err instanceof Error
+            ? err.message
+            : typeof err === "string"
+              ? err
+              : String(err);
+        if (message.includes("already open")) {
+          void warn(`[workspace] folder already open in another window: ${folder}`);
+        } else {
+          void warn(`[workspace] register_window_folder failed for ${folder}: ${message}`);
+        }
+      }
+    },
+    openFilePath: (path) => {
+      get().openFile(path);
+      get().addRecentItem(path, "file");
     },
   };
 }

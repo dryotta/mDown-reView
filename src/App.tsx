@@ -216,7 +216,10 @@ export default function App() {
             {activeTabPath ? (
               <ViewerRouter path={activeTabPath} />
             ) : (
-              <WelcomeView onOpenFile={handleOpenFile} onOpenFolder={handleOpenFolder} />
+              <WelcomeView
+                onOpenFile={handleOpenFile}
+                onOpenFolder={handleOpenFolder}
+              />
             )}
           </ErrorBoundary>
         </div>

@@ -1,46 +1,46 @@
 import { useCallback } from "react";
-import { showOpenDialog, registerWindowFolder } from "@/lib/tauri-commands";
-import { warn } from "@/logger";
+import { showOpenDialog } from "@/lib/tauri-commands";
 import { useStore } from "@/store";
 
+/**
+ * Dialog wrappers for the toolbar's Open File / Open Folder buttons.
+ *
+ * The actual workspace mutations (register-then-setRoot ordering for
+ * folders, openFile + addRecentItem for files) live in the workspace
+ * slice as `openFolderPath` / `openFilePath` — single entry points
+ * shared with the welcome-view recents (rule 16: cross-slice user
+ * actions group into one store action). This hook is a thin shell
+ * around `showOpenDialog` that pipes the user-selected path into
+ * the slice action.
+ */
 export function useDialogActions() {
-  const openFile = useStore((s) => s.openFile);
-  const setRoot = useStore((s) => s.setRoot);
-  const addRecentItem = useStore((s) => s.addRecentItem);
+  const openFolderPath = useStore((s) => s.openFolderPath);
+  const openFilePath = useStore((s) => s.openFilePath);
 
   const handleOpenFile = useCallback(async () => {
     try {
       const selected = await showOpenDialog({ directory: false, multiple: true });
       if (Array.isArray(selected)) {
-        for (const f of selected) {
-          openFile(f);
-          addRecentItem(f, "file");
-        }
+        for (const f of selected) openFilePath(f);
       } else if (typeof selected === "string") {
-        openFile(selected);
-        addRecentItem(selected, "file");
+        openFilePath(selected);
       }
     } catch {
-      // User cancelled or dialog error
+      // User cancelled or dialog error.
     }
-  }, [openFile, addRecentItem]);
+  }, [openFilePath]);
 
   const handleOpenFolder = useCallback(async () => {
-    // allow-chained-invokes: showOpenDialog returns the user-selected path that must feed registerWindowFolder, which rejects if the folder is already open in another window — setRoot must not run on a rejected registration. Sequential, not parallelizable.
     try {
       const selected = await showOpenDialog({ directory: true, multiple: false });
       if (typeof selected === "string") {
-        await registerWindowFolder(selected);
-        await setRoot(selected);
-        addRecentItem(selected, "folder");
+        await openFolderPath(selected);
       }
-    } catch (err) {
-      // Distinguish registry rejection from user cancellation
-      if (err && typeof err === "string" && err.includes("already open")) {
-        void warn(`[useDialogActions] folder already open in another window`);
-      }
+    } catch {
+      // User cancelled the dialog. Folder-already-open + other
+      // rejections are surfaced inside `openFolderPath`'s catch.
     }
-  }, [setRoot, addRecentItem]);
+  }, [openFolderPath]);
 
   return { handleOpenFile, handleOpenFolder };
 }

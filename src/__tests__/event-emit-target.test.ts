@@ -37,6 +37,7 @@ const RUST_SRC = join(REPO_ROOT, "src-tauri", "src");
 
 interface TableRow {
   event: string;
+  target: string; // column 2: "Target (rule)", e.g. "one (firing window)" or "all"
   emitMethod: string;
   currentState: string; // raw cell, may start with `✅` or `❌`
   ok: boolean;
@@ -80,6 +81,7 @@ export function parseEmitTargetTable(markdown: string): TableRow[] {
       .filter((_c, i, arr) => i !== 0 && i !== arr.length - 1);
     if (cells.length < 5) continue;
     const eventCell = cells[0];
+    const targetCell = cells[1];
     const emitCell = cells[2];
     const stateCell = cells[4];
 
@@ -88,7 +90,13 @@ export function parseEmitTargetTable(markdown: string): TableRow[] {
     if (!m) continue;
     const event = m[1];
     const ok = stateCell.startsWith("✅");
-    rows.push({ event, emitMethod: emitCell, currentState: stateCell, ok });
+    rows.push({
+      event,
+      target: targetCell,
+      emitMethod: emitCell,
+      currentState: stateCell,
+      ok,
+    });
   }
 
   return rows;
@@ -221,6 +229,75 @@ describe("multiwin-window-scoped-events: per-event emit-target table", () => {
     ).toEqual([]);
   });
 
+  it("no `.emit(\"<window-scoped-event>\", …)` broadcast in non-test Rust", () => {
+    // STRUCTURAL REGRESSION GUARD for the original bug: Tauri 2.x's
+    // `Emitter::emit` is a global broadcast on every receiver
+    // (verified at `tauri-2.10.3/src/manager/mod.rs::emit` — iterates
+    // all webviews). Calling `.emit("menu-open-file", …)` on a
+    // `WebviewWindow` does NOT scope delivery to that window — it
+    // wakes EVERY window's listener, so each window fires the action.
+    //
+    // For events whose Target column says `one (...)` (i.e. window-
+    // scoped), the call site MUST use `.emit_to(...)`. For events
+    // whose Target says `all`, broadcast `.emit(...)` is correct.
+    // For `set` / `emit_filter`, broadcast is also wrong but is
+    // covered by the per-event manual rows + future C2 work.
+    //
+    // This lint scans non-test Rust for the literal pattern
+    // `.emit("<event-name>"` for every window-scoped row. A match
+    // is a regression. The `.emit_to(...)` form does NOT match
+    // because the literal is `.emit_to(` (extra characters before
+    // the `(`).
+    const allRust: { rel: string; content: string }[] = [];
+    for (const f of walk(RUST_SRC)) {
+      if (!f.endsWith(".rs")) continue;
+      const rel = f.slice(RUST_SRC.length + 1);
+      if (isTestFile(rel)) continue;
+      allRust.push({ rel, content: readFileSync(f, "utf8") });
+    }
+    const windowScoped = rows.filter((r) => r.ok && /^one\b/.test(r.target));
+    const violations: string[] = [];
+    for (const row of windowScoped) {
+      // Match `.emit("<name>"` literally — `.emit_to(...)` and
+      // `.emit_filter(...)` cannot match because they have
+      // additional characters between `.emit` and the `(`.
+      const needle = `.emit("${row.event}"`;
+      for (const { rel, content } of allRust) {
+        const lines = content.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          // Skip comments — the rule's prose mentions
+          // `.emit("foo", …)` to explain WHY it is wrong.
+          const trimmed = line.trimStart();
+          if (
+            trimmed.startsWith("//") ||
+            trimmed.startsWith("///") ||
+            trimmed.startsWith("//!") ||
+            trimmed.startsWith("*")
+          ) {
+            continue;
+          }
+          if (line.includes(needle)) {
+            violations.push(
+              `${rel.replace(/\\/g, "/")}:${i + 1} — ${line.trim()}`,
+            );
+          }
+        }
+      }
+    }
+    expect(
+      violations,
+      `Window-scoped events (Target = "one (...)") MUST be emitted ` +
+        `via \`emit_to(label, …)\`, never via \`Emitter::emit\` on a ` +
+        `\`WebviewWindow\` / \`Webview\` / \`Window\` receiver. The ` +
+        `latter is a global broadcast (see ` +
+        `tauri-2.10.3/src/manager/mod.rs::emit) — every window's ` +
+        `listener fires, re-introducing the multi-window menu/CLI ` +
+        `routing bug. Rule multiwin-window-scoped-events.\n  ` +
+        violations.join("\n  "),
+    ).toEqual([]);
+  });
+
   // ── Parser self-tests ──────────────────────────────────────────────
 
   describe("parseEmitTargetTable (self-test)", () => {
@@ -254,6 +331,14 @@ describe("multiwin-window-scoped-events: per-event emit-target table", () => {
       const out = parseEmitTargetTable(sample);
       expect(out[0].event).toBe("evt-a");
       expect(out[1].event).toBe("evt-b");
+    });
+
+    it("captures the Target column verbatim for window-scoped detection", () => {
+      // The structural broadcast lint relies on the Target column to
+      // know which events must be window-scoped. Pin the parsing here.
+      const out = parseEmitTargetTable(sample);
+      expect(out[0].target).toBe("one");
+      expect(out[1].target).toBe("all");
     });
 
     it("returns [] when no header line is found", () => {
