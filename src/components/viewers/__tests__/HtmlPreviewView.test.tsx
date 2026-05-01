@@ -30,7 +30,9 @@ vi.mock("@/store", () => {
     toggleCommentsPane: vi.fn(),
     zoomByFiletype: {} as Record<string, number>,
     bumpZoom: () => {},
-    setZoom: () => {},
+    setZoom: vi.fn((ext: string, val: number) => {
+      state.zoomByFiletype[ext] = val;
+    }),
     openFile: vi.fn(),
     pendingFragment: null as { path: string; fragment: string } | null,
     setPendingFragment: vi.fn((entry: { path: string; fragment: string } | null) => {
@@ -51,12 +53,16 @@ vi.mock("@/store", () => {
 import { HtmlPreviewView } from "../HtmlPreviewView";
 import { openExternalUrl, fetchRemoteAsset, getFileViewerPref, setFileViewerPref } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
+import { useStore } from "@/store";
 
 beforeEach(() => {
   (fetchRemoteAsset as unknown as { mockClear: () => void }).mockClear();
   (getFileViewerPref as unknown as { mockClear: () => void }).mockClear();
   (setFileViewerPref as unknown as { mockClear: () => void }).mockClear();
   vi.mocked(warn).mockClear();
+  // Reset zoomByFiletype so per-test mutations cannot leak across tests.
+  const state = (useStore as unknown as { getState: () => { zoomByFiletype: Record<string, number> } }).getState();
+  state.zoomByFiletype = {};
 });
 
 describe("HtmlPreviewView  hard-locked sandbox", () => {
@@ -292,6 +298,71 @@ describe("HtmlPreviewView — safe-mode link interception (H3)", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    cleanup();
+  });
+});
+
+describe("HtmlPreviewView — zoom application", () => {
+  it("sets `zoom` on iframe documentElement at default zoom (1.0)", () => {
+    const { container } = render(<HtmlPreviewView content="<p>x</p>" />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const doc = iframe.contentDocument;
+    if (!doc) throw new Error("contentDocument is null — jsdom limitation");
+    // Production code calls `setProperty("zoom", String(zoom))`. Read back
+    // via the same accessor for an exact-match oracle (no regex).
+    expect(doc.documentElement.style.getPropertyValue("zoom")).toBe("1");
+    // Effect is silent — no warn() should fire for the happy path.
+    expect(warn).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("reflects a non-default store zoom on iframe documentElement", () => {
+    const state = (useStore as unknown as { getState: () => { zoomByFiletype: Record<string, number> } }).getState();
+    state.zoomByFiletype[".html"] = 1.25;
+
+    const { container } = render(<HtmlPreviewView content="<p>x</p>" />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    expect(iframe.contentDocument!.documentElement.style.getPropertyValue("zoom")).toBe("1.25");
+    cleanup();
+  });
+
+  it("re-applies `zoom` after iframe `load` (regression — srcDoc swap re-runs effect)", () => {
+    const state = (useStore as unknown as { getState: () => { zoomByFiletype: Record<string, number> } }).getState();
+    state.zoomByFiletype[".html"] = 1.5;
+
+    const { container } = render(<HtmlPreviewView content="<p>x</p>" />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const doc = iframe.contentDocument!;
+    // Simulate the wholesale-document swap that happens when `srcDoc` is
+    // committed by removing the prior `zoom` property; the effect must
+    // re-set it after the iframeDocEpoch bump triggered by `load`.
+    doc.documentElement.style.removeProperty("zoom");
+    expect(doc.documentElement.style.getPropertyValue("zoom")).toBe("");
+
+    fireEvent.load(iframe);
+    expect(doc.documentElement.style.getPropertyValue("zoom")).toBe("1.5");
+    cleanup();
+  });
+
+  it("re-applies `zoom` when the store value changes (regression — `zoom` dep)", () => {
+    const state = (useStore as unknown as { getState: () => { zoomByFiletype: Record<string, number> } }).getState();
+    state.zoomByFiletype[".html"] = 1;
+
+    const { container, rerender } = render(<HtmlPreviewView content="<p>x</p>" />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    expect(iframe.contentDocument!.documentElement.style.getPropertyValue("zoom")).toBe("1");
+
+    state.zoomByFiletype[".html"] = 2;
+    rerender(<HtmlPreviewView content="<p>x</p>" />);
+    expect(iframe.contentDocument!.documentElement.style.getPropertyValue("zoom")).toBe("2");
+    cleanup();
+  });
+
+  it("wrapper no longer carries an inline fontSize style (regression — wrapper CSS does not cross iframe boundary)", () => {
+    const { container } = render(<HtmlPreviewView content="<p>x</p>" />);
+    const wrapper = container.querySelector(".html-preview") as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.fontSize).toBe("");
     cleanup();
   });
 });

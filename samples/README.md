@@ -13,7 +13,7 @@ through each subfolder. Each subfolder targets one viewer.
 | [`markdown/`](./markdown/) | `MarkdownViewer` | GFM, KaTeX, Mermaid, footnotes, task lists, GitHub alerts, local + remote images, sanitization edge cases |
 | [`json/`](./json/) | `JsonView` | Flat / nested / array / mixed-types / unicode / `.jsonc` (with comments) |
 | [`csv/`](./csv/) | `CsvView` | Simple / wide / tab-separated / unicode / embedded quotes & commas |
-| [`html/`](./html/) | `HtmlPreviewView` | Sandboxed iframe — simple / styled / **JS-must-not-execute** / with images |
+| [`html/`](./html/) | `HtmlPreviewView` | Sandboxed iframe — simple / styled / **JS-must-not-execute** / with images / local CSS files / local links / anchors / scheme matrix |
 | [`mermaid/`](./mermaid/) | `MermaidView` (.mmd, .mermaid) | Flowchart, sequence, state, class, gantt, ER |
 | [`kql/`](./kql/) | `KqlPlanView` | Simple / multi-stage / `.csl` extension |
 | [`source/`](./source/) | `SourceView` (Shiki) | Rust, TS, Python, Go, C++, Java, SQL, YAML, TOML, Dockerfile, Makefile, shell, diff |
@@ -43,6 +43,13 @@ See [`markdown/README.md`](./markdown/README.md) for the per-file index. Scope s
 
 ### HTML — `html/`
 - Iframe sandbox is `allow-same-origin` only — CSS renders, JS does not (rule 12a in `docs/security.md`).
+- `01-simple.html` · `02-styled.html` (inline `<style>`) · `03-script-sandbox-test.html` (JS must NOT run) · `04-with-images.html`.
+- `05-local-css.html` — single `<link rel="stylesheet" href="./css/theme.css">` inlined as a `<style>` block by `resolve_html_assets` (Rust).
+- `06-multi-stylesheet.html` — three cascading local stylesheets (`reset.css` → `theme.css` → `layout.css`) demonstrating CSS-custom-property propagation across files and a responsive grid.
+- `07-local-links.html` — workspace-relative anchors that open sibling sample files (markdown / json / csv / source / mermaid / images / binary) via `routeLinkClick → openFile`. Includes deliberately out-of-workspace targets (`../../../etc/passwd`) that must be **blocked**.
+- `08-anchors-and-toc.html` — in-page TOC with `#fragment` smooth-scroll, unicode-id anchor (`#unicode-café`), self-link with fragment, and cross-file fragments into markdown headings (`../markdown/11-kitchen-sink.md#heading-anchors`).
+- `09-link-schemes.html` — exhaustive scheme matrix: `https` / `http` / `mailto` / `tel` / fragment / workspace-relative all route correctly; `javascript:` / `file:` / `data:` / `vbscript:` (and a leading-whitespace `\n\tjavascript:` bypass attempt) are dropped with a `warn` per `EXTERNAL_LINK_SCHEME` / `BLOCKED_LINK_SCHEME` in `src/lib/url-policy.ts`.
+- `css/` — shared local stylesheets (`reset.css`, `theme.css`, `layout.css`) referenced by samples 05–09.
 - The 03-script-sandbox-test page should render but **never** show an alert dialog or change its `#result` div text.
 - Images load both relative (`../markdown/images/...`) and remote.
 

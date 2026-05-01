@@ -1,0 +1,71 @@
+/* theme.css — colour palette + typography for the local-CSS samples. */
+
+:root {
+  --bg:        #fafafa;
+  --fg:        #111827;
+  --muted:     #6b7280;
+  --accent:    #2563eb;
+  --accent-2:  #7c3aed;
+  --good:      #059669;
+  --warn:      #d97706;
+  --bad:       #dc2626;
+  --card-bg:   #ffffff;
+  --card-edge: #e5e7eb;
+  --code-bg:   #f3f4f6;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+h1, h2, h3 {
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: 2rem; margin: 1.5rem 0 0.5rem; }
+h2 { font-size: 1.4rem; margin: 1.5rem 0 0.5rem; }
+h3 { font-size: 1.15rem; margin: 1rem 0 0.4rem; }
+
+p { margin: 0.75rem 0; }
+
+a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--accent-2);
+}
+
+code {
+  background: var(--code-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--code-bg);
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.muted { color: var(--muted); }
+.good  { color: var(--good); }
+.warn  { color: var(--warn); }
+.bad   { color: var(--bad); }
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid currentColor;
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import type { RefObject } from "react";
 import {
   resolveHtmlAssets,
   openExternalUrl,
@@ -29,6 +30,30 @@ interface Props {
 // iframe sandbox + CSP.
 const SCRIPT_RE = /<script\b/i;
 const EXTERNAL_IMG_RE = /<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i;
+
+// Run `fn` against the iframe's `contentDocument` exactly once — synchronously
+// if the document is already committed, otherwise after one rAF (covers a
+// WebView2 timing window where `contentDocument` can be null at the very
+// instant `load` fires for `srcdoc` content). Returns a cleanup that cancels
+// the pending rAF; safe to call from `useEffect`. `onMissing` fires only on
+// the rAF path when the retry still finds no document.
+function withIframeDoc(
+  iframeRef: RefObject<HTMLIFrameElement | null>,
+  fn: (doc: Document) => void,
+  onMissing?: () => void,
+): () => void {
+  const doc = iframeRef.current?.contentDocument;
+  if (doc) {
+    fn(doc);
+    return () => {};
+  }
+  const raf = requestAnimationFrame(() => {
+    const retry = iframeRef.current?.contentDocument;
+    if (retry) fn(retry);
+    else onMissing?.();
+  });
+  return () => cancelAnimationFrame(raf);
+}
 
 export function HtmlPreviewView({ content, filePath }: Props) {
   const [allowImages, setAllowImages] = useState(false);
@@ -166,8 +191,25 @@ export function HtmlPreviewView({ content, filePath }: Props) {
     };
   }, []);
 
+  // Apply zoom to the iframe's document root via CSS `zoom`. CSS does not
+  // cross the iframe boundary so the wrapper's font-size has no effect on
+  // srcDoc content; we set the property directly on the iframe's own
+  // `documentElement`. Re-runs whenever:
+  //   • the zoom factor changes (toolbar +/-/reset, Ctrl+wheel inside iframe)
+  //   • a fresh srcDoc is committed (`iframeDocEpoch` bump on each `onLoad`)
+  // CSS `zoom` is the same property the browser's own zoom uses; it scales
+  // text, images, and px-units consistently inside the iframe document.
+  // The numeric `zoom` is clamped to [ZOOM_MIN, ZOOM_MAX] in the store
+  // (`viewerPrefs.ts`), so the stringified value is always a finite number
+  // — no CSS-injection vector via the template literal.
+  useEffect(() => {
+    return withIframeDoc(iframeRef, (doc) => {
+      doc.documentElement.style.setProperty("zoom", String(zoom));
+    });
+  }, [zoom, iframeDocEpoch]);
+
   return (
-    <div className="html-preview" data-zoom={zoom} style={{ fontSize: `${zoom * 100}%` }}>
+    <div className="html-preview" data-zoom={zoom}>
       {showBanner && (
         <div className="viewer-info-banner" role="status">
           {hasScript && hasExternalImages && (
@@ -268,24 +310,14 @@ export function HtmlPreviewView({ content, filePath }: Props) {
                 const fragment = useStore.getState().consumePendingFragment(filePath);
                 if (fragment) scrollIframeToFragment(doc, fragment);
               };
-              const doc = iframeRef.current?.contentDocument;
-              if (doc) {
-                installClickHandler(doc);
-                consumePendingForThisFile(doc);
-                return;
-              }
-              // Bounded retry — contentDocument can be null when the load
-              // event fires before the document is fully committed (observed
-              // in some Chromium builds with srcdoc). One rAF is enough.
-              requestAnimationFrame(() => {
-                const retryDoc = iframeRef.current?.contentDocument;
-                if (retryDoc) {
-                  installClickHandler(retryDoc);
-                  consumePendingForThisFile(retryDoc);
-                } else {
-                  void warn("[HtmlPreviewView] contentDocument unavailable after rAF retry");
-                }
-              });
+              withIframeDoc(
+                iframeRef,
+                (doc) => {
+                  installClickHandler(doc);
+                  consumePendingForThisFile(doc);
+                },
+                () => void warn("[HtmlPreviewView] contentDocument unavailable after rAF retry"),
+              );
             }}
           />
         </div>

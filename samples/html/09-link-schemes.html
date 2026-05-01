@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Link schemes — allowed vs blocked</title>
+  <link rel="stylesheet" href="./css/reset.css">
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+</head>
+<body>
+  <div class="page">
+    <h1>Link schemes — allowed vs blocked</h1>
+
+    <p>
+      The HTML preview's click router routes anchors by URL scheme. This is a
+      visible matrix of every shape it classifies. The actual classification
+      lives in <code>src/lib/url-policy.ts</code>:
+    </p>
+<pre><code>EXTERNAL_LINK_SCHEME = /^(https?|mailto|tel):/i
+BLOCKED_LINK_SCHEME  = /^(javascript|file|data|vbscript):/i</code></pre>
+
+    <table class="layout">
+      <thead>
+        <tr>
+          <th>Click target</th>
+          <th>Scheme</th>
+          <th>Expected route</th>
+          <th>What you should see</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="https://github.com/dryotta/mdownreview">GitHub repo</a></td>
+          <td><code>https</code></td>
+          <td><span class="badge good">external</span></td>
+          <td>Opens in your default browser; iframe does not navigate.</td>
+        </tr>
+        <tr>
+          <td><a href="http://example.com">example.com</a></td>
+          <td><code>http</code></td>
+          <td><span class="badge good">external</span></td>
+          <td>Same as above (downgraded HTTP still routes externally).</td>
+        </tr>
+        <tr>
+          <td><a href="mailto:hello@example.com?subject=mdownreview">Email us</a></td>
+          <td><code>mailto</code></td>
+          <td><span class="badge good">external</span></td>
+          <td>Hands off to your default mail client.</td>
+        </tr>
+        <tr>
+          <td><a href="tel:+1-555-0100">Call +1 555 0100</a></td>
+          <td><code>tel</code></td>
+          <td><span class="badge good">external</span></td>
+          <td>Hands off to the OS dialer (where one is registered).</td>
+        </tr>
+        <tr>
+          <td><a href="./01-simple.html">./01-simple.html</a></td>
+          <td>(none — relative)</td>
+          <td><span class="badge good">workspace</span></td>
+          <td>Opens that HTML file in a new mdownreview tab.</td>
+        </tr>
+        <tr>
+          <td><a href="../markdown/01-gfm-basics.md">../markdown/01-gfm-basics.md</a></td>
+          <td>(none — relative)</td>
+          <td><span class="badge good">workspace</span></td>
+          <td>Opens the markdown sample in a new tab.</td>
+        </tr>
+        <tr>
+          <td><a href="#bottom">#bottom</a></td>
+          <td>(fragment-only)</td>
+          <td><span class="badge good">fragment</span></td>
+          <td>Smooth-scrolls inside this iframe.</td>
+        </tr>
+        <tr>
+          <td><a href="javascript:alert('blocked')">javascript:alert('blocked')</a></td>
+          <td><code>javascript</code></td>
+          <td><span class="badge bad">blocked</span></td>
+          <td>Click is preventDefault'd; <code>warn</code> in DevTools; no
+            alert (sandbox would also stop it, but the router blocks
+            <em>first</em>).</td>
+        </tr>
+        <tr>
+          <td><a href="file:///C:/Windows/System32/drivers/etc/hosts">file:///…/hosts</a></td>
+          <td><code>file</code></td>
+          <td><span class="badge bad">blocked</span></td>
+          <td>Click dropped; <code>warn</code> in DevTools.</td>
+        </tr>
+        <tr>
+          <td><a href="data:text/html,<h1>data url</h1>">data:text/html,…</a></td>
+          <td><code>data</code></td>
+          <td><span class="badge bad">blocked</span></td>
+          <td>Click dropped; <code>warn</code> in DevTools.</td>
+        </tr>
+        <tr>
+          <td><a href="vbscript:msgbox(1)">vbscript:msgbox(1)</a></td>
+          <td><code>vbscript</code></td>
+          <td><span class="badge bad">blocked</span></td>
+          <td>Click dropped; <code>warn</code> in DevTools.</td>
+        </tr>
+        <tr>
+          <td><a href="
+javascript:alert('leading-newline')">leading-newline javascript:</a></td>
+          <td><code>javascript</code> (after whitespace strip)</td>
+          <td><span class="badge bad">blocked</span></td>
+          <td>The router strips leading whitespace before classifying so
+            <code>"\n\tjavascript:"</code> still hits the blocklist.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="bottom">What to spot-check</h2>
+    <ol>
+      <li><strong>Allowed external</strong> rows — clicking opens the OS
+        opener; the iframe never navigates.</li>
+      <li><strong>Workspace</strong> rows — clicking opens a new mdownreview
+        tab pointed at the sibling sample.</li>
+      <li><strong>Blocked</strong> rows — clicking does nothing visible; a
+        <code>HtmlPreviewView: blocked iframe link (blocked-scheme): …</code>
+        line appears in DevTools.</li>
+      <li>The fragment-only <code>#bottom</code> link smooth-scrolls inside
+        this iframe (you arrived here by clicking it, presumably).</li>
+    </ol>
+  </div>
+</body>
+</html>

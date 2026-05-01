@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Local CSS — single stylesheet</title>
+  <link rel="stylesheet" href="./css/theme.css">
+</head>
+<body>
+  <main style="max-width: 720px; margin: 2rem auto; padding: 0 1rem;">
+    <h1>Local CSS — one stylesheet</h1>
+
+    <p>
+      This page links a <strong>local</strong> stylesheet:
+    </p>
+<pre><code>&lt;link rel="stylesheet" href="./css/theme.css"&gt;</code></pre>
+
+    <p>
+      The HTML viewer's Rust side (<code>resolve_html_assets</code> in
+      <code>src-tauri/src/core/html_assets.rs</code>) reads
+      <code>css/theme.css</code> from disk and replaces the
+      <code>&lt;link&gt;</code> with an inline <code>&lt;style&gt;</code> block
+      before the iframe ever sees the markup. That's why this works inside the
+      <code>allow-same-origin</code> sandbox without violating the host CSP —
+      the iframe never issues a stylesheet network request.
+    </p>
+
+    <h2>Visible signals that <code>theme.css</code> loaded</h2>
+    <ul>
+      <li>Headings are <strong>blue</strong> (<code>--accent</code>).</li>
+      <li>This paragraph sits on the <span class="badge">cream</span>
+        page background (<code>--bg</code>).</li>
+      <li>Inline <code>code</code> has a grey pill background.</li>
+      <li>
+        Status colour helpers:
+        <span class="good">good</span> ·
+        <span class="warn">warn</span> ·
+        <span class="bad">bad</span> ·
+        <span class="muted">muted</span>.
+      </li>
+    </ul>
+
+    <h2 id="what-to-spot-check">What to spot-check</h2>
+    <ol>
+      <li>If the page renders <em>unstyled</em> (black headings, white
+        background), the inliner failed.</li>
+      <li>If you see a CSP violation in DevTools for
+        <code>./css/theme.css</code>, the <code>&lt;link&gt;</code> wasn't
+        inlined and the iframe attempted a network fetch.</li>
+      <li>Editing <code>css/theme.css</code> on disk and reloading the file
+        should visibly change the colours (the watcher re-renders).</li>
+    </ol>
+
+    <p class="muted">
+      See also <a href="./06-multi-stylesheet.html">06 — multiple cascading
+      stylesheets</a> and <a href="./02-styled.html">02 — inline
+      <code>&lt;style&gt;</code></a>.
+    </p>
+  </main>
+</body>
+</html>
