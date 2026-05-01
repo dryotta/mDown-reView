@@ -1,7 +1,4 @@
-import { useCallback } from "react";
-
 import { MermaidCanvas } from "./mermaid/MermaidCanvas";
-import { MermaidControls } from "./mermaid/MermaidControls";
 
 import { useStore } from "@/store";
 
@@ -19,30 +16,17 @@ interface Props {
  * Slim shell for the dedicated `.mmd` viewer (issue #276 — c2-mermaidview).
  *
  * Render + theme + transform + pan/zoom now live in MermaidCanvas (which
- * composes MermaidRenderer). This file only owns:
- *   1. Wiring the shared `.mmd` zoom (via `useStore`) into MermaidCanvas.
- *   2. Routing the Fit button click to a zoom reset (1.0 ≡ fit-to-window
- *      under the hybrid scale model owned by MermaidCanvas).
- *   3. Showing the inline Fit + Pop-out controls ONLY for the dedicated
- *      viewer path (signalled by the presence of `path`). The embedded
- *      markdown-block path (MarkdownComponentsMap → MermaidView, until
- *      c3-markdownmap swaps it for MermaidEmbedded) passes no path and
- *      therefore renders no controls inside the markdown body.
+ * composes MermaidRenderer). This file only owns wiring the shared `.mmd`
+ * zoom (via `useStore`) into MermaidCanvas. The dedicated viewer itself
+ * renders no inline chrome — zoom + reset live in the chrome
+ * ViewerToolbar (single source of truth via `useZoom`), and the Pop-out
+ * affordance lives ONLY on the markdown-embedded path
+ * (`MermaidEmbedded`'s hover button) where it's the only way to enlarge
+ * a tiny embedded diagram. The dedicated viewer already IS the full-
+ * window view, so a Pop-out button there would be a no-op.
  */
 export function MermaidView({ content, path, zoom = 1 }: Props) {
   const setZoom = useStore((s) => s.setZoom);
-  const bumpZoom = useStore((s) => s.bumpZoom);
-  const openMermaidPopout = useStore((s) => s.openMermaidPopout);
-
-  // 1.0 ≡ fit under MermaidCanvas's scale model, so "Fit" is just a zoom
-  // reset. Same chokepoint chrome's ViewerToolbar uses for Cmd+0 etc.
-  const handleFitClick = useCallback(() => {
-    bumpZoom(".mmd", "reset");
-  }, [bumpZoom]);
-
-  const handlePopout = useCallback(() => {
-    openMermaidPopout(content, path ?? null);
-  }, [openMermaidPopout, content, path]);
 
   return (
     <div
@@ -56,17 +40,6 @@ export function MermaidView({ content, path, zoom = 1 }: Props) {
         setZoom={(v) => setZoom(".mmd", v)}
         readOnly={false}
       />
-      {path !== undefined && (
-        <MermaidControls
-          mode="inline"
-          zoom={zoom}
-          onZoomIn={() => useStore.getState().bumpZoom(".mmd", "in")}
-          onZoomOut={() => useStore.getState().bumpZoom(".mmd", "out")}
-          onReset={() => useStore.getState().bumpZoom(".mmd", "reset")}
-          onFit={handleFitClick}
-          onPopout={handlePopout}
-        />
-      )}
     </div>
   );
 }

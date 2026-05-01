@@ -69,24 +69,3 @@
   transform-origin: center center;
   user-select: none;
 }
-/* Floating action buttons (top-right of the canvas — Fit + Pop-out). */
-.mermaid-canvas-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  gap: 4px;
-  z-index: 2;
-}
-.mermaid-canvas-actions button {
-  background: var(--color-surface, #f6f8fa);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 4px;
-  padding: 2px 6px;
-  cursor: pointer;
-  font-size: 12px; /* zoom-cascade: chrome */
-  line-height: 1.2;
-}
-.mermaid-canvas-actions button:hover {
-  background: var(--color-hover, #f3f4f6);
-}
