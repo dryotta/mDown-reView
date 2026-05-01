@@ -136,8 +136,8 @@ export default function App() {
   useFileWatcher();
 
   const menuCallbacks = {
-    handleOpenFile,
-    handleOpenFolder,
+    handleOpenFile: handleOpenFileClick,
+    handleOpenFolder: handleOpenFolderClick,
     toggleCommentsPane,
     setTheme,
     setAboutOpen,
