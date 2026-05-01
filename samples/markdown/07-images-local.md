@@ -3,7 +3,7 @@
 Tests the `convertFileSrc` chokepoint at
 `src/components/viewers/MarkdownViewer.tsx:302-309` (rule 14 in
 `docs/security.md`): every local `<img src="...">` is rewritten to
-`asset:` (or the Windows `https://asset.localhost` form) so the WebView
+`asset:` (or the Windows `http://asset.localhost` form) so the WebView
 loads via the asset protocol, never raw `file://`.
 
 All images live in [`./images/`](./images/) — relative paths only.
@@ -72,7 +72,7 @@ A list with inline image bullets:
 ## Trailing checklist
 
 - [ ] Every image renders (no broken-image icon).
-- [ ] DevTools Network tab shows requests via `asset:` (or `https://asset.localhost`), never `file://` (rule 17 in `docs/security.md`).
+- [ ] DevTools Network tab shows requests via `asset:` (or `http://asset.localhost`), never `file://` (rule 17 in `docs/security.md`).
 - [ ] Tall and wide aspect-ratio images stay inside the reading column without stretching.
 - [ ] Click-through on the linked image opens the target (`gh.com`) via the system browser.
 - [ ] DevTools console: zero errors / warnings.
