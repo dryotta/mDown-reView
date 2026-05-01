@@ -17,6 +17,7 @@ import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
+import { MermaidPopout } from "@/components/viewers/mermaid/MermaidPopout";
 import { AboutDialog } from "@/components/AboutDialog";
 import { SettingsView } from "@/components/SettingsView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -211,6 +212,10 @@ export default function App() {
             <CommentsPanel filePath={activeTabPath} />
           </ErrorBoundary>
         )}
+
+        <ErrorBoundary>
+          <MermaidPopout />
+        </ErrorBoundary>
       </div>
 
       <ErrorBoundary>

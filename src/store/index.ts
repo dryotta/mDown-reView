@@ -23,6 +23,7 @@ import {
 import { createViewerPrefsSlice, type ViewerPrefsSlice } from "./viewerPrefs";
 import { createTabHistorySlice, type TabHistorySlice } from "./tabHistory";
 import { createCommentsSlice, type CommentsSlice } from "./comments";
+import { createMermaidPopoutSlice, type MermaidPopoutSlice } from "./mermaidPopoutSlice";
 import { migrateV1StripVerbatim } from "./migrations/v1-strip-verbatim";
 import { canonicalizeOrFallback } from "./canonicalize";
 
@@ -233,7 +234,8 @@ export type Store = WorkspaceSlice &
   OnboardingSlice &
   ViewerPrefsSlice &
   TabHistorySlice &
-  CommentsSlice;
+  CommentsSlice &
+  MermaidPopoutSlice;
 
 export const useStore = create<Store>()(
   persist(
@@ -244,10 +246,12 @@ export const useStore = create<Store>()(
       setRoot: async (root) => {
         if (root === null) {
           set({ root: null, expandedFolders: {} });
+          get().closeMermaidPopout();
           return;
         }
         const canonical = await canonicalizeOrFallback(root);
         set({ root: canonical, expandedFolders: {} });
+        get().closeMermaidPopout();
       },
       toggleFolder: (path) =>
         set((s) => ({
@@ -255,7 +259,7 @@ export const useStore = create<Store>()(
         })),
       setFolderExpanded: (path, expanded) =>
         set((s) => ({ expandedFolders: { ...s.expandedFolders, [path]: expanded } })),
-      closeFolder: () => set({ root: null, expandedFolders: {} }),
+      closeFolder: () => { set({ root: null, expandedFolders: {} }); get().closeMermaidPopout(); },
 
       // Tabs (delegated to ./tabs.ts)
       ...createTabsSlice(set, get),
@@ -275,6 +279,9 @@ export const useStore = create<Store>()(
       // Comments (F1 nav state). Session-only — never persisted.
       ...createCommentsSlice(set, get),
 
+      // MermaidPopout (./mermaidPopoutSlice.ts) — session-only; NOT in partialize.
+      ...createMermaidPopoutSlice(set, get),
+
       // UI
       theme: "system",
       folderPaneWidth: 240,
@@ -287,7 +294,7 @@ export const useStore = create<Store>()(
       setTheme: (theme) => set({ theme }),
       setFolderPaneWidth: (width) =>
         set((s) => (s.folderPaneWidth === width ? s : { folderPaneWidth: width })),
-      toggleCommentsPane: () => set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })),
+      toggleCommentsPane: () => { get().closeMermaidPopout(); set((s) => ({ commentsPaneVisible: !s.commentsPaneVisible })); },
       setAuthorName: (name) => set({ authorName: name }),
       setReadingWidth: (n) => set({ readingWidth: Math.max(400, Math.min(1600, n)) }),
       requestFileLevelInput: (filePath) =>

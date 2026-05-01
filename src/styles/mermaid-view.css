@@ -38,3 +38,55 @@
   border-radius: 4px;
   padding: 4px;
 }
+
+/* ── Canvas + interaction surface (issue #276) ─────────────────────── */
+
+/* Outer canvas — flex-centred so the inner transform-target stays
+   centered both before and after the wrapper applies translate+scale.
+   `overflow: hidden` clips zoomed-in pan; `touch-action: none` is set
+   by the React component when the surface is interactive (not all
+   surfaces are — embedded blocks omit it). */
+.mermaid-canvas {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+.mermaid-canvas--interactive {
+  touch-action: none;
+  cursor: grab;
+}
+.mermaid-canvas--interactive.mermaid-canvas--dragging {
+  cursor: grabbing;
+}
+/* Inner transform target — React owns NO inline transform here; the
+   React component imperatively writes `style.transform` from refs.
+   `will-change: transform` hints the compositor for cheap pan/zoom. */
+.mermaid-canvas-transform {
+  will-change: transform;
+  transform-origin: center center;
+  user-select: none;
+}
+/* Floating action buttons (top-right of the canvas — Fit + Pop-out). */
+.mermaid-canvas-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+.mermaid-canvas-actions button {
+  background: var(--color-surface, #f6f8fa);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.mermaid-canvas-actions button:hover {
+  background: var(--color-hover, #f3f4f6);
+}

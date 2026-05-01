@@ -117,6 +117,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     fileMetaByPath: {},
 
     openFile: (path, opts) => {
+      get().closeMermaidPopout(); // issue #276 — close popout on file open
       const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
       const existing = get().tabs.find((t) => t.path === path);
@@ -157,6 +158,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     closeTab: (path) => {
+      get().closeMermaidPopout(); // issue #276 — close popout on tab close
       const tabs = get().tabs;
       const idx = tabs.findIndex((t) => t.path === path);
       if (idx === -1) return;
@@ -177,16 +179,19 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       });
     },
 
-    closeAllTabs: () =>
+    closeAllTabs: () => {
+      get().closeMermaidPopout(); // issue #276 — close popout on close-all
       set({
         tabs: [],
         activeTabPath: null,
         viewModeByTab: {},
         lastSaveByPath: {},
         fileMetaByPath: {},
-      }),
+      });
+    },
 
     setActiveTab: (path, opts) => {
+      get().closeMermaidPopout(); // issue #276 — close popout on tab switch
       const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
       set((s) => ({

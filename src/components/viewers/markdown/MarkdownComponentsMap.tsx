@@ -76,10 +76,13 @@ function HighlightedCode({ code, lang }: { code: string; lang: string }) {
   );
 }
 
-// Embedded ```mermaid fenced blocks render inline via the existing MermaidView
-// (lazy chunk shared with the .mmd file viewer route).
+// Embedded ```mermaid fenced blocks render inline via MermaidEmbedded
+// (issue #276 — adds a hover-revealed pop-out button on top of the existing
+// SVG render). MermaidEmbedded shares the lazy `mermaid` chunk with the
+// dedicated `.mmd` viewer route since both paths route through
+// `MermaidRenderer` → `renderMermaid` (singleton).
 const MermaidEmbed = lazyWithSuspense<{ content: string }>(() =>
-  import("../MermaidView").then((m) => ({ default: m.MermaidView }))
+  import("../mermaid/MermaidEmbedded").then((m) => ({ default: m.MermaidEmbedded }))
 );
 
 // Anchor handler closes over filePath/workspaceRoot for relative-path

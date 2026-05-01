@@ -1,0 +1,90 @@
+/*
+ * Mermaid popout overlay (issue #276).
+ *
+ * Mounted inside `.main-area` (NOT React-portaled to body) so the
+ * toolbar / tab bar / status bar remain visible above and below.
+ * `.main-area { position: relative }` (added in app.css) anchors the
+ * absolute positioning here.
+ */
+.mermaid-popout-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: var(--color-background, #ffffff);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Floating control bar at bottom-center for popout mode. */
+.mermaid-popout-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-surface, #f6f8fa);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 6px;
+  padding: 4px 8px;
+  z-index: 11;
+}
+.mermaid-popout-bar button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+}
+.mermaid-popout-bar button:hover {
+  background: var(--color-hover, #f3f4f6);
+}
+.mermaid-popout-bar-zoom-display {
+  font-size: 12px;
+  min-width: 48px;
+  text-align: center;
+  color: var(--color-muted, #656d76);
+}
+.mermaid-popout-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 11;
+  background: var(--color-surface, #f6f8fa);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.mermaid-popout-close:hover {
+  background: var(--color-hover, #f3f4f6);
+}
+
+/* Embedded mermaid block — hover-revealed pop-out button.
+ * The wrapper `.mermaid-embedded` has position:relative; the button
+ * is absolute-positioned top-right with opacity 0 by default and
+ * transitions to 1 on hover. */
+.mermaid-embedded {
+  position: relative;
+}
+.mermaid-embedded__popout-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  background: var(--color-surface, #f6f8fa);
+  border: 1px solid var(--color-border, #d0d7de);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 11px;
+  z-index: 2;
+}
+.mermaid-embedded:hover .mermaid-embedded__popout-btn,
+.mermaid-embedded__popout-btn:focus-visible {
+  opacity: 1;
+}
