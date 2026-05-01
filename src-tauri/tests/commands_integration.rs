@@ -875,7 +875,7 @@ mod f0_iter1 {
     use super::{make_mrsf_comment, watcher_state_allowing, SidecarConfigState};
     use mdown_review_lib::commands::{
         check_workspace_for, get_file_badges_inner, set_author_at,
-        update_comment_apply, validate_author, CommentPatch, ConfigError,
+        update_comment_apply, validate_author, CommentError, CommentPatch, ConfigError,
     };
     use mdown_review_lib::commands::comments::BadgeCache;
     use mdown_review_lib::core::severity::Severity;
@@ -1085,9 +1085,9 @@ mod f0_iter1 {
             "get_file_badges",
         ] {
             let err = check_workspace_for(cmd, &state, outside_str).unwrap_err();
-            assert_eq!(
-                err, "path not in workspace",
-                "command `{cmd}` did not surface the canonical guard error",
+            assert!(
+                matches!(&err, CommentError::OutsideWorkspace { path } if path == outside_str),
+                "command `{cmd}` did not surface the typed guard error: got {err:?}",
             );
         }
     }

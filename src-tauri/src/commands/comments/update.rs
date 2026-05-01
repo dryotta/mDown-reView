@@ -1,6 +1,6 @@
 //! `update_comment` — consolidated patch surface for per-comment mutations.
 
-use super::{enforce_workspace_path, CommentsEmitter};
+use super::{enforce_workspace_path, CommentError, CommentsEmitter};
 use crate::core::types::Reaction;
 use crate::watcher::{SidecarConfigState, WatcherState};
 use tauri::{AppHandle, Runtime, State};
@@ -36,7 +36,7 @@ pub fn update_comment<R: Runtime>(
     file_path: String,
     comment_id: String,
     patch: CommentPatch,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     update_comment_inner(&app, &state, &config_state, file_path, comment_id, patch)
 }
 
@@ -50,7 +50,7 @@ pub fn update_comment_inner<E: CommentsEmitter>(
     file_path: String,
     comment_id: String,
     patch: CommentPatch,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     enforce_workspace_path(state, &file_path)?;
     let changed = update_comment_apply(&file_path, &comment_id, patch, config_state)?;
     if changed {

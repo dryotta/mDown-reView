@@ -409,8 +409,8 @@ fn add_file_anchor_rejects_unwatched_binary_source() {
     .expect_err("must reject unwatched path");
 
     assert!(
-        err.contains("workspace"),
-        "expected workspace-guard rejection, got: {err}"
+        matches!(&err, mdown_review_lib::commands::CommentError::OutsideWorkspace { .. }),
+        "expected workspace-guard rejection, got: {err:?}"
     );
     assert_eq!(emitter.count(), 0, "rejected mutation must not emit");
     let sidecar_path = outside_dir.join("stray.bin.review.yaml");

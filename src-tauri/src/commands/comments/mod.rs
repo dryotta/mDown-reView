@@ -19,6 +19,7 @@ use crate::mdr_command;
 pub mod anchor_input;
 pub mod badge_cache;
 pub mod badges;
+pub mod error;
 pub mod get;
 pub mod update;
 
@@ -26,6 +27,7 @@ pub use anchor_input::{NewCommentAnchor, TaggedNewAnchor};
 
 pub use badge_cache::BadgeCache;
 pub use badges::{get_file_badges, get_file_badges_inner, FileBadge};
+pub use error::CommentError;
 pub use get::{get_file_comments, get_file_comments_inner, GetFileCommentsResult};
 pub use update::{update_comment, update_comment_apply, update_comment_inner, CommentPatch};
 
@@ -46,9 +48,16 @@ pub struct CommentsChangedEvent {
 /// directory must still canonicalize inside the workspace, so a symlink
 /// trick cannot smuggle through.
 ///
-/// Returns `"path not in workspace"` on rejection so callers can match the
-/// same string the rest of the FS surface emits.
-pub(crate) fn enforce_workspace_path(state: &WatcherState, file_path: &str) -> Result<(), String> {
+/// Returns `CommentError::OutsideWorkspace { path }` on rejection so the
+/// renderer can branch on `kind === "outside-workspace"` (AC3 of #338) and
+/// self-heal the originating tab without a string match. The carried
+/// `path` is the unmodified caller-supplied form — matches what the user
+/// sees in their tab bar and avoids leaking the canonicalized absolute
+/// path when the canonicalization itself is what failed.
+pub(crate) fn enforce_workspace_path(
+    state: &WatcherState,
+    file_path: &str,
+) -> Result<(), CommentError> {
     if state.is_path_or_parent_allowed(Path::new(file_path)) {
         Ok(())
     } else {
@@ -68,7 +77,9 @@ pub(crate) fn enforce_workspace_path(state: &WatcherState, file_path: &str) -> R
             "[comments] rejected: path outside workspace file_path={} canonical={} watched_dirs={:?} watched_files={:?}",
             file_path, canonical, watched_dirs, watched_files
         );
-        Err("path not in workspace".to_string())
+        Err(CommentError::OutsideWorkspace {
+            path: file_path.to_string(),
+        })
     }
 }
 
@@ -258,7 +269,7 @@ pub fn add_comment<R: Runtime>(
     comment_type: Option<String>,
     severity: Option<String>,
     document: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     add_comment_inner(
         &app,
         &state,
@@ -291,7 +302,7 @@ pub fn add_comment_inner<E: CommentsEmitter>(
     comment_type: Option<String>,
     severity: Option<String>,
     document: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     // Entry trace: every comment-mutation call lands here, so this is the
     // single chokepoint for "is the IPC even arriving and with what?"
     // questions. Logging at info level so it surfaces in default logs
@@ -363,7 +374,7 @@ pub fn add_comment_inner<E: CommentsEmitter>(
             file_path, e
         ),
     }
-    result
+    result.map_err(CommentError::from)
 }
 
 /// Test seam: calls `enforce_workspace_path` for each retrofitted command so
@@ -374,7 +385,7 @@ pub fn check_workspace_for(
     command: &str,
     state: &WatcherState,
     file_path: &str,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     let _ = command;
     enforce_workspace_path(state, file_path)
 }
@@ -389,7 +400,7 @@ pub fn add_reply<R: Runtime>(
     parent_id: String,
     author: String,
     text: String,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     add_reply_inner(&app, &state, &config_state, file_path, parent_id, author, text)
 }
 
@@ -402,7 +413,7 @@ pub fn add_reply_inner<E: CommentsEmitter>(
     parent_id: String,
     author: String,
     text: String,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     log::info!(
         target: "mdownreview::comments",
         "add_reply_inner: entry file_path={} parent_id={} author={} text_len={}",
@@ -427,7 +438,7 @@ pub fn add_reply_inner<E: CommentsEmitter>(
             file_path, parent_id, e
         );
     }
-    result
+    result.map_err(CommentError::from)
 }
 
 /// Edit a comment's text, save to sidecar.
@@ -439,7 +450,7 @@ pub fn edit_comment<R: Runtime>(
     file_path: String,
     comment_id: String,
     text: String,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     edit_comment_inner(&app, &state, &config_state, file_path, comment_id, text)
 }
 
@@ -451,7 +462,7 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
     file_path: String,
     comment_id: String,
     text: String,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     log::info!(
         target: "mdownreview::comments",
         "edit_comment_inner: entry file_path={} comment_id={} text_len={}",
@@ -474,7 +485,7 @@ pub fn edit_comment_inner<E: CommentsEmitter>(
             file_path, comment_id, e
         );
     }
-    result
+    result.map_err(CommentError::from)
 }
 
 /// Delete a comment (with reply reparenting per MRSF §9.1), save to sidecar.
@@ -485,7 +496,7 @@ pub fn delete_comment<R: Runtime>(
     config_state: State<'_, SidecarConfigState>,
     file_path: String,
     comment_id: String,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     delete_comment_inner(&app, &state, &config_state, file_path, comment_id)
 }
 
@@ -496,7 +507,7 @@ pub fn delete_comment_inner<E: CommentsEmitter>(
     config_state: &SidecarConfigState,
     file_path: String,
     comment_id: String,
-) -> Result<(), String> {
+) -> Result<(), CommentError> {
     log::info!(
         target: "mdownreview::comments",
         "delete_comment_inner: entry file_path={} comment_id={}",
@@ -514,7 +525,7 @@ pub fn delete_comment_inner<E: CommentsEmitter>(
             file_path, comment_id, e
         );
     }
-    result
+    result.map_err(CommentError::from)
 }
 
 /// Compute SHA-256 hash for selected text anchor.
