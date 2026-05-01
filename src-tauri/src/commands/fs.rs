@@ -349,6 +349,15 @@ pub fn ensure_readable(
             Err("system path blocked".into())
         }
         Ok(Tier::Inside) | Ok(Tier::Outside) => Ok(canonical),
+        // Defensive branch: per docs/architecture.md rule 11a, every path
+        // reaching `classify(canonical, _)` here has already passed
+        // `canonicalize_no_verbatim` above — so `Tier::classify`'s
+        // `NonCanonicalErr` (rejecting `..`, relative, or verbatim-form
+        // input) is unreachable in practice. Kept as a fail-closed guard
+        // against future refactors that might bypass the canonicalize step.
+        // Per test-expert review iter 1: this branch is intentionally
+        // untested because it is unreachable through the public IPC
+        // contract.
         Err(e) => {
             tracing::warn!(target: "fs-guard", "[fs-guard] non-canonical: {} reason={:?}", canonical.display(), e);
             Err("path not canonicalizable".into())

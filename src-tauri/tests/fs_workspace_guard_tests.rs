@@ -181,6 +181,43 @@ fn test_read_text_file_dot_dot_traversal_rejects() {
 // containment so `/etc/hosts` survives to the classify call and triggers
 // the new `"system path blocked"` sentinel — distinct from the
 // containment-rejection sentinel `"path not in workspace"`.
+// Pin the `"canonicalize failed"` sentinel.
+//
+// `ensure_readable` has four distinct rejection sentinels (see the doc-comment
+// at `commands/fs.rs::ensure_readable`). Two of them — `"canonicalize failed"`
+// and `"path not canonicalizable"` — are defensive branches that are
+// **unreachable through the public IPC contract**:
+//
+//   * `is_path_allowed` is invoked on the raw path BEFORE
+//     `canonicalize_no_verbatim`. Because `is_path_allowed` itself canonicalizes
+//     internally and fails-closed, any input that would later trip
+//     `canonicalize_no_verbatim` has already been rejected with
+//     `"path not in workspace"`.
+//   * `Tier::classify(canonical, canonical)` cannot return `NonCanonicalErr`
+//     because `canonical` is the output of `canonicalize_no_verbatim` — it is
+//     by construction absolute, non-verbatim, and `..`-free.
+//
+// Both branches remain in the source as fail-closed guards against future
+// refactors that might bypass the canonicalize step. This test documents that
+// non-existent paths under a watched workspace are rejected with **a**
+// canonicalize-related sentinel — proving that the rejection contract holds
+// even if the exact branch shifts during future refactors. Per test-expert
+// review iter 1: an "explicit out-of-scope rationale + a regression test
+// asserting the OR of acceptable sentinels" is the agreed resolution.
+#[test]
+fn test_read_text_file_canonicalize_failed_rejects() {
+    let workspace = workspace_tempdir();
+    let workspace_canonical = canonicalize_no_verbatim(workspace.path()).unwrap();
+    let nonexistent = workspace_canonical.join("nonexistent.md");
+    let state = state_with_workspace(workspace.path());
+
+    let err = ensure_readable(nonexistent.to_str().unwrap(), &state).unwrap_err();
+    assert!(
+        err == "path not in workspace" || err == "canonicalize failed",
+        "expected canonicalize-related rejection sentinel, got: {err:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn test_read_text_file_classify_system_branch_rejects() {
