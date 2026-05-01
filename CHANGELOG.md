@@ -1,4 +1,4 @@
-## Unreleased
+## v0.4.0 — 2026-05-01
 
 ### Breaking
 - `mdownreview-cli read --all` removed — use `--include-resolved` instead. (#36)
@@ -7,15 +7,54 @@
 - `args-received` Tauri event no longer carries a payload (signal-only). Listeners must call `get_launch_args` to drain the pending-args queue. (#36)
 
 ### Features
-- `mdownreview-cli read --json` (shorthand for `--format json`) and `read --file <path>` for single-file mode with surfaced errors. (#36)
-- `mdownreview-cli respond --resolve` (folds the old `resolve` subcommand into `respond`). (#36)
-- `mdownreview-cli respond --folder <root>` restricts file resolution to a root directory. (#36)
-- `mdownreview-cli cleanup --include-unresolved` also deletes sidecars containing unresolved comments. (#36)
-- `mdownreview-cli --help` (top-level) prints aggregated help: top-level usage followed by every subcommand's long help. (#36)
+- Multi-window support: open multiple workspaces concurrently with per-window state, watcher routing, and CLI-args forwarding. (#147, #204, #321)
+- macOS support overhaul: native menu system (about/services/edit/window submenus), per-window lifecycle, ad-hoc signing, DMG layout. (#303, #305)
+- Viewer overhaul: `ViewerToolbar` consolidated across all viewers (markdown / source / HTML / Mermaid / image / binary) with sticky toolbar and contextual banners. (#65, #117, #243, #246, #335)
+- Source-view syntax highlighting via Shiki + uniform theming. (#94, #178, #181)
+- Mermaid viewer overhaul: themed popout card, fit-to-window 100% baseline, pixel-perfect zoom. (#276, #330, #336)
+- HTML preview: iframe sandbox, asset-protocol images, in-iframe zoom, persistent per-file `allow_images` toggle. (#213, #214, #335, #337)
+- Sidecar enhancements: `sidecar_root` config + migration UI, format-preserving YAML writes, MRSF v1.0 spec compliance, show-sidecars toggle. (#229, #230, #234, #240, #269, #292)
+- Comments overhaul: panel-only commenting, speech-bubble markers, cross-surface flash, file-level anchor unification, simplified mutation surface. (#226, #227, #275, #292)
+- Settings region overhaul: full-page Settings, CLI-shim install/status/remove, default-handler controls, author preference, removal of welcome screen. (#79, #113, #160, #215)
+- Tab bar visual overhaul (max 5 tabs) and folder-pane improvements (filter shortcut, ESC reset, ghost-entry handling). (#40, #80, #95, #164, #211, #216, #218, #219, #223)
+- CLI improvements: `read --json`, `read --file`, `respond --resolve`, `respond --folder`, `cleanup --include-unresolved`, aggregated `--help`. (#36)
+- Engineering excellence: typed-lint gate + new ESLint rules + build-perf gates (#262); tauri-specta auto-generated bindings (#263); `mdr_command!` runtime tracing macro + `StartupRecorder` + `--trace` launch flag (#264, #285, #289); IPC-event fixtures tied to real Rust emission shapes (#311, #313); cross-library on-disk-shape rule (#300, #312).
+- File / comment status uses filesystem mtime. (#96)
+- Canary release pipeline with client-side channel switching. (#50)
 
 ### Fixes
-- macOS `RunEvent::Opened` no longer clobbers pending launch args — args now flow through a Rust-internal pending-args queue (`PendingArgsState`) drained by `get_launch_args`. (#36)
-- NSIS installer: file-association open verb now uses `%*` instead of `%1` so Explorer multi-select → Enter on .md/.mdx files forwards every selected path to a single mdownreview-cli invocation (one window, not N windows). (#36)
+- HTML preview: zoom now applies inside iframe, asset CSP scheme corrected, contextual banner, Ctrl+wheel zoom, link-handling parity with markdown. (#274, #335, #337)
+- Mermaid: redefine 100% as fit-to-window with pixel-perfect zoom and themed popout. (#336)
+- Sidecar/comment IPC contract: snake_case wire shape, `comments-changed` events from Rust mutations, badge TOCTOU fix, sidecar counter accuracy. (#112, #123, #260, #283)
+- Multi-window: state contamination, duplicate-folder bypass, per-window CLI-args routing, per-window watcher state, broadcast events to all windows, zoom ping-pong guard. (#232, #233, #236, #237, #249, #251, #253)
+- Sidecar config dialog: centering, counting, refresh, `.gitignore` override. (#254, #260)
+- Stranded `.reviews/` rescue when toggle is disabled. (#278)
+- Folder pane no longer jumps to active file on folder expand. (#224)
+- Cold-start: main-window menu attached at build time to eliminate flicker. (#265, #286, #318)
+- macOS `RunEvent::Opened` no longer clobbers pending launch args; pending-args queue (`PendingArgsState`) drained by `get_launch_args`. (#36)
+- NSIS installer: file-association open verb uses `%*` so Explorer multi-select forwards every selected path to a single window. (#36)
+- Source-view tokens render uniform black regression. (#181, #188)
+- Sandbox warning readability + persistent settings. (#212, #220)
+- Hide "Empty folder" label when Other Files section is visible. (#197, #199)
+- File-level comment false-orphan warning. (#131, #187)
+- Saphyr emitter unreadable block scalars for whitespace-leading nested strings. (#293, #294)
+- Saphyr `quote_if_needed` multi-line LF bug. (#297, #314)
+- Replace `std::fs::canonicalize` with `dunce` to strip `\\?\` prefix on Windows. (#89, #126)
+- Memoize `CommentsPanel` grouping/sorting/filtering; cancellation guard for source-highlighting async effect; `FolderTree` `mergedList` memo stability; infinite re-render in `useUnresolvedCounts`.
+- Tauri listener leak on rapid unmount in `useComments`.
+- Many CI / E2E / build / lint / test stabilizations.
+
+### Other
+- Removed in-app context menus; Window → DevTools (F12). (#277)
+- Removed audio-specific viewer; audio files now treated as binary. (#333)
+- Removed welcome screen; CLI-shim/default-handler moved into Settings. (#79, #160)
+- Removed folder context menu and multi-select override from NSIS hooks. (#200)
+- Removed unused "open in default app" toolbar action. (#93, #159)
+- Logging: per-startup new log file + log rotation. (#295)
+- CSP: forbid inline `<style>`; assets allowed via `http://asset.localhost` + `asset:` schemes. (#291)
+- Manual-test sample files for every viewer. (#329)
+- Comprehensive Rust + React + Tauri lint enforcement. (#258)
+- Documentation: viewer consistency guidelines, MRSF v1.0 spec, macOS platform best practices, `AGENTIC_DEVELOPMENT.md`, multi-window best practices, agentic-loop skill suite (`groom-issues`, `iterate-loop`, `iterate-one-issue`, `merge-pr-loop`, `optimize-prompt`, `validate-ci`, `test-exploratory-e2e/loop`). (#62, #63, #98, #102, #132, #133, #134, #138, #142, #144, #158, #163, #228, #239, #245, #258, #301)
 
 ### Known gaps
 - The NSIS multi-select fix is NSIS-only. MSI bundles (if produced) still register `%1` per Tauri defaults; multi-select via MSI installs is not yet covered.
