@@ -55,10 +55,13 @@ Unique to performance. Rust-First is a charter meta-principle.
 ### Render cost
 9. `react-markdown` `components` tables that don't close over props are declared at module scope. (`MarkdownViewer.tsx:140` `MD_COMPONENTS` — also prevents React error #185 in concurrent mode.)
 10. Per-render `components` merges are limited to entries that close over component-specific values (currently only `img`). (`MarkdownViewer.tsx:299-312`.)
-11. `SourceView` runs Shiki once per file/theme change, not per line. (`useSourceHighlighting.ts:54`.)
-12. `useSourceHighlighting` uses `useDeferredValue` so highlighting never blocks typing or scrolling. (`useSourceHighlighting.ts:28`.)
+11. `SourceView` is virtualised via `@tanstack/react-virtual` — only the viewport-visible rows plus `SOURCE_OVERSCAN` mount in the DOM. A 50K-line file mounts ~75 rows instead of 50K. (`SourceView.tsx`, `useVirtualizer({...})` + `lib/viewer-budgets.ts`.)
+12. `useSourceHighlighting` is **idle-chunked**: first paint is HTML-escaped plain text, then Shiki output fades in via `requestIdleCallback` (polyfilled in `src/lib/idle.ts` for WKWebView). Each chunk highlights `SOURCE_HIGHLIGHT_CHUNK_LINES` lines and yields back when `timeRemaining()` falls below `SOURCE_HIGHLIGHT_IDLE_BUDGET_MS`. The single-call `codeToHtml(deferredContent, …)` path is gone — for a 5 MB JS log it blocked the main thread for many seconds. (`hooks/useSourceHighlighting.ts`, `lib/viewer-budgets.ts`.)
+12a. `MarkdownViewer` runs `<ReactMarkdown>` against `useDeferredValue(content)` so the heavy AST parse can yield to high-priority renders (find-bar input, scrolling). The cheap regex pre-scans (frontmatter, math, remote-image refs) and gutter-click line-text stay on raw `content` so banners and clicks react immediately. (`MarkdownViewer.tsx`.)
+12b. `EnhancedViewer` clamps `.md`/`.mdx` files at/above `MARKDOWN_VISUAL_CAP_BYTES` (1 MB) to source-mode-only; the visual toggle is rendered with `disabled` + `aria-disabled` + a tooltip explaining why. The clamp is render-time so it auto-lifts when a file shrinks below the cap on next open. (`EnhancedViewer.tsx`, `lib/viewer-budgets.ts`.)
 13. `useFileContent` renders "loading" only on initial mount or path change, not on same-file watcher reloads. (`useFileContent.ts:35`.) Additionally, when a same-path reload returns byte-identical content (matched on `content`, `sizeBytes`, `lineCount`), `useFileContent` short-circuits before publishing new state — no `setState`, no `setLastFileReloadedAt` bump, no Shiki re-highlight pass. `setFileMeta` is still always called so `StatusBar.fileMtime` reflects mtime advances on touch-only events. (`useFileContent.ts`.)
 13a. `HexView` virtualizes rows when payload ≥ 32 KiB at 18-px row height; smaller files render in full. (`HexView.tsx` `VIRTUALIZE_THRESHOLD`, `ROW_HEIGHT`.)
+13b. **Single canonical home for viewer perf budget constants** — `src/lib/viewer-budgets.ts` is the only module that defines `SIZE_WARN_THRESHOLD`, `MARKDOWN_VISUAL_CAP_BYTES`, `SOURCE_HIGHLIGHT_CHUNK_LINES`, `SOURCE_HIGHLIGHT_IDLE_BUDGET_MS`, `SOURCE_OVERSCAN`, `SOURCE_BASE_LINE_PX`. Inlining a numeric ceiling in a component file is a same-PR debt to extract here.
 
 ### Rust hot paths
 14. Comment anchoring (`match_comments`) stays in Rust; no TypeScript re-implementation. (`core/matching.rs:12`, exposed via `get_file_comments`.)
@@ -98,13 +101,13 @@ Unique to performance. Rust-First is a charter meta-principle.
 ## Gaps
 
 - No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.
-- `read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.
+- ~~`read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.~~ (closed by PR for #252 — `read_file_capped` in `commands/fs.rs` does fstat + bounded `Vec::with_capacity` + `take(MAX+1)` post-read length check.)
 - ~~No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.~~ (closed by PR for #262 — see rule 31)
 - ~~No JS bundle-size budget enforced in CI.~~ (closed by PR for #262 — see rule 32)
 - No benchmark for `read_dir` on a 1000-entry folder.
 - Shiki language load is unmeasured for uncommon languages.
-- `MarkdownViewer` re-parses markdown on every `content` change, including watcher reloads (`MarkdownViewer.tsx:276,282`). For >1 MB files this blocks the main thread.
+- ~~`MarkdownViewer` re-parses markdown on every `content` change, including watcher reloads (`MarkdownViewer.tsx:276,282`). For >1 MB files this blocks the main thread.~~ (closed by PR for #252 — rule 12a `useDeferredValue`, rule 12b 1 MB visual soft cap that opens large markdown in source-only mode.)
 - No memory ceiling test. Per-tab and 100-file workspace memory are aspirational budgets.
 - Watcher event volume is bounded by OS but not by the app. `rm -rf` on a 10K-file folder emits bursts; debouncer smooths at 300 ms but no upper forward-per-tick cap exists.
 - `get_file_badges` loads one sidecar per file per call. For workspaces >500 files consider a Rust-side per-file cache invalidated on `comments-changed`; deferred (iter 4 perf budget: O(N) is acceptable for current target workspace sizes).
-- JS bundle gzipped baseline (~2.77 MB) exceeds 2 MB long-term target. Mitigation: Shiki language lazy-loading deferred to PR4 cold-startup work. Tracked under bundle-size CI gate (rule 32) which currently uses 3 MB starter ceiling.
+- JS bundle gzipped baseline (~2.85 MB after `@tanstack/react-virtual` add) exceeds 2 MB long-term target. Mitigation: Shiki language lazy-loading deferred to PR4 cold-startup work. Tracked under bundle-size CI gate (rule 32) which currently uses 3 MB starter ceiling.

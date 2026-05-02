@@ -1,12 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { useSourceHighlighting, escapeHtml, loadLanguageWithRetry } from "../useSourceHighlighting";
+import {
+  useSourceHighlighting,
+  escapeHtml,
+  loadLanguageWithRetry,
+  splitShikiHtmlByLine,
+  sampleHash,
+} from "../useSourceHighlighting";
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
     codeToHtml: vi.fn().mockImplementation((code: string) => {
       const lines = code.split("\n");
-      const lineSpans = lines.map(() => '<span class="line">highlighted</span>').join("\n");
+      const lineSpans = lines
+        .map(() => '<span class="line">highlighted</span>')
+        .join("\n");
       return `<pre class="shiki"><code>${lineSpans}</code></pre>`;
     }),
     getLoadedLanguages: vi.fn().mockReturnValue([]),
@@ -15,7 +23,7 @@ vi.mock("@/lib/shiki", () => ({
 }));
 
 describe("useSourceHighlighting", () => {
-  it("returns highlighted lines for given content", async () => {
+  it("seeds plain text immediately, then upgrades to Shiki highlighting", async () => {
     const { result } = renderHook(() =>
       useSourceHighlighting("line1\nline2\nline3", "/test.ts")
     );
@@ -23,7 +31,9 @@ describe("useSourceHighlighting", () => {
     await waitFor(() => {
       expect(result.current.highlightedLines).toHaveLength(3);
     });
-    expect(result.current.highlightedLines[0]).toContain("highlighted");
+    await waitFor(() => {
+      expect(result.current.highlightedLines[0]).toContain("highlighted");
+    });
   });
 
   it("produces one highlighted line per source line", async () => {
@@ -34,8 +44,10 @@ describe("useSourceHighlighting", () => {
     await waitFor(() => {
       expect(result.current.highlightedLines).toHaveLength(2);
     });
-    expect(result.current.highlightedLines[0]).toContain("highlighted");
-    expect(result.current.highlightedLines[1]).toContain("highlighted");
+    await waitFor(() => {
+      expect(result.current.highlightedLines[0]).toContain("highlighted");
+      expect(result.current.highlightedLines[1]).toContain("highlighted");
+    });
   });
 
   it("updates highlighted lines when content changes", async () => {
@@ -76,31 +88,40 @@ describe("useSourceHighlighting", () => {
     const { getSharedHighlighter } = await import("@/lib/shiki");
     const mockedGet = vi.mocked(getSharedHighlighter);
 
-    // Track call order: first call (a.ts) resolves slowly, second (b.py) resolves fast
     let callCount = 0;
     mockedGet.mockImplementation(() => {
       callCount++;
       const thisCall = callCount;
       if (thisCall === 1) {
-        // First call: slow highlighter — resolves after 150ms
         return new Promise((resolve) =>
           setTimeout(
             () =>
               resolve({
-                codeToHtml: vi.fn().mockReturnValue('<pre class="shiki"><code><span class="line">STALE_A_TS</span></code></pre>'),
+                codeToHtml: vi
+                  .fn()
+                  .mockReturnValue(
+                    '<pre class="shiki"><code><span class="line">STALE_A_TS</span></code></pre>'
+                  ),
                 getLoadedLanguages: vi.fn().mockReturnValue(["typescript"]),
                 loadLanguage: vi.fn().mockResolvedValue(undefined),
-              } as unknown as Awaited<ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>>),
+              } as unknown as Awaited<
+                ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>
+              >),
             150
           )
         );
       }
-      // Second call: fast highlighter — resolves immediately
       return Promise.resolve({
-        codeToHtml: vi.fn().mockReturnValue('<pre class="shiki"><code><span class="line">FRESH_B_PY</span></code></pre>'),
+        codeToHtml: vi
+          .fn()
+          .mockReturnValue(
+            '<pre class="shiki"><code><span class="line">FRESH_B_PY</span></code></pre>'
+          ),
         getLoadedLanguages: vi.fn().mockReturnValue(["python"]),
         loadLanguage: vi.fn().mockResolvedValue(undefined),
-      } as unknown as Awaited<ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>>);
+      } as unknown as Awaited<
+        ReturnType<typeof import("@/lib/shiki").getSharedHighlighter>
+      >);
     });
 
     const { result, rerender } = renderHook(
@@ -109,35 +130,31 @@ describe("useSourceHighlighting", () => {
       { initialProps: { content: "const x = 1;", path: "a.ts" } }
     );
 
-    // Rapidly switch to a different file before the first resolves
     rerender({ content: "print('hello')", path: "b.py" });
 
-    // Wait for fast (b.py) result to appear
     await waitFor(
       () => {
-        expect(result.current.highlightedLines.length).toBeGreaterThan(0);
+        expect(result.current.highlightedLines[0]).toContain("FRESH_B_PY");
       },
       { timeout: 500 }
     );
 
-    // Now wait for the slow (a.ts) promise to also resolve — it fires at 150ms
     await act(async () => {
       await new Promise((r) => setTimeout(r, 300));
     });
 
-    // Result should STILL be for b.py (FRESH), not overwritten by stale a.ts
     expect(result.current.highlightedLines[0]).toContain("FRESH_B_PY");
     expect(result.current.highlightedLines[0]).not.toContain("STALE_A_TS");
   });
+
   it("preserves all tokens in multi-token lines (regression: broken regex truncation)", async () => {
     const { getSharedHighlighter } = await import("@/lib/shiki");
 
-    // Realistic Shiki output with nested token spans per line
     const multiTokenHtml =
       '<pre class="shiki github-light" style="background-color:#fff"><code>' +
       '<span class="line"><span style="color:#CF222E">const</span><span style="color:#953800"> x</span><span style="color:#CF222E"> =</span><span style="color:#0550AE"> 1</span><span style="color:#24292F">;</span></span>\n' +
       '<span class="line"><span style="color:#CF222E">let</span><span style="color:#953800"> y</span><span style="color:#CF222E"> =</span><span style="color:#0550AE"> 2</span><span style="color:#24292F">;</span></span>' +
-      '</code></pre>';
+      "</code></pre>";
 
     const mockHl = {
       getLoadedLanguages: () => ["typescript"],
@@ -151,27 +168,123 @@ describe("useSourceHighlighting", () => {
     const { result } = renderHook(() =>
       useSourceHighlighting("const x = 1;\nlet y = 2;", "test.ts")
     );
+
     await waitFor(() => {
-      expect(result.current.highlightedLines.length).toBeGreaterThan(0);
+      const line1 = result.current.highlightedLines[0] ?? "";
+      expect(line1).toContain('<span style="color:#CF222E">const</span>');
     });
 
-    // Line 1 must contain ALL token spans, not just the first one
     const line1 = result.current.highlightedLines[0];
     expect(line1).toContain("const");
     expect(line1).toContain(" x");
     expect(line1).toContain(" =");
     expect(line1).toContain(" 1");
     expect(line1).toContain(";");
-    // With the old broken regex, only the first token span would be captured.
-    // Verify at least 4 <span tokens survive (there are 5 in the mock).
     expect((line1.match(/<span /g) ?? []).length).toBeGreaterThanOrEqual(4);
 
-    // Line 2 must also contain all tokens
     const line2 = result.current.highlightedLines[1];
     expect(line2).toContain("let");
     expect(line2).toContain(" y");
     expect(line2).toContain(" =");
     expect(line2).toContain(" 2");
+  });
+
+  it("first paint shows plain text (escaped) before Shiki upgrade lands", async () => {
+    const { getSharedHighlighter } = await import("@/lib/shiki");
+
+    // Block Shiki indefinitely so we can observe the plain-text seed.
+    const blockedPromise = new Promise<never>(() => {});
+    vi.mocked(getSharedHighlighter).mockReturnValue(
+      blockedPromise as unknown as ReturnType<typeof getSharedHighlighter>
+    );
+
+    const { result } = renderHook(() =>
+      useSourceHighlighting("a < b\n& c", "/test.ts")
+    );
+
+    await waitFor(() => {
+      expect(result.current.highlightedLines).toHaveLength(2);
+    });
+
+    expect(result.current.highlightedLines[0]).toBe("a &lt; b");
+    expect(result.current.highlightedLines[1]).toBe("&amp; c");
+  });
+
+  // Regression for the rubber-duck critique on PR #354 iter-2: the original
+  // fingerprint = `${path}::${theme}::${lineCount}` mis-validated the
+  // overlay when the same path is reloaded with same-length but different
+  // content (watcher reload of an in-place edit). Verifies the hash-bearing
+  // fingerprint discards the stale overlay.
+  it("invalidates stale Shiki output when same-path same-line-count content changes", async () => {
+    const { getSharedHighlighter } = await import("@/lib/shiki");
+
+    let html = '<pre class="shiki"><code><span class="line">FIRST</span></code></pre>';
+    const codeToHtml = vi.fn(() => html);
+    vi.mocked(getSharedHighlighter).mockResolvedValue({
+      codeToHtml,
+      getLoadedLanguages: () => ["typescript"],
+      loadLanguage: vi.fn(),
+    } as unknown as Awaited<ReturnType<typeof getSharedHighlighter>>);
+
+    const { result, rerender } = renderHook(
+      ({ content, path }: { content: string; path: string }) =>
+        useSourceHighlighting(content, path),
+      { initialProps: { content: "AAA", path: "/test.ts" } }
+    );
+
+    await waitFor(() => {
+      expect(result.current.highlightedLines[0]).toContain("FIRST");
+    });
+
+    // Same path, same length, completely different content.
+    html = '<pre class="shiki"><code><span class="line">SECOND</span></code></pre>';
+    rerender({ content: "ZZZ", path: "/test.ts" });
+
+    await waitFor(() => {
+      // The renderer should NOT show "FIRST" against "ZZZ" content.
+      // Plain-text fallback ("ZZZ") is acceptable; the new "SECOND"
+      // overlay is acceptable; stale "FIRST" is the bug we're catching.
+      const html0 = result.current.highlightedLines[0];
+      expect(html0).not.toContain("FIRST");
+    });
+  });
+});
+
+describe("splitShikiHtmlByLine", () => {
+  it("splits well-formed Shiki output into per-line fragments", () => {
+    const html =
+      '<pre class="shiki"><code>' +
+      '<span class="line"><span>a</span></span>\n' +
+      '<span class="line"><span>b</span></span>' +
+      "</code></pre>";
+    const out = splitShikiHtmlByLine(html);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toBe("<span>a</span>");
+    expect(out[1]).toBe("<span>b</span>");
+  });
+
+  it("returns an empty array when the blob has no line markers", () => {
+    expect(splitShikiHtmlByLine("<pre><code>plain</code></pre>")).toEqual([]);
+  });
+});
+
+describe("sampleHash", () => {
+  it("differs for same-length, same-prefix, different-content strings", () => {
+    // Catches the original same-path + same-line-count + different-content
+    // bug — the rubber-duck critique on PR #354 iter-2.
+    const a = "x".repeat(100) + "alpha" + "x".repeat(100);
+    const b = "x".repeat(100) + "OMEGA" + "x".repeat(100); // same length
+    expect(a.length).toBe(b.length);
+    expect(sampleHash(a)).not.toBe(sampleHash(b));
+  });
+
+  it("is stable for identical strings", () => {
+    expect(sampleHash("abc")).toBe(sampleHash("abc"));
+    expect(sampleHash("")).toBe(sampleHash(""));
+  });
+
+  it("differs when length differs", () => {
+    expect(sampleHash("abc")).not.toBe(sampleHash("abcd"));
   });
 });
 
@@ -198,7 +311,9 @@ describe("loadLanguageWithRetry", () => {
     const loadedLangs: string[] = [];
     const hl = {
       loadLanguage: vi.fn().mockImplementation(async (lang: string) => {
-        loadedLangs.push(typeof lang === "string" ? lang : (lang as { name: string }).name);
+        loadedLangs.push(
+          typeof lang === "string" ? lang : (lang as { name: string }).name
+        );
       }),
       getLoadedLanguages: vi.fn().mockImplementation(() => loadedLangs),
     } as unknown as import("shiki").Highlighter;
@@ -214,11 +329,10 @@ describe("loadLanguageWithRetry", () => {
       loadLanguage: vi.fn().mockImplementation(async () => {
         attempt++;
         if (attempt === 1) throw new Error("transient failure");
-        // Second attempt succeeds — language appears in loaded list
       }),
-      getLoadedLanguages: vi.fn().mockImplementation(() =>
-        attempt >= 2 ? ["tsx"] : [],
-      ),
+      getLoadedLanguages: vi
+        .fn()
+        .mockImplementation(() => (attempt >= 2 ? ["tsx"] : [])),
     } as unknown as import("shiki").Highlighter;
 
     const result = await loadLanguageWithRetry(hl, "tsx");

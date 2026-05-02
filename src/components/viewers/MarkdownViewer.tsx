@@ -12,7 +12,7 @@ import { sanitizeSchema } from "./markdown/sanitizeSchema";
 import { rehypeFootnotePrefix } from "./markdown/rehype-footnote-prefix";
 import { rehypeKatexStyle } from "./markdown/rehype-katex-style";
 import { hasRemoteImageReferences, useImgResolver } from "./markdown/useImgResolver";
-import { useEffect, useRef, useMemo, useCallback } from "react";
+import { useEffect, useRef, useMemo, useCallback, useDeferredValue } from "react";
 import { FrontmatterBlock } from "./FrontmatterBlock";
 import { TableOfContents, extractHeadings } from "./TableOfContents";
 import { MdCommentContext } from "./markdown/CommentableBlocks";
@@ -94,6 +94,19 @@ async function ensureKatexCssLoaded(): Promise<void> {
 const REMARK_PLUGINS = [remarkFrontmatter, remarkGfm, remarkMath, remarkGithubAlerts] as const;
 
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
+  // Iter 3 of #252 — defer the heavy markdown parse so React can keep
+  // frames moving while interactive surfaces (find-bar, scroll, click)
+  // respond instantly. `useDeferredValue` returns the previous value during
+  // an interruption and the new value once React has time. Only the
+  // ReactMarkdown render reads the deferred copy; the cheap regex
+  // pre-scans (frontmatter, math detection, remote-image references) and
+  // the line-text used by click handlers stay on the raw `content` so
+  // banners and gutter clicks react immediately. `data-source-line` line
+  // numbers stay file-coord because the deferred value is an identity-
+  // preserved snapshot of `content`, not a transformed one (Rule 31,
+  // `docs/architecture.md`).
+  const deferredContent = useDeferredValue(content);
+
   // Iter 2 of issue #280 made the visual-viewer pipeline file-coordinate
   // end-to-end. We retain `parseFrontmatter` only to extract `data` for
   // `<FrontmatterBlock>`; the matching `body` field (frontmatter-stripped
@@ -380,7 +393,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
               rehypePlugins={rehypePlugins as never}
               components={components}
             >
-              {content}
+              {deferredContent}
             </ReactMarkdown>
             {commentable && selectionToolbar && (
               <SelectionToolbar

@@ -31,6 +31,60 @@ if (typeof HTMLDialogElement !== "undefined") {
   }
 }
 
+// jsdom does not ship ResizeObserver — @tanstack/react-virtual (used by
+// `SourceView` after iter 2 of #252) relies on it to watch the scroll
+// element for size changes. Without the shim the virtualiser refuses to
+// render any virtual items in tests. Production runs in a real browser
+// where ResizeObserver is native; the shim is test-only.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class TestResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
+}
+
+// jsdom returns 0 for offsetHeight / offsetWidth / getBoundingClientRect
+// dimensions. @tanstack/react-virtual uses `element.offsetHeight` to compute
+// the scroll-element's outer size, and short-circuits to an empty range
+// when `outerSize === 0`. Without dimensions the virtualiser renders zero
+// virtual items even with a non-empty count. Synthesise an 800-px viewport
+// globally so virtualised component tests (SourceView and any future
+// virtualised viewers) get a sensible row window. Production runs in a
+// real browser where layout measurement is real; the override is test-only.
+// jsdom defines these accessors on `HTMLElement.prototype`.
+if (typeof HTMLElement !== "undefined") {
+  const TEST_VIEWPORT_PX = 800;
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() {
+      return TEST_VIEWPORT_PX;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get() {
+      return TEST_VIEWPORT_PX;
+    },
+  });
+}
+if (typeof Element !== "undefined") {
+  const TEST_VIEWPORT_PX = 800;
+  Object.defineProperty(Element.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return TEST_VIEWPORT_PX;
+    },
+  });
+  Object.defineProperty(Element.prototype, "clientWidth", {
+    configurable: true,
+    get() {
+      return TEST_VIEWPORT_PX;
+    },
+  });
+}
+
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
 

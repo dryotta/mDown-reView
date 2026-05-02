@@ -99,4 +99,82 @@ describe("EnhancedViewer", () => {
     const after = Number(sv.getAttribute("data-zoom"));
     expect(after).toBeGreaterThan(1);
   });
+
+  // ── Iter 3 of #252: markdown 1 MB soft cap ─────────────────────────────
+  describe("markdown soft cap (≥ 1 MB)", () => {
+    const ONE_MB = 1 * 1024 * 1024;
+
+    it("renders SourceView (not MarkdownViewer) for .md at fileSize >= 1 MB", () => {
+      render(
+        <EnhancedViewer
+          content="# Hello"
+          path="/big.md"
+          filePath="/big.md"
+          fileSize={ONE_MB}
+        />
+      );
+      expect(screen.getByTestId("source-view")).toBeInTheDocument();
+      expect(screen.queryByTestId("markdown-viewer")).toBeNull();
+    });
+
+    it("disables the Visual button with tooltip for .md at fileSize >= 1 MB", () => {
+      render(
+        <EnhancedViewer
+          content="# Hello"
+          path="/big.md"
+          filePath="/big.md"
+          fileSize={ONE_MB}
+        />
+      );
+      const visualBtn = screen.getByRole("button", { name: /visual/i });
+      expect(visualBtn).toBeDisabled();
+      expect(visualBtn).toHaveAttribute("aria-disabled", "true");
+      expect(visualBtn.getAttribute("title") ?? "").toMatch(/disabled/i);
+    });
+
+    it("does NOT clamp .md just under 1 MB", () => {
+      render(
+        <EnhancedViewer
+          content="# Hello"
+          path="/small.md"
+          filePath="/small.md"
+          fileSize={ONE_MB - 1}
+        />
+      );
+      // Default view for markdown is visual → MarkdownViewer renders.
+      expect(screen.getByTestId("markdown-viewer")).toBeInTheDocument();
+      const visualBtn = screen.getByRole("button", { name: /visual/i });
+      expect(visualBtn).not.toBeDisabled();
+    });
+
+    it("clicking disabled Visual is a no-op (does not switch back to visual)", () => {
+      render(
+        <EnhancedViewer
+          content="# Hello"
+          path="/big.md"
+          filePath="/big.md"
+          fileSize={ONE_MB}
+        />
+      );
+      // Already clamped to source. Clicking Visual must NOT swap views.
+      fireEvent.click(screen.getByRole("button", { name: /visual/i }));
+      expect(screen.getByTestId("source-view")).toBeInTheDocument();
+      expect(screen.queryByTestId("markdown-viewer")).toBeNull();
+    });
+
+    it("does NOT clamp non-markdown files at >= 1 MB", () => {
+      // 1 MB JSON should keep its default visual (JsonTreeView).
+      render(
+        <EnhancedViewer
+          content='{"a":1}'
+          path="/big.json"
+          filePath="/big.json"
+          fileSize={ONE_MB}
+        />
+      );
+      expect(screen.getByTestId("json-tree")).toBeInTheDocument();
+      const visualBtn = screen.getByRole("button", { name: /visual/i });
+      expect(visualBtn).not.toBeDisabled();
+    });
+  });
 });
