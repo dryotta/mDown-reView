@@ -465,7 +465,7 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     expect(screen.getByTestId("excalidraw-conflict-banner")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Keep editing — your save will overwrite" }),
+      screen.getByRole("button", { name: "Keep editing — your changes will overwrite the version on disk" }),
     ).toBeInTheDocument();
   });
 

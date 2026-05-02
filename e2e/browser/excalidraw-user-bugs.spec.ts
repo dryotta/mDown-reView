@@ -237,8 +237,9 @@ test.describe("Excalidraw auto-save (#352 iter-10)", () => {
     });
   });
 
-  // Auto-save banner is visible on Editor mode (per app launch).
-  test("auto-save banner renders + dismisses", async ({ page }) => {
+  // Auto-save banner is visible on Editor mode; once dismissed,
+  // stays dismissed forever (per browser profile via localStorage).
+  test("auto-save banner renders + dismisses (and stays dismissed across remount)", async ({ page }) => {
     await setupMocks(page, [
       { name: "diagram.excalidraw", content: POPULATED_EXCALIDRAW },
     ]);
@@ -254,6 +255,57 @@ test.describe("Excalidraw auto-save (#352 iter-10)", () => {
     await expect(banner).toBeVisible();
     await page.getByTestId("excalidraw-autosave-banner-dismiss").click();
     await expect(banner).not.toBeVisible();
+
+    // Persistence test (T3): switch to Visual then back to Editor —
+    // ExcalidrawView's banner state initialises from localStorage on
+    // mount, so dismissal must survive the mode flip.
+    await page.locator(".viewer-toolbar").getByRole("button", { name: /^visual$/i }).click();
+    await page.locator(".viewer-toolbar").getByRole("button", { name: /^editor$/i }).click();
+    await expect(banner).not.toBeVisible();
+  });
+
+  // Mount-stability oracle (T1) — the iter-7/iter-9 regression: opening
+  // an Excalidraw file in Editor mode triggered a phantom save because
+  // mount-time normalisation onChanges drove the dirty hash. This test
+  // opens a populated file, sits idle 5s, and asserts NO save IPC fires.
+  // This is the regression test for the original BUG#2 the user
+  // reported.
+  test("mount-stability: opening .excalidraw in Editor mode does NOT auto-save without edits", async ({ page }) => {
+    const writes: { path: string }[] = [];
+    await page.exposeFunction("__recordWrite", (path: string) => {
+      writes.push({ path });
+    });
+    await setupMocks(page, [
+      { name: "diagram.excalidraw", content: POPULATED_EXCALIDRAW },
+    ]);
+    await page.addInitScript(() => {
+      const origMock = window.__TAURI_IPC_MOCK__;
+      window.__TAURI_IPC_MOCK__ = async (cmd: string, args: Record<string, unknown>) => {
+        if (cmd === "write_workspace_text" || cmd === "write_workspace_binary") {
+          const path = (args as { path: string }).path;
+          await (window as unknown as {
+            __recordWrite: (p: string) => Promise<void>;
+          }).__recordWrite(path);
+          return null;
+        }
+        return origMock?.(cmd, args);
+      };
+    });
+    await page.goto("/");
+
+    await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
+    await page
+      .locator(".viewer-toolbar")
+      .getByRole("button", { name: /^editor$/i })
+      .click();
+    await expect(page.locator(".excalidraw__canvas.interactive").first()).toBeVisible();
+    // Sit idle through the 2s debounce + buffer for any
+    // mount-normalisation onChange storm to settle.
+    await page.waitForTimeout(5_000);
+    expect(
+      writes.length,
+      `expected NO auto-save IPC during idle mount, but ${writes.length} fired`,
+    ).toBe(0);
   });
 
   // After a real edit (via imperative API), the auto-save IPC fires
@@ -289,6 +341,10 @@ test.describe("Excalidraw auto-save (#352 iter-10)", () => {
       .getByRole("button", { name: /^editor$/i })
       .click();
     await expect(page.locator(".excalidraw__canvas.interactive").first()).toBeVisible();
+    // Brief settle so Excalidraw's mount-time onChange events
+    // bootstrap the lastSavedHashRef baseline before the test
+    // injects its own edit. The expect.poll below is the deterministic
+    // oracle; this sleep is bounded.
     await page.waitForTimeout(500);
 
     // Drive a real edit through the imperative API.
@@ -332,10 +388,15 @@ test.describe("Excalidraw auto-save (#352 iter-10)", () => {
       api.updateScene({ elements: [...existing, newRect] });
     });
 
-    // Wait for debounce (2s) plus buffer.
-    await page.waitForTimeout(3000);
-
-    expect(writes.length).toBeGreaterThanOrEqual(1);
+    // Wait for the auto-save IPC to fire. expect.poll gives a
+    // deterministic oracle (per docs/test-strategy.md:90) — no
+    // wall-clock dependence on the 2s debounce + WebView2 jitter.
+    await expect
+      .poll(() => writes.length, {
+        timeout: 6_000,
+        message: "auto-save IPC never fired",
+      })
+      .toBeGreaterThanOrEqual(1);
     expect(writes[0].path).toContain("diagram.excalidraw");
   });
 
@@ -359,49 +420,19 @@ test.describe("Excalidraw auto-save (#352 iter-10)", () => {
 
     await page.locator(".folder-tree").getByText("shapes.excalidrawlib").click();
 
-    // Default mode for excalidraw category is Visual. Library files MUST
-    // render the items so the user can browse the library.
-    // Wait for Excalidraw to mount and library sidebar to populate.
-    await page.waitForTimeout(2000);
-
-    // The library grid is rendered by Excalidraw inside the sidebar
-    // panel. Each library item is a rendered SVG / canvas tile.
-    // Strategy: count visible library items by their stable structure.
-    //
-    // Excalidraw internally uses `.library-menu-item__item` or similar.
-    // We probe several known selectors so the test resists Excalidraw's
-    // internal markup churn.
+    // Default mode for excalidraw category is Visual. Library files
+    // render their items in Excalidraw's sidebar `.library-unit`
+    // tiles (the "active" library has `.library-unit__active`). The
+    // expect-locator below polls for visibility so async SVG render
+    // doesn't race the assertion — no wall-clock sleep.
     const libraryShell = page.locator(".excalidraw");
     await expect(libraryShell).toBeVisible();
-
-    // A populated library renders 2 items. They appear in the library
-    // sidebar as `.library-unit` divs (the active state has class
-    // `library-unit__active`). We probe a few stable selectors so the
-    // test resists Excalidraw's internal markup churn.
-    const libraryItemSelectors = [
-      ".library-unit.library-unit__active",
-      ".library-unit",
-      ".single-library-item",
-      "[data-testid='library-item']",
-    ];
-
-    let foundCount = 0;
-    for (const sel of libraryItemSelectors) {
-      // Wait briefly per selector so async SVG render doesn't race the
-      // test. The ` >= 2` predicate is checked once with a short poll.
-      const loc = page.locator(sel);
-      try {
-        await expect(loc.nth(1)).toBeVisible({ timeout: 3_000 });
-        foundCount = await loc.count();
-        if (foundCount >= 2) break;
-      } catch {
-        // selector didn't match — try the next one
-      }
-    }
-
-    expect(
-      foundCount,
-      `expected at least 2 library items rendered for shapes.excalidrawlib but found ${foundCount}`,
-    ).toBeGreaterThanOrEqual(2);
+    const libraryItems = page.locator(".library-unit.library-unit__active");
+    // The fixture has 2 items. Assert at least 2 active library
+    // tiles render. If Excalidraw renames `.library-unit__active`
+    // upstream, this test fails loudly — preferable to a 4-selector
+    // fallback chain that masks regressions.
+    await expect(libraryItems.nth(1)).toBeVisible({ timeout: 8_000 });
+    expect(await libraryItems.count()).toBeGreaterThanOrEqual(2);
   });
 });

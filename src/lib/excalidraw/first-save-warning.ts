@@ -1,9 +1,15 @@
 /**
- * Issue #352 / iter-5 — first-save warning seen-flag chokepoint.
+ * Issue #352 / iter-5 (first-save) → iter-11 (first Editor entry) —
+ * MRSF warning seen-flag chokepoint.
  *
- * The original spec at issue #352 requires a one-shot onboarding-style
- * note on the first successful save of any Excalidraw file:
+ * The original spec required a one-shot onboarding-style note on the
+ * first successful save of any Excalidraw file:
  *   "Saving a drawing may move some line-anchored comments to file-level."
+ *
+ * iter-11 redesign (auto-save) shifted the trigger to "first time the
+ * user enters Editor mode for any Excalidraw file" — under auto-save
+ * the warning needs to surface BEFORE the first edit (which becomes a
+ * save automatically), not after. Same warning copy, earlier trigger.
  *
  * This module is the SOLE writer of the seen-flag in `localStorage`.
  * Architecture: per the project-wide "no direct localStorage writes
@@ -15,7 +21,7 @@
  * being scattered across viewer code.
  *
  * `getItem` reads are unrestricted by the gate, so this module is the
- * only place the WRITE happens — readers can call `hasSeenFirstSave`
+ * only place the WRITE happens — readers can call `hasSeenMrsfWarning`
  * directly inline.
  *
  * Failure handling: every `localStorage` access is wrapped in
@@ -24,33 +30,44 @@
  * the save flow on an environmental issue.
  */
 
-const FIRST_SAVE_KEY = "mdownreview:excalidraw-first-save-warning-seen";
+// iter-11 keeps the iter-5 key so existing user installs aren't asked
+// again. The semantic shifted from "first save" to "first Editor entry"
+// but the user-facing message is unchanged so the dismissal carries
+// over correctly.
+const MRSF_SEEN_KEY = "mdownreview:excalidraw-first-save-warning-seen";
 
 /**
- * Returns `true` when the user has not yet seen the first-save MRSF
- * warning toast for any Excalidraw file (per browser profile).
+ * Returns `true` when the user has not yet seen the MRSF warning toast
+ * for any Excalidraw file (per browser profile).
  *
- * SSR / cookie-blocked / private-mode: returns `false` (treat as
+ * SSR / cookie-blocked / private-mode: returns `true` (treat as
  * already-seen so we don't surface the warning in environments where
  * we can't persist that we showed it).
  */
-export function hasSeenFirstSave(): boolean {
+export function hasSeenMrsfWarning(): boolean {
   try {
-    return localStorage.getItem(FIRST_SAVE_KEY) === "1";
+    return localStorage.getItem(MRSF_SEEN_KEY) === "1";
   } catch {
     return true;
   }
 }
 
 /**
- * Mark the first-save warning as seen. Best-effort; SSR / cookie-blocked
- * / private-mode silently no-op (the user will see the warning again
+ * Mark the MRSF warning as seen. Best-effort; SSR / cookie-blocked /
+ * private-mode silently no-op (the user will see the warning again
  * next time, which is acceptable for an environmental degrade).
  */
-export function markFirstSaveSeen(): void {
+export function markMrsfWarningSeen(): void {
   try {
-    localStorage.setItem(FIRST_SAVE_KEY, "1");
+    localStorage.setItem(MRSF_SEEN_KEY, "1");
   } catch {
     // Ignore — best-effort write.
   }
 }
+
+// iter-5 → iter-11 alias retention. The previous names imply
+// "first save" semantics; the new names are neutral. Kept as
+// re-exports so test suites and other importers don't break in this
+// PR. Will be removed in a follow-up after callers migrate.
+export { hasSeenMrsfWarning as hasSeenFirstSave };
+export { markMrsfWarningSeen as markFirstSaveSeen };

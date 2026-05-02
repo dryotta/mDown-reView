@@ -9,9 +9,13 @@ import { useTheme } from "@/hooks/useTheme";
 import { extractScene, type ExcalidrawScene } from "@/lib/excalidraw/extractScene";
 import { saveExcalidrawFile } from "@/lib/excalidraw/saveScene";
 import {
-  hasSeenFirstSave,
-  markFirstSaveSeen,
+  hasSeenMrsfWarning,
+  markMrsfWarningSeen,
 } from "@/lib/excalidraw/first-save-warning";
+import {
+  hasSeenAutoSaveBanner,
+  markAutoSaveBannerSeen,
+} from "@/lib/excalidraw/autosave-banner";
 import { useStore } from "@/store";
 import { warn as logWarn, error as logError } from "@/logger";
 
@@ -84,15 +88,6 @@ interface Props {
  * persistence" against "every keystroke triggers an IPC".
  */
 const AUTOSAVE_DEBOUNCE_MS = 2000;
-
-/**
- * Issue #352 / iter-10 redesign — module-scope flag tracking whether
- * the user has dismissed the auto-save info banner THIS APP LAUNCH.
- * In-memory only; resets on every page reload / app restart so users
- * who forget the behaviour see the reminder again. (Per-app-launch
- * lifetime confirmed with the user during the iter-10 design phase.)
- */
-let autoSaveBannerDismissedThisLaunch = false;
 
 /**
  * Issue #352 / iter-5 BLOCKER (product F3) — friendly save-error
@@ -184,12 +179,13 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // warning. Set to `true` on the first successful save per browser
   // profile; cleared by user dismiss.
   const [showFirstSaveWarning, setShowFirstSaveWarning] = useState(false);
-  // Issue #352 / iter-10 redesign — dismissible "auto-saves on change"
-  // banner. Initialised from the module-scope flag so re-mounting a
-  // viewer (e.g. tab switch) doesn't resurrect a banner the user
-  // already dismissed this launch.
+  // Issue #352 / iter-11 — dismissible "Changes save automatically."
+  // banner. Persisted in localStorage (`hasSeenAutoSaveBanner`); once
+  // dismissed, it stays dismissed forever per browser profile (mirrors
+  // the existing first-save-warning lifetime). Initialised lazily so
+  // remounts don't resurrect a banner the user already dismissed.
   const [autoSaveBannerVisible, setAutoSaveBannerVisible] = useState(
-    () => !autoSaveBannerDismissedThisLaunch,
+    () => !hasSeenAutoSaveBanner(),
   );
 
   // Refs (rule: high-frequency / non-render state is in refs).
@@ -382,7 +378,6 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       return;
     }
     saveInFlightRef.current = true;
-    const wasFirstSave = !hasSeenFirstSave();
     const savedHash = liveHash;
     void saveExcalidrawFile(filePath, {
       elements: live.elements,
@@ -404,13 +399,6 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
         // resets — external edits arriving AFTER this save will see
         // dirty===false and trigger a clean reload, not a conflict.
         setExcalidrawDirty(filePath, false);
-        // Issue #352 / iter-5 BLOCKER (product F5) — first-save
-        // MRSF warning. Show ONLY on the first successful save per
-        // browser profile, then never again.
-        if (wasFirstSave) {
-          markFirstSaveSeen();
-          setShowFirstSaveWarning(true);
-        }
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -492,6 +480,28 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     lastSavedHashRef.current = null;
   }, [filePath, content, needsExtract, reloadKey]);
 
+  // Issue #352 / iter-11 (product F9) — first-Editor-entry MRSF
+  // warning. Pre-iter-11 the warning fired on first successful save
+  // (a deliberate user action); under auto-save the user has no
+  // explicit save action, so the warning appeared unprompted ~2s
+  // after opening any .excalidraw file. Move the trigger to the
+  // moment the user first ENTERS Editor mode for any Excalidraw file
+  // (per browser profile) — proactive disclosure with a clear cause:
+  // "you switched to Editor → here's what editing implies for
+  // line-anchored comments."
+  //
+  // The setState below is gated by `hasSeenMrsfWarning()` so it
+  // fires AT MOST ONCE per browser profile across the entire app
+  // lifetime. The React-compiler "cascading renders" concern does
+  // not apply.
+  useEffect(() => {
+    if (mode !== "editor") return;
+    if (hasSeenMrsfWarning()) return;
+    markMrsfWarningSeen();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowFirstSaveWarning(true);
+  }, [mode]);
+
   if (loadError) {
     return (
       <div
@@ -535,15 +545,15 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           data-testid="excalidraw-autosave-banner"
         >
           <span className="excalidraw-autosave-banner__copy">
-            Drawing auto-saves on change.
+            Changes save automatically.
           </span>
           <button
             type="button"
             className="excalidraw-conflict-banner__action"
             onClick={() => {
-              // Persist dismissal at module scope so re-mounts (tab
-              // switch, reload key bump) don't resurrect the banner.
-              autoSaveBannerDismissedThisLaunch = true;
+              // Persist dismissal in localStorage so the banner
+              // doesn't reappear on next launch (per device).
+              markAutoSaveBannerSeen();
               setAutoSaveBannerVisible(false);
             }}
             data-testid="excalidraw-autosave-banner-dismiss"
@@ -577,7 +587,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           data-testid="excalidraw-save-error-banner"
         >
           <span className="excalidraw-save-error-banner__copy">
-            Save failed: {saveError}
+            Couldn&apos;t save your changes: {saveError}
           </span>
           <button
             type="button"
@@ -652,7 +662,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
               useStore.getState().setExternalChangePending(filePath, false);
             }}
           >
-            Keep editing — your save will overwrite
+            Keep editing — your changes will overwrite the version on disk
           </button>
         </div>
       )}

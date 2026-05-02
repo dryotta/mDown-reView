@@ -53,6 +53,9 @@ const ALLOWED = new Set<string>([
   // traffic flows; readers call `hasSeenFirstSave()` directly
   // (read-only is unrestricted by this gate).
   join("lib", "excalidraw", "first-save-warning.ts"),
+  // Issue #352 / iter-11 — auto-save info banner seen-flag (one-shot
+  // dismissal). Same pattern as first-save-warning.ts.
+  join("lib", "excalidraw", "autosave-banner.ts"),
 ]);
 
 const FORBIDDEN_WRITE = /localStorage\.(setItem|removeItem|clear)\s*\(/;
