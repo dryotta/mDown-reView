@@ -54,16 +54,12 @@ export function useCommentFlashListener(
           return;
         }
         case "range": {
-          // Iter 3 forward-fix (perf concern): cap the range fan-out so a
-          // pathological comment spanning thousands of lines doesn't trigger
-          // thousands of forced reflows from `flashElement`. Real ranges are
-          // single-line to small-paragraph; capping at 256 covers every
-          // legitimate case while bounding the worst case (`docs/performance.md`
-          // rule 1 — hard cap every unbounded input).
-          const RANGE_FLASH_CAP = 256;
-          const startLine = detail.line;
-          const endLine = Math.min(detail.endLine, startLine + RANGE_FLASH_CAP - 1);
-          for (let ln = startLine; ln <= endLine; ln++) {
+          // Fan out across [line, endLine] inclusive. Range size is bounded
+          // by the file's line count (10 MB cap upstream); typical authored
+          // ranges are single-line to small-paragraph. Body and panel
+          // listeners process the same span so user-perceived flash
+          // behaviour is symmetric across surfaces.
+          for (let ln = detail.line; ln <= detail.endLine; ln++) {
             const el = root.querySelector(selector(ln)) as HTMLElement | null;
             if (el) flashElement(el);
           }
