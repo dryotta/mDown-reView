@@ -579,6 +579,33 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     const tab = useStore.getState().tabs.find((t) => t.path === FILE);
     expect(tab?.readOnly).toBe(true);
   });
+
+  // ── Iter 3 forward-fix (rubber-duck BLOCK): the typed `outside-workspace`
+  // self-heal MUST preserve the user's draft. Without the rethrow added in
+  // the forward-fix, CommentInput's success branch would clear the draft —
+  // silently losing the user's text on a workspace-boundary block.
+  it("CommentError 'outside-workspace' preserves the draft (rubber-duck regression)", async () => {
+    useStore.setState({
+      tabs: [{ path: FILE, scrollTop: 0 }],
+      activeTabPath: FILE,
+    });
+    mockAddComment.mockRejectedValueOnce({ kind: "outside-workspace", path: FILE });
+
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "important note" } });
+    // Verify draft was persisted before save.
+    const draftEntry = Object.entries(localStorage).find(([, v]) => v === "important note");
+    expect(draftEntry).toBeDefined();
+    const draftKey = draftEntry![0];
+
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await screen.findByRole("alert"); // workspace banner appears
+
+    // Draft must NOT be cleared by the typed self-heal — user can fix the
+    // workspace boundary and retry without re-typing.
+    expect(localStorage.getItem(draftKey)).toBe("important note");
+  });
 });
 
 // ─── Iter 6 Group A C5 — file-level "+" composer draftKey persistence ───────

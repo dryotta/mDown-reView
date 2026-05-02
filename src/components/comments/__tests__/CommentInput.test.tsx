@@ -171,6 +171,12 @@ describe("CommentInput – draft persistence (Group E)", () => {
 describe("CommentInput – async onSave + save-error banner (AC6)", () => {
   const KEY = "test::ac6::draft";
 
+  beforeEach(() => {
+    // Iter 3 forward-fix (test-expert nit): clear logger mock call history
+    // between tests so cross-test residue doesn't satisfy assertions.
+    vi.clearAllMocks();
+  });
+
   it("rejected onSave shows the inline error banner with role=alert", async () => {
     const onSave = vi.fn().mockRejectedValue(new Error("boom"));
     render(<CommentInput onSave={onSave} onClose={() => {}} />);
@@ -255,5 +261,38 @@ describe("CommentInput – async onSave + save-error banner (AC6)", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("string-shaped failure");
+  });
+
+  // ── Iter 3 forward-fix (bug-expert BLOCK): Save in-flight guard.
+  // Without this guard, a rapid double-click (or held Ctrl+Enter) fires
+  // onSave twice, persisting duplicate threads through addComment IPC.
+  it("Save button is disabled while a save is in flight (no double-fire)", async () => {
+    let resolveOuter: () => void = () => {};
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((r) => {
+          resolveOuter = r;
+        })
+    );
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "guard" } });
+    const btn = screen.getByRole("button", { name: /^save/i });
+
+    // First click starts the in-flight save.
+    fireEvent.click(btn);
+    // Second click while in-flight must be ignored.
+    fireEvent.click(btn);
+    // Held Ctrl+Enter must also be ignored.
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", ctrlKey: true });
+
+    // onSave fired exactly once despite three save attempts.
+    expect(onSave).toHaveBeenCalledTimes(1);
+    // Button is disabled and shows the "Saving…" label while in-flight.
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).toMatch(/saving/i);
+
+    // Once the IPC resolves, the guard releases.
+    resolveOuter();
+    await waitFor(() => expect(btn).not.toBeDisabled());
   });
 });

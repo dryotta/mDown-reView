@@ -12,6 +12,7 @@
 
 import { warn as logWarn } from "@/logger";
 import type { MatchedComment } from "@/lib/tauri-commands";
+import { deriveAnchor } from "@/lib/anchor-derive";
 
 /** Set of `kind` discriminants — exactly four values, no more, no fewer. */
 export type CommentFlashKind = "file" | "line" | "range" | "unmatched";
@@ -106,19 +107,22 @@ export function assertNeverFlashKind(x: never): never {
 // shows up in one place) and keeps CommentsPanel under its file budget.
 
 /**
- * Derive the flash discriminator from a MatchedComment. Reads the
- * canonical wire fields from `bindings.ts`:
- *   - `anchor_kind === "file"`           → "file"
- *   - `isOrphaned` / `matchedLineNumber <= 0`     → "unmatched"
- *   - `end_line > matchedLineNumber`     → "range"
- *   - else                               → "line"
+ * Derive the flash discriminator from a MatchedComment. Routes the
+ * `kind` decision through `deriveAnchor()` (rule 31 in
+ * `docs/architecture.md` — never raw `anchor_kind` string equality at
+ * consumer sites; let the typed adapter own the discrimination so any
+ * future Rust addition to `Anchor` surfaces as a TS error here):
+ *   - `deriveAnchor(c).kind === "file"`             → "file"
+ *   - `isOrphaned` / `matchedLineNumber <= 0`        → "unmatched"
+ *   - `end_line > matchedLineNumber`                 → "range"
+ *   - else                                            → "line"
  *
  * `original_line` is preserved on the wire by iter 1 of #280 but is not
  * load-bearing for kind selection — `matchedLineNumber` is the runtime-
  * resolved coordinate the body listener queries.
  */
 export function commentFlashKindFor(comment: MatchedComment): CommentFlashKind {
-  if (comment.anchor_kind === "file") return "file";
+  if (deriveAnchor(comment).kind === "file") return "file";
   if (comment.isOrphaned || comment.matchedLineNumber <= 0) return "unmatched";
   const endLine = comment.end_line;
   if (endLine != null && endLine > comment.matchedLineNumber) return "range";

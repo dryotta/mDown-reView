@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useComments } from "@/lib/vm/use-comments";
+import { deriveAnchor } from "@/lib/anchor-derive";
 import { IconComment } from "@/components/Icons";
 
 interface Props {
@@ -15,10 +16,12 @@ interface Props {
  * Owns its own narrow `useComments(filePath)` subscription so toolbar
  * re-renders are bounded to the pill — keeps render fan-out off the parent
  * (rule 30 in `docs/architecture.md`: narrow selectors / per-surface
- * subscriptions). Counts derive from existing wire fields:
- *   - `root.anchor_kind === "file"` → file count (per Rust matching, rule 31).
- *   - `root.isOrphaned === true`    → orphan count (Anchor::Unknown / unresolved
- *     `WordRange` paths routed by Rust per iter 1, AC7).
+ * subscriptions). Counts derive from existing wire fields routed through
+ * the typed `deriveAnchor` adapter (rule 31 — never raw `anchor_kind`
+ * string equality at consumer sites):
+ *   - `deriveAnchor(root).kind === "file"` → file count.
+ *   - `root.isOrphaned === true`           → orphan count (Anchor::Unknown
+ *     / unresolved `WordRange` paths routed by Rust per iter 1, AC7).
  * Resolved threads are excluded from both counts.
  *
  * The button itself is ALWAYS rendered (it is the only entry point to author
@@ -38,7 +41,7 @@ export function ToolbarFileCommentPill({ filePath, onCommentOnFile }: Props): Re
     let o = 0;
     for (const t of threads) {
       if (t.root.resolved) continue;
-      if (t.root.anchor_kind === "file") f++;
+      if (deriveAnchor(t.root).kind === "file") f++;
       if (t.root.isOrphaned) o++;
     }
     return { fileCount: f, orphanCount: o };

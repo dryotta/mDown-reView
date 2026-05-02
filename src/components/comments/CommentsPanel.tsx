@@ -224,7 +224,14 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
             "Could not save comment: this file is outside the workspace and is read-only."
           );
           setShowFileLevelInput(false);
-          return;
+          // Iter 3 forward-fix (rubber-duck BLOCK): rethrow so CommentInput's
+          // catch fires and the draft is NOT cleared. Without this rethrow
+          // CommentInput sees a resolved promise and clears the draft —
+          // silently losing the user's text on a workspace-boundary block.
+          // The composer is unmounted (setShowFileLevelInput(false) above)
+          // so CommentInput's own banner never renders; the panel banner
+          // is the only visible surface for this error class.
+          throw e;
         }
         const msg = e instanceof Error ? e.message : String(e);
         void logError(`[CommentsPanel] file-level addComment failed for ${filePath}: ${msg}`);
