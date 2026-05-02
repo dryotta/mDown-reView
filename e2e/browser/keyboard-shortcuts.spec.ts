@@ -79,11 +79,12 @@ test.describe("F1 keyboard shortcuts", () => {
     await page.locator(".folder-tree").getByText("sample.md").click();
     await expect(page.getByText("First unresolved")).toBeVisible();
 
-    // Open the file-level composer via the panel "+" so we have a
-    // textarea to dismiss. The composer mounts under .comment-input.
-    // (The viewer toolbar exposes a button with the same accessible
-    // name; scope to the comments panel to disambiguate.)
-    await page.locator(".comments-panel").getByRole("button", { name: /Comment on file/i }).click();
+    // Open the file-level composer via the viewer toolbar's
+    // "Comment on file" button so we have a textarea to dismiss. The
+    // composer mounts under .comment-input. (The redundant panel "+"
+    // affordance was removed — the toolbar button is now the only
+    // file-level entry point.)
+    await page.locator(".viewer-toolbar").getByRole("button", { name: /Comment on file/i }).click();
     const textarea = page.locator(".comment-input textarea");
     await expect(textarea).toBeVisible();
 

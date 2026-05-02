@@ -264,25 +264,4 @@ test.describe("Iter 5 Group B — file-level comment entry points", () => {
     await expect(pillBtn).toHaveCount(1);
     await expect(pillBtn.locator(".viewer-toolbar-comment-on-file-label")).toHaveCount(0);
   });
-
-  test("CommentsPanel '+' button is also a valid entry point (no toolbar click required)", async ({ page }) => {
-    await setupCommentOnFileMocks(page);
-    await page.goto("/");
-
-    await page.locator(".folder-tree").getByText("sample.md").click();
-    await expect(page.locator(".markdown-viewer")).toBeVisible();
-
-    const plusBtn = page.locator(".comments-panel-header").getByRole("button", { name: /comment on file/i });
-    await expect(plusBtn).toBeVisible();
-    await plusBtn.click();
-
-    const textarea = page.locator(".comment-panel-file-input .comment-textarea");
-    await expect(textarea).toBeVisible();
-    await textarea.fill("from the panel");
-    await page.locator(".comment-panel-file-input").getByRole("button", { name: /^save$/i }).click();
-
-    await expect.poll(() => readAddCommentCalls(page).then((c) => c.length)).toBeGreaterThanOrEqual(1);
-    const calls = await readAddCommentCalls(page);
-    expect(calls[calls.length - 1].anchor).toEqual({ kind: "file" });
-  });
 });
