@@ -7,18 +7,20 @@
  * absolute positioning here.
  *
  * DOM:
- *   .mermaid-popout-overlay  ← transparent full-bleed click interceptor
+ *   .mermaid-popout-overlay  ← dimmed full-bleed click interceptor
  *     .mermaid-popout-card   ← visible card (border + shadow + theme bg)
  *
- * The overlay is transparent and full-bleed only so pointer events in
- * the gap between the card and the main-area edges are intercepted
- * (and not routed to the underlying viewer). Visual chrome lives on
- * the inner `.mermaid-popout-card`.
+ * The overlay dims the viewer area beneath the popout (matching the
+ * About / Settings dialog backdrop at rgba(0, 0, 0, 0.5)) and intercepts
+ * pointer events in the gap between the card and the main-area edges
+ * (so gap clicks don't fall through to the underlying viewer). Visual
+ * chrome lives on the inner `.mermaid-popout-card`.
  */
 .mermaid-popout-overlay {
   position: absolute;
   inset: 0;
   z-index: 10;
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .mermaid-popout-card {

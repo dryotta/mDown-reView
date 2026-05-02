@@ -4,6 +4,7 @@
   justify-content: center;
   flex: 1;
   padding: 40px;
+  position: relative;
 }
 
 .welcome-content {
@@ -162,7 +163,9 @@
 }
 
 .welcome-settings-link {
-  margin-top: 1.5rem;
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
   background: none;
   border: none;
   color: var(--color-muted);

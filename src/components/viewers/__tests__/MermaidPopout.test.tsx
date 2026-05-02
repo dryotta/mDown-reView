@@ -122,10 +122,11 @@ describe("MermaidPopout — visibility gating", () => {
     );
     expect(overlay).not.toBeNull();
     expect(overlay?.classList.contains("mermaid-popout-overlay")).toBe(true);
-    // aria-modal=false reflects reality: no focus trap, no backdrop dim.
+    // aria-modal=false reflects reality: no focus trap. The overlay paints
+    // a backdrop dim for visual separation, but focus is not trapped.
     expect(overlay?.getAttribute("aria-modal")).toBe("false");
     // Inner card is the visible chrome (theme background, border, shadow);
-    // overlay is just a transparent click interceptor.
+    // overlay is the dimmed click interceptor matching About / Settings.
     const card = container.querySelector(".mermaid-popout-card");
     expect(card).not.toBeNull();
     expect(overlay?.contains(card)).toBe(true);
