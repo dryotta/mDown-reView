@@ -150,6 +150,121 @@ test.describe("Iter 5 Group B — file-level comment entry points", () => {
     expect(last.anchor).toEqual({ kind: "file" });
   });
 
+  // Iter 3 G6 — pill content/visibility coverage for #280 AC2.
+  // The existing tests above exercise the *click* flow; these focus on the
+  // pill's *render* contract (text shape, hide-when-empty). We seed
+  // `get_file_comments` directly with synthesized threads instead of going
+  // through the addComment flow, so the rendered counts are deterministic
+  // regardless of the matcher.
+  async function setupPillMock(page: Page, threads: unknown[]) {
+    await page.addInitScript(
+      ({ dir, threads }: { dir: string; threads: unknown[] }) => {
+        window.__TAURI_IPC_MOCK__ = async (cmd: string, args: Record<string, unknown>) => {
+          void args;
+          if (cmd === "get_launch_args") return { files: [], folders: [dir] };
+          if (cmd === "read_dir") {
+            return [{ name: "sample.md", path: `${dir}/sample.md`, is_dir: false }];
+          }
+          if (cmd === "read_text_file") return "# Heading\n\nLine 3.\n";
+          if (cmd === "stat_file") return { size_bytes: 8 };
+          if (cmd === "load_review_comments") {
+            return { mrsf_version: "1.0", document: "sample.md", comments: [] };
+          }
+          if (cmd === "save_review_comments") return null;
+          if (cmd === "get_file_comments") return { threads, sidecar_mtime_ms: null };
+          if (cmd === "check_path_exists") return "file";
+          if (cmd === "get_log_path") return "/mock/log.log";
+          if (cmd === "compute_anchor_hash") return "deadbeef";
+          if (cmd === "get_file_badges") return {};
+          return null;
+        };
+      },
+      { dir: FIXTURES_DIR, threads },
+    );
+  }
+
+  test("Iter 3 G6 — pill shows '1 file' for one unresolved file-anchored comment", async ({ page }) => {
+    await setupPillMock(page, [
+      {
+        root: {
+          id: "f1",
+          author: "Reviewer (rev)",
+          timestamp: "2026-01-01T00:00:00Z",
+          text: "file-level note",
+          resolved: false,
+          line: 0,
+          anchor_kind: "file",
+          matchedLineNumber: 0,
+          isOrphaned: false,
+        },
+        replies: [],
+      },
+    ]);
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("sample.md").click();
+    await expect(page.locator(".markdown-viewer")).toBeVisible();
+
+    const pill = page.locator(".viewer-toolbar .viewer-toolbar-comment-on-file");
+    await expect(pill).toBeVisible();
+    const text = (await pill.innerText()).trim();
+    expect(text).toMatch(/1\s*file/);
+    expect(text.toLowerCase()).not.toContain("orphan");
+  });
+
+  test("Iter 3 G6 — pill shows AC2 verbatim '1 file 1 orphan' when both kinds are present", async ({ page }) => {
+    await setupPillMock(page, [
+      {
+        root: {
+          id: "f1",
+          author: "Reviewer (rev)",
+          timestamp: "2026-01-01T00:00:00Z",
+          text: "file-level note",
+          resolved: false,
+          line: 0,
+          anchor_kind: "file",
+          matchedLineNumber: 0,
+          isOrphaned: false,
+        },
+        replies: [],
+      },
+      {
+        root: {
+          id: "o1",
+          author: "Reviewer (rev)",
+          timestamp: "2026-01-01T00:00:00Z",
+          text: "orphaned note",
+          resolved: false,
+          line: 0,
+          matchedLineNumber: 0,
+          isOrphaned: true,
+        },
+        replies: [],
+      },
+    ]);
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("sample.md").click();
+    await expect(page.locator(".markdown-viewer")).toBeVisible();
+
+    const pill = page.locator(".viewer-toolbar .viewer-toolbar-comment-on-file");
+    await expect(pill).toBeVisible();
+    // AC2 verbatim — single space between segments, no commas/slashes.
+    expect((await pill.innerText()).trim()).toContain("1 file 1 orphan");
+  });
+
+  test("Iter 3 G6 — pill renders the button without count label when no unresolved file or orphan comments exist", async ({ page }) => {
+    await setupPillMock(page, []);
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("sample.md").click();
+    await expect(page.locator(".markdown-viewer")).toBeVisible();
+    // The button stays visible (it is the entry point to author the FIRST
+    // file-level comment from the viewer chrome; hiding it on empty state
+    // would strand users with no toolbar-side affordance). The count label
+    // span is absent because both counts are 0.
+    const pillBtn = page.locator(".viewer-toolbar .viewer-toolbar-comment-on-file");
+    await expect(pillBtn).toHaveCount(1);
+    await expect(pillBtn.locator(".viewer-toolbar-comment-on-file-label")).toHaveCount(0);
+  });
+
   test("CommentsPanel '+' button is also a valid entry point (no toolbar click required)", async ({ page }) => {
     await setupCommentOnFileMocks(page);
     await page.goto("/");

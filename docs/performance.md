@@ -57,7 +57,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 10. Per-render `components` merges are limited to entries that close over component-specific values (currently only `img`). (`MarkdownViewer.tsx:299-312`.)
 11. `SourceView` runs Shiki once per file/theme change, not per line. (`useSourceHighlighting.ts:54`.)
 12. `useSourceHighlighting` uses `useDeferredValue` so highlighting never blocks typing or scrolling. (`useSourceHighlighting.ts:28`.)
-13. `useFileContent` renders "loading" only on initial mount or path change, not on same-file watcher reloads. (`useFileContent.ts:35`.)
+13. `useFileContent` renders "loading" only on initial mount or path change, not on same-file watcher reloads. (`useFileContent.ts:35`.) Additionally, when a same-path reload returns byte-identical content (matched on `content`, `sizeBytes`, `lineCount`), `useFileContent` short-circuits before publishing new state — no `setState`, no `setLastFileReloadedAt` bump, no Shiki re-highlight pass. `setFileMeta` is still always called so `StatusBar.fileMtime` reflects mtime advances on touch-only events. (`useFileContent.ts`.)
 13a. `HexView` virtualizes rows when payload ≥ 32 KiB at 18-px row height; smaller files render in full. (`HexView.tsx` `VIRTUALIZE_THRESHOLD`, `ROW_HEIGHT`.)
 
 ### Rust hot paths

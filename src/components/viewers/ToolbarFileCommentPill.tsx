@@ -21,14 +21,17 @@ interface Props {
  *     `WordRange` paths routed by Rust per iter 1, AC7).
  * Resolved threads are excluded from both counts.
  *
- * Returns `null` when both counts are 0 — clutter-free for no-comment files.
+ * The button itself is ALWAYS rendered (it is the only entry point to author
+ * a file-level comment from the viewer chrome — required for an empty file
+ * to ever get its first file-anchored comment). The count text is appended
+ * to the label only when at least one segment is non-zero.
  *
  * Composition over prop-bag growth: the toolbar stays oblivious to comment
  * domain knowledge (see `architecture-avoid-boolean-props` and
  * `patterns-children-over-render-props` in
  * `docs/best-practices-common/react/composition-patterns.md`).
  */
-export function ToolbarFileCommentPill({ filePath, onCommentOnFile }: Props): React.JSX.Element | null {
+export function ToolbarFileCommentPill({ filePath, onCommentOnFile }: Props): React.JSX.Element {
   const { threads } = useComments(filePath); // rule 30 — narrow per-surface subscription
   const { fileCount, orphanCount } = useMemo(() => {
     let f = 0;
@@ -41,24 +44,25 @@ export function ToolbarFileCommentPill({ filePath, onCommentOnFile }: Props): Re
     return { fileCount: f, orphanCount: o };
   }, [threads]);
 
-  if (fileCount === 0 && orphanCount === 0) return null;
-
   // AC2 verbatim — "{N} file {M} orphan" with zero-segment omission and a
-  // single space between segments. NO commas, NO slashes.
+  // single space between segments. NO commas, NO slashes. Empty when both 0.
   const segments: string[] = [];
   if (fileCount > 0) segments.push(`${fileCount} file`);
   if (orphanCount > 0) segments.push(`${orphanCount} orphan`);
   const label = segments.join(" ");
+  const hasCounts = label.length > 0;
 
   return (
     <button
       className="viewer-toolbar-btn viewer-toolbar-comment-on-file"
       onClick={onCommentOnFile}
       title="Comment on file"
-      aria-label={`Comment on file: ${label}`}
+      aria-label={hasCounts ? `Comment on file: ${label}` : "Comment on file"}
     >
       <IconComment />
-      <span className="viewer-toolbar-comment-on-file-label">{label}</span>
+      {hasCounts && (
+        <span className="viewer-toolbar-comment-on-file-label">{label}</span>
+      )}
     </button>
   );
 }

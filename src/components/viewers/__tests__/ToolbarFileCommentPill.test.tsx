@@ -27,13 +27,17 @@ function setThreads(threads: ReturnType<typeof thread>[]) {
 }
 
 describe("ToolbarFileCommentPill", () => {
-  it("renders null when there are no threads (both counts 0)", () => {
+  it("renders the button (without count) when there are no threads (both counts 0)", () => {
     setThreads([]);
     const { container } = render(
       <ToolbarFileCommentPill filePath="/r.md" onCommentOnFile={vi.fn()} />,
     );
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    // Button is ALWAYS rendered so empty files still have a way to author
+    // the first file-level comment from the viewer chrome (#280 / AC2 + AC7).
+    const btn = screen.getByRole("button", { name: /^Comment on file$/ });
+    expect(btn).toBeInTheDocument();
+    // No count label span when both counts are 0.
+    expect(container.querySelector(".viewer-toolbar-comment-on-file-label")).toBeNull();
   });
 
   it("fileCount=3, orphanCount=0 → renders only the file segment", () => {
@@ -77,8 +81,11 @@ describe("ToolbarFileCommentPill", () => {
     const { container } = render(
       <ToolbarFileCommentPill filePath="/r.md" onCommentOnFile={vi.fn()} />,
     );
-    // both threads are resolved → both excluded → both counts 0 → null render.
-    expect(container.firstChild).toBeNull();
+    // Both resolved threads excluded → both counts 0 → button rendered
+    // without count label (no "1 file" / "1 orphan" segment).
+    const btn = screen.getByRole("button", { name: /^Comment on file$/ });
+    expect(btn).toBeInTheDocument();
+    expect(container.querySelector(".viewer-toolbar-comment-on-file-label")).toBeNull();
   });
 
   it("invokes onCommentOnFile when clicked", async () => {
