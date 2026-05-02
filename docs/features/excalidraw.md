@@ -32,8 +32,8 @@ Excalidraw fetches its custom fonts from `https://esm.run/...` by default. mdown
 
 Editor mode supports explicit save only — there is **no autosave** and no save-on-blur. Saves are triggered by:
 
-1. The **Save** button in the `ViewerToolbar` trailing slot (visible only when category is `excalidraw` AND view mode is `editor`).
-2. **Ctrl+S** (Cmd+S on macOS) when the active tab is an Excalidraw file in Editor mode.
+1. The **Save** button in the **top app toolbar** (icon-only floppy-disk, right of the Comments toggle). Visible only when the active tab is an editable Excalidraw file in Editor mode; enabled only when the tab has unsaved changes (the dirty `•` is showing).
+2. **Ctrl+S** (Cmd+S on macOS) when the active tab is an Excalidraw file in Editor mode and writable.
 
 Both paths dispatch the `mdownreview:excalidraw-save-request` DOM event keyed by file path; the live `<ExcalidrawView/>` (the only surface holding the canvas state) is the listener. This decouples the toolbar + global-shortcut surfaces from the lazy Excalidraw chunk — neither imports `@excalidraw/excalidraw` directly.
 
@@ -59,6 +59,8 @@ Closing a dirty Excalidraw tab triggers a `globalThis.confirm("Discard changes?"
 - **LRU eviction** in `openFile` when the evicted tab is dirty.
 
 In all four discard paths, `confirmDiscard` fail-closes when `globalThis.confirm` is unavailable (headless contexts) — the destructive action aborts rather than silently destroying unsaved work.
+
+Dirty Excalidraw editor tabs are **exempt from the `MAX_TABS` LRU cap**. The cap (currently 5) bounds resident tab state for performance; unsaved user edits are exactly the state we cannot silently destroy. When `openFile` would otherwise evict a dirty editor as the LRU candidate, the cap stretches: a clean candidate is preferred, and if every non-active tab is dirty, the new tab opens without evicting anyone (the user pays a small memory cost and keeps their work).
 
 The dirty flag clears on:
 

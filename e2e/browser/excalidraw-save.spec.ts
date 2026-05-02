@@ -102,32 +102,71 @@ test.describe("Excalidraw save UI plumbing (#352 iter 3)", () => {
     expect(externalRequests).toEqual([]);
   });
 
-  test("Save button is hidden in Visual mode and visible in Editor mode", async ({ page }) => {
+  test("App-toolbar Save button is hidden in Visual mode and visible in Editor mode", async ({ page }) => {
     await setupSaveFlowMocks(page);
     await page.goto("/");
 
     await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
 
-    // Default mode is Visual — Save button must NOT be visible.
-    await expect(page.getByTestId("excalidraw-save")).toHaveCount(0);
+    // Default mode is Visual — top app toolbar Save button must NOT be visible.
+    await expect(page.getByTestId("app-toolbar-save")).toHaveCount(0);
 
-    // Switch to Editor → Save button appears with the literal text "Save".
+    // Switch to Editor → Save button appears in the top app toolbar
+    // (right of the Comments toggle), icon-only.
     await page.locator(".viewer-toolbar").getByRole("button", { name: /^editor$/i }).click();
-    const saveBtn = page.getByTestId("excalidraw-save");
+    const saveBtn = page.getByTestId("app-toolbar-save");
     await expect(saveBtn).toBeVisible();
-    await expect(saveBtn).toHaveText("Save");
-    await expect(saveBtn).toHaveAttribute("title", "Save (Ctrl+S)");
+    // Disabled until there's a change (the user just opened the file).
+    await expect(saveBtn).toBeDisabled();
+    await expect(saveBtn).toHaveAttribute("title", "No unsaved changes");
+    await expect(saveBtn).toHaveAttribute("aria-label", "Save");
   });
 
-  test("Save button click dispatches mdownreview:excalidraw-save-request", async ({ page }) => {
+  test("App-toolbar Save button click dispatches mdownreview:excalidraw-save-request", async ({ page }) => {
     await setupSaveFlowMocks(page);
     await page.goto("/");
 
     await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
     await page.locator(".viewer-toolbar").getByRole("button", { name: /^editor$/i }).click();
-    await expect(page.getByTestId("excalidraw-save")).toBeVisible();
 
-    await page.getByTestId("excalidraw-save").click();
+    // Manually mark the tab dirty so the Save button enables.
+    await page.evaluate(() => {
+      type Win = Window & {
+        __TAURI_IPC_MOCK__?: unknown;
+        // Direct store import isn't accessible from page context; use
+        // a custom event the renderer's handler will translate. For
+        // this test, dispatch the in-flight save and rely on the
+        // dirty-marking flow inside ExcalidrawView.
+      };
+      void (window as Win);
+      // Trigger a click on the Excalidraw stub canvas (only if testid
+      // exists in production build — else we use a fake state push).
+      // Fallback: use the action directly via the injected hook.
+    });
+
+    const saveBtn = page.getByTestId("app-toolbar-save");
+    // The button starts disabled because nothing is dirty. Force-enable
+    // by setting dirty via the store action.
+    await page.evaluate(() => {
+      const w = window as Window & { useStoreAccess?: unknown };
+      void w;
+      // We don't expose the store on window in tests; instead,
+      // simulate user editing via a click on the Excalidraw stub.
+    });
+
+    // Simulate a user edit by clicking inside the Excalidraw canvas
+    // surface — the stub captures clicks and forwards onChange.
+    // (In real Excalidraw the canvas is the receiver; the stub
+    // re-creates the API.)
+    const stub = page.getByTestId("excalidraw-shell");
+    await stub.click({ position: { x: 100, y: 100 } });
+    await stub.click({ position: { x: 110, y: 110 } });
+
+    // Save button should now be enabled.
+    await expect(saveBtn).toBeEnabled();
+    await expect(saveBtn).toHaveAttribute("title", "Save (Ctrl+S)");
+
+    await saveBtn.click();
 
     await expect
       .poll(async () =>
@@ -151,7 +190,8 @@ test.describe("Excalidraw save UI plumbing (#352 iter 3)", () => {
 
     await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
     await page.locator(".viewer-toolbar").getByRole("button", { name: /^editor$/i }).click();
-    await expect(page.getByTestId("excalidraw-save")).toBeVisible();
+    // App-toolbar Save button visible (disabled until dirty).
+    await expect(page.getByTestId("app-toolbar-save")).toBeVisible();
 
     // Move focus off the just-clicked button so the editable-target guard
     // doesn't matter (buttons are non-editable, but blurring matches the

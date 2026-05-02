@@ -218,37 +218,13 @@ describe("EnhancedViewer", () => {
     });
   });
 
-  // Issue #352 / AC5 — Save button rendering + dispatch.
-  describe("Excalidraw Save button (#352)", () => {
-    it("does NOT render Save button in Source mode", () => {
-      useStore.setState({
-        viewModeByTab: { "/ws/a.excalidraw": "source" },
-      });
-      render(
-        <EnhancedViewer
-          content='{"type":"excalidraw"}'
-          path="/ws/a.excalidraw"
-          filePath="/ws/a.excalidraw"
-        />,
-      );
-      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
-    });
-
-    it("does NOT render Save button in Visual mode", () => {
-      useStore.setState({
-        viewModeByTab: { "/ws/a.excalidraw": "visual" },
-      });
-      render(
-        <EnhancedViewer
-          content='{"type":"excalidraw"}'
-          path="/ws/a.excalidraw"
-          filePath="/ws/a.excalidraw"
-        />,
-      );
-      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
-    });
-
-    it("renders Save button only when category=excalidraw AND mode=editor", () => {
+  // Issue #352 / iter-5 — Save button MOVED from per-viewer toolbar to
+  // top app toolbar. EnhancedViewer no longer renders a Save button at
+  // all; that responsibility now belongs to App.tsx. We retain the
+  // read-only tab tests because read-only behaviour is still scoped
+  // to the viewer (Editor button hidden, mode demoted).
+  describe("Excalidraw read-only tab behaviour (#352 / iter-5)", () => {
+    it("does NOT render an in-viewer Save button in any mode (Save lives in app toolbar)", () => {
       useStore.setState({
         viewModeByTab: { "/ws/a.excalidraw": "editor" },
       });
@@ -259,65 +235,16 @@ describe("EnhancedViewer", () => {
           filePath="/ws/a.excalidraw"
         />,
       );
-      const btn = screen.getByTestId("excalidraw-save");
-      expect(btn).toBeInTheDocument();
-      expect(btn).toHaveTextContent("Save");
-      expect(btn).toHaveAttribute("title", "Save (Ctrl+S)");
-    });
-
-    it("does NOT render Save button for non-excalidraw editor (no such mode for other types)", () => {
-      // For non-excalidraw, ViewerToolbar is hidden anyway — sanity check
-      // that the Save button is not leaking in.
-      useStore.setState({
-        viewModeByTab: { "/test.md": "editor" as never },
-      });
-      render(<EnhancedViewer content="# x" path="/test.md" filePath="/test.md" />);
       expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
-    });
-
-    it("Save button click dispatches mdownreview:excalidraw-save-request", () => {
-      useStore.setState({
-        viewModeByTab: { "/ws/a.excalidraw": "editor" },
-      });
-      const spy = vi.fn();
-      window.addEventListener("mdownreview:excalidraw-save-request", spy);
-
-      render(
-        <EnhancedViewer
-          content='{"type":"excalidraw"}'
-          path="/ws/a.excalidraw"
-          filePath="/ws/a.excalidraw"
-        />,
-      );
-      fireEvent.click(screen.getByTestId("excalidraw-save"));
-      expect(spy).toHaveBeenCalledOnce();
-      const detail = (spy.mock.calls[0][0] as CustomEvent).detail;
-      expect(detail).toEqual({ path: "/ws/a.excalidraw" });
-      window.removeEventListener("mdownreview:excalidraw-save-request", spy);
+      // The viewer's segmented-control row + its trailing FileActionsBar
+      // must still render.
+      expect(screen.getByRole("button", { name: /^source$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^editor$/i })).toBeInTheDocument();
     });
 
     // Issue #352 / iter-5 BLOCKER (product B2) — read-only tabs cannot
-    // route through the workspace-write IPC (path is outside the
-    // workspace allowlist). Showing a Save button + binding Ctrl+S
-    // would fire the Rust permission rejection at the user. Instead:
-    // hide Save, demote stored editor mode to visual, hide Editor
-    // segmented-control button.
-    it("HIDES Save button when tab is read-only (outside workspace)", () => {
-      useStore.setState({
-        tabs: [{ path: "/outside/a.excalidraw", scrollTop: 0, readOnly: true }],
-        activeTabPath: "/outside/a.excalidraw",
-        viewModeByTab: { "/outside/a.excalidraw": "editor" },
-      });
-      render(
-        <EnhancedViewer
-          content='{"type":"excalidraw"}'
-          path="/outside/a.excalidraw"
-          filePath="/outside/a.excalidraw"
-        />,
-      );
-      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
-    });
-
+    // route through the workspace-write IPC. The viewer hides the
+    // Editor segmented-control button + demotes stored editor mode.
     it("HIDES Editor segmented-control button when tab is read-only", () => {
       useStore.setState({
         tabs: [{ path: "/outside/a.excalidraw", scrollTop: 0, readOnly: true }],

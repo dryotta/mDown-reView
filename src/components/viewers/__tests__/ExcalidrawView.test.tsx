@@ -223,6 +223,53 @@ describe("ExcalidrawView — save / dirty / conflict (#352)", () => {
     expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
   });
 
+  // Issue #352 / iter-5 user-reported BLOCKER — the FIRST user edit
+  // after switching from Visual → Editor mode must mark dirty. The
+  // previous version had the mode gate BEFORE the mount-restore ref
+  // check, so during the mount in visual mode the ref stayed `false`;
+  // when the user later switched to editor and made their first edit,
+  // it was silently swallowed as if it were the mount restore. Now
+  // the ref check runs BEFORE the mode gate so the visual-mode mount
+  // correctly consumes the mount-restore onChange, and the first
+  // editor-mode edit is recognised as a user edit.
+  it("the FIRST user edit after Visual→Editor switch marks the tab dirty", async () => {
+    const { rerender } = render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/a.excalidraw"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    const stub = await screen.findByTestId("excalidraw-stub");
+    // Initial mount in visual: the synthetic Excalidraw stub fires
+    // onChange on click. This is the "mount restore" — it MUST be
+    // consumed even in visual mode so the next post-mount edit is
+    // correctly seen as a user edit.
+    await act(async () => {
+      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    // Visual mode → no dirty.
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
+    // User switches to Editor mode. Excalidraw is NOT remounted
+    // (only viewModeEnabled prop changes), so it does NOT fire
+    // another onChange.
+    rerender(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/a.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    // User's FIRST edit in editor mode fires onChange ONCE.
+    await act(async () => {
+      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    // Dirty should be true after exactly ONE editor-mode onChange.
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
+  });
+
   it("save-request DOM event in Editor mode invokes saveExcalidrawFile and clears dirty", async () => {
     render(
       <ExcalidrawView

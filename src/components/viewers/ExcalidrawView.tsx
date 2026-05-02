@@ -225,7 +225,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     return () => {
       cancelled = true;
     };
-  }, [filePath, content, needsExtract, mode, reloadKey]);
+  }, [filePath, content, needsExtract, reloadKey]);
 
   // Issue #352 / iter-5 — the previous unmount cleanup that cleared
   // dirty + pending on every unmount has been REMOVED. That cleanup
@@ -464,17 +464,29 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
               appState: appState as unknown as Record<string, unknown>,
               files: files as unknown as Record<string, unknown>,
             };
-            // Only mark dirty in Editor mode AND after the initial
-            // mount/restore call (which fires synchronously with the
-            // restored scene — that's not a user edit). Boolean ref
-            // (replaces prior counter) is reset in the load `useEffect`
-            // on every filePath/content/mode change so the next mount
-            // restart correctly skips its first onChange.
-            if (mode !== "editor") return;
+            // Issue #352 / iter-5 BLOCKER (user-reported) — the mount-
+            // restore detection MUST run BEFORE the mode gate. Excalidraw
+            // fires onChange synchronously on initial mount with the
+            // restored scene, regardless of `viewModeEnabled`. We must
+            // count that one-time restore call so the user's FIRST edit
+            // after switching from Visual → Editor is correctly seen as
+            // a user edit, not as the mount restore.
+            //
+            // The bug history: an earlier version had `if (mode !==
+            // "editor") return;` BEFORE the ref check, so during the
+            // mount in visual mode the ref stayed `false`. Switching to
+            // editor mode does NOT remount Excalidraw (no scene change
+            // triggers onChange), so `viewModeEnabled` flipping doesn't
+            // fire onChange. The user's first edit then fired onChange,
+            // saw `mode === "editor"` and `ref === false`, and was
+            // SKIPPED as if it were the mount restore. Result: the
+            // dirty flag never set; close-tab guard never prompted;
+            // user lost edits silently. The reorder below fixes that.
             if (!mountedOnChangeFiredRef.current) {
               mountedOnChangeFiredRef.current = true;
               return;
             }
+            if (mode !== "editor") return;
             // setExcalidrawDirty short-circuits when the boolean is
             // unchanged, so we don't pay a re-render per mouse-move.
             setExcalidrawDirty(filePath, true);

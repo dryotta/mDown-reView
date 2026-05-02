@@ -305,7 +305,7 @@ describe("setActiveTab guard for dirty Excalidraw editor (iter-5 BLOCKER)", () =
   });
 });
 
-describe("LRU eviction cleans up dirty/pending maps (issue #352 / AC6)", () => {
+describe("LRU eviction respects dirty Excalidraw editor tabs (issue #352)", () => {
   let confirmSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -330,47 +330,53 @@ describe("LRU eviction cleans up dirty/pending maps (issue #352 / AC6)", () => {
     ).toBeUndefined();
   });
 
-  it("evicting a DIRTY tab prompts and cleans both maps when user confirms", () => {
+  it("BYPASSES MAX_TABS when ALL LRU candidates are dirty Excalidraw editors (no prompt, all preserved)", () => {
+    // Open MAX_TABS tabs and mark every non-active one as dirty.
     for (let i = 0; i < 5; i++) {
       useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
+    // Active is /ws/4.md (most recent open). Mark all the others dirty.
     useStore.getState().setExcalidrawDirty("/ws/0.md", true);
-    useStore.getState().setExternalChangePending("/ws/0.md", true);
+    useStore.getState().setExcalidrawDirty("/ws/1.md", true);
+    useStore.getState().setExcalidrawDirty("/ws/2.md", true);
+    useStore.getState().setExcalidrawDirty("/ws/3.md", true);
 
+    // Open a 6th tab — every non-active candidate is dirty, so the
+    // cap stretches.
     useStore.getState().openFile("/ws/new.md", { recordHistory: false });
 
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
-    expect(
-      useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
-    ).toBeUndefined();
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/0.md"]).toBeUndefined();
-    expect(
-      useStore.getState().externalChangePendingByTab["/ws/0.md"],
-    ).toBeUndefined();
-    // The new tab WAS opened.
-    expect(
-      useStore.getState().tabs.find((t) => t.path === "/ws/new.md"),
-    ).toBeDefined();
+    // No prompt — the user wasn't asked to discard.
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // All four dirty tabs survive.
+    for (let i = 0; i < 4; i++) {
+      expect(
+        useStore.getState().tabs.find((t) => t.path === `/ws/${i}.md`),
+      ).toBeDefined();
+      expect(useStore.getState().excalidrawDirtyByTab[`/ws/${i}.md`]).toBe(true);
+    }
+    // Cap is exceeded.
+    expect(useStore.getState().tabs.length).toBe(6);
+    // New tab opened.
+    expect(useStore.getState().tabs.find((t) => t.path === "/ws/new.md")).toBeDefined();
   });
 
-  it("evicting a DIRTY tab aborts the openFile when user cancels (issue #352 / iter-3 bug-expert HIGH)", () => {
-    confirmSpy.mockReturnValue(false);
+  it("evicts the OLDEST CLEAN tab when a dirty editor exists alongside it", () => {
     for (let i = 0; i < 5; i++) {
       useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
+    // /ws/0.md is the oldest, mark it dirty.
     useStore.getState().setExcalidrawDirty("/ws/0.md", true);
+    // /ws/4.md is the active (just-opened); the next-LRU clean is /ws/1.md.
 
     useStore.getState().openFile("/ws/new.md", { recordHistory: false });
 
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
-    // /ws/0.md still present, dirty preserved.
-    expect(
-      useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
-    ).toBeDefined();
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/0.md"]).toBe(true);
-    // /ws/new.md was NOT opened.
-    expect(
-      useStore.getState().tabs.find((t) => t.path === "/ws/new.md"),
-    ).toBeUndefined();
+    // No prompt — only clean tabs are eligible victims.
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // Dirty tab survives.
+    expect(useStore.getState().tabs.find((t) => t.path === "/ws/0.md")).toBeDefined();
+    // Oldest CLEAN tab evicted.
+    expect(useStore.getState().tabs.find((t) => t.path === "/ws/1.md")).toBeUndefined();
+    // Cap respected (5).
+    expect(useStore.getState().tabs.length).toBe(5);
   });
 });

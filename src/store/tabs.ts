@@ -248,49 +248,59 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const baseTabs = get().tabs;
       if (baseTabs.length >= MAX_TABS) {
         const activePath = get().activeTabPath;
-        const candidates = baseTabs.filter((t) => t.path !== activePath);
-        if (candidates.length > 0) {
-          const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
-          const victim = candidates.reduce((oldest, t) =>
-            accessed(t) < accessed(oldest) ? t : oldest
-          );
-          // Issue #352 / iter-3 bug-expert review (HIGH) — LRU eviction
-          // MUST NOT silently discard an Excalidraw editor tab with
-          // unsaved edits. Closing the LRU tab is a side-effect of
-          // openFile; without this guard the user has no chance to
-          // save before their work is destroyed. If the user cancels
-          // the prompt we abort the openFile call entirely (the new
-          // file does not open) — same model as `closeTab`.
-          if (get().excalidrawDirtyByTab[victim.path] === true) {
-            if (!confirmDiscard(1)) {
-              return;
-            }
-          }
-          // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.
-          // Merge the eviction maps with the new-tab append into a
-          // SINGLE set() call so subscribers never observe an
-          // intermediate state (victim gone, new tab not yet added,
-          // active still pointing at the old active). Per rule 16 in
-          // docs/architecture.md.
-          const filteredTabs = baseTabs.filter((t) => t.path !== victim.path);
-          const { [victim.path]: _v, ...restView } = get().viewModeByTab;
-          const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
-          const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
-          const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
-          const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
+        // Issue #352 / iter-5 user-reported — dirty Excalidraw editor
+        // tabs are EXEMPT from MAX_TABS LRU eviction. The cap exists
+        // to bound resident tab state for performance; unsaved user
+        // edits are precisely the state we MUST NOT silently destroy
+        // (Reliable pillar). If the only LRU candidates are dirty
+        // editors, we let the cap stretch — the user pays a small
+        // memory cost and keeps their work. We still prompt before
+        // evicting a dirty editor IF a clean candidate is unavailable
+        // and the user would otherwise be denied the open.
+        const dirtyMap = get().excalidrawDirtyByTab;
+        const cleanCandidates = baseTabs.filter(
+          (t) => t.path !== activePath && dirtyMap[t.path] !== true,
+        );
+        if (cleanCandidates.length === 0) {
+          // No clean tab to evict — append the new one without
+          // evicting anyone. Cap is exceeded; the dirty editor(s)
+          // stay safely mounted.
           set({
-            tabs: [...filteredTabs, { path, scrollTop: 0, lastAccessedAt: now }],
+            tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
             activeTabPath: path,
-            viewModeByTab: restView,
-            lastSaveByPath: restSave,
-            fileMetaByPath: restMeta,
-            excalidrawDirtyByTab: restDirty,
-            externalChangePendingByTab: restPending,
           });
           if (recordHistory) get().pushHistory(path);
           void classifyAndMarkReadOnly(path, set);
           return;
         }
+        const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
+        const victim = cleanCandidates.reduce((oldest, t) =>
+          accessed(t) < accessed(oldest) ? t : oldest
+        );
+        // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.
+        // Merge the eviction maps with the new-tab append into a
+        // SINGLE set() call so subscribers never observe an
+        // intermediate state (victim gone, new tab not yet added,
+        // active still pointing at the old active). Per rule 16 in
+        // docs/architecture.md.
+        const filteredTabs = baseTabs.filter((t) => t.path !== victim.path);
+        const { [victim.path]: _v, ...restView } = get().viewModeByTab;
+        const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
+        const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
+        const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
+        const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
+        set({
+          tabs: [...filteredTabs, { path, scrollTop: 0, lastAccessedAt: now }],
+          activeTabPath: path,
+          viewModeByTab: restView,
+          lastSaveByPath: restSave,
+          fileMetaByPath: restMeta,
+          excalidrawDirtyByTab: restDirty,
+          externalChangePendingByTab: restPending,
+        });
+        if (recordHistory) get().pushHistory(path);
+        void classifyAndMarkReadOnly(path, set);
+        return;
       }
       set({
         tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],

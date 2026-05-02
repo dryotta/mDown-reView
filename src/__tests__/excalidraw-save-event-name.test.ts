@@ -5,17 +5,16 @@
  * The event name is duplicated as a string in three places:
  *   1. `src/components/viewers/ExcalidrawView.tsx` — exported constant
  *      `EXCALIDRAW_SAVE_REQUEST` (the listener side).
- *   2. `src/components/viewers/EnhancedViewer.tsx` — local copy used by
- *      the Save button click handler. Must NOT import from
- *      `ExcalidrawView.tsx` — that would defeat the lazy-chunk boundary.
- *   3. `src/hooks/useGlobalShortcuts.ts` — local copy used by the Ctrl+S
- *      handler. Same lazy-chunk reasoning.
+ *   2. `src/App.tsx` — top-toolbar Save button (iter-5 user-reported
+ *      change moved Save from per-viewer toolbar to the app toolbar).
+ *      Must NOT import from `ExcalidrawView.tsx` — that would defeat
+ *      the lazy-chunk boundary.
+ *   3. `src/hooks/useGlobalShortcuts.ts` — Ctrl+S handler. Same
+ *      lazy-chunk reasoning.
  *
  * If the constant in `ExcalidrawView.tsx` drifts from the duplicated
  * strings in the other two files, save-button clicks and Ctrl+S
- * keystrokes will silently no-op. This test reads the source files
- * verbatim and asserts the four occurrences (constant declaration +
- * three string usages) are byte-identical.
+ * keystrokes will silently no-op.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -37,9 +36,9 @@ describe("excalidraw-save-request event name parity (#352)", () => {
     expect(src).toContain(`export const EXCALIDRAW_SAVE_REQUEST = "${EXPECTED_NAME}"`);
   });
 
-  it("EnhancedViewer.tsx uses the same string (lazy-chunk-safe duplicate)", () => {
-    const src = read("components/viewers/EnhancedViewer.tsx");
-    expect(src).toContain(`const EXCALIDRAW_SAVE_REQUEST = "${EXPECTED_NAME}"`);
+  it("App.tsx uses the same string (lazy-chunk-safe duplicate)", () => {
+    const src = read("App.tsx");
+    expect(src).toContain(`"${EXPECTED_NAME}"`);
     // Negative: must NOT statically import the lazy ExcalidrawView module
     // for the constant — that would eagerly load the @excalidraw/excalidraw
     // chunk into the main bundle.

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useRef, useCallback, type ReactNode } from "react";
+import { Suspense, lazy, useState, useRef, type ReactNode } from "react";
 import { useStore } from "@/store";
 import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey, type ViewMode } from "@/lib/file-types";
 import { useZoom } from "@/hooks/useZoom";
@@ -30,16 +30,6 @@ const LazyExcalidrawView = lazy(() =>
 const LazyExcalidrawSourceMode = lazy(() =>
   import("./ExcalidrawSourceMode").then((m) => ({ default: m.ExcalidrawSourceMode }))
 );
-
-/**
- * Custom DOM event name dispatched from the Save button + Ctrl+S handler
- * to the mounted `<ExcalidrawView/>` (issue #352 / AC5). Mirrors the
- * exported constant from `ExcalidrawView.tsx` — kept duplicated here so
- * `EnhancedViewer.tsx` does NOT import the lazy chunk eagerly. If they
- * drift, the unit test in `src/__tests__/excalidraw-save-event-name.test.ts`
- * fails. The string is the public contract, not the import.
- */
-const EXCALIDRAW_SAVE_REQUEST = "mdownreview:excalidraw-save-request";
 
 interface Props {
   content: string;
@@ -77,10 +67,11 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
   const viewMode = useStore((s) => s.viewModeByTab[filePath]) ?? defaultView;
   const setViewMode = useStore((s) => s.setViewMode);
   // Issue #352 / iter-5 BLOCKER (product B2) — read-only tabs (outside
-  // the workspace) cannot route through the workspace-write IPC. Show
-  // no Save button + skip Ctrl+S so the user is never told "Save"
-  // and then surprised by a Rust permission error. The Excalidraw
-  // canvas itself is forced into Visual mode for these tabs.
+  // the workspace) cannot route through the workspace-write IPC. Hide
+  // the Editor segmented-control button + demote stored editor mode
+  // to visual for these tabs. The Save button itself lives in the top
+  // app toolbar (see `App.tsx`); per-viewer toolbar carries no save
+  // affordance any more.
   const isReadOnly = useStore(
     (s) => s.tabs.find((t) => t.path === filePath)?.readOnly === true,
   );
@@ -112,18 +103,6 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
         : viewMode
       : "source";
   const showSource = effectiveView === "source";
-  const showSaveButton = isExcalidraw && effectiveView === "editor" && !isReadOnly;
-
-  // Issue #352 / AC5 — Save button click dispatches a save-request DOM
-  // event keyed by file path; the mounted `<ExcalidrawView/>` (the only
-  // surface holding the live scene state) listens for the matching path
-  // and persists via `write_workspace_text` / `write_workspace_binary`.
-  // Decouples the toolbar from the lazy Excalidraw chunk.
-  const handleSave = useCallback(() => {
-    window.dispatchEvent(
-      new CustomEvent(EXCALIDRAW_SAVE_REQUEST, { detail: { path: filePath } }),
-    );
-  }, [filePath]);
   // Zoom key tracks the active sub-view so source-mode zoom is independent of
   // visual-mode zoom for the same document (#65 D1/D2/D3). Visual and Editor
   // share the same zoom key for excalidraw — both are canvas surfaces.
@@ -175,22 +154,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
         onToggleWrap={() => setWordWrap(!wordWrap)}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
         centerSlot={centerSlot}
-        trailing={
-          <>
-            {showSaveButton && (
-              <button
-                type="button"
-                className="viewer-toolbar-btn viewer-toolbar-save"
-                onClick={handleSave}
-                title="Save (Ctrl+S)"
-                data-testid="excalidraw-save"
-              >
-                Save
-              </button>
-            )}
-            <FileActionsBar path={filePath} />
-          </>
-        }
+        trailing={<FileActionsBar path={filePath} />}
         visualDisabled={visualDisabled}
         visualDisabledReason={visualDisabled ? MARKDOWN_VISUAL_DISABLED_TOOLTIP : undefined}
       />
