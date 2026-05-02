@@ -152,7 +152,7 @@ async canonicalizePath(path: string) : Promise<Result<string, string>> {
  * allowlist, no `:` in filename, byte length ≤ `WORKSPACE_WRITE_MAX_BYTES`,
  * atomic write.
  */
-async writeWorkspaceText(path: string, text: string) : Promise<Result<null, string>> {
+async writeWorkspaceText(path: string, text: string) : Promise<Result<null, WorkspaceWriteError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("write_workspace_text", { path, text }) };
 } catch (e) {
@@ -163,13 +163,22 @@ async writeWorkspaceText(path: string, text: string) : Promise<Result<null, stri
 /**
  * Write a binary payload (base64-encoded on the wire) to a workspace file
  * (`.excalidraw.png` / `.excalidraw.svg` re-rendered with embedded scene).
- * Bounds: parent inside workspace, extension in allowlist, no `:` in
- * filename, base64 string length ≤ ~14 MB, decoded bytes ≤
- * `WORKSPACE_WRITE_MAX_BYTES`, atomic write.
  */
-async writeWorkspaceBinary(path: string, base64: string) : Promise<Result<null, string>> {
+async writeWorkspaceBinary(path: string, base64: string) : Promise<Result<null, WorkspaceWriteError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("write_workspace_binary", { path, base64 }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer-side ack for a close-flush request. Idempotent: a second call
+ * (or a call before the request was registered) is a no-op.
+ */
+async excalidrawCloseFlushComplete(label: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("excalidraw_close_flush_complete", { label }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -790,6 +799,55 @@ export type WordRangePayload = { start_word: number; end_word: number; line: num
  * rendered glyphs trivially.
  */
 export type WordSpan = { start: number; end: number; text: string }
+/**
+ * Issue #352 / iter-12 (architect HIGH#3 + security MEDIUM#3) — typed
+ * workspace-write error.
+ * 
+ * The previous `Result<(), String>` return surface forced the renderer
+ * to substring-match the Rust prose in `friendlySaveError` — a wire
+ * contract maintained by string sniffing that silently breaks if the
+ * Rust message format ever changes (rule `architecture-rust-first` in
+ * `docs/architecture.md`). The typed enum is round-tripped via
+ * tauri-specta so the renderer branches on `err.kind` directly. See
+ * `src/lib/excalidraw/error-mapping.ts` for the consumer.
+ * 
+ * Discriminator is `kind`, kebab-case on the wire — same shape as
+ * `CommentError` (see `commands/comments/error.rs`).
+ */
+export type WorkspaceWriteError = 
+/**
+ * Canonical path is outside any open workspace folder, OR target
+ * is an existing symlink whose target escapes the workspace.
+ */
+{ kind: "outside-workspace"; path: string } | 
+/**
+ * Lowercased filename suffix is not in `WORKSPACE_WRITE_ALLOWLIST`.
+ * Carries the offending filename so a renderer can hint at the
+ * correct extension family.
+ */
+{ kind: "ext-not-allowed"; filename: string } | 
+/**
+ * Filename contains a forbidden character (currently only `:`,
+ * the NTFS Alternate Data Stream marker).
+ */
+{ kind: "filename-invalid"; reason: string } | 
+/**
+ * Decoded payload exceeds `WORKSPACE_WRITE_MAX_BYTES`. Surfaces
+ * the observed byte count so the renderer can compute an MB
+ * figure for user-facing copy.
+ */
+{ kind: "payload-too-large"; observed_bytes: number } | 
+/**
+ * Base64 string was structurally invalid (only emitted by the
+ * binary IPC).
+ */
+{ kind: "invalid-base-64"; detail: string } | 
+/**
+ * I/O failure during canonicalisation, atomic-rename, or any
+ * underlying syscall. Fallback variant carrying the original error
+ * text so a renderer can surface a developer-debuggable string.
+ */
+{ kind: "io"; message: string }
 
 /** tauri-specta globals **/
 

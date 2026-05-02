@@ -320,6 +320,17 @@ export const writeWorkspaceText = (path: string, text: string): Promise<void> =>
 export const writeWorkspaceBinary = (path: string, base64: string): Promise<void> =>
   unwrap(bindings.writeWorkspaceBinary(path, base64)).then(() => {});
 
+// Issue #352 / iter-12 — Excalidraw close-flush handshake ──────────────────
+// Renderer-side ack for `flush_excalidraw_before_close` (Rust). On
+// `WindowEvent::CloseRequested`, Rust prevents close, emits the
+// `excalidraw-flush-before-close` event, and waits up to 2.5 s for this
+// IPC. Renderer hook (`useExcalidrawCloseFlush`) drains all pending
+// Excalidraw flushes, then calls this command — Rust then closes the
+// window. See `src-tauri/src/commands/excalidraw_close.rs` and
+// `src/hooks/useExcalidrawCloseFlush.ts`.
+export const excalidrawCloseFlushComplete = (label: string): Promise<void> =>
+  unwrap(bindings.excalidrawCloseFlushComplete(label)).then(() => {});
+
 // Window registry sync ────────────────────────────────────────────────────
 
 export const registerWindowFolder = (folder: string): Promise<void> =>

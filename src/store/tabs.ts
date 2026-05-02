@@ -95,14 +95,25 @@ export interface TabsSlice {
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
   /**
-   * Issue #352 / AC6 — per-tab dirty flag for in-Editor-mode Excalidraw
-   * drawings. Set on Excalidraw `onChange`, cleared on save / reload /
-   * mode-switch out of Editor / tab close. Drives the `•` dot in the tab
-   * title and the close-tab "Discard changes?" guard.
+   * Issue #352 / iter-12 — per-tab dirty flag for in-Editor-mode
+   * Excalidraw drawings under autosave-only semantics. The flag flips
+   * to `true` on every Excalidraw `onChange` while in editor mode and
+   * back to `false` when the debounced `performSave` either persists
+   * the live scene or determines no divergence vs the on-disk
+   * baseline. The dirty-window is therefore at most one autosave
+   * debounce (`EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS`).
    *
-   * Session-only — never persisted. Closing the app is "discard everything"
-   * by definition; the user already lost the unsaved edits when the
-   * process exited.
+   * **Sole consumer:** `useFileContent` (`src/hooks/useFileContent.ts`)
+   * reads it on `mdownreview:file-changed` to surface the conflict
+   * banner instead of silently clobbering the user's mid-edit state.
+   * No tab-title indicator is rendered — under autosave the file is
+   * always almost-saved and a flickering dot would be more noise than
+   * signal (AC6 deliberately dropped in iter-10/iter-12; see
+   * `docs/features/excalidraw.md` § "Save semantics").
+   *
+   * Session-only — never persisted. Closing the app drains pending
+   * saves via the Rust `WindowEvent::CloseRequested` handshake (see
+   * `src-tauri/src/commands/excalidraw_close.rs`) before tear-down.
    */
   excalidrawDirtyByTab: Record<string, boolean>;
   /**
@@ -142,10 +153,12 @@ export interface TabsSlice {
    */
   setTabReadOnly: (path: string, readOnly: boolean) => void;
   /**
-   * Issue #352 / AC6 — set/clear the dirty flag for an Excalidraw editor
-   * tab. Setting to `false` removes the entry entirely so a closed tab
-   * doesn't linger in the map. Subscribed by `TabBar` (dirty dot) and
-   * gated by `closeTab` ("Discard changes?" guard).
+   * Issue #352 / iter-12 — set/clear the dirty flag for an Excalidraw
+   * editor tab. Setting to `false` removes the entry entirely so a
+   * closed tab doesn't linger in the map. Sole consumer is
+   * `useFileContent` for the conflict-banner gate (see field doc on
+   * `excalidrawDirtyByTab` above for why no tab-title indicator
+   * exists under autosave).
    */
   setExcalidrawDirty: (path: string, dirty: boolean) => void;
   /**

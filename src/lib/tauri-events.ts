@@ -97,6 +97,16 @@ export interface EventPayloads {
   "menu-about": void;
   "menu-check-updates": void;
   "menu-help-settings": void;
+  /**
+   * Issue #352 / iter-12 — close-flush handshake (data-loss bug #4).
+   * Emitted by Rust on `WindowEvent::CloseRequested` (after
+   * `prevent_close`); renderer drains all pending Excalidraw saves and
+   * acks via the `excalidraw_close_flush_complete` IPC. Payload is the
+   * window label so a multi-window setup ack-es the correct close path.
+   * See `src-tauri/src/commands/excalidraw_close.rs` and
+   * `src/hooks/useExcalidrawCloseFlush.ts`.
+   */
+  "excalidraw-flush-before-close": string;
 }
 
 export type EventName = keyof EventPayloads;

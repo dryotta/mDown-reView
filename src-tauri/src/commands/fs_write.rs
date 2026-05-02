@@ -20,12 +20,90 @@ use crate::core::paths::canonicalize_no_verbatim;
 use crate::mdr_command;
 use crate::watcher::WatcherState;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use serde::Serialize;
+use specta::Type;
 use std::path::{Path, PathBuf};
+
+/// Issue #352 / iter-12 (architect HIGH#3 + security MEDIUM#3) — typed
+/// workspace-write error.
+///
+/// The previous `Result<(), String>` return surface forced the renderer
+/// to substring-match the Rust prose in `friendlySaveError` — a wire
+/// contract maintained by string sniffing that silently breaks if the
+/// Rust message format ever changes (rule `architecture-rust-first` in
+/// `docs/architecture.md`). The typed enum is round-tripped via
+/// tauri-specta so the renderer branches on `err.kind` directly. See
+/// `src/lib/excalidraw/error-mapping.ts` for the consumer.
+///
+/// Discriminator is `kind`, kebab-case on the wire — same shape as
+/// `CommentError` (see `commands/comments/error.rs`).
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WorkspaceWriteError {
+    /// Canonical path is outside any open workspace folder, OR target
+    /// is an existing symlink whose target escapes the workspace.
+    OutsideWorkspace { path: String },
+    /// Lowercased filename suffix is not in `WORKSPACE_WRITE_ALLOWLIST`.
+    /// Carries the offending filename so a renderer can hint at the
+    /// correct extension family.
+    ExtNotAllowed { filename: String },
+    /// Filename contains a forbidden character (currently only `:`,
+    /// the NTFS Alternate Data Stream marker).
+    FilenameInvalid { reason: String },
+    /// Decoded payload exceeds `WORKSPACE_WRITE_MAX_BYTES`. Surfaces
+    /// the observed byte count so the renderer can compute an MB
+    /// figure for user-facing copy.
+    PayloadTooLarge { observed_bytes: u64 },
+    /// Base64 string was structurally invalid (only emitted by the
+    /// binary IPC).
+    InvalidBase64 { detail: String },
+    /// I/O failure during canonicalisation, atomic-rename, or any
+    /// underlying syscall. Fallback variant carrying the original error
+    /// text so a renderer can surface a developer-debuggable string.
+    Io { message: String },
+}
+
+impl std::fmt::Display for WorkspaceWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutsideWorkspace { path } => {
+                write!(f, "path is outside an open workspace: {path}")
+            }
+            Self::ExtNotAllowed { filename } => {
+                write!(f, "extension not in workspace-write allowlist: {filename}")
+            }
+            Self::FilenameInvalid { reason } => write!(f, "invalid filename: {reason}"),
+            Self::PayloadTooLarge { observed_bytes } => {
+                write!(
+                    f,
+                    "payload exceeds {WORKSPACE_WRITE_MAX_BYTES}-byte cap: {observed_bytes} bytes"
+                )
+            }
+            Self::InvalidBase64 { detail } => write!(f, "invalid base64 payload: {detail}"),
+            Self::Io { message } => write!(f, "io error: {message}"),
+        }
+    }
+}
+
+impl WorkspaceWriteError {
+    fn io(msg: impl Into<String>) -> Self {
+        Self::Io { message: msg.into() }
+    }
+}
 
 /// Maximum payload size for workspace-write IPC. Symmetric with the read cap
 /// (security rule 1) and matches the public-facing 10 MB ceiling documented
 /// in security rule 29.
 pub(crate) const WORKSPACE_WRITE_MAX_BYTES: usize = 10 * 1024 * 1024;
+
+/// Issue #352 / iter-12 (security HIGH#1) — TTL for self-write suppression
+/// registered before `write_atomic`. Symmetric with `SAVE_DEBOUNCE_MS` in
+/// `useFileWatcher.ts` (1500 ms): long enough that the rename event reaches
+/// the notify-debouncer-mini stream before the entry expires; short enough
+/// that a real subsequent external write fired ~1.6 s after our own save
+/// is not silently absorbed.
+const SELF_WRITE_SUPPRESSION_TTL: std::time::Duration =
+    std::time::Duration::from_millis(1500);
 
 /// Lowercase extension allowlist for the Excalidraw family. Matched as
 /// **suffix** against the lowercased filename — `Path::extension()` would
@@ -37,18 +115,14 @@ const WORKSPACE_WRITE_ALLOWLIST: &[&str] = &[
     ".excalidraw.svg",
 ];
 
-/// Verify the (potentially-not-yet-existing) target path is safe to write:
+/// Verify the (potentially-not-yet-existing) target path is safe to write.
 ///
-/// 1. user-supplied filename has no `:` (Windows NTFS ADS defence — applies
-///    BEFORE canonicalization because the byte string is what we're guarding).
-/// 2. parent directory canonicalizes inside the active workspace
-///    (`is_path_or_parent_allowed` — same semantics used by every comment-
-///    mutation command per `commands/comments/mod.rs:57-62`).
-/// 3. `<canonical_parent>/<original_filename>` has a lowercased filename
-///    suffix in the allowlist.
-///
-/// Returns the canonical destination path on success.
-fn ensure_writable(path_str: &str, state: &WatcherState) -> Result<PathBuf, String> {
+/// Returns the canonical destination path on success, or a typed
+/// `WorkspaceWriteError` discriminator on failure.
+fn ensure_writable(
+    path_str: &str,
+    state: &WatcherState,
+) -> Result<PathBuf, WorkspaceWriteError> {
     let target = Path::new(path_str);
 
     // (1) Reject `:` in the user-supplied filename component BEFORE any
@@ -57,29 +131,35 @@ fn ensure_writable(path_str: &str, state: &WatcherState) -> Result<PathBuf, Stri
     let file_name = target
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| "invalid filename (no UTF-8 component)".to_string())?;
+        .ok_or_else(|| WorkspaceWriteError::FilenameInvalid {
+            reason: "no UTF-8 component".to_string(),
+        })?;
     if file_name.contains(':') {
-        return Err("invalid filename: ':' is forbidden (NTFS ADS)".to_string());
+        return Err(WorkspaceWriteError::FilenameInvalid {
+            reason: "':' is forbidden (NTFS ADS)".to_string(),
+        });
     }
 
     // (2) Workspace-allowlist check using the parent-relaxed variant — the
     // target file may not exist yet, but the parent must canonicalise inside
     // a watched workspace folder.
     if !state.is_path_or_parent_allowed(target) {
-        return Err(format!("path is outside an open workspace: {path_str}"));
+        return Err(WorkspaceWriteError::OutsideWorkspace {
+            path: path_str.to_string(),
+        });
     }
 
-    // (3) Resolve canonical parent + original filename. We use the canonical
-    // parent (existence-required) joined with the original filename so the
-    // returned PathBuf carries no `\\?\` verbatim prefix (matches sidecar
-    // saves) and the filename suffix check operates on a stable lowercased
-    // form. Windows `CreateFileW` strips trailing dots/spaces, so the
-    // post-canonicalisation filename is already normalised.
+    // (3) Resolve canonical parent + original filename.
     let parent = target
         .parent()
-        .ok_or_else(|| "path has no parent".to_string())?;
-    let canonical_parent = canonicalize_no_verbatim(parent)
-        .map_err(|e| format!("parent dir does not canonicalise: {e}"))?;
+        .ok_or_else(|| WorkspaceWriteError::Io {
+            message: "path has no parent".to_string(),
+        })?;
+    let canonical_parent = canonicalize_no_verbatim(parent).map_err(|e| {
+        WorkspaceWriteError::Io {
+            message: format!("parent dir does not canonicalise: {e}"),
+        }
+    })?;
     let canonical = canonical_parent.join(file_name);
 
     let lowered_name = file_name.to_ascii_lowercase();
@@ -87,9 +167,23 @@ fn ensure_writable(path_str: &str, state: &WatcherState) -> Result<PathBuf, Stri
         .iter()
         .any(|suffix| lowered_name.ends_with(suffix));
     if !allowlisted {
-        return Err(format!(
-            "extension not in workspace-write allowlist: {file_name}"
-        ));
+        return Err(WorkspaceWriteError::ExtNotAllowed {
+            filename: file_name.to_string(),
+        });
+    }
+
+    // Symlink target canonicalisation (security MEDIUM#2).
+    if target.exists() {
+        let target_canonical = canonicalize_no_verbatim(target).map_err(|e| {
+            WorkspaceWriteError::Io {
+                message: format!("target canonicalisation failed: {e}"),
+            }
+        })?;
+        if !state.is_path_or_parent_allowed(&target_canonical) {
+            return Err(WorkspaceWriteError::OutsideWorkspace {
+                path: target_canonical.to_string_lossy().into_owned(),
+            });
+        }
     }
 
     Ok(canonical)
@@ -104,7 +198,7 @@ pub fn write_workspace_text(
     path: String,
     text: String,
     state: tauri::State<'_, WatcherState>,
-) -> Result<(), String> {
+) -> Result<(), WorkspaceWriteError> {
     write_workspace_text_inner(state.inner(), &path, &text)
 }
 
@@ -116,65 +210,58 @@ pub(crate) fn write_workspace_text_inner(
     state: &WatcherState,
     path: &str,
     text: &str,
-) -> Result<(), String> {
+) -> Result<(), WorkspaceWriteError> {
     let bytes = text.as_bytes();
     if bytes.len() > WORKSPACE_WRITE_MAX_BYTES {
-        return Err(format!(
-            "payload exceeds {WORKSPACE_WRITE_MAX_BYTES}-byte cap: {} bytes",
-            bytes.len()
-        ));
+        return Err(WorkspaceWriteError::PayloadTooLarge {
+            observed_bytes: bytes.len() as u64,
+        });
     }
     let canonical = ensure_writable(path, state)?;
+    state.register_self_write(canonical.clone(), SELF_WRITE_SUPPRESSION_TTL);
     write_atomic(&canonical, bytes).map_err(|e| {
         tracing::error!("[rust] write_workspace_text error: {e}");
-        e.to_string()
+        WorkspaceWriteError::io(e.to_string())
     })
 }
 
 /// Write a binary payload (base64-encoded on the wire) to a workspace file
 /// (`.excalidraw.png` / `.excalidraw.svg` re-rendered with embedded scene).
-/// Bounds: parent inside workspace, extension in allowlist, no `:` in
-/// filename, base64 string length ≤ ~14 MB, decoded bytes ≤
-/// `WORKSPACE_WRITE_MAX_BYTES`, atomic write.
 #[mdr_command]
 pub fn write_workspace_binary(
     path: String,
     base64: String,
     state: tauri::State<'_, WatcherState>,
-) -> Result<(), String> {
+) -> Result<(), WorkspaceWriteError> {
     write_workspace_binary_inner(state.inner(), &path, &base64)
 }
 
-/// Inner implementation of [`write_workspace_binary`]. See
-/// [`write_workspace_text_inner`] for rationale.
+/// Inner implementation of [`write_workspace_binary`].
 pub(crate) fn write_workspace_binary_inner(
     state: &WatcherState,
     path: &str,
     base64: &str,
-) -> Result<(), String> {
+) -> Result<(), WorkspaceWriteError> {
     // Pre-decode size guard so a multi-GB string can't OOM the decoder.
-    // base64 is ~4/3 the size of the decoded payload; reject anything that
-    // can't possibly fit under the 10 MB decoded cap.
     let max_b64_len = WORKSPACE_WRITE_MAX_BYTES.saturating_mul(4) / 3 + 4;
     if base64.len() > max_b64_len {
-        return Err(format!(
-            "base64 payload exceeds {max_b64_len}-byte pre-decode cap: {} chars",
-            base64.len()
-        ));
+        return Err(WorkspaceWriteError::PayloadTooLarge {
+            observed_bytes: base64.len() as u64,
+        });
     }
     let bytes = B64
         .decode(base64)
-        .map_err(|e| format!("invalid base64 payload: {e}"))?;
+        .map_err(|e| WorkspaceWriteError::InvalidBase64 { detail: e.to_string() })?;
     if bytes.len() > WORKSPACE_WRITE_MAX_BYTES {
-        return Err(format!(
-            "decoded payload exceeds {WORKSPACE_WRITE_MAX_BYTES}-byte cap: {} bytes",
-            bytes.len()
-        ));
+        return Err(WorkspaceWriteError::PayloadTooLarge {
+            observed_bytes: bytes.len() as u64,
+        });
     }
     let canonical = ensure_writable(path, state)?;
+    state.register_self_write(canonical.clone(), SELF_WRITE_SUPPRESSION_TTL);
     write_atomic(&canonical, &bytes).map_err(|e| {
         tracing::error!("[rust] write_workspace_binary error: {e}");
-        e.to_string()
+        WorkspaceWriteError::io(e.to_string())
     })
 }
 
@@ -209,7 +296,10 @@ mod tests {
         let state = watcher_with_workspace(tmp.path());
         let outside = std::env::temp_dir().join("not-in-workspace.excalidraw");
         let err = write_workspace_text_inner(&state, &outside.to_string_lossy(), "{}").unwrap_err();
-        assert!(err.contains("outside an open workspace"), "got: {err}");
+        assert!(
+            matches!(err, WorkspaceWriteError::OutsideWorkspace { .. }),
+            "expected OutsideWorkspace, got: {err:?}"
+        );
     }
 
     #[test]
@@ -220,8 +310,8 @@ mod tests {
         let err =
             write_workspace_text_inner(&state, &target.to_string_lossy(), "hello").unwrap_err();
         assert!(
-            err.contains("not in workspace-write allowlist"),
-            "got: {err}"
+            matches!(err, WorkspaceWriteError::ExtNotAllowed { .. }),
+            "expected ExtNotAllowed, got: {err:?}"
         );
     }
 
@@ -237,8 +327,8 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.contains("not in workspace-write allowlist"),
-            "got: {err}"
+            matches!(err, WorkspaceWriteError::ExtNotAllowed { .. }),
+            "expected ExtNotAllowed, got: {err:?}"
         );
     }
 
@@ -267,8 +357,8 @@ mod tests {
         let err =
             write_workspace_text_inner(&state, &target.to_string_lossy(), "{}").unwrap_err();
         assert!(
-            err.contains("not in workspace-write allowlist"),
-            "got: {err}"
+            matches!(err, WorkspaceWriteError::ExtNotAllowed { .. }),
+            "expected ExtNotAllowed, got: {err:?}"
         );
     }
 
@@ -284,7 +374,12 @@ mod tests {
             std::path::MAIN_SEPARATOR
         );
         let err = write_workspace_text_inner(&state, &smuggled, "{}").unwrap_err();
-        assert!(err.contains("NTFS ADS"), "got: {err}");
+        match err {
+            WorkspaceWriteError::FilenameInvalid { ref reason } => {
+                assert!(reason.contains("NTFS ADS"), "got: {reason}");
+            }
+            other => panic!("expected FilenameInvalid, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -305,7 +400,10 @@ mod tests {
         let target = tmp.path().join("big.excalidraw");
         let huge = "x".repeat(WORKSPACE_WRITE_MAX_BYTES + 1);
         let err = write_workspace_text_inner(&state, &target.to_string_lossy(), &huge).unwrap_err();
-        assert!(err.contains("exceeds"), "got: {err}");
+        assert!(
+            matches!(err, WorkspaceWriteError::PayloadTooLarge { .. }),
+            "expected PayloadTooLarge, got: {err:?}"
+        );
         assert!(
             !target.exists(),
             "no file should be written on size-failure"
@@ -321,7 +419,10 @@ mod tests {
         let huge = "A".repeat(max_b64 + 1);
         let err =
             write_workspace_binary_inner(&state, &target.to_string_lossy(), &huge).unwrap_err();
-        assert!(err.contains("pre-decode cap"), "got: {err}");
+        assert!(
+            matches!(err, WorkspaceWriteError::PayloadTooLarge { .. }),
+            "expected PayloadTooLarge, got: {err:?}"
+        );
         assert!(
             !target.exists(),
             "no file should be written on size-failure"
@@ -339,7 +440,10 @@ mod tests {
             "not-base64!!!",
         )
         .unwrap_err();
-        assert!(err.contains("invalid base64"), "got: {err}");
+        assert!(
+            matches!(err, WorkspaceWriteError::InvalidBase64 { .. }),
+            "expected InvalidBase64, got: {err:?}"
+        );
         assert!(!target.exists());
     }
 
@@ -377,5 +481,78 @@ mod tests {
             std::fs::metadata(&target).unwrap().len() as usize,
             WORKSPACE_WRITE_MAX_BYTES
         );
+    }
+
+    /// Issue #352 / iter-12 (security HIGH#1) — every successful write
+    /// MUST register a self-write suppression entry against the
+    /// canonical destination path, so the watcher event handler can
+    /// skip the echo without depending on the renderer's
+    /// post-IPC `recordSave` race.
+    #[test]
+    fn text_write_registers_self_write_suppression() {
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("scene.excalidraw");
+        write_workspace_text_inner(&state, &target.to_string_lossy(), r#"{"v":1}"#).unwrap();
+        let canonical = canonicalize_no_verbatim(&target).unwrap();
+        assert!(
+            state.is_self_write_suppressed(&canonical),
+            "expected self-write suppression entry for {}",
+            canonical.display()
+        );
+    }
+
+    #[test]
+    fn binary_write_registers_self_write_suppression() {
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("scene.excalidraw.png");
+        write_workspace_binary_inner(
+            &state,
+            &target.to_string_lossy(),
+            &B64.encode(b"PNG\n"),
+        )
+        .unwrap();
+        let canonical = canonicalize_no_verbatim(&target).unwrap();
+        assert!(
+            state.is_self_write_suppressed(&canonical),
+            "expected self-write suppression entry for {}",
+            canonical.display()
+        );
+    }
+
+    /// Issue #352 / iter-12 (security MEDIUM#2) — when the target
+    /// already exists, full-target canonicalisation must reject paths
+    /// whose canonical form escapes the workspace. Symlink case is
+    /// Unix-only (TempDir on Windows can't create symlinks without
+    /// developer-mode); guarded accordingly.
+    #[cfg(unix)]
+    #[test]
+    fn rejects_target_that_is_symlink_pointing_outside_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let outside = TempDir::new().unwrap();
+        let target_outside = outside.path().join("real.excalidraw");
+        std::fs::write(&target_outside, "{}").unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let symlink_path = tmp.path().join("evil.excalidraw");
+        symlink(&target_outside, &symlink_path).unwrap();
+        assert!(symlink_path.exists(), "symlink should report exists");
+
+        let err = write_workspace_text_inner(
+            &state,
+            &symlink_path.to_string_lossy(),
+            r#"{"v":1}"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, WorkspaceWriteError::OutsideWorkspace { .. }),
+            "expected OutsideWorkspace, got: {err:?}"
+        );
+        // The on-disk content of the symlink target must NOT have
+        // changed — the validation rejected the write before any IO.
+        assert_eq!(std::fs::read_to_string(&target_outside).unwrap(), "{}");
     }
 }

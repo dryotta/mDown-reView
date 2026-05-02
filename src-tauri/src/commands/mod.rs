@@ -8,6 +8,7 @@ pub mod cli_shim;
 pub mod comments;
 pub mod config;
 pub mod default_handler;
+pub mod excalidraw_close;
 pub mod file_viewer_prefs;
 pub mod fs;
 pub mod fs_write;
@@ -37,6 +38,10 @@ pub use comments::{
     NewCommentAnchor, TaggedNewAnchor,
 };
 pub use config::{set_author, set_author_at, validate_author, ConfigError};
+pub use excalidraw_close::{
+    excalidraw_close_flush_complete, flush_excalidraw_before_close,
+    ExcalidrawCloseFlushState,
+};
 pub use file_viewer_prefs::{get_file_viewer_pref, set_file_viewer_pref, FileViewerPref};
 pub use fs::{
     check_path_exists, ensure_readable, read_binary_file, read_binary_file_inner, read_dir,

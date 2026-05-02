@@ -11,17 +11,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * Copy Excalidraw runtime assets (fonts, locales, data) from node_modules
- * into `public/excalidraw-assets/` so the app can self-host them at runtime
- * (CSP `font-src 'self' data:`, AGENTS.md offline constraint). iter 2 will
- * set `window.EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/"` before mounting
- * `<Excalidraw>`.
+ * Copy Excalidraw runtime assets (fonts + data only) from node_modules
+ * into `public/excalidraw-assets/` so the app can self-host them at
+ * runtime (CSP `font-src 'self' data:`, AGENTS.md offline constraint).
+ * `window.EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/"` is set at
+ * module-scope in `ExcalidrawView` before `<Excalidraw>` mounts.
  *
  * Source path note: @excalidraw/excalidraw 0.18.x ships its prod runtime
- * assets under `dist/prod/` (with `fonts/`, `locales/`, `data/`) rather
- * than the historical `dist/excalidraw-assets/` directory. We copy
- * `dist/prod` wholesale; the destination directory name remains
- * `public/excalidraw-assets/` per issue #352 spec.
+ * assets under `dist/prod/` with `fonts/`, `locales/`, `data/`. Locales
+ * are deliberately **excluded** (issue #352 / iter-12 Lean cut B14): the
+ * 55 locale chunks add ~1.6 MB to the install with no user benefit —
+ * mdownreview is English-only (`langCode="en"` is hard-coded in
+ * `ExcalidrawView.tsx`) and Excalidraw silently falls back to English
+ * when a locale chunk 404s. If a future release adds i18n, copy
+ * `locales/` selectively for the locales we ship.
  *
  * Idempotent: wipes the destination on every dev/build start so a stale
  * Excalidraw upgrade can't leave orphan files behind. Runs at
@@ -39,7 +42,17 @@ const excalidrawAssetCopy = (): Plugin => ({
       );
     }
     rmSync(dst, { recursive: true, force: true });
-    cpSync(src, dst, { recursive: true });
+    // Issue #352 / iter-12 Lean cut B14: copy ONLY the directories
+    // Excalidraw needs at runtime for our English-only mount. The
+    // upstream `dist/prod/` directory also contains chunked locale
+    // bundles (~1.6 MB) which we never load.
+    for (const subdir of ["fonts", "data"] as const) {
+      const subSrc = resolve(src, subdir);
+      const subDst = resolve(dst, subdir);
+      if (existsSync(subSrc)) {
+        cpSync(subSrc, subDst, { recursive: true });
+      }
+    }
   },
 });
 

@@ -238,20 +238,10 @@ describe("setActiveTab + setViewMode behaviour (issue #352 / iter-10)", () => {
   });
 });
 
-// Issue #352 / iter-5 BLOCKER (product B1 + bug P0 + rubber-duck #1) —
-// `setActiveTab` MUST prompt before switching away from a dirty
-// Excalidraw editor tab, otherwise the unmount of `<ExcalidrawView/>`
-// silently discards the live scene with no warning. Same prompt as
-// closeTab; same fail-closed semantics.
-describe("setActiveTab + setViewMode legacy guard tests (REPLACED in iter-10)", () => {
-  // The iter-5 BLOCKER guard tests are gone — see "setActiveTab +
-  // setViewMode behaviour" suite above for the iter-10 redesign
-  // assertions. The describe block remains as a placeholder so
-  // git-diff history reads cleanly.
-  it("placeholder", () => {
-    expect(true).toBe(true);
-  });
-});
+// (iter-5 BLOCKER guard tests for setActiveTab/setViewMode were removed
+// when iter-10 replaced explicit-save with autosave; the corresponding
+// dirty-prompt logic is gone. See "setActiveTab + setViewMode behaviour"
+// suite above for the autosave-era assertions.)
 
 describe("LRU eviction (issue #352 / iter-11)", () => {
   // iter-11 redesign: with auto-save, evicted tabs already have their

@@ -451,6 +451,7 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::fs::canonicalize_path,
                 commands::fs_write::write_workspace_text,
                 commands::fs_write::write_workspace_binary,
+                commands::excalidraw_close::excalidraw_close_flush_complete,
                 commands::comments::get::get_file_comments,
                 commands::comments::add_comment::<tauri::Wry>,
                 commands::comments::add_reply::<tauri::Wry>,
@@ -605,6 +606,7 @@ pub fn run() {
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
         .manage(registry::WindowRegistry::default())
         .manage(commands::comments::BadgeCache::new())
+        .manage(commands::excalidraw_close::ExcalidrawCloseFlushState::new())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
@@ -833,7 +835,31 @@ pub fn run() {
                         "[window] CloseRequested on {}: hidden (last visible window)",
                         window.label()
                     );
+                    return;
                 }
+            }
+
+            // Issue #352 / iter-12 (bug #4 — close-flush handshake).
+            // On Windows / Linux (and macOS non-last-visible-window),
+            // intercept CloseRequested, prevent_close, ask the renderer
+            // to drain any in-flight + debounced Excalidraw saves, then
+            // close after the ack (or the 2.5 s timeout). This eliminates
+            // the data-loss window between an in-progress edit and the
+            // 2-second autosave debounce — without the handshake, a user
+            // who edits and immediately Alt-F4s loses up to 2 s of work.
+            //
+            // The handshake is unconditional (we always wait for an ack
+            // even when no Excalidraw editor is open). The renderer hook
+            // resolves immediately when the registry is empty, so the
+            // close path adds at most a single round-trip latency for
+            // non-Excalidraw users.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                commands::excalidraw_close::flush_excalidraw_before_close(
+                    window.app_handle(),
+                    window.label().to_string(),
+                );
+                return;
             }
 
             if let tauri::WindowEvent::Destroyed = event {

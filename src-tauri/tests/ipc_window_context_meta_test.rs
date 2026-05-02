@@ -115,6 +115,12 @@ const EXEMPT_COMMANDS: &[&str] = &[
     // The extension allowlist + 10 MB cap further bound the surface.
     "write_workspace_text",
     "write_workspace_binary",
+    // Issue #352 / iter-12 — close-flush handshake ack. The label is
+    // an explicit argument (the closing window's own label, echoed
+    // back to Rust). No window arg needed: the label IS the scope
+    // identity and is already authenticated by the matching emit_to
+    // pair in `flush_excalidraw_before_close`.
+    "excalidraw_close_flush_complete",
 ];
 
 /// Per-window-state-mutating commands that MUST take a `window: tauri::Window`

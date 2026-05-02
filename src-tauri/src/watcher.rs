@@ -21,6 +21,16 @@ pub struct WatcherState {
     tree_watched_dirs: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     /// Sending on this channel wakes the watcher thread to sync dirs immediately.
     sync_tx: std::sync::mpsc::SyncSender<()>,
+    /// Issue #352 / iter-12 (security HIGH#1) — Rust-side self-write
+    /// suppression. Keyed by canonical path; value is the
+    /// `Instant`-monotonic deadline at which the entry expires.
+    /// `register_self_write` inserts before `write_atomic`; the watcher
+    /// `file-changed` emit branch consults `is_self_write_suppressed`
+    /// before forwarding events. Without this, the watcher's notify
+    /// stream picks up our own writes as external changes — racing
+    /// the renderer-side `recordSave` window which only catches the
+    /// race AFTER the post-IPC Promise settles.
+    self_write_suppressions: Arc<Mutex<HashMap<PathBuf, std::time::Instant>>>,
 }
 
 impl WatcherState {
@@ -29,7 +39,44 @@ impl WatcherState {
             watched_paths: Arc::new(Mutex::new(HashMap::new())),
             tree_watched_dirs: Arc::new(Mutex::new(HashMap::new())),
             sync_tx,
+            self_write_suppressions: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Issue #352 / iter-12 — register a self-write suppression for
+    /// `canonical` lasting `ttl`. The watcher event handler skips
+    /// `file-changed` emits for paths whose suppression entry is still
+    /// in the future. Called by `commands::fs_write::ensure_writable`
+    /// before `write_atomic`. Idempotent: a second register replaces
+    /// the deadline (e.g. rapid Cmd+S overwrites the prior TTL).
+    ///
+    /// TTL guidance: 1500 ms matches the renderer-side
+    /// `SAVE_DEBOUNCE_MS` window in `useFileWatcher.ts`. Long enough
+    /// that a slow disk + AV scan rename completes inside the window;
+    /// short enough that a real subsequent external write is not
+    /// silently absorbed.
+    pub(crate) fn register_self_write(
+        &self,
+        canonical: PathBuf,
+        ttl: std::time::Duration,
+    ) {
+        let deadline = std::time::Instant::now() + ttl;
+        if let Ok(mut map) = self.self_write_suppressions.lock() {
+            map.insert(canonical, deadline);
+        }
+    }
+
+    /// True when `path` (canonical) has an active self-write suppression
+    /// entry. Lazily evicts expired entries on access.
+    pub(crate) fn is_self_write_suppressed(&self, canonical: &Path) -> bool {
+        let now = std::time::Instant::now();
+        let mut map = match self.self_write_suppressions.lock() {
+            Ok(m) => m,
+            Err(_) => return false, // poisoned — fail open (event will fire)
+        };
+        // Lazy eviction: drop any entry whose deadline has passed.
+        map.retain(|_, deadline| *deadline > now);
+        map.contains_key(canonical)
     }
 
     /// Remove all watcher entries for a destroyed window.
@@ -323,6 +370,7 @@ pub fn start_watcher(app: &AppHandle) {
     let state = app.state::<WatcherState>();
     let watched = Arc::clone(&state.watched_paths);
     let tree_watched = Arc::clone(&state.tree_watched_dirs);
+    let self_write_suppressions = Arc::clone(&state.self_write_suppressions);
     let app_handle = app.clone();
 
     // Take the sync_rx out of managed state — the watcher thread owns it exclusively.
@@ -413,11 +461,33 @@ pub fn start_watcher(app: &AppHandle) {
                         if let Some(ev) = &file_event {
                             tracing::debug!("[watcher] file change: {} ({})", ev.path, ev.kind);
                             let canonical = canonicalize_no_verbatim(&event.path).ok();
-                            for (label, paths) in &per_window_watched {
-                                let matches = paths.contains(&event.path)
-                                    || canonical.as_ref().map_or(false, |c| paths.contains(c));
-                                if matches {
-                                    let _ = app_handle.emit_to(label.as_str(), "file-changed", ev.clone());
+                            // Issue #352 / iter-12 (security HIGH#1) —
+                            // Rust-side self-write suppression. Skip
+                            // the emit when the canonical path has an
+                            // active suppression entry registered by
+                            // `fs_write::ensure_writable` before its
+                            // own `write_atomic` call.
+                            let suppressed = canonical.as_ref().is_some_and(|c| {
+                                let now = std::time::Instant::now();
+                                if let Ok(mut map) = self_write_suppressions.lock() {
+                                    map.retain(|_, deadline| *deadline > now);
+                                    map.contains_key(c)
+                                } else {
+                                    false
+                                }
+                            });
+                            if suppressed {
+                                tracing::debug!(
+                                    "[watcher] file change suppressed (self-write): {}",
+                                    ev.path
+                                );
+                            } else {
+                                for (label, paths) in &per_window_watched {
+                                    let matches = paths.contains(&event.path)
+                                        || canonical.as_ref().map_or(false, |c| paths.contains(c));
+                                    if matches {
+                                        let _ = app_handle.emit_to(label.as_str(), "file-changed", ev.clone());
+                                    }
                                 }
                             }
                         }

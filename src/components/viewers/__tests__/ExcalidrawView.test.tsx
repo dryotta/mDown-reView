@@ -13,6 +13,10 @@ vi.mock("@excalidraw/excalidraw", () => {
   let editCounter = 0;
   return {
     Excalidraw: vi.fn((props: Record<string, unknown>) => {
+      const ui = props.UIOptions as
+        | { canvasActions?: Record<string, unknown> }
+        | undefined;
+      const canvasActions = (ui?.canvasActions ?? {}) as Record<string, unknown>;
       return (
         <div
           data-testid="excalidraw-stub"
@@ -20,6 +24,11 @@ vi.mock("@excalidraw/excalidraw", () => {
           data-theme={String(props.theme)}
           data-lang={String(props.langCode)}
           data-has-onchange={typeof props.onChange === "function" ? "true" : "false"}
+          data-uioptions-loadscene={String(canvasActions.loadScene)}
+          data-uioptions-saveasimage={String(canvasActions.saveAsImage)}
+          data-uioptions-savetoactivefile={String(canvasActions.saveToActiveFile)}
+          data-uioptions-export={String(canvasActions.export)}
+          data-uioptions-toggletheme={String(canvasActions.toggleTheme)}
           onClick={() => {
             const onChange = props.onChange as
               | ((els: unknown, app: unknown, files: unknown) => void)
@@ -125,6 +134,28 @@ describe("ExcalidrawView", () => {
     expect(stub.getAttribute("data-view-mode-enabled")).toBe("false");
     const shell = screen.getByTestId("excalidraw-shell");
     expect(shell.getAttribute("data-mode")).toBe("editor");
+  });
+
+  it("AC4 — built-in Excalidraw Open / Save / Export / loadScene actions are hidden via UIOptions", async () => {
+    // Issue #352 AC4 + iter-12 test-expert blocker T1. The four
+    // canvasActions toggles MUST all be `false` so the Excalidraw
+    // built-in chrome doesn't expose its own Save/Export/Load picker
+    // UI — the workspace-write IPC is the sole save chokepoint and
+    // the user-visible save action is autosave + Cmd+S.
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/a.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    const stub = await screen.findByTestId("excalidraw-stub");
+    expect(stub.getAttribute("data-uioptions-loadscene")).toBe("false");
+    expect(stub.getAttribute("data-uioptions-saveasimage")).toBe("false");
+    expect(stub.getAttribute("data-uioptions-savetoactivefile")).toBe("false");
+    expect(stub.getAttribute("data-uioptions-export")).toBe("false");
+    expect(stub.getAttribute("data-uioptions-toggletheme")).toBe("false");
   });
 
   it("loads scene via extractScene for PNG variant when needsExtract is true", async () => {
@@ -437,9 +468,13 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
   });
 
   it("Save IPC rejection surfaces save-error banner; canvas stays mounted; Retry re-fires save", async () => {
-    saveSceneMock.mockRejectedValueOnce(
-      new Error("decoded payload exceeds 10485760-byte cap: 12345678 bytes"),
-    );
+    // Iter-12: workspace-write IPC now returns a typed
+    // `WorkspaceWriteError`. The mock rejects with the typed shape so
+    // `friendlySaveError` exercises the `kind` discriminator path.
+    saveSceneMock.mockRejectedValueOnce({
+      kind: "payload-too-large",
+      observed_bytes: 12345678,
+    });
     render(
       <ExcalidrawView
         content={VALID_JSON}

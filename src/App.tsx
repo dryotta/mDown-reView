@@ -8,6 +8,7 @@ import { useMenuListeners } from "@/hooks/useMenuListeners";
 import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
 import { useOpenFileTab } from "@/hooks/useOpenFileTab";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
+import { useExcalidrawCloseFlush } from "@/hooks/useExcalidrawCloseFlush";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
@@ -153,6 +154,12 @@ export default function App() {
   useGlobalShortcuts(menuCallbacks);
   useLaunchArgsBootstrap();
   useOpenFileTab();
+  // Issue #352 / iter-12 (data-loss bug #4) — drain pending Excalidraw
+  // saves on `WindowEvent::CloseRequested` BEFORE Tauri tears down the
+  // webview. Without this hook, edits inside the 2 s autosave debounce
+  // are silently lost on Alt-F4 / Cmd-Q. Renderer-side counterpart of
+  // `src-tauri/src/commands/excalidraw_close.rs`.
+  useExcalidrawCloseFlush();
 
   // Apply theme class to <html> and listen for OS theme changes
   useApplyTheme(theme);
