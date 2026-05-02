@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { readTextFile, statFile } from "@/lib/tauri-commands";
 import { getFileCategory } from "@/lib/file-types";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 
 export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "error";
 

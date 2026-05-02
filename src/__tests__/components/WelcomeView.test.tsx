@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { WelcomeView } from "@/components/WelcomeView";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 
 vi.mock("@/lib/tauri-commands", () => ({
   checkPathExists: vi.fn().mockResolvedValue("file"),

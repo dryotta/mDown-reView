@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listenEvent } from "@/lib/tauri-events";
 import { getFileComments, type CommentThread, type MatchedComment } from "@/lib/tauri-commands";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 import { info, error } from "@/logger";
 
 interface UseCommentsResult {

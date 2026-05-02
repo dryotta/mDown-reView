@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { MockedFunction } from "vitest";
-import { useStore, openFilesFromArgs } from "@/store/index";
+import { useStore, openFilesFromArgs } from "@/store";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core");

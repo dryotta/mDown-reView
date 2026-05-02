@@ -210,8 +210,18 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
 
   useEffect(() => {
     let cancelled = false;
-    // Reset the saved-hash baseline; the first `setScene` below will
-    // populate it, and the subsequent onChange events will compare.
+    // Issue #352 / iter-8 user-reported BUG#2 — DO NOT pre-compute the
+    // baseline hash from raw JSON-parsed elements. Excalidraw normalises
+    // elements on mount (versionNonce/seed bumps, missing-field defaults,
+    // etc.), so the first `onChange` it fires has a hash that DIFFERS
+    // from any hash we compute from the wire bytes. Pre-setting the
+    // baseline from the wire shape forces every freshly-mounted Excalidraw
+    // to immediately read as "dirty" without any user input.
+    //
+    // Correct behaviour: leave baseline `null`. The onChange handler
+    // BOOTSTRAPS it on the first event it observes (post-normalisation).
+    // Subsequent onChange hashes that DIFFER from that bootstrap are
+    // real user edits.
     lastSavedContentHashRef.current = null;
 
     if (needsExtract) {
@@ -221,10 +231,6 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       extractScene(filePath)
         .then((extracted) => {
           if (cancelled) return;
-          lastSavedContentHashRef.current = computeContentHash(
-            extracted.elements,
-            extracted.libraryItems ?? null,
-          );
           startTransition(() => {
             setScene(extracted);
             setLoadError(null);
@@ -252,13 +258,20 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
         // Pass them via `initialData.libraryItems` so Excalidraw shows
         // the library panel populated. Also pre-open the library
         // sidebar so the grid is visible without a click.
+        //
+        // Issue #352 / iter-8 user-reported BUG#3 — Excalidraw's
+        // sidebar API is `{ name: DEFAULT_SIDEBAR.name, tab: <tabId> }`
+        // where `DEFAULT_SIDEBAR.name === "default"` and the library
+        // tab is `"library"`. The previous shape `{ name: "library" }`
+        // did not match any registered sidebar, so the panel never
+        // opened and the library grid was invisible.
         const isLib =
           parsed.type === "excalidrawlib" ||
           filePath.toLowerCase().endsWith(".excalidrawlib");
         const next: ExcalidrawScene = isLib
           ? {
               elements: [],
-              appState: { openSidebar: { name: "library" } },
+              appState: { openSidebar: { name: "default", tab: "library" } },
               files: {},
               libraryItems: parsed.libraryItems ?? [],
             }
@@ -268,10 +281,6 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
               files: parsed.files ?? {},
               libraryItems: null,
             };
-        lastSavedContentHashRef.current = computeContentHash(
-          next.elements,
-          next.libraryItems ?? null,
-        );
         startTransition(() => {
           setScene(next);
           setLoadError(null);
@@ -531,6 +540,21 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           theme={excalidrawTheme}
           UIOptions={UI_OPTIONS}
           langCode="en"
+          excalidrawAPI={(api) => {
+            // Issue #352 / iter-8 — capture the Excalidraw imperative
+            // API. In Vite dev builds we also stash it on `window` so
+            // browser-E2E specs can drive deterministic scene mutations
+            // (e.g. inject a rectangle) without depending on flaky
+            // canvas pointer events. Production builds skip the window
+            // assignment — the surrounding `if (false) {…}` is
+            // dead-code-eliminated by Rollup, so no production bytes
+            // contain the assignment.
+            if (import.meta.env.DEV && typeof window !== "undefined") {
+              (window as unknown as {
+                __EXCALIDRAW_API__?: typeof api;
+              }).__EXCALIDRAW_API__ = api;
+            }
+          }}
           onChange={(elements, appState, files) => {
             // Always capture the latest snapshot for the save handler.
             // Library items live on appState, not files.
@@ -542,16 +566,23 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
                 ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
                   .libraryItems ?? null),
             };
-            // Issue #352 / iter-7 user-reported BLOCKER (#3) — the
-            // dirty flag is now CONTENT-driven, not event-driven.
-            // Excalidraw fires onChange for every appState mutation
-            // (tool selection, viewport pan, theme, cursor) — none of
-            // which mutate persistent content. We compute a hash of
-            // (elements + libraryItems) and compare against the
-            // last-saved hash; dirty iff they differ. This eliminates
-            // the false-positive dirty-on-mount-or-tool-click that
-            // tab-title showed previously.
-            if (mode !== "editor") return;
+            // Issue #352 / iter-8 user-reported BUG#2 — bootstrap-on-first-event
+            // dirty tracking. Excalidraw normalises elements on mount, so the
+            // wire-shape hash and the first-onChange hash DON'T match. We
+            // therefore wait for the first onChange (post-normalisation) and
+            // capture THAT as the baseline. Subsequent onChanges whose hash
+            // differs from that bootstrap are real user edits.
+            //
+            // Excalidraw fires onChange for every appState mutation (tool
+            // selection, viewport pan, theme, cursor) — none of which mutate
+            // persistent content. The CONTENT hash is stable across those, so
+            // tool-clicks/pans don't drive the dirty flag.
+            //
+            // The bootstrap MUST happen regardless of mode — content baseline
+            // is content-truth, not mode-dependent. If we mount in Visual
+            // mode and then switch to Editor without remount, the first
+            // post-switch edit must compare against the Visual-mode baseline,
+            // not against null (which would consume that edit as bootstrap).
             const liveLibraryItems =
               ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
                 .libraryItems ?? null);
@@ -559,15 +590,15 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
               elements as ReadonlyArray<unknown>,
               liveLibraryItems,
             );
-            const baseline = lastSavedContentHashRef.current;
-            // baseline === null means the load effect hasn't published
-            // its baseline yet; treat as not-yet-dirty (the first
-            // genuine post-mount onChange will set it via the load
-            // effect and subsequent comparisons will be accurate).
-            if (baseline === null) return;
+            if (lastSavedContentHashRef.current === null) {
+              // First post-mount onChange — capture as baseline. NOT dirty.
+              lastSavedContentHashRef.current = currentHash;
+              return;
+            }
+            if (mode !== "editor") return;
             // setExcalidrawDirty short-circuits when the boolean is
             // unchanged, so we don't pay a re-render per mouse-move.
-            setExcalidrawDirty(filePath, currentHash !== baseline);
+            setExcalidrawDirty(filePath, currentHash !== lastSavedContentHashRef.current);
           }}
         />
       </div>

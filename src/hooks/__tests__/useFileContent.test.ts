@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useFileContent } from "@/hooks/useFileContent";
 import * as commands from "@/lib/tauri-commands";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 
 vi.mock("@/lib/tauri-commands");
 vi.mock("@/logger", () => ({

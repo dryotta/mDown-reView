@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 import { MAX_TAB_HISTORY } from "@/store/tabHistory";
 
 const initialState = useStore.getState();
