@@ -37,6 +37,11 @@ test.describe("Panels and Keyboard Shortcuts", () => {
 
   test("24.4 - Comments toolbar button toggles comments panel", async ({ page }) => {
     await page.goto("/");
+    // The Comments toolbar button is intentionally hidden on the welcome
+    // screen — it has nothing to act on without an active tab. Open a
+    // file first so the button mounts, then exercise the toggle.
+    await page.locator(".folder-tree").getByText("doc.md").click();
+
     const commentsBtn = page.getByTitle("Toggle comments pane (Ctrl+Shift+C)");
     await expect(commentsBtn).toBeVisible();
     await expect(commentsBtn).toHaveClass(/active/);
