@@ -11,10 +11,17 @@
 //   • Gzips each file's bytes in-memory with `gzipSync` (default level).
 //   • Sums the gzipped sizes and compares against MAX_GZIPPED_BYTES.
 //
-// MAX_GZIPPED_BYTES = 3 * 1024 * 1024 — current baseline 2.77 MB; long-term
-// target 2 MB once Shiki language lazy-loading lands (see docs/performance.md
-// Gap on JS bundle reduction). Catches > ~10 % regressions at the current
-// baseline.
+// MAX_GZIPPED_BYTES = 5 * 1024 * 1024 — current baseline ~4.3 MB after issue
+// #352 (Excalidraw integration, iter 2). The Lean-tax exception is documented
+// in docs/principles.md:121 (Non-Goal carve-out for the .excalidraw family) —
+// the upstream `@excalidraw/excalidraw` package ships ~1.3 MB of font-subset
+// workers + harfbuzz wasm + percentage tables in its own lazy chunk. The
+// chunk is correctly code-split (only loads on first .excalidraw open via
+// React.lazy in EnhancedViewer.tsx) so it never penalises non-excalidraw
+// users at startup. 5 MB cap leaves ~700 KB headroom for iter-3 save-flow
+// code; long-term target 4 MB once we audit Excalidraw's chunk for any
+// internals we don't actually use (font subsetting features may be
+// trimmable). Catches > ~15 % regressions at the current baseline.
 //
 // Exit codes:
 //   0 — total ≤ threshold (prints OK summary to stderr)
@@ -28,8 +35,8 @@ import { gzipSync } from "node:zlib";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
-/** Hard ceiling for total gzipped JS size (bytes). Starter 3 MB; target 2 MB. */
-const MAX_GZIPPED_BYTES = 3 * 1024 * 1024;
+/** Hard ceiling for total gzipped JS size (bytes). 5 MB after #352 iter 2; target 4 MB. */
+const MAX_GZIPPED_BYTES = 5 * 1024 * 1024;
 
 // ── Argument parsing ──────────────────────────────────────────────────
 

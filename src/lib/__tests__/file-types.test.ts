@@ -84,6 +84,30 @@ describe("getFileCategory", () => {
   });
 });
 
+describe("getFileCategory — excalidraw routing (#352)", () => {
+  it("classifies .excalidraw as excalidraw category", () => {
+    expect(getFileCategory("/foo/scene.excalidraw")).toBe("excalidraw");
+  });
+  it("classifies .excalidrawlib as excalidraw category", () => {
+    expect(getFileCategory("/foo/lib.excalidrawlib")).toBe("excalidraw");
+  });
+  it("classifies .excalidraw.png as excalidraw category (compound suffix)", () => {
+    expect(getFileCategory("/foo/scene.excalidraw.png")).toBe("excalidraw");
+  });
+  it("classifies .excalidraw.svg as excalidraw category", () => {
+    expect(getFileCategory("/foo/scene.excalidraw.svg")).toBe("excalidraw");
+  });
+  it("classifies plain .png as image category (compound suffix doesn't false-trigger)", () => {
+    expect(getFileCategory("/foo/photo.png")).toBe("image");
+  });
+  it("classifies plain .svg as image category", () => {
+    expect(getFileCategory("/foo/icon.svg")).toBe("image");
+  });
+  it("handles case-folded compound suffix (Foo.Excalidraw.PNG → excalidraw)", () => {
+    expect(getFileCategory("/foo/Foo.Excalidraw.PNG")).toBe("excalidraw");
+  });
+});
+
 describe("hasVisualization", () => {
   it("returns true for visualizable categories", () => {
     expect(hasVisualization("markdown")).toBe(true);
@@ -116,6 +140,40 @@ describe("getDefaultView", () => {
 
   it("returns visual for image", () => {
     expect(getDefaultView("image")).toBe("visual");
+  });
+
+  // ── Excalidraw (#352) ────────────────────────────────────────────────────
+  it("returns visual for excalidraw category", () => {
+    expect(getDefaultView("excalidraw")).toBe("visual");
+  });
+  it("accepts an optional path parameter (currently ignored for excalidraw)", () => {
+    expect(getDefaultView("excalidraw", "/foo/bar.excalidraw")).toBe("visual");
+    expect(getDefaultView("excalidraw", "/foo/bar.excalidraw.png")).toBe("visual");
+    expect(getDefaultView("excalidraw", "/foo/bar.excalidrawlib")).toBe("visual");
+  });
+});
+
+describe("hasVisualization — excalidraw (#352)", () => {
+  it("returns true for excalidraw category", () => {
+    expect(hasVisualization("excalidraw")).toBe(true);
+  });
+});
+
+describe("getFiletypeKey — excalidraw zoom key (#352)", () => {
+  it("returns .excalidraw for visual mode", () => {
+    expect(getFiletypeKey("/foo/scene.excalidraw", "visual")).toBe(".excalidraw");
+  });
+  it("returns .excalidraw for editor mode (shared zoom across visual+editor)", () => {
+    expect(getFiletypeKey("/foo/scene.excalidraw", "editor")).toBe(".excalidraw");
+  });
+  it("returns .source for source mode", () => {
+    expect(getFiletypeKey("/foo/scene.excalidraw", "source")).toBe(".source");
+  });
+  it("returns .excalidraw by default (excalidraw defaults to visual)", () => {
+    expect(getFiletypeKey("/foo/scene.excalidraw")).toBe(".excalidraw");
+  });
+  it("routes .excalidraw.png through excalidraw key, not .image", () => {
+    expect(getFiletypeKey("/foo/scene.excalidraw.png")).toBe(".excalidraw");
   });
 });
 

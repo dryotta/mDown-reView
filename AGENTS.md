@@ -190,6 +190,7 @@ e2e/
 - [Updates](docs/features/updates.md) — stable + canary release channels, signed updater
 - [Installation](docs/features/installation.md) — install scripts, DMG quarantine, ad-hoc signing posture
 - [CLI & File Associations](docs/features/cli-and-associations.md) — CLI file-open, single-instance, OS associations
+- [Excalidraw](docs/features/excalidraw.md) — `.excalidraw` / `.excalidrawlib` viewer, Source/Visual/Editor modes, workspace-write chokepoint
 - [Settings](docs/features/settings.md) — full-page Settings region (CLI shim, default handler, folder context)
 - [Logging](docs/features/logging.md) — frontend + Rust logging chokepoint, exception capture
 

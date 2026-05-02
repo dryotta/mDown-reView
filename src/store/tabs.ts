@@ -20,6 +20,7 @@
 import type { StoreApi } from "zustand";
 
 import { commands } from "@/lib/bindings";
+import type { ViewMode } from "@/lib/file-types";
 
 import type { Store } from "./index";
 
@@ -90,7 +91,7 @@ export interface FileMeta {
 export interface TabsSlice {
   tabs: Tab[];
   activeTabPath: string | null;
-  viewModeByTab: Record<string, "source" | "visual">;
+  viewModeByTab: Record<string, ViewMode>;
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
@@ -107,7 +108,7 @@ export interface TabsSlice {
    * point for `SourceView`; ViewerRouter never touches it.
    */
   setSourceScrollTop: (path: string, sourceScrollTop: number) => void;
-  setViewMode: (path: string, mode: "source" | "visual") => void;
+  setViewMode: (path: string, mode: ViewMode) => void;
   /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
   setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
   /**

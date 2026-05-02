@@ -154,4 +154,31 @@ describe("ViewerToolbar", () => {
     });
   });
 
+  // ── Editor button (issue #352, canEdit gate) ──────────────────────────
+  describe("canEdit (Excalidraw tri-state)", () => {
+    it("does NOT render the Editor button by default (canEdit omitted)", () => {
+      render(<ViewerToolbar activeView="source" onViewChange={vi.fn()} />);
+      expect(screen.queryByRole("button", { name: /^editor$/i })).toBeNull();
+    });
+
+    it("renders an Editor button when canEdit is true", () => {
+      render(<ViewerToolbar activeView="visual" onViewChange={vi.fn()} canEdit />);
+      expect(screen.getByRole("button", { name: /^editor$/i })).toBeInTheDocument();
+    });
+
+    it("highlights the Editor button when activeView is editor", () => {
+      render(<ViewerToolbar activeView="editor" onViewChange={vi.fn()} canEdit />);
+      const btn = screen.getByRole("button", { name: /^editor$/i });
+      expect(btn).toHaveClass("active");
+      expect(btn).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("emits onViewChange('editor') when clicked", () => {
+      const onChange = vi.fn();
+      render(<ViewerToolbar activeView="visual" onViewChange={onChange} canEdit />);
+      fireEvent.click(screen.getByRole("button", { name: /^editor$/i }));
+      expect(onChange).toHaveBeenCalledWith("editor");
+    });
+  });
+
 });
