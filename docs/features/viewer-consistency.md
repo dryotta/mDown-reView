@@ -120,7 +120,7 @@ mdownreview enforces an explicit cap on **markdown rendering** so the app stays 
 - **Shiki syntax highlighting is idle-chunked**: first paint is HTML-escaped plain text so the file is readable immediately; colour fades in chunk-by-chunk via `requestIdleCallback` (polyfilled in `src/lib/idle.ts` for WKWebView, which never shipped the API). Each chunk highlights `SOURCE_HIGHLIGHT_CHUNK_LINES` lines and yields when frame-budget remaining drops below `SOURCE_HIGHLIGHT_IDLE_BUDGET_MS`.
 - **`MarkdownViewer` uses `useDeferredValue(content)`** so the heavy ReactMarkdown parse can yield to high-priority renders (find-bar input, scrolling, gutter clicks). Cheap regex pre-scans (frontmatter, math detection, remote-image refs) and gutter click line-text stay on raw `content` so banners and click handlers respond without delay.
 
-Above the 10 MB hard cap the file is rejected at the Rust IPC boundary (`commands/fs.rs::read_file_capped` — fstat pre-check + bounded `Vec::with_capacity` + `take(MAX+1)` post-read length check) and `TooLargePlaceholder` is shown.
+Above the 10 MB hard cap the file is rejected at the Rust IPC boundary (`commands/fs/read.rs::read_file_capped` — fstat pre-check + bounded `Vec::with_capacity` + `take(MAX+1)` post-read length check) and `TooLargePlaceholder` is shown.
 
 ## Checklist for adding a new viewer
 

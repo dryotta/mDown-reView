@@ -184,7 +184,7 @@ fn test_read_text_file_dot_dot_traversal_rejects() {
 // Pin the `"canonicalize failed"` sentinel.
 //
 // `ensure_readable` has four distinct rejection sentinels (see the doc-comment
-// at `commands/fs.rs::ensure_readable`). Two of them — `"canonicalize failed"`
+// at `commands/fs/mod.rs::ensure_readable`). Two of them — `"canonicalize failed"`
 // and `"path not canonicalizable"` — are defensive branches that are
 // **unreachable through the public IPC contract**:
 //

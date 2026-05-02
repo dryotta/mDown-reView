@@ -34,7 +34,7 @@ sequenceDiagram
 ## Key source
 
 - **Rust watcher:** `src-tauri/src/watcher.rs` — `update_watched_files`, `set_tree_watched_dirs`, `MAX_TREE_WATCHED_DIRS`, `classify_event`
-- **Rust command:** `src-tauri/src/watcher.rs` — `update_watched_files`; `src-tauri/src/commands/fs.rs` — `update_tree_watched_dirs`; `src-tauri/src/commands/launch.rs` — `scan_review_files`
+- **Rust command:** `src-tauri/src/watcher.rs` — `update_watched_files`; `src-tauri/src/commands/fs/mod.rs` — `update_tree_watched_dirs`; `src-tauri/src/commands/launch.rs` — `scan_review_files`
 - **Hook:** `src/hooks/useFileWatcher.ts`, `src/hooks/useTreeWatcher.ts`, `src/hooks/useFolderChildren.ts`
 - **Store interactions:** `watcherSlice` in `src/store/index.ts`
 

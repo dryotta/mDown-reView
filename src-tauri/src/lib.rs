@@ -438,9 +438,9 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     macro_rules! specta_commands {
         ($($extra:tt)*) => {
             tauri_specta::collect_commands![
-                commands::fs::read_dir,
-                commands::fs::read_text_file,
-                commands::fs::read_binary_file,
+                commands::fs::dir::read_dir,
+                commands::fs::read::read_text_file,
+                commands::fs::read::read_binary_file,
                 commands::fs::stat_file,
                 commands::system::reveal_in_folder,
                 commands::html::resolve_html_assets,
