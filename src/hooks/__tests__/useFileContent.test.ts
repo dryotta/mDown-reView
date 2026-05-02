@@ -419,7 +419,97 @@ describe("useFileContent", () => {
     expect(meta?.sizeBytes).toBe(4096);
   });
 
-  // Group G3 (issue #280, iter 3): functional setState bailout. Byte-identical
+  // Issue #352 / iter-5 BLOCKER (test-expert + assessor) — the iter-4
+  // useFileContent short-circuit for `.excalidraw.png` / `.excalidraw.svg`
+  // is the entire mechanism that makes AC1 work for binary variants.
+  // Until iter-5 it had ZERO test coverage. These tests lock down the
+  // contract:
+  //   (a) `.excalidraw.png` resolves to status='ready' (NOT 'binary').
+  //   (b) content is the empty-string sentinel (consumers respect it).
+  //   (c) sizeBytes/mtime come from `statFile`, never `readTextFile`.
+  //   (d) `setFileMeta` is called with the stat'd values.
+  //   (e) `statFile` rejection still resolves to status='ready' with
+  //       sizeBytes:0 (don't degrade to 'binary' or 'error').
+  //   (f) `readTextFile` is NOT called for these paths.
+  describe("Excalidraw binary short-circuit (#352 / iter-5)", () => {
+    it("treats .excalidraw.png as status='ready' with empty content + stat metadata", async () => {
+      vi.mocked(commands.statFile).mockResolvedValue({
+        size_bytes: 4096,
+        mtime_ms: 1700000000000,
+      });
+
+      const { result } = renderHook(() => useFileContent("/ws/diagram.excalidraw.png"));
+      await act(async () => {});
+
+      expect(commands.readTextFile).not.toHaveBeenCalled();
+      expect(commands.statFile).toHaveBeenCalledWith("/ws/diagram.excalidraw.png");
+      expect(result.current.status).toBe("ready");
+      expect(result.current.content).toBe("");
+      expect(result.current.sizeBytes).toBe(4096);
+      expect(result.current.lineCount).toBe(0);
+      expect(result.current.mtimeMs).toBe(1700000000000);
+      const meta = useStore.getState().fileMetaByPath["/ws/diagram.excalidraw.png"];
+      expect(meta?.sizeBytes).toBe(4096);
+      expect(meta?.lineCount).toBe(0);
+      expect(meta?.fileMtime).toBe(1700000000000);
+    });
+
+    it("treats .excalidraw.svg the same way", async () => {
+      vi.mocked(commands.statFile).mockResolvedValue({
+        size_bytes: 1024,
+        mtime_ms: null,
+      });
+
+      const { result } = renderHook(() => useFileContent("/ws/icons.excalidraw.svg"));
+      await act(async () => {});
+
+      expect(commands.readTextFile).not.toHaveBeenCalled();
+      expect(result.current.status).toBe("ready");
+      expect(result.current.content).toBe("");
+      expect(result.current.mtimeMs).toBeNull();
+    });
+
+    it("statFile rejection still resolves to status='ready' with sizeBytes=0", async () => {
+      vi.mocked(commands.statFile).mockRejectedValue(new Error("boom"));
+
+      const { result } = renderHook(() => useFileContent("/ws/x.excalidraw.png"));
+      await act(async () => {});
+
+      expect(result.current.status).toBe("ready");
+      expect(result.current.content).toBe("");
+      expect(result.current.sizeBytes).toBe(0);
+    });
+
+    it("does NOT short-circuit canonical .excalidraw (delegates to readTextFile)", async () => {
+      vi.mocked(commands.readTextFile).mockResolvedValue(tfr('{"type":"excalidraw"}'));
+
+      renderHook(() => useFileContent("/ws/scene.excalidraw"));
+      await act(async () => {});
+
+      expect(commands.readTextFile).toHaveBeenCalledWith("/ws/scene.excalidraw");
+      expect(commands.statFile).not.toHaveBeenCalled();
+    });
+
+    it("path change from a binary excalidraw to a regular file invokes readTextFile (cancellation safety)", async () => {
+      vi.mocked(commands.statFile).mockResolvedValue({
+        size_bytes: 100,
+        mtime_ms: null,
+      });
+      vi.mocked(commands.readTextFile).mockResolvedValue(tfr("# md"));
+
+      const { rerender } = renderHook(({ path }) => useFileContent(path), {
+        initialProps: { path: "/ws/a.excalidraw.png" },
+      });
+      await act(async () => {});
+
+      rerender({ path: "/ws/b.md" });
+      await act(async () => {});
+
+      expect(commands.readTextFile).toHaveBeenCalledWith("/ws/b.md");
+    });
+  });
+
+
   // reloads (frequent under AI-agent regenerate-by-save) must NOT trigger a
   // re-render of consumers. Verified via reference identity on the returned
   // state object — React 19 bails the re-render via `Object.is(prev, prev)`

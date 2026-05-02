@@ -28,16 +28,18 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BASELINE_PATH = resolve(HERE, "bundle-baseline.json");
-
 // ── Argument parsing ──────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 let rootDir;
 let updateBaseline = false;
+let cliBaselinePath;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--root" && i + 1 < args.length) {
     rootDir = resolve(args[i + 1]);
+    i++;
+  } else if (args[i] === "--baseline" && i + 1 < args.length) {
+    cliBaselinePath = resolve(args[i + 1]);
     i++;
   } else if (args[i] === "--update-baseline") {
     updateBaseline = true;
@@ -46,6 +48,19 @@ for (let i = 0; i < args.length; i++) {
 if (!rootDir) {
   rootDir = resolve(HERE, "..");
 }
+const BASELINE_PATH = (() => {
+  if (cliBaselinePath) return cliBaselinePath;
+  if (process.env.BUNDLE_BASELINE_PATH) {
+    return resolve(process.env.BUNDLE_BASELINE_PATH);
+  }
+  // `--root` to a non-default location → put baseline alongside that
+  // root's `scripts/` so tests don't pollute the checked-in copy.
+  const defaultRoot = resolve(HERE, "..");
+  if (rootDir !== defaultRoot) {
+    return resolve(rootDir, "scripts", "bundle-baseline.json");
+  }
+  return resolve(HERE, "bundle-baseline.json");
+})();
 
 const assetsDir = join(rootDir, "dist", "assets");
 

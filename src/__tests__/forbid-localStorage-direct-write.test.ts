@@ -48,6 +48,11 @@ const ALLOWED = new Set<string>([
   // NOT write today, but if a future edit adds a defensive write to
   // dispatch a cross-tab heartbeat the chokepoint stays here.
   join("hooks", "useCrossWindowPrefsSync.ts"),
+  // Issue #352 — first-save MRSF warning seen-flag (one-shot
+  // onboarding toast). Single typed module behind which all write
+  // traffic flows; readers call `hasSeenFirstSave()` directly
+  // (read-only is unrestricted by this gate).
+  join("lib", "excalidraw", "first-save-warning.ts"),
 ]);
 
 const FORBIDDEN_WRITE = /localStorage\.(setItem|removeItem|clear)\s*\(/;

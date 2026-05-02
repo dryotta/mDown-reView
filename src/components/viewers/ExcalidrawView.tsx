@@ -6,6 +6,10 @@ import { SkeletonLoader } from "./SkeletonLoader";
 import { useTheme } from "@/hooks/useTheme";
 import { extractScene, type ExcalidrawScene } from "@/lib/excalidraw/extractScene";
 import { saveExcalidrawFile } from "@/lib/excalidraw/saveScene";
+import {
+  hasSeenFirstSave,
+  markFirstSaveSeen,
+} from "@/lib/excalidraw/first-save-warning";
 import { useStore } from "@/store";
 import { warn as logWarn, error as logError } from "@/logger";
 
@@ -81,6 +85,41 @@ interface Props {
  */
 export const EXCALIDRAW_SAVE_REQUEST = "mdownreview:excalidraw-save-request";
 
+/**
+ * Issue #352 / iter-5 BLOCKER (product F3) — friendly save-error
+ * mapping. The Rust workspace-write IPC returns precise but
+ * developer-flavoured error strings (e.g. `decoded payload exceeds
+ * 10485760-byte cap: 12345678 bytes`). A non-engineer reading those
+ * has no idea what to do. Map the documented error prefixes from
+ * `src-tauri/src/commands/fs_write.rs` to user-facing copy.
+ *
+ * Falls through to the raw Rust message if no prefix matches — better
+ * to surface a developer-debuggable string than a hand-waved generic.
+ */
+function friendlySaveError(rust: string): string {
+  // Order: most specific prefix first.
+  if (rust.includes("payload exceeds") || rust.includes("decoded payload exceeds")) {
+    const m = rust.match(/(\d+) bytes?$/);
+    const observed = m ? Math.round(Number(m[1]) / (1024 * 1024)) : null;
+    return observed !== null
+      ? `Drawing too large to save (${observed} MB > 10 MB limit). Try removing embedded images or splitting the drawing.`
+      : "Drawing too large to save (over 10 MB limit). Try removing embedded images or splitting the drawing.";
+  }
+  if (rust.includes("path is outside an open workspace")) {
+    return "This file is outside your workspace and is read-only. Open its containing folder to save.";
+  }
+  if (rust.includes("extension not in workspace-write allowlist")) {
+    return "This file type can't be saved by mdownreview.";
+  }
+  if (rust.includes("invalid filename") && rust.includes("NTFS ADS")) {
+    return "Filename contains a forbidden character (`:`) — rename and retry.";
+  }
+  if (rust.includes("invalid base64 payload")) {
+    return "Failed to encode the drawing for save (corrupted scene). Reload the file and try again.";
+  }
+  return rust;
+}
+
 export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props) {
   const theme = useTheme();
   const excalidrawTheme: "light" | "dark" = theme === "dark" ? "dark" : "light";
@@ -92,6 +131,10 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // save errors separately from load errors and surface them as a
   // non-modal banner above the canvas, alongside the conflict banner.
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Issue #352 / iter-5 BLOCKER (product F5) — first-save MRSF
+  // warning. Set to `true` on the first successful save per browser
+  // profile; cleared by user dismiss.
+  const [showFirstSaveWarning, setShowFirstSaveWarning] = useState(false);
 
   // Latest scene snapshot from Excalidraw's `onChange` — captured into a
   // ref so the save handler reads the current value without re-creating
@@ -120,6 +163,15 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // race and leave on-disk content with stale bytes. Atomic-write at
   // the IPC level prevents torn writes but cannot reorder saves.
   const saveInFlightRef = useRef(false);
+  // Issue #352 / iter-5 BLOCKER (rubber-duck #2) — Excalidraw consumes
+  // `initialData` only at mount; changing the prop later does NOT
+  // rehydrate the canvas. The conflict-banner Reload button needs to
+  // FORCE a remount of `<Excalidraw>` to pick up the on-disk content.
+  // We bump `reloadKey` on every Reload click and use it as the React
+  // `key` on the Excalidraw element AND as a dep of the load effect
+  // (so binary-variant `extractScene` re-runs even when `content` is
+  // the empty sentinel for `.excalidraw.png` / `.excalidraw.svg`).
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,21 +225,18 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     return () => {
       cancelled = true;
     };
-  }, [filePath, content, needsExtract, mode]);
+  }, [filePath, content, needsExtract, mode, reloadKey]);
 
-  // Issue #352 / iter-3 rubber-duck review (extra blind spot) — clear
-  // the dirty + pending flags when this view unmounts. The live scene
-  // state lives only in the mounted Excalidraw component; once the
-  // active tab changes, the scene is gone and any dirty flag would
-  // silently mislabel a stale on-disk reload as "unsaved edits". The
-  // user is in the same situation as switching out of Editor mode
-  // (`setViewMode` already clears dirty/pending) — be consistent.
-  useEffect(() => {
-    return () => {
-      setExcalidrawDirty(filePath, false);
-      setExternalChangePending(filePath, false);
-    };
-  }, [filePath, setExcalidrawDirty, setExternalChangePending]);
+  // Issue #352 / iter-5 — the previous unmount cleanup that cleared
+  // dirty + pending on every unmount has been REMOVED. That cleanup
+  // was the iter-3 "fix" for the rubber-duck "extra blind spot" but
+  // it actually caused silent data loss: it cleared the warning
+  // signal so the user had no way to know their unsaved work was
+  // gone after a tab switch. iter-5 replaces it with `setActiveTab`
+  // and `setViewMode` GUARDS in the tabs slice (`Discard changes?`
+  // prompt before the unmount), so by the time we get here the
+  // user has already explicitly chosen to discard or cancel. No
+  // unmount-time cleanup needed.
 
   // Listen for Save requests dispatched from the Save button + Ctrl+S
   // handler. Only the view whose `filePath` matches the event detail
@@ -209,6 +258,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       const live = liveSceneRef.current ?? scene;
       if (!live) return;
       saveInFlightRef.current = true;
+      const wasFirstSave = !hasSeenFirstSave();
       void saveExcalidrawFile(filePath, {
         elements: live.elements,
         appState: live.appState,
@@ -224,6 +274,13 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           setExcalidrawDirty(filePath, false);
           setExternalChangePending(filePath, false);
           setSaveError(null);
+          // Issue #352 / iter-5 BLOCKER (product F5) — first-save
+          // MRSF warning toast. Show ONLY on the first successful save
+          // per browser profile, then never again.
+          if (wasFirstSave) {
+            markFirstSaveSeen();
+            setShowFirstSaveWarning(true);
+          }
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
@@ -233,7 +290,9 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           // canvas and discard the user's unsaved edits (rubber-duck +
           // product-expert blockers, iter-3 review). Dirty stays
           // true so the user can retry; the Save button stays "live".
-          setSaveError(msg);
+          // Map the precise Rust error to user-facing copy
+          // (product F3 — iter-5 blocker).
+          setSaveError(friendlySaveError(msg));
         })
         .finally(() => {
           saveInFlightRef.current = false;
@@ -282,15 +341,50 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       data-dirty={dirty || undefined}
       style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}
     >
+      {showFirstSaveWarning && (
+        <div
+          className="excalidraw-first-save-warning-banner"
+          role="status"
+          data-testid="excalidraw-first-save-warning-banner"
+        >
+          <span className="excalidraw-first-save-warning-banner__copy">
+            Saving a drawing may move some line-anchored comments to file-level.
+          </span>
+          <button
+            type="button"
+            className="excalidraw-conflict-banner__action"
+            onClick={() => setShowFirstSaveWarning(false)}
+          >
+            Got it
+          </button>
+        </div>
+      )}
       {mode === "editor" && saveError && (
         <div
           className="excalidraw-save-error-banner"
-          role="status"
+          role="alert"
           data-testid="excalidraw-save-error-banner"
         >
           <span className="excalidraw-save-error-banner__copy">
             Save failed: {saveError}
           </span>
+          <button
+            type="button"
+            className="excalidraw-conflict-banner__action"
+            onClick={() => {
+              // Retry — clear the error and re-fire the save event
+              // (same path the user's Save button or Ctrl+S would).
+              setSaveError(null);
+              window.dispatchEvent(
+                new CustomEvent(EXCALIDRAW_SAVE_REQUEST, {
+                  detail: { path: filePath },
+                }),
+              );
+            }}
+            data-testid="excalidraw-save-error-retry"
+          >
+            Retry
+          </button>
           <button
             type="button"
             className="excalidraw-conflict-banner__action"
@@ -313,14 +407,22 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
             type="button"
             className="excalidraw-conflict-banner__action"
             onClick={() => {
-              // Reload — clear dirty so the next file-changed event is
-              // treated as a normal reload (not a conflict), clear the
-              // pending banner, then dispatch a synthetic file-changed
-              // DOM event so `useFileContent` picks up the on-disk
-              // version. Same event shape as the watcher emits (see
-              // useFileWatcher.ts:74).
+              // Issue #352 / iter-5 BLOCKER (rubber-duck #2) — Reload
+              // must FORCE a remount of <Excalidraw> + re-run of the
+              // load effect (which calls extractScene for binary
+              // variants OR re-parses content for canonical files).
+              // Bumping reloadKey does both: (a) the load effect dep
+              // includes reloadKey so it fires; (b) the Excalidraw
+              // child gets a fresh `key={reloadKey}` so React mounts
+              // a new instance with the freshly-parsed initialData.
+              // Also clear dirty + pending and dispatch a synthetic
+              // file-changed so `useFileContent` re-reads the on-disk
+              // bytes (canonical files) — the load effect will then
+              // see fresh `content`. Same event shape as
+              // useFileWatcher.ts:74.
               setExcalidrawDirty(filePath, false);
               setExternalChangePending(filePath, false);
+              setReloadKey((k) => k + 1);
               window.dispatchEvent(
                 new CustomEvent("mdownreview:file-changed", {
                   detail: { path: filePath, kind: "content" },
@@ -345,6 +447,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
         <Excalidraw
+          key={reloadKey}
           initialData={{
             elements: deferredScene.elements as never,
             appState: deferredScene.appState as never,

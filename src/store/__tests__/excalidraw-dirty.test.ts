@@ -28,6 +28,19 @@ beforeEach(() => {
 });
 
 describe("excalidrawDirtyByTab + externalChangePendingByTab (issue #352)", () => {
+  // iter-5 — `setViewMode` and `setActiveTab` now PROMPT before
+  // discarding dirty editor state. The mode-clearing tests below set
+  // up dirty state and then trigger the discard, so we need to mock
+  // `confirm` to return `true` (user confirms discard) for those
+  // assertions; otherwise the guard aborts and dirty state survives.
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(globalThis, "confirm").mockReturnValue(true);
+  });
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
   it("defaults to empty maps", () => {
     expect(useStore.getState().excalidrawDirtyByTab).toEqual({});
     expect(useStore.getState().externalChangePendingByTab).toEqual({});
@@ -197,6 +210,98 @@ describe("close-tab guard (issue #352 / AC6)", () => {
     useStore.getState().openFile("/ws/b.md", { recordHistory: false });
     useStore.getState().closeAllTabs();
     expect(confirmSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Issue #352 / iter-5 BLOCKER (product B1 + bug P0 + rubber-duck #1) —
+// `setActiveTab` MUST prompt before switching away from a dirty
+// Excalidraw editor tab, otherwise the unmount of `<ExcalidrawView/>`
+// silently discards the live scene with no warning. Same prompt as
+// closeTab; same fail-closed semantics.
+describe("setActiveTab guard for dirty Excalidraw editor (iter-5 BLOCKER)", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(globalThis, "confirm").mockReturnValue(true);
+  });
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  it("does NOT prompt when leaving a clean tab", () => {
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+    useStore.getState().setActiveTab("/ws/a.excalidraw", { recordHistory: false });
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT prompt when leaving an Excalidraw tab that is NOT in editor mode", () => {
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+    // Stored mode is visual; dirty flag set to true is a synthetic
+    // edge case, but we want to verify the guard requires editor mode.
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
+    useStore.setState({
+      viewModeByTab: { "/ws/a.excalidraw": "visual" },
+    });
+    useStore.setState({ activeTabPath: "/ws/a.excalidraw" });
+    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("PROMPTS Discard changes? when leaving a dirty Excalidraw editor tab", () => {
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+    useStore.setState({
+      activeTabPath: "/ws/a.excalidraw",
+      viewModeByTab: { "/ws/a.excalidraw": "editor" },
+    });
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
+    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
+    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
+  });
+
+  it("ABORTS the switch when user cancels the prompt", () => {
+    confirmSpy.mockReturnValue(false);
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+    useStore.setState({
+      activeTabPath: "/ws/a.excalidraw",
+      viewModeByTab: { "/ws/a.excalidraw": "editor" },
+    });
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
+    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
+    // Active still on the dirty tab; dirty flag preserved.
+    expect(useStore.getState().activeTabPath).toBe("/ws/a.excalidraw");
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
+  });
+
+  it("PROCEEDS and clears dirty/pending when user confirms", () => {
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+    useStore.setState({
+      activeTabPath: "/ws/a.excalidraw",
+      viewModeByTab: { "/ws/a.excalidraw": "editor" },
+    });
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
+    useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);
+    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
+    expect(useStore.getState().activeTabPath).toBe("/ws/b.md");
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
+    expect(
+      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
+    ).toBeUndefined();
+  });
+
+  it("setViewMode out of editor PROMPTS when dirty + ABORTS on cancel", () => {
+    confirmSpy.mockReturnValue(false);
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().setViewMode("/ws/a.excalidraw", "editor");
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
+    useStore.getState().setViewMode("/ws/a.excalidraw", "visual");
+    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
+    // Still in editor mode + still dirty.
+    expect(useStore.getState().viewModeByTab["/ws/a.excalidraw"]).toBe("editor");
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
   });
 });
 

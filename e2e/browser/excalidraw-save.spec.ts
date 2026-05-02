@@ -69,6 +69,37 @@ test.describe("Excalidraw save UI plumbing (#352 iter 3)", () => {
     page.on("pageerror", (err) => {
       throw new Error(`Browser error: ${err.message}`);
     });
+    // Issue #352 / iter-5 BLOCKER (AC9 — assessor) — the save flow
+    // exercises the Excalidraw export pipeline (`exportToBlob` /
+    // `exportToSvg`); install the same network guard the
+    // `excalidraw-modes.spec.ts` mode-switch flow uses, so a future
+    // Excalidraw upgrade that fetches fonts at export time fails the
+    // test instead of silently passing. Tightened from iter-2's CDN
+    // denylist to a reasonable allowlist of expected hosts.
+    const externalRequests: string[] = [];
+    (page as Page & { __externalRequests?: string[] }).__externalRequests = externalRequests;
+    await page.route("**/*", (route, request) => {
+      const url = new URL(request.url());
+      // Allowlist: localhost (Vite dev), tauri.localhost (desktop build),
+      // about:blank for fixture iframes, and same-origin asset paths.
+      if (
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        url.hostname === "tauri.localhost" ||
+        url.protocol === "data:" ||
+        url.protocol === "blob:" ||
+        url.protocol === "about:"
+      ) {
+        return route.continue();
+      }
+      externalRequests.push(request.url());
+      return route.abort();
+    });
+  });
+
+  test.afterEach(async ({ page }) => {
+    const externalRequests = (page as Page & { __externalRequests?: string[] }).__externalRequests ?? [];
+    expect(externalRequests).toEqual([]);
   });
 
   test("Save button is hidden in Visual mode and visible in Editor mode", async ({ page }) => {

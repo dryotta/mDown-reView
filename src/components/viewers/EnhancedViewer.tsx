@@ -76,6 +76,14 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
 
   const viewMode = useStore((s) => s.viewModeByTab[filePath]) ?? defaultView;
   const setViewMode = useStore((s) => s.setViewMode);
+  // Issue #352 / iter-5 BLOCKER (product B2) — read-only tabs (outside
+  // the workspace) cannot route through the workspace-write IPC. Show
+  // no Save button + skip Ctrl+S so the user is never told "Save"
+  // and then surprised by a Rust permission error. The Excalidraw
+  // canvas itself is forced into Visual mode for these tabs.
+  const isReadOnly = useStore(
+    (s) => s.tabs.find((t) => t.path === filePath)?.readOnly === true,
+  );
 
   // Iter 3 of #252 — markdown soft cap. Clamp to source-mode-only when
   // the file is at/above MARKDOWN_VISUAL_CAP_BYTES. Persisted `viewMode`
@@ -90,17 +98,21 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
     setViewMode(filePath, mode);
   };
 
-  // Effective view mode after gating: a non-visualisable category (or a
-  // viewer whose Visual/Editor pane is disabled) always falls back to
-  // source. The 3-way switch below routes off this resolved value so
-  // future categories don't have to repeat the gate.
+  // Effective view mode after visualisability gating: a non-visualisable
+  // category (or a viewer whose Visual/Editor pane is disabled) always
+  // falls back to source. The 3-way switch below routes off this resolved
+  // value so future categories don't have to repeat the gate. Read-only
+  // excalidraw tabs are demoted from editor → visual since saving is
+  // impossible; user can still inspect the canvas read-only.
   const effectiveView: ViewMode = visualDisabled
     ? "source"
     : canVisualize
-      ? viewMode
+      ? viewMode === "editor" && isReadOnly
+        ? "visual"
+        : viewMode
       : "source";
   const showSource = effectiveView === "source";
-  const showSaveButton = isExcalidraw && effectiveView === "editor";
+  const showSaveButton = isExcalidraw && effectiveView === "editor" && !isReadOnly;
 
   // Issue #352 / AC5 — Save button click dispatches a save-request DOM
   // event keyed by file path; the mounted `<ExcalidrawView/>` (the only
@@ -156,7 +168,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
       <ViewerToolbar
         activeView={effectiveView}
         onViewChange={handleViewChange}
-        canEdit={isExcalidraw}
+        canEdit={isExcalidraw && !isReadOnly}
         hidden={!canVisualize}
         showWrapToggle={showSource}
         wordWrap={wordWrap}

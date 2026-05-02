@@ -510,12 +510,19 @@ describe("ExcalidrawView — save / dirty / conflict (#352)", () => {
     expect(saveSceneMock).toHaveBeenCalledTimes(2);
   });
 
-  // Issue #352 / iter-3 rubber-duck "extra blind spot" — the live
-  // scene only exists inside the mounted Excalidraw component. When
-  // the view unmounts (tab switch, mode change, file close), the
-  // dirty + pending flags MUST clear so a stale dirty dot can't
-  // mislabel a reloaded on-disk scene.
-  it("clears dirty + pending on unmount (rubber-duck extra blind spot)", async () => {
+  // Issue #352 / iter-5 BLOCKER (product B1 + bug P0 + rubber-duck #1)
+  // — the iter-3 unmount cleanup that cleared dirty + pending on every
+  // unmount was REMOVED. It caused silent data loss because the live
+  // scene state lives only in the mounted Excalidraw component; unmount
+  // (tab switch) wipes the warning signal so the user has no idea their
+  // unsaved work is gone. iter-5 replaces it with `setActiveTab` and
+  // `setViewMode` GUARDS in the tabs slice (`Discard changes?` prompt
+  // before the unmount) — this test enforces that the unmount is
+  // NON-DESTRUCTIVE: dirty + pending FLAGS persist past unmount so
+  // anyone holding a reference to the path can still surface the
+  // warning. The guard system in the tabs slice is what gates the
+  // user-visible decision; this hook just doesn't fight it.
+  it("does NOT clear dirty + pending on unmount (iter-5 BLOCKER fix)", async () => {
     useStore.setState({
       excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
       externalChangePendingByTab: { "/ws/a.excalidraw": true },
@@ -530,9 +537,10 @@ describe("ExcalidrawView — save / dirty / conflict (#352)", () => {
     );
     await screen.findByTestId("excalidraw-stub");
     unmount();
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
+    // Flags PRESERVED — see file-header rationale.
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
     expect(
       useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
-    ).toBeUndefined();
+    ).toBe(true);
   });
 });

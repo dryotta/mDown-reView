@@ -245,7 +245,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         return;
       }
       // Evict LRU non-active tab if at capacity.
-      let baseTabs = get().tabs;
+      const baseTabs = get().tabs;
       if (baseTabs.length >= MAX_TABS) {
         const activePath = get().activeTabPath;
         const candidates = baseTabs.filter((t) => t.path !== activePath);
@@ -266,19 +266,30 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
               return;
             }
           }
-          baseTabs = baseTabs.filter((t) => t.path !== victim.path);
+          // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.
+          // Merge the eviction maps with the new-tab append into a
+          // SINGLE set() call so subscribers never observe an
+          // intermediate state (victim gone, new tab not yet added,
+          // active still pointing at the old active). Per rule 16 in
+          // docs/architecture.md.
+          const filteredTabs = baseTabs.filter((t) => t.path !== victim.path);
           const { [victim.path]: _v, ...restView } = get().viewModeByTab;
           const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
           const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
           const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
           const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
           set({
+            tabs: [...filteredTabs, { path, scrollTop: 0, lastAccessedAt: now }],
+            activeTabPath: path,
             viewModeByTab: restView,
             lastSaveByPath: restSave,
             fileMetaByPath: restMeta,
             excalidrawDirtyByTab: restDirty,
             externalChangePendingByTab: restPending,
           });
+          if (recordHistory) get().pushHistory(path);
+          void classifyAndMarkReadOnly(path, set);
+          return;
         }
       }
       set({
@@ -355,6 +366,32 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     setActiveTab: (path, opts) => {
+      // Issue #352 / iter-5 BLOCKER — tab-switch guard. The active
+      // Excalidraw editor tab's live scene only exists inside its
+      // mounted React component; switching `activeTabPath` unmounts
+      // that component and the scene state is gone. Before iter-5, we
+      // ALSO cleared the dirty/pending flags on unmount, which meant
+      // the user had no warning their unsaved work was lost. Now we
+      // PROMPT before the switch (symmetric with `closeTab` /
+      // `setViewMode` exit-from-editor / LRU eviction). If the user
+      // cancels, the active tab does not change.
+      const currentActive = get().activeTabPath;
+      if (
+        currentActive !== null &&
+        currentActive !== path &&
+        get().excalidrawDirtyByTab[currentActive] === true &&
+        get().viewModeByTab[currentActive] === "editor"
+      ) {
+        if (!confirmDiscard(1)) {
+          return;
+        }
+        // User confirmed — clear dirty/pending for the leaving tab so
+        // the unmount cleanup doesn't fire a redundant clear (and so
+        // a future switch back doesn't see stale flags).
+        const { [currentActive]: _d, ...restDirty } = get().excalidrawDirtyByTab;
+        const { [currentActive]: _p, ...restPending } = get().externalChangePendingByTab;
+        set({ excalidrawDirtyByTab: restDirty, externalChangePendingByTab: restPending });
+      }
       get().closeMermaidPopout(); // issue #276 — close popout on tab switch
       const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
@@ -383,17 +420,21 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       }));
     },
 
-    setViewMode: (path, mode) =>
+    setViewMode: (path, mode) => {
+      // Issue #352 / iter-5 BLOCKER — mode-switch guard. Leaving
+      // Editor mode while dirty silently discards the in-flight
+      // scene (iter-3 cleared the flags in the same set() call,
+      // which papered over the problem). Now we prompt before the
+      // mode change happens (symmetric with `setActiveTab` above).
+      const prevMode = get().viewModeByTab[path];
+      const isLeavingEditor = prevMode === "editor" && mode !== "editor";
+      if (isLeavingEditor && get().excalidrawDirtyByTab[path] === true) {
+        if (!confirmDiscard(1)) {
+          return;
+        }
+      }
       set((s) => {
-        // Issue #352 / AC6 — when switching OUT of Editor mode, clear the
-        // Excalidraw dirty/pending state for that path. Save behaviour
-        // outside Editor is meaningless ("Visual mode" is a viewer with
-        // no canvas-edit chrome), so the dirty dot would mislead. The
-        // user already explicitly left Editor, so the in-flight scene
-        // edits are dropped per the spec ("cleared on save / reload /
-        // mode-switch out of Editor").
-        const prevMode = s.viewModeByTab[path];
-        if (prevMode === "editor" && mode !== "editor") {
+        if (isLeavingEditor) {
           const { [path]: _d, ...restDirty } = s.excalidrawDirtyByTab;
           const { [path]: _p, ...restPending } = s.externalChangePendingByTab;
           return {
@@ -405,7 +446,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         return {
           viewModeByTab: { ...s.viewModeByTab, [path]: mode },
         };
-      }),
+      });
+    },
 
     setFileMeta: (path, patch) =>
       set((s) => {

@@ -1,6 +1,6 @@
 //! Workspace-write IPC chokepoint.
 //!
-//! Architecture rule 31 (`docs/architecture.md`): every IPC that mutates a
+//! Architecture rule 32 (`docs/architecture.md`): every IPC that mutates a
 //! user-workspace file flows through this module. Security rule 29
 //! (`docs/security.md`): five bounds before any byte hits disk:
 //!   1. Filename has no `:` (NTFS Alternate Data Stream defence).

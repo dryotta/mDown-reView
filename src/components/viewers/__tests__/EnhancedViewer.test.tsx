@@ -36,6 +36,23 @@ vi.mock("../MermaidView", () => ({
 vi.mock("../KqlPlanView", () => ({
   KqlPlanView: () => <div data-testid="kql-plan">KqlPlanView</div>,
 }));
+vi.mock("../ExcalidrawView", () => ({
+  ExcalidrawView: ({ filePath, mode }: { filePath: string; mode: string }) => (
+    <div data-testid="excalidraw-view-stub" data-path={filePath} data-mode={mode}>
+      ExcalidrawView
+    </div>
+  ),
+}));
+// Issue #352 / iter-5 BLOCKER (test-expert) — mock the iter-4 wrapper
+// so the binary-Source-mode integration path is testable without
+// pulling the lazy chunk into vitest.
+vi.mock("../ExcalidrawSourceMode", () => ({
+  ExcalidrawSourceMode: ({ filePath, syntaxPath }: { filePath: string; syntaxPath: string }) => (
+    <div data-testid="excalidraw-source-mode-stub" data-path={filePath} data-syntax={syntaxPath}>
+      ExcalidrawSourceMode
+    </div>
+  ),
+}));
 vi.mock("@/logger");
 
 const initialState = useStore.getState();
@@ -277,6 +294,118 @@ describe("EnhancedViewer", () => {
       const detail = (spy.mock.calls[0][0] as CustomEvent).detail;
       expect(detail).toEqual({ path: "/ws/a.excalidraw" });
       window.removeEventListener("mdownreview:excalidraw-save-request", spy);
+    });
+
+    // Issue #352 / iter-5 BLOCKER (product B2) — read-only tabs cannot
+    // route through the workspace-write IPC (path is outside the
+    // workspace allowlist). Showing a Save button + binding Ctrl+S
+    // would fire the Rust permission rejection at the user. Instead:
+    // hide Save, demote stored editor mode to visual, hide Editor
+    // segmented-control button.
+    it("HIDES Save button when tab is read-only (outside workspace)", () => {
+      useStore.setState({
+        tabs: [{ path: "/outside/a.excalidraw", scrollTop: 0, readOnly: true }],
+        activeTabPath: "/outside/a.excalidraw",
+        viewModeByTab: { "/outside/a.excalidraw": "editor" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/outside/a.excalidraw"
+          filePath="/outside/a.excalidraw"
+        />,
+      );
+      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
+    });
+
+    it("HIDES Editor segmented-control button when tab is read-only", () => {
+      useStore.setState({
+        tabs: [{ path: "/outside/a.excalidraw", scrollTop: 0, readOnly: true }],
+        activeTabPath: "/outside/a.excalidraw",
+        viewModeByTab: { "/outside/a.excalidraw": "visual" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/outside/a.excalidraw"
+          filePath="/outside/a.excalidraw"
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /^editor$/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("DEMOTES stored editor mode to visual for read-only tabs (canvas stays viewable)", () => {
+      useStore.setState({
+        tabs: [{ path: "/outside/a.excalidraw", scrollTop: 0, readOnly: true }],
+        activeTabPath: "/outside/a.excalidraw",
+        viewModeByTab: { "/outside/a.excalidraw": "editor" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/outside/a.excalidraw"
+          filePath="/outside/a.excalidraw"
+        />,
+      );
+      const stub = screen.getByTestId("excalidraw-view-stub");
+      expect(stub).toHaveAttribute("data-mode", "visual");
+    });
+  });
+
+  // Issue #352 / iter-5 BLOCKER (test-expert) — Source-mode routing
+  // for `.excalidraw.png` / `.excalidraw.svg` mounts the
+  // `ExcalidrawSourceMode` lazy wrapper (which extracts the embedded
+  // scene) instead of plain `<SourceView>`. Iter-4 added the routing
+  // but had no integration test at the EnhancedViewer boundary.
+  describe("Excalidraw Source-mode binary-routing (#352 / iter-5)", () => {
+    it("routes .excalidraw.png Source mode to ExcalidrawSourceMode (NOT plain SourceView)", async () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/diagram.excalidraw.png": "source" },
+      });
+      render(
+        <EnhancedViewer
+          content=""
+          path="/ws/diagram.excalidraw.png"
+          filePath="/ws/diagram.excalidraw.png"
+        />,
+      );
+      const stub = await screen.findByTestId("excalidraw-source-mode-stub");
+      expect(stub).toBeInTheDocument();
+      expect(screen.queryByTestId("source-view")).not.toBeInTheDocument();
+      // Synthetic .json syntax path so the highlighter picks JSON.
+      expect(stub).toHaveAttribute("data-syntax", "/ws/diagram.excalidraw.png.json");
+    });
+
+    it("routes .excalidraw.svg Source mode to ExcalidrawSourceMode", async () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/icons.excalidraw.svg": "source" },
+      });
+      render(
+        <EnhancedViewer
+          content=""
+          path="/ws/icons.excalidraw.svg"
+          filePath="/ws/icons.excalidraw.svg"
+        />,
+      );
+      expect(await screen.findByTestId("excalidraw-source-mode-stub")).toBeInTheDocument();
+      expect(screen.queryByTestId("source-view")).not.toBeInTheDocument();
+    });
+
+    it("canonical .excalidraw Source mode stays on plain SourceView (no extraction wrapper)", () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/scene.excalidraw": "source" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/ws/scene.excalidraw"
+          filePath="/ws/scene.excalidraw"
+        />,
+      );
+      expect(screen.getByTestId("source-view")).toBeInTheDocument();
+      expect(screen.queryByTestId("excalidraw-source-mode-stub")).not.toBeInTheDocument();
     });
   });
 });

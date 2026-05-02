@@ -100,20 +100,24 @@ export function useGlobalShortcuts({
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
 
-      // Issue #352 / AC5 — Ctrl/Cmd+S saves the active Excalidraw editor
-      // tab. Gated on (active tab is excalidraw) AND (active mode is
-      // editor); other tabs ignore Ctrl+S so the browser's "Save Page As"
-      // can still run on non-excalidraw tabs in dev (and the shortcut is
-      // a no-op in production where the browser native dialog is
-      // unavailable inside Tauri anyway). The actual save is dispatched
-      // as a custom DOM event so the toolbar Save button + this
-      // shortcut share one save path.
+      // Issue #352 / iter-5 BLOCKER (product B2) — Ctrl/Cmd+S saves the
+      // active Excalidraw editor tab. Gated on (active tab is excalidraw)
+      // AND (active mode is editor) AND (tab is NOT read-only — outside
+      // the workspace). Read-only tabs cannot route through the
+      // workspace-write IPC, so dispatching the save event would fire
+      // the Rust write rejection at the user instead of the no-op the
+      // shortcut should produce. Other tabs ignore Ctrl+S so the
+      // browser's "Save Page As" can still run on non-excalidraw tabs
+      // in dev. The actual save is dispatched as a custom DOM event so
+      // the toolbar Save button + this shortcut share one save path.
       if (!e.shiftKey && (e.key === "s" || e.key === "S")) {
         const state = useStore.getState();
         const activePath = state.activeTabPath;
         if (!activePath) return;
         if (getFileCategory(activePath) !== "excalidraw") return;
         if (state.viewModeByTab[activePath] !== "editor") return;
+        const tab = state.tabs.find((t) => t.path === activePath);
+        if (tab?.readOnly === true) return;
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("mdownreview:excalidraw-save-request", {
