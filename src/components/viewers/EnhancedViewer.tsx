@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useRef } from "react";
+import { Suspense, lazy, useState, useRef, type ReactNode } from "react";
 import { useStore } from "@/store";
 import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey } from "@/lib/file-types";
 import { useZoom } from "@/hooks/useZoom";
@@ -11,7 +11,6 @@ import { JsonTreeView } from "./JsonTreeView";
 import { HtmlPreviewView } from "./HtmlPreviewView";
 import { KqlPlanView } from "./KqlPlanView";
 import { SkeletonLoader } from "./SkeletonLoader";
-import type { Severity } from "@/lib/tauri-commands";
 
 // Lazy-load heavy visualization components
 const CsvTableView = lazy(() =>
@@ -26,15 +25,16 @@ interface Props {
   path: string;
   filePath: string;
   fileSize?: number;
-  /** Iter 5 Group B — forwarded to `ViewerToolbar` to surface a "Comment on file" button. */
-  onCommentOnFile?: () => void;
-  /** Count of unresolved file-anchored threads — drives the toolbar's file-level badge. */
-  fileCommentCount?: number;
-  /** Worst severity across file-anchored unresolved threads — drives the badge colour. */
-  fileCommentSeverity?: Severity | null;
+  /**
+   * G4 — composition slot forwarded to `ViewerToolbar.centerSlot`. Callers
+   * typically pass `<ToolbarFileCommentPill ... />`. See
+   * `patterns-children-over-render-props` in
+   * `docs/best-practices-common/react/composition-patterns.md`.
+   */
+  centerSlot?: ReactNode;
 }
 
-export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnFile, fileCommentCount, fileCommentSeverity }: Props) {
+export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }: Props) {
   const category = getFileCategory(path);
   const canVisualize = hasVisualization(category);
   const defaultView = getDefaultView(category);
@@ -80,9 +80,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, onCommentOnF
         wordWrap={wordWrap}
         onToggleWrap={() => setWordWrap(!wordWrap)}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
-        onCommentOnFile={onCommentOnFile}
-        fileCommentCount={fileCommentCount}
-        fileCommentSeverity={fileCommentSeverity}
+        centerSlot={centerSlot}
         trailing={<FileActionsBar path={filePath} />}
       />
       {showSource ? (

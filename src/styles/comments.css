@@ -119,6 +119,27 @@
   opacity: 0.7;
 }
 
+/* Iter 3 / #280 / AC6 — inline save-error banner inside CommentInput.
+   Mirrors `.comments-panel-error` palette so the two save-failure surfaces
+   are visually consistent. The panel banner is scoped to the typed
+   `outside-workspace` self-heal (see CommentsPanel.handleSaveFileLevel);
+   this banner surfaces every other addComment rejection, raised by
+   CommentInput.handleSave's try/catch around `await onSave(value)`. */
+.comment-input-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  border: 1px solid var(--color-severity-high, #c0392b);
+  border-radius: 6px;
+  background: rgba(192, 57, 43, 0.08);
+  color: var(--color-severity-high, #c0392b);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 /* Comment thread — single card for root + replies */
 .comment-thread {
   padding: 10px;

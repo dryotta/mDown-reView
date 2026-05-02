@@ -46,9 +46,14 @@ describe("ImageViewerShell", () => {
     expect(screen.getByRole("button", { name: /zoom out/i })).toBeInTheDocument();
   });
 
-  it("renders Comment on file button when onCommentOnFile is provided", () => {
+  it("renders centerSlot when provided", () => {
     const onCof = vi.fn();
-    render(<ImageViewerShell path="/photos/test.png" onCommentOnFile={onCof} />);
+    render(
+      <ImageViewerShell
+        path="/photos/test.png"
+        centerSlot={<button onClick={onCof}>Comment on file</button>}
+      />,
+    );
     const btn = screen.getByRole("button", { name: /comment on file/i });
     fireEvent.click(btn);
     expect(onCof).toHaveBeenCalledOnce();

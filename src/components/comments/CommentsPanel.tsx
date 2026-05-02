@@ -196,29 +196,26 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
   }, []);
 
   const handleSaveFileLevel = useCallback(
-    (text: string) => {
+    async (text: string) => {
       // File-anchored comment — no line gutter, no selected text. We let the
       // VM hook chokepoint funnel the discriminated `{ kind: "file" }` anchor
       // through the existing `add_comment` IPC.
       setFileLevelError(null);
-      // Optimistically close the input so the UI stays responsive — failures
-      // surface in the persistent error banner below (unblocking the input
-      // for retry without forcing the user to wait on the IPC round-trip).
-      setShowFileLevelInput(false);
-      void addComment(filePath, text, { kind: "file" }).catch((e) => {
+      try {
+        await addComment(filePath, text, { kind: "file" });
+        // Close the input only on success — leaves the composer open with
+        // the user's text on rejection so retry doesn't require re-typing.
+        // CommentInput's local error banner shows the rejection reason.
+        setShowFileLevelInput(false);
+      } catch (e) {
         // Issue #338 / Wave-2 — typed CommentError self-heal. The IPC
-        // now returns a discriminated `{ kind: "outside-workspace", path }`
-        // instead of a string-match prose, so we branch on the canonical
-        // wire shape rather than `msg.includes("path not in workspace")`.
-        // Legacy string-based rejections still fall through to the
-        // existing error-banner path below for backwards compatibility.
+        // returns a discriminated `{ kind: "outside-workspace", path }`
+        // for the workspace-boundary failure; that branch needs the panel
+        // self-heal (mark tab read-only, surface the workspace banner).
+        // Iter 3 (#280) AC6: every other failure rethrows so CommentInput's
+        // inline `role="alert"` banner shows the message — two complementary
+        // surfaces, each scoped to its concern.
         if (isCommentError(e) && e.kind === "outside-workspace") {
-          // Mark the tab read-only so subsequent comment-input mounts
-          // are pre-disabled — the user no longer needs to retry to
-          // discover the workspace boundary. The eager `path_classify`
-          // at openFile time normally sets this; the self-heal handles
-          // the race where the workspace allowlist changed between the
-          // open and the write attempt.
           useStore.getState().setTabReadOnly(filePath, true);
           void logWarn(
             `[CommentsPanel] outside-workspace blocked; tab ${filePath} marked read-only`
@@ -226,30 +223,34 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
           setFileLevelError(
             "Could not save comment: this file is outside the workspace and is read-only."
           );
+          setShowFileLevelInput(false);
           return;
         }
-        // The most common cause used to be `path not in workspace` — surface it
-        // to the user (not just the log) so they don't lose the comment
-        // silently. The Rust side also logs via `tracing::warn!` to the
-        // unified log so future "comment didn't save" reports are
-        // diagnosable from `%LocalAppData%\com.mdownreview.desktop\logs\`.
         const msg = e instanceof Error ? e.message : String(e);
         void logError(`[CommentsPanel] file-level addComment failed for ${filePath}: ${msg}`);
-        setFileLevelError(`Could not save comment: ${msg}`);
-      });
+        // Rethrow so CommentInput's catch fires and renders the inline banner.
+        throw e;
+      }
     },
     [addComment, filePath]
   );
 
   const handleSaveLineCompose = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!activeLineCompose) return;
       const anchor = activeLineCompose.anchor;
-      void addComment(filePath, text, anchor).catch((e) => {
+      try {
+        await addComment(filePath, text, anchor);
+        setActiveLineCompose(null);
+      } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         void logError(`[CommentsPanel] line-anchored addComment failed for ${filePath}: ${msg}`);
-      });
-      setActiveLineCompose(null);
+        // Iter 3 (#280) AC6: rethrow so CommentInput's catch fires. The
+        // composer stays mounted (we don't call setActiveLineCompose(null))
+        // so the user sees the inline banner above the composer they just
+        // tried to save from.
+        throw e;
+      }
     },
     [addComment, filePath, activeLineCompose]
   );
