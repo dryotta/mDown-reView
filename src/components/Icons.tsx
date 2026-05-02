@@ -39,13 +39,16 @@ export function IconSettings() {
 }
 
 // Floppy-disk save icon. Issue #352 / iter-5 user-reported — Save
-// button moved from the per-viewer toolbar to the top app toolbar
-// (icon-only, right of Comments toggle, conditional visibility).
+// button moved from the per-viewer toolbar to the top app toolbar.
+// Iter-7: replaced the prior bowdlerised path with a clean,
+// recognisable floppy-disk silhouette (square body, write-tab notch,
+// inner label area) at the same 16-px viewBox as the other icons.
 export function IconSave() {
   return (
     <span className="toolbar-icon">
-      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-        <path d="M2 2.75A1.75 1.75 0 013.75 1h7.793c.464 0 .908.184 1.236.513l1.708 1.707c.329.329.513.773.513 1.237v8.793A1.75 1.75 0 0113.25 15H2.75A1.75 1.75 0 011 13.25V2.75zM3.75 2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25H4.5V8.75A1.75 1.75 0 016.25 7h3.5A1.75 1.75 0 0111.5 8.75v4.75h1.75a.25.25 0 00.25-.25V4.457a.25.25 0 00-.073-.177L11.72 2.573A.25.25 0 0011.543 2.5H10.5v2.75A1.75 1.75 0 018.75 7h-1.5A1.75 1.75 0 015.5 5.25V2.5H3.75zM7 2.5v2.75c0 .138.112.25.25.25h1.5a.25.25 0 00.25-.25V2.5H7zm3 11V8.75a.25.25 0 00-.25-.25h-3.5a.25.25 0 00-.25.25v4.75h4z" />
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+        {/* Outer floppy body */}
+        <path d="M2.5 1.75A1.75 1.75 0 0 1 4.25 0h7.086c.464 0 .908.184 1.236.513l1.915 1.915c.328.328.513.772.513 1.236V14.25A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25V2.5c0-.41.166-.78.5-1.05V1.75ZM4.25 1.5a.25.25 0 0 0-.25.25V14.25c0 .138.112.25.25.25h.75v-4.75A1.75 1.75 0 0 1 6.75 8h2.5a1.75 1.75 0 0 1 1.75 1.75V14.5h2a.25.25 0 0 0 .25-.25V3.664a.25.25 0 0 0-.073-.177L11.512 1.573a.25.25 0 0 0-.176-.073H10.5v3.25a1.75 1.75 0 0 1-1.75 1.75h-3.5A1.75 1.75 0 0 1 3.5 4.75V1.5h.75ZM5 1.5v3.25c0 .138.112.25.25.25h3.5a.25.25 0 0 0 .25-.25V1.5H5Zm.5 13h5v-4.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25V14.5Z" />
       </svg>
     </span>
   );

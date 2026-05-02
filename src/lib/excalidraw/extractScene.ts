@@ -27,6 +27,14 @@ export interface ExcalidrawScene {
   elements: ReadonlyArray<unknown>;
   appState: Record<string, unknown>;
   files: Record<string, unknown>;
+  /**
+   * Issue #352 / iter-7 — library items for `.excalidrawlib` files.
+   * `null` for canonical scenes; populated only when the file's
+   * top-level JSON is `{ type: "excalidrawlib", libraryItems: [...] }`.
+   * Excalidraw's `<Excalidraw initialData={{ libraryItems }}>` shows
+   * the library panel populated with these items.
+   */
+  libraryItems?: ReadonlyArray<unknown> | null;
 }
 
 /**

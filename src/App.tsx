@@ -228,7 +228,7 @@ export default function App() {
             )}
             {activeIsExcalidrawEditable && (
               <button
-                className="toolbar-btn toolbar-btn-icon-only"
+                className="toolbar-btn"
                 onClick={handleAppToolbarSave}
                 disabled={!activeIsDirty}
                 title={
@@ -239,7 +239,7 @@ export default function App() {
                 aria-label="Save"
                 data-testid="app-toolbar-save"
               >
-                <IconSave />
+                <IconSave /> Save
               </button>
             )}
           </div>

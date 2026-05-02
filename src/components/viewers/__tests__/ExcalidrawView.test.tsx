@@ -3,27 +3,51 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
-// Stub @excalidraw/excalidraw's heavy default export with a tiny component
-// that mirrors the props we care about asserting (viewModeEnabled, theme).
-vi.mock("@excalidraw/excalidraw", () => ({
-  Excalidraw: vi.fn((props: Record<string, unknown>) => (
-    <div
-      data-testid="excalidraw-stub"
-      data-view-mode-enabled={String(props.viewModeEnabled)}
-      data-theme={String(props.theme)}
-      data-lang={String(props.langCode)}
-      // Expose the onChange so tests can drive scene mutations directly.
-      data-has-onchange={typeof props.onChange === "function" ? "true" : "false"}
-      onClick={() => {
-        const onChange = props.onChange as
-          | ((els: unknown, app: unknown, files: unknown) => void)
-          | undefined;
-        onChange?.([{ id: "edit" }], { theme: "light" }, {});
-      }}
-    />
-  )),
-  loadFromBlob: vi.fn(async () => ({ elements: [], appState: {}, files: {} })),
-}));
+// Stub `@excalidraw/excalidraw`'s heavy default export with a tiny
+// component that mirrors the props we care about asserting
+// (viewModeEnabled, theme). The stub also exposes `onChange` so
+// tests drive scene mutations: each click on the stub increments a
+// counter and fires onChange with a UNIQUE element id, so the
+// content-hash comparison (iter-7) sees actual content drift.
+vi.mock("@excalidraw/excalidraw", () => {
+  let editCounter = 0;
+  return {
+    Excalidraw: vi.fn((props: Record<string, unknown>) => {
+      return (
+        <div
+          data-testid="excalidraw-stub"
+          data-view-mode-enabled={String(props.viewModeEnabled)}
+          data-theme={String(props.theme)}
+          data-lang={String(props.langCode)}
+          data-has-onchange={typeof props.onChange === "function" ? "true" : "false"}
+          onClick={() => {
+            const onChange = props.onChange as
+              | ((els: unknown, app: unknown, files: unknown) => void)
+              | undefined;
+            editCounter += 1;
+            onChange?.(
+              [{ id: `edit-${editCounter}`, version: editCounter }],
+              { theme: "light" },
+              {},
+            );
+          }}
+        />
+      );
+    }),
+    loadFromBlob: vi.fn(async () => ({ elements: [], appState: {}, files: {} })),
+    // Iter-7: deterministic stub hashes that reflect element identity.
+    hashElementsVersion: vi.fn((els: unknown[]) =>
+      els.length === 0
+        ? "empty"
+        : els.map((e) => (e as { id?: string }).id ?? "x").join(","),
+    ),
+    getLibraryItemsHash: vi.fn((items: unknown[]) =>
+      items.length === 0
+        ? "empty-lib"
+        : items.map((it) => JSON.stringify(it)).join("|"),
+    ),
+  };
+});
 
 // CSS import is a no-op under jsdom — Vite resolves the export, but we
 // avoid pulling the real stylesheet into the test bundle.

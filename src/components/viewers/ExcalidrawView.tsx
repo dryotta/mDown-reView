@@ -1,4 +1,8 @@
-import { Excalidraw } from "@excalidraw/excalidraw";
+import {
+  Excalidraw,
+  hashElementsVersion,
+  getLibraryItemsHash,
+} from "@excalidraw/excalidraw";
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 
 import { SkeletonLoader } from "./SkeletonLoader";
@@ -120,6 +124,28 @@ function friendlySaveError(rust: string): string {
   return rust;
 }
 
+/**
+ * Issue #352 / iter-7 user-reported BLOCKER (#3) — content hash for
+ * accurate dirty detection. Combines Excalidraw's element-version
+ * hash (which only changes when ELEMENTS change — not when
+ * appState/cursor/zoom/tool changes) with the library-items hash for
+ * library files. Two scenes hash equal iff their persistent content
+ * is the same; tool selection, viewport pan, etc. don't shift the
+ * hash. The dirty flag is now a function of "current hash !==
+ * last-saved hash" rather than "any onChange has fired".
+ */
+function computeContentHash(
+  elements: ReadonlyArray<unknown>,
+  libraryItems: ReadonlyArray<unknown> | null,
+): string {
+  const elemHash = hashElementsVersion(elements as never);
+  const libHash =
+    libraryItems !== null && libraryItems.length > 0
+      ? getLibraryItemsHash(libraryItems as never)
+      : "";
+  return `${elemHash}|${libHash}`;
+}
+
 export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props) {
   const theme = useTheme();
   const excalidrawTheme: "light" | "dark" = theme === "dark" ? "dark" : "light";
@@ -152,12 +178,21 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   const setExcalidrawDirty = useStore((s) => s.setExcalidrawDirty);
   const setExternalChangePending = useStore((s) => s.setExternalChangePending);
 
-  // Issue #352 / AC5 — track whether Excalidraw's initial mount-restore
-  // `onChange` has fired. Replaces the prior `userEditCountRef`
-  // (counter-as-boolean — flagged by lean-expert). Boolean intent is
-  // clearer; reset on filePath/content/mode changes so the next mount
-  // restart correctly skips its first onChange.
-  const mountedOnChangeFiredRef = useRef(false);
+  // Issue #352 / iter-7 user-reported BLOCKER — track scene CONTENT
+  // hash for accurate dirty detection. The previous "first onChange =
+  // mount restore, all subsequent = user edits" approach false-fired
+  // dirty when Excalidraw fired onChange for non-content reasons:
+  // tool selection in the toolbar (appState.activeTool), zoom/pan,
+  // theme switches, etc. The new approach captures the scene's
+  // CONTENT hash on mount and compares each onChange's hash against
+  // it; dirty iff the elements (or library items) actually differ.
+  //
+  //   - `lastSavedContentHashRef`: the hash that was on disk last
+  //     time we saved (or initially loaded). Re-set on save success
+  //     and on Reload.
+  //   - `getCurrentHash(elements, libraryItems)`: combined element +
+  //     library hash so library files also track correctly.
+  const lastSavedContentHashRef = useRef<string | null>(null);
   // Issue #352 / iter-3 bug-expert review — guard against concurrent
   // saves. If the user mashes Ctrl+S, two near-simultaneous saves can
   // race and leave on-disk content with stale bytes. Atomic-write at
@@ -175,7 +210,9 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
 
   useEffect(() => {
     let cancelled = false;
-    mountedOnChangeFiredRef.current = false;
+    // Reset the saved-hash baseline; the first `setScene` below will
+    // populate it, and the subsequent onChange events will compare.
+    lastSavedContentHashRef.current = null;
 
     if (needsExtract) {
       // PNG / SVG variant — Excalidraw's loadFromBlob decodes the embedded
@@ -184,6 +221,10 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       extractScene(filePath)
         .then((extracted) => {
           if (cancelled) return;
+          lastSavedContentHashRef.current = computeContentHash(
+            extracted.elements,
+            extracted.libraryItems ?? null,
+          );
           startTransition(() => {
             setScene(extracted);
             setLoadError(null);
@@ -200,16 +241,39 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       // Canonical `.excalidraw` / `.excalidrawlib` — `content` is JSON text.
       try {
         const parsed = JSON.parse(content) as {
+          type?: string;
           elements?: ReadonlyArray<unknown>;
           appState?: Record<string, unknown>;
           files?: Record<string, unknown>;
+          libraryItems?: ReadonlyArray<unknown>;
         };
+        // Issue #352 / iter-7 user-reported (#4) — `.excalidrawlib`
+        // files have a top-level `libraryItems` array, NOT `elements`.
+        // Pass them via `initialData.libraryItems` so Excalidraw shows
+        // the library panel populated. Also pre-open the library
+        // sidebar so the grid is visible without a click.
+        const isLib =
+          parsed.type === "excalidrawlib" ||
+          filePath.toLowerCase().endsWith(".excalidrawlib");
+        const next: ExcalidrawScene = isLib
+          ? {
+              elements: [],
+              appState: { openSidebar: { name: "library" } },
+              files: {},
+              libraryItems: parsed.libraryItems ?? [],
+            }
+          : {
+              elements: parsed.elements ?? [],
+              appState: parsed.appState ?? {},
+              files: parsed.files ?? {},
+              libraryItems: null,
+            };
+        lastSavedContentHashRef.current = computeContentHash(
+          next.elements,
+          next.libraryItems ?? null,
+        );
         startTransition(() => {
-          setScene({
-            elements: parsed.elements ?? [],
-            appState: parsed.appState ?? {},
-            files: parsed.files ?? {},
-          });
+          setScene(next);
           setLoadError(null);
         });
       } catch (err: unknown) {
@@ -259,18 +323,21 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       if (!live) return;
       saveInFlightRef.current = true;
       const wasFirstSave = !hasSeenFirstSave();
+      // Snapshot the to-save content hash so we can update the
+      // baseline on success — any subsequent onChange whose hash
+      // matches this will correctly read as not-dirty.
+      const savedHash = computeContentHash(live.elements, live.libraryItems ?? null);
       void saveExcalidrawFile(filePath, {
         elements: live.elements,
         appState: live.appState,
         files: live.files,
+        libraryItems: live.libraryItems ?? null,
       })
         .then(() => {
-          // Success — clear dirty, clear any pending external-change
-          // banner (the user explicitly chose to overwrite by saving),
-          // clear any prior save error, and let the watcher echo
-          // through. The watcher's self-write suppression in
-          // src-tauri/src/commands/fs_write.rs (atomic rename —
-          // debounced) is documented in docs/architecture.md.
+          // Success — update the saved-content baseline so the next
+          // hash comparison correctly sees "no edits since save",
+          // clear dirty + pending + any prior save error.
+          lastSavedContentHashRef.current = savedHash;
           setExcalidrawDirty(filePath, false);
           setExternalChangePending(filePath, false);
           setSaveError(null);
@@ -452,6 +519,13 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
             elements: deferredScene.elements as never,
             appState: deferredScene.appState as never,
             files: deferredScene.files as never,
+            // Issue #352 / iter-7 user-reported (#4) — `.excalidrawlib`
+            // initial data populates the library panel via
+            // `appState.openSidebar = { name: 'library' }` (set in the
+            // load effect) plus the libraryItems array here.
+            ...(deferredScene.libraryItems
+              ? { libraryItems: deferredScene.libraryItems as never }
+              : {}),
           }}
           viewModeEnabled={mode === "visual"}
           theme={excalidrawTheme}
@@ -459,37 +533,41 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           langCode="en"
           onChange={(elements, appState, files) => {
             // Always capture the latest snapshot for the save handler.
+            // Library items live on appState, not files.
             liveSceneRef.current = {
               elements: elements as ReadonlyArray<unknown>,
               appState: appState as unknown as Record<string, unknown>,
               files: files as unknown as Record<string, unknown>,
+              libraryItems:
+                ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
+                  .libraryItems ?? null),
             };
-            // Issue #352 / iter-5 BLOCKER (user-reported) — the mount-
-            // restore detection MUST run BEFORE the mode gate. Excalidraw
-            // fires onChange synchronously on initial mount with the
-            // restored scene, regardless of `viewModeEnabled`. We must
-            // count that one-time restore call so the user's FIRST edit
-            // after switching from Visual → Editor is correctly seen as
-            // a user edit, not as the mount restore.
-            //
-            // The bug history: an earlier version had `if (mode !==
-            // "editor") return;` BEFORE the ref check, so during the
-            // mount in visual mode the ref stayed `false`. Switching to
-            // editor mode does NOT remount Excalidraw (no scene change
-            // triggers onChange), so `viewModeEnabled` flipping doesn't
-            // fire onChange. The user's first edit then fired onChange,
-            // saw `mode === "editor"` and `ref === false`, and was
-            // SKIPPED as if it were the mount restore. Result: the
-            // dirty flag never set; close-tab guard never prompted;
-            // user lost edits silently. The reorder below fixes that.
-            if (!mountedOnChangeFiredRef.current) {
-              mountedOnChangeFiredRef.current = true;
-              return;
-            }
+            // Issue #352 / iter-7 user-reported BLOCKER (#3) — the
+            // dirty flag is now CONTENT-driven, not event-driven.
+            // Excalidraw fires onChange for every appState mutation
+            // (tool selection, viewport pan, theme, cursor) — none of
+            // which mutate persistent content. We compute a hash of
+            // (elements + libraryItems) and compare against the
+            // last-saved hash; dirty iff they differ. This eliminates
+            // the false-positive dirty-on-mount-or-tool-click that
+            // tab-title showed previously.
             if (mode !== "editor") return;
+            const liveLibraryItems =
+              ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
+                .libraryItems ?? null);
+            const currentHash = computeContentHash(
+              elements as ReadonlyArray<unknown>,
+              liveLibraryItems,
+            );
+            const baseline = lastSavedContentHashRef.current;
+            // baseline === null means the load effect hasn't published
+            // its baseline yet; treat as not-yet-dirty (the first
+            // genuine post-mount onChange will set it via the load
+            // effect and subsequent comparisons will be accurate).
+            if (baseline === null) return;
             // setExcalidrawDirty short-circuits when the boolean is
             // unchanged, so we don't pay a re-render per mouse-move.
-            setExcalidrawDirty(filePath, true);
+            setExcalidrawDirty(filePath, currentHash !== baseline);
           }}
         />
       </div>
