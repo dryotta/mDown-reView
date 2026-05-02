@@ -69,7 +69,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 16. Fuzzy matching short-circuits identical/substring cases before computing Levenshtein. (`matching.rs:168-173`.)
 17. Sidecar mutations go through `with_sidecar_mut` (load → mutate → save → emit) — never from the frontend. (`commands/comments.rs:13`.)
 18. Batch counts for N files are a single IPC call (`get_file_badges`), not N calls. (`commands/comments/badges.rs:24`.)
-19. Line counting is amortized inside `read_text_file`: `content.lines().count()` runs once per read (`commands/fs.rs:107`) and the result is returned in `TextFileResult.line_count`. Frontend consumers (StatusBar) read it from the `fileMetaByPath` cache populated by `useFileContent` — they never recompute line counts in TS.
+19. Line counting is amortized inside `read_text_file`: `content.lines().count()` runs once per read (`commands/fs/read.rs:102`) and the result is returned in `TextFileResult.line_count`. Frontend consumers (StatusBar) read it from the `fileMetaByPath` cache populated by `useFileContent` — they never recompute line counts in TS.
 
 ### StatusBar timer
 20. `StatusBar` uses a single `setInterval(60_000ms)` to refresh "N min ago" labels and clears it on `activeTabPath` change or unmount (`StatusBar.tsx` effect). No timer per item, no leak across tab switches.
@@ -80,7 +80,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 23. `update_watched_files` uses `try_send(())` on its 1-slot channel so the frontend never blocks the watcher loop. (`watcher.rs:202`.)
 
 ### Directory listing
-24. Directory listings sort once in Rust and return pre-sorted. (`commands/fs.rs:60-64`.)
+24. Directory listings sort once in Rust and return pre-sorted. (`commands/fs/dir.rs:117-121`.)
 
 ### Render short-circuits
 25. `setScrollTop` short-circuits when the value is unchanged. (`store/index.ts:162-167`.)
@@ -101,7 +101,7 @@ Unique to performance. Rust-First is a charter meta-principle.
 ## Gaps
 
 - No cold-startup benchmark. Rules 1-3 cap what startup may do, but no test verifies end-to-end launch time.
-- ~~`read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.~~ (closed by PR for #252 — `read_file_capped` in `commands/fs.rs` does fstat + bounded `Vec::with_capacity` + `take(MAX+1)` post-read length check.)
+- ~~`read_text_file` reads the file before checking size (`commands/fs.rs:85-94`). A `metadata().len()` pre-check would reject large files in O(1); bench on 50 MB first.~~ (closed by PR for #252 — `read_file_capped` in `commands/fs/read.rs` does fstat + bounded `Vec::with_capacity` + `take(MAX+1)` post-read length check.)
 - ~~No `[profile.release]` in `Cargo.toml` — `lto`, `codegen-units = 1`, `strip = true` not configured.~~ (closed by PR for #262 — see rule 31)
 - ~~No JS bundle-size budget enforced in CI.~~ (closed by PR for #262 — see rule 32)
 - No benchmark for `read_dir` on a 1000-entry folder.

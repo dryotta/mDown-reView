@@ -76,7 +76,7 @@ Sensitive to:
 
 ### `hot-path: ipc-payload-size`
 
-**File:** `src-tauri/src/commands/fs.rs` (`read_text_file`), `src-tauri/src/commands/comments.rs`
+**File:** `src-tauri/src/commands/fs/read.rs` (`read_text_file`), `src-tauri/src/commands/comments.rs`
 
 Sensitive to:
 - Sending entire file content on every change instead of a diff.
