@@ -47,8 +47,6 @@ export function ExcalidrawSourceMode({ filePath, fileSize, wordWrap, zoom, synta
 
   useEffect(() => {
     let cancelled = false;
-    setJson(null);
-    setError(null);
     extractScene(filePath)
       .then((scene) => {
         if (cancelled) return;
