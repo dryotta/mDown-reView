@@ -68,23 +68,26 @@ export function splitShikiHtmlByLine(html: string): string[] {
 }
 
 /**
- * Cheap sample-hash for content fingerprinting. Visits ~1000 evenly-spaced
- * characters, mixes in length, and returns a 32-bit unsigned integer. Used
- * to detect "same length, same path, different content" cases (e.g. a
- * watcher reload that rewrites the file in place) so the chunked Shiki
- * overlay invalidates instead of bleeding stale HTML over new content.
+ * Content fingerprint for the chunked-Shiki overlay.
  *
- * Cost: ~30 µs for a 5 MB file. Not cryptographically strong — collisions
- * are theoretically possible but extremely unlikely for the source-text
- * mutation patterns we care about (most edits touch start, end, or length).
+ * **Visits every byte** so any mutation — single-byte flips, mid-file
+ * identifier renames that preserve length, whitespace tweaks — produces
+ * a different hash. The cost is bounded: ~30 ms for a 5 MB file at JS
+ * speeds, computed once per `deferredContent` change (effectively once
+ * per file load / external reload, not per keystroke).
+ *
+ * FNV-1a 32-bit. Not cryptographic — collisions exist in the
+ * pigeon-hole sense (two strings can hash equal) but the probability is
+ * 2⁻³² ≈ 10⁻¹⁰ per pair, negligible for the source-text mutation
+ * patterns we care about. This is the proper fix per the test-expert
+ * review on PR #354 (the previous stride-only sample missed mutations
+ * at unsampled positions, which is a real correctness hole).
  */
 export function sampleHash(s: string): number {
-  const step = Math.max(1, Math.floor(s.length / 1000));
   let h = 2166136261;
-  for (let i = 0; i < s.length; i += step) {
+  for (let i = 0; i < s.length; i++) {
     h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   }
-  h = Math.imul(h ^ s.length, 16777619);
   return h >>> 0;
 }
 

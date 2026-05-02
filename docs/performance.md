@@ -53,8 +53,8 @@ Unique to performance. Rust-First is a charter meta-principle.
 8. Shiki pre-loads only `github-light` and `github-dark` themes with zero langs; languages load on demand. (`src/lib/shiki.ts:12-15`.)
 
 ### Render cost
-9. `react-markdown` `components` tables that don't close over props are declared at module scope. (`MarkdownViewer.tsx:140` `MD_COMPONENTS` — also prevents React error #185 in concurrent mode.)
-10. Per-render `components` merges are limited to entries that close over component-specific values (currently only `img`). (`MarkdownViewer.tsx:299-312`.)
+9. `react-markdown` `components` tables that don't close over props are declared at module scope. (`MarkdownViewer.tsx:94` `REMARK_PLUGINS`; `MarkdownComponentsMap.tsx` returns the memoised components table — also prevents React error #185 in concurrent mode.)
+10. Per-render `components` merges are limited to entries that close over component-specific values (currently only `img`). (`MarkdownViewer.tsx:144-147` `buildMarkdownComponents({ filePath, workspaceRoot, img })`.)
 11. `SourceView` is virtualised via `@tanstack/react-virtual` — only the viewport-visible rows plus `SOURCE_OVERSCAN` mount in the DOM. A 50K-line file mounts ~75 rows instead of 50K. (`SourceView.tsx`, `useVirtualizer({...})` + `lib/viewer-budgets.ts`.)
 12. `useSourceHighlighting` is **idle-chunked**: first paint is HTML-escaped plain text, then Shiki output fades in via `requestIdleCallback` (polyfilled in `src/lib/idle.ts` for WKWebView). Each chunk highlights `SOURCE_HIGHLIGHT_CHUNK_LINES` lines and yields back when `timeRemaining()` falls below `SOURCE_HIGHLIGHT_IDLE_BUDGET_MS`. The single-call `codeToHtml(deferredContent, …)` path is gone — for a 5 MB JS log it blocked the main thread for many seconds. (`hooks/useSourceHighlighting.ts`, `lib/viewer-budgets.ts`.)
 12a. `MarkdownViewer` runs `<ReactMarkdown>` against `useDeferredValue(content)` so the heavy AST parse can yield to high-priority renders (find-bar input, scrolling). The cheap regex pre-scans (frontmatter, math, remote-image refs) and gutter-click line-text stay on raw `content` so banners and clicks react immediately. (`MarkdownViewer.tsx`.)

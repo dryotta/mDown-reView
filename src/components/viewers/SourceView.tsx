@@ -195,15 +195,17 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
   // auto + flex-bounded — see `source-viewer.css`). Because scrolling no
   // longer happens on `ViewerRouter`'s `.viewer-scroll-region`, the existing
   // tab-level `scrollTop` save/restore in `ViewerRouter` is a no-op for
-  // source-mode tabs. Restore the contract here: read the saved scroll on
-  // mount/file-change, and save on scroll. State stays in `tabs[].scrollTop`
-  // so cross-mode (visual ↔ source) and cross-tab navigation continue to
-  // behave the same as before.
+  // source-mode tabs. Restore the contract here, but persist into a
+  // **separate** `tab.sourceScrollTop` field so the visual-mode scroll
+  // (owned by `ViewerRouter`) and the source-mode scroll (owned by this
+  // hook) cannot cross-pollute each other when the user toggles view modes
+  // within a tab — each surface has its own coordinate space and its own
+  // store slot.
   useLayoutEffect(() => {
     const el = sourceLinesRef.current;
     if (!el) return;
     const saved =
-      useStore.getState().tabs.find((t) => t.path === filePath)?.scrollTop ?? 0;
+      useStore.getState().tabs.find((t) => t.path === filePath)?.sourceScrollTop ?? 0;
     if (saved <= 0) {
       el.scrollTop = 0;
       return;
@@ -213,20 +215,23 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
     // applies (i.e. the spacer has grown tall enough to accept it).
     let cancelled = false;
     let retries = 20;
+    let rafHandle: number | null = null;
     const tryRestore = () => {
+      rafHandle = null;
       if (cancelled || !sourceLinesRef.current || retries <= 0) return;
       sourceLinesRef.current.scrollTop = saved;
       if (sourceLinesRef.current.scrollTop > 0) return;
       retries--;
-      requestAnimationFrame(tryRestore);
+      rafHandle = requestAnimationFrame(tryRestore);
     };
-    requestAnimationFrame(tryRestore);
+    rafHandle = requestAnimationFrame(tryRestore);
     return () => {
       cancelled = true;
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle);
     };
   }, [filePath]);
 
-  const setScrollTopAction = useStore((s) => s.setScrollTop);
+  const setSourceScrollTopAction = useStore((s) => s.setSourceScrollTop);
   const scrollSaveRafRef = useRef<number | null>(null);
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -236,10 +241,10 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
       }
       scrollSaveRafRef.current = requestAnimationFrame(() => {
         scrollSaveRafRef.current = null;
-        setScrollTopAction(filePath, top);
+        setSourceScrollTopAction(filePath, top);
       });
     },
-    [filePath, setScrollTopAction],
+    [filePath, setSourceScrollTopAction],
   );
   useEffect(() => {
     return () => {

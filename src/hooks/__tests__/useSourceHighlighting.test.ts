@@ -286,6 +286,21 @@ describe("sampleHash", () => {
   it("differs when length differs", () => {
     expect(sampleHash("abc")).not.toBe(sampleHash("abcd"));
   });
+
+  // Iter 2 of #252 / test-expert review: the original sample-step-only hash
+  // collided when a same-length 5 MB file mutated only at indices that the
+  // stride skipped. The fix hashes every byte, so any mid-file mutation —
+  // even a single-byte flip at an arbitrary position — produces a
+  // different hash.
+  it("detects single-byte mid-file mutations at arbitrary positions", () => {
+    const a = "x".repeat(5000);
+    // Pick a position that the previous stride-sampling algorithm skipped
+    // (step=5 starting at 256, so 2501 is unsampled). The current
+    // every-byte hash MUST detect it.
+    const b = a.substring(0, 2501) + "Y" + a.substring(2502);
+    expect(a.length).toBe(b.length);
+    expect(sampleHash(a)).not.toBe(sampleHash(b));
+  });
 });
 
 describe("escapeHtml", () => {

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { SourceView } from "../SourceView";
+import { installVirtualizerViewportShim } from "@/test-setup";
 
 vi.mock("@/lib/shiki", () => ({
   getSharedHighlighter: vi.fn().mockResolvedValue({
@@ -33,6 +34,17 @@ vi.mock("@/lib/vm/use-comment-actions", () => ({
 }));
 
 describe("SourceView", () => {
+  // Iter 2 of #252 — virtualised SourceView depends on real layout
+  // measurements. Opt-in jsdom shim provides a synthetic 800-px viewport
+  // so `@tanstack/react-virtual` produces a non-empty range. Other tests
+  // (and other component tests in this suite) do NOT see the shim.
+  let teardown: (() => void) | null = null;
+  beforeAll(() => {
+    teardown = installVirtualizerViewportShim(800);
+  });
+  afterAll(() => {
+    teardown?.();
+  });
   it("renders source content with line numbers", async () => {
     render(<SourceView content={"line1\nline2\nline3"} path="/test.ts" filePath="/test.ts" zoom={1} />);
     await waitFor(() => {
@@ -124,8 +136,10 @@ describe("SourceView", () => {
   // is now the inner scroll container, the existing tab-level `scrollTop`
   // save/restore in `ViewerRouter` is a no-op for source-mode tabs. Verify
   // SourceView itself reads the saved value on mount and writes via
-  // `setScrollTop` on scroll.
-  it("saves scroll position to the tab store on scroll", async () => {
+  // `setSourceScrollTop` on scroll. The new field is partitioned from
+  // `scrollTop` (which still owns visual-mode scroll) so cross-mode toggles
+  // never cross-pollute coordinate spaces.
+  it("saves scroll position to tab.sourceScrollTop on scroll", async () => {
     const { useStore } = await import("@/store");
     useStore.getState().openFile("/scroll.ts");
 
@@ -157,13 +171,24 @@ describe("SourceView", () => {
     fireEvent.scroll(sourceLines, { target: { scrollTop: 320 } });
 
     const tab = useStore.getState().tabs.find((t) => t.path === "/scroll.ts");
-    expect(tab?.scrollTop).toBe(320);
+    expect(tab?.sourceScrollTop).toBe(320);
+    // Coord-space partition: visual-mode `scrollTop` must NOT be touched.
+    expect(tab?.scrollTop).toBe(0);
 
     rafSpy.mockRestore();
   });
 });
 
 describe("zoom (#92)", () => {
+  // Same shim scope — these tests render SourceView and need the virtualiser
+  // to mount rows so the zoom CSS plumbing can be observed.
+  let teardown: (() => void) | null = null;
+  beforeAll(() => {
+    teardown = installVirtualizerViewportShim(800);
+  });
+  afterAll(() => {
+    teardown?.();
+  });
   it("scales the .source-lines text container via --source-zoom CSS var", async () => {
     const { container } = render(
       <SourceView content={"hello\nworld"} path="x.ts" filePath="x.ts" zoom={1.5} />,

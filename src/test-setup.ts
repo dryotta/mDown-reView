@@ -34,8 +34,10 @@ if (typeof HTMLDialogElement !== "undefined") {
 // jsdom does not ship ResizeObserver — @tanstack/react-virtual (used by
 // `SourceView` after iter 2 of #252) relies on it to watch the scroll
 // element for size changes. Without the shim the virtualiser refuses to
-// render any virtual items in tests. Production runs in a real browser
-// where ResizeObserver is native; the shim is test-only.
+// render any virtual items in tests. The shim is a no-op observer; tests
+// that need to react to size changes drive the virtualiser via
+// `installVirtualizerViewportShim` (below). Production runs in a real
+// browser where ResizeObserver is native.
 if (typeof globalThis.ResizeObserver === "undefined") {
   class TestResizeObserver {
     observe(): void {}
@@ -45,44 +47,71 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
 }
 
-// jsdom returns 0 for offsetHeight / offsetWidth / getBoundingClientRect
-// dimensions. @tanstack/react-virtual uses `element.offsetHeight` to compute
-// the scroll-element's outer size, and short-circuits to an empty range
-// when `outerSize === 0`. Without dimensions the virtualiser renders zero
-// virtual items even with a non-empty count. Synthesise an 800-px viewport
-// globally so virtualised component tests (SourceView and any future
-// virtualised viewers) get a sensible row window. Production runs in a
-// real browser where layout measurement is real; the override is test-only.
-// jsdom defines these accessors on `HTMLElement.prototype`.
-if (typeof HTMLElement !== "undefined") {
-  const TEST_VIEWPORT_PX = 800;
-  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+// Opt-in viewport-dimension shim. **Imported only by tests that exercise
+// `@tanstack/react-virtual`** — e.g. `src/components/viewers/__tests__/
+// SourceView.test.tsx`. Setting these shims globally would silently mask
+// "not yet laid out / hidden" branches in unrelated component tests
+// (test-expert review on PR #354, iter 2). Call once at the top of the
+// describe block; it is idempotent and reverts on `vi.restoreAllMocks()`
+// because it returns a teardown handle.
+//
+// Why it exists: jsdom returns 0 for `offsetHeight` / `clientHeight` /
+// `getBoundingClientRect`. `@tanstack/react-virtual`'s default
+// `measureElement` reads `el.offsetHeight` and its scroll-element
+// observer reads `offsetHeight`/`offsetWidth` of the scroll container
+// (see `node_modules/@tanstack/virtual-core/dist/esm/index.js:144,
+// 2-5`). With 0 dimensions `outerSize === 0` short-circuits the range
+// computation and the virtualiser never mounts any rows — so the
+// component tests can't observe their assertions.
+export function installVirtualizerViewportShim(viewportPx = 800): () => void {
+  const elProto = Element.prototype as unknown as Record<string, unknown>;
+  const htmlProto = HTMLElement.prototype as unknown as Record<string, unknown>;
+  const prevElHeight = Object.getOwnPropertyDescriptor(elProto, "clientHeight");
+  const prevElWidth = Object.getOwnPropertyDescriptor(elProto, "clientWidth");
+  const prevHtmlOffsetHeight = Object.getOwnPropertyDescriptor(
+    htmlProto,
+    "offsetHeight",
+  );
+  const prevHtmlOffsetWidth = Object.getOwnPropertyDescriptor(
+    htmlProto,
+    "offsetWidth",
+  );
+  Object.defineProperty(htmlProto, "offsetHeight", {
     configurable: true,
     get() {
-      return TEST_VIEWPORT_PX;
+      return viewportPx;
     },
   });
-  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+  Object.defineProperty(htmlProto, "offsetWidth", {
     configurable: true,
     get() {
-      return TEST_VIEWPORT_PX;
+      return viewportPx;
     },
   });
-}
-if (typeof Element !== "undefined") {
-  const TEST_VIEWPORT_PX = 800;
-  Object.defineProperty(Element.prototype, "clientHeight", {
+  Object.defineProperty(elProto, "clientHeight", {
     configurable: true,
     get() {
-      return TEST_VIEWPORT_PX;
+      return viewportPx;
     },
   });
-  Object.defineProperty(Element.prototype, "clientWidth", {
+  Object.defineProperty(elProto, "clientWidth", {
     configurable: true,
     get() {
-      return TEST_VIEWPORT_PX;
+      return viewportPx;
     },
   });
+  return () => {
+    if (prevElHeight) Object.defineProperty(elProto, "clientHeight", prevElHeight);
+    else delete elProto.clientHeight;
+    if (prevElWidth) Object.defineProperty(elProto, "clientWidth", prevElWidth);
+    else delete elProto.clientWidth;
+    if (prevHtmlOffsetHeight)
+      Object.defineProperty(htmlProto, "offsetHeight", prevHtmlOffsetHeight);
+    else delete htmlProto.offsetHeight;
+    if (prevHtmlOffsetWidth)
+      Object.defineProperty(htmlProto, "offsetWidth", prevHtmlOffsetWidth);
+    else delete htmlProto.offsetWidth;
+  };
 }
 
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;

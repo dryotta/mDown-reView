@@ -57,6 +57,8 @@ export function useScrollToLine(
     if (!filePath) return;
     const target = useStore.getState().consumePendingScrollTarget(filePath);
     if (!target) return;
+    let cancelled = false;
+    let rafHandle: number | null = null;
     const tryScroll = () =>
       scrollToLineInContainer(
         containerRef.current,
@@ -66,11 +68,19 @@ export function useScrollToLine(
         scrollOverride,
       );
     if (!tryScroll()) {
-      requestAnimationFrame(() => { tryScroll(); });
+      rafHandle = requestAnimationFrame(() => {
+        rafHandle = null;
+        if (cancelled) return;
+        tryScroll();
+      });
     }
     onScrollTo?.(target.line);
     if (target.commentId) {
       useStore.getState().setFocusedThread(target.commentId);
     }
+    return () => {
+      cancelled = true;
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+    };
   }, [filePath, containerRef, lineAttribute, lineTransform, onScrollTo, scrollOverride]);
 }

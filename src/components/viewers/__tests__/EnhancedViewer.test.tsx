@@ -162,6 +162,29 @@ describe("EnhancedViewer", () => {
       expect(screen.queryByTestId("markdown-viewer")).toBeNull();
     });
 
+    // Iter 3 of #252 / test-expert review (rec'd-not-blocking): the clamp
+    // must be render-time-only and must NOT mutate persisted view state.
+    // If a future edit drops the early return in `handleViewChange`, the
+    // user's persisted preference would silently flip to "visual" while
+    // the file is large; the next time the file shrinks below the cap
+    // they would land on "broken visual" instead of source-mode default.
+    it("clicking disabled Visual does NOT write to viewModeByTab (persistence guard)", () => {
+      render(
+        <EnhancedViewer
+          content="# Hello"
+          path="/big.md"
+          filePath="/big.md"
+          fileSize={ONE_MB}
+        />
+      );
+      // Pre-condition: the store has no view-mode entry for this path.
+      expect(useStore.getState().viewModeByTab["/big.md"]).toBeUndefined();
+      fireEvent.click(screen.getByRole("button", { name: /visual/i }));
+      // Post-condition: still nothing persisted — the click was suppressed
+      // BEFORE setViewMode could fire.
+      expect(useStore.getState().viewModeByTab["/big.md"]).toBeUndefined();
+    });
+
     it("does NOT clamp non-markdown files at >= 1 MB", () => {
       // 1 MB JSON should keep its default visual (JsonTreeView).
       render(

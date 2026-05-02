@@ -65,15 +65,26 @@ export function useCommentFlashListener(
           return;
         }
         const onMissing = onMissingRef.current;
-        if (onMissing && onMissing(line)) {
-          // The override claimed the lookup (e.g. virtualiser scrolled into
-          // range). Re-query after a frame so React has time to mount the
-          // newly-visible row before flashElement.
-          requestAnimationFrame(() => {
-            const el2 = root!.querySelector(selector(line)) as HTMLElement | null;
-            if (el2) flashElement(el2);
-          });
-        }
+        if (!onMissing || !onMissing(line)) return;
+        // The override claimed the lookup (e.g. virtualiser scrolled into
+        // range). Re-query across up to FLASH_RETRY_FRAMES frames so React
+        // has time to mount the newly-visible row before flashElement.
+        // The bounded loop matches the scroll-restore retry pattern in
+        // ViewerRouter and SourceView (#252 iter 2 — virtualizer
+        // measurement + commit can take 2-3 frames before a far-off-screen
+        // row exists in the DOM).
+        const FLASH_RETRY_FRAMES = 5;
+        let remaining = FLASH_RETRY_FRAMES;
+        const attempt = () => {
+          remaining--;
+          const found = root!.querySelector(selector(line)) as HTMLElement | null;
+          if (found) {
+            flashElement(found);
+            return;
+          }
+          if (remaining > 0) requestAnimationFrame(attempt);
+        };
+        requestAnimationFrame(attempt);
       }
 
       switch (detail.kind) {
