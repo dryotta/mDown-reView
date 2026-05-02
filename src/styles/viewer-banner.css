@@ -49,3 +49,25 @@
 .excalidraw-conflict-banner__action:hover {
   background: var(--color-bg-hover, var(--color-bg));
 }
+
+/* Save-error banner — non-modal, dismissible. Distinct from the conflict
+   banner so the two can stack visually without colour-conflicting; uses
+   the danger palette to signal "an action you initiated failed" rather
+   than the warning palette which signals "external state changed". */
+.excalidraw-save-error-banner {
+  padding: 6px 12px;
+  background: var(--color-error-bg, var(--color-warning-bg));
+  border-bottom: 1px solid var(--color-error-border, var(--color-warning-border));
+  color: var(--color-error-text, var(--color-warning-text));
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.excalidraw-save-error-banner__copy {
+  font-weight: 500;
+  flex: 1;
+  word-break: break-word;
+}

@@ -166,10 +166,22 @@ describe("close-tab guard (issue #352 / AC6)", () => {
     useStore.getState().setExcalidrawDirty("/ws/b.excalidraw", true);
     useStore.getState().closeAllTabs();
     expect(confirmSpy).toHaveBeenCalledTimes(1);
+    // Single dirty tab → singular wording.
     expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
     expect(useStore.getState().tabs).toEqual([]);
     expect(useStore.getState().excalidrawDirtyByTab).toEqual({});
     expect(useStore.getState().externalChangePendingByTab).toEqual({});
+  });
+
+  it("closeAllTabs prompt names the count when multiple tabs are dirty", () => {
+    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/b.excalidraw", { recordHistory: false });
+    useStore.getState().openFile("/ws/c.excalidraw", { recordHistory: false });
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
+    useStore.getState().setExcalidrawDirty("/ws/b.excalidraw", true);
+    useStore.getState().setExcalidrawDirty("/ws/c.excalidraw", true);
+    useStore.getState().closeAllTabs();
+    expect(confirmSpy).toHaveBeenCalledWith("Discard changes to 3 files?");
   });
 
   it("closeAllTabs aborts when the user cancels", () => {
@@ -189,26 +201,71 @@ describe("close-tab guard (issue #352 / AC6)", () => {
 });
 
 describe("LRU eviction cleans up dirty/pending maps (issue #352 / AC6)", () => {
-  it("evicting a tab also removes its dirty + pending entries", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(globalThis, "confirm").mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  it("evicting a clean tab silently cleans its (empty) maps — no prompt", () => {
     // Open MAX_TABS+1 to force eviction. MAX_TABS is 5.
     for (let i = 0; i < 5; i++) {
       useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
-    // Mark the LRU candidate (oldest, /ws/0.md — but the active is /ws/4.md
-    // so /ws/0.md is the candidate to evict). First make it the LRU by
-    // setting its lastAccessedAt back via direct state mutation — simpler
-    // than orchestrating opens.
+    // Open a new tab — this triggers LRU eviction of /ws/0.md (oldest).
+    useStore.getState().openFile("/ws/new.md", { recordHistory: false });
+    // No prompt fired since no dirty tabs.
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(
+      useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
+    ).toBeUndefined();
+  });
+
+  it("evicting a DIRTY tab prompts and cleans both maps when user confirms", () => {
+    for (let i = 0; i < 5; i++) {
+      useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
+    }
     useStore.getState().setExcalidrawDirty("/ws/0.md", true);
     useStore.getState().setExternalChangePending("/ws/0.md", true);
 
-    // Open a new tab — this triggers LRU eviction.
     useStore.getState().openFile("/ws/new.md", { recordHistory: false });
 
-    // /ws/0.md was evicted, and its maps are cleaned.
+    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
     expect(
       useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
     ).toBeUndefined();
     expect(useStore.getState().excalidrawDirtyByTab["/ws/0.md"]).toBeUndefined();
-    expect(useStore.getState().externalChangePendingByTab["/ws/0.md"]).toBeUndefined();
+    expect(
+      useStore.getState().externalChangePendingByTab["/ws/0.md"],
+    ).toBeUndefined();
+    // The new tab WAS opened.
+    expect(
+      useStore.getState().tabs.find((t) => t.path === "/ws/new.md"),
+    ).toBeDefined();
+  });
+
+  it("evicting a DIRTY tab aborts the openFile when user cancels (issue #352 / iter-3 bug-expert HIGH)", () => {
+    confirmSpy.mockReturnValue(false);
+    for (let i = 0; i < 5; i++) {
+      useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
+    }
+    useStore.getState().setExcalidrawDirty("/ws/0.md", true);
+
+    useStore.getState().openFile("/ws/new.md", { recordHistory: false });
+
+    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
+    // /ws/0.md still present, dirty preserved.
+    expect(
+      useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
+    ).toBeDefined();
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/0.md"]).toBe(true);
+    // /ws/new.md was NOT opened.
+    expect(
+      useStore.getState().tabs.find((t) => t.path === "/ws/new.md"),
+    ).toBeUndefined();
   });
 });

@@ -194,6 +194,34 @@ export function filterStaleTabs(
 type SliceSet = StoreApi<Store>["setState"];
 type SliceGet = StoreApi<Store>["getState"];
 
+/**
+ * Issue #352 / iter-3 lean-expert review — single confirm-discard
+ * helper used by `closeTab`, `closeAllTabs`, and the LRU eviction path
+ * in `openFile`. Returns `true` if the destructive action should
+ * proceed (user confirmed, or no dirty tabs to confirm against).
+ *
+ * **Fail-closed in headless contexts** (no `globalThis.confirm`): we
+ * abort the destructive action rather than silently discard. Iter-2
+ * landed `confirm` available in jsdom + Tauri runtime; absence is an
+ * unsupported configuration.
+ *
+ * `count` carries through to the prompt copy: "Discard changes to N
+ * file(s)?" gives the user agency on a multi-tab batch close.
+ */
+function confirmDiscard(count: number): boolean {
+  const ask =
+    typeof globalThis !== "undefined" && typeof globalThis.confirm === "function"
+      ? globalThis.confirm
+      : null;
+  if (ask === null) {
+    // Fail-closed — refuse to silently destroy unsaved work.
+    return false;
+  }
+  const message =
+    count > 1 ? `Discard changes to ${count} files?` : "Discard changes?";
+  return ask(message);
+}
+
 export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
   return {
     tabs: [],
@@ -226,6 +254,18 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           const victim = candidates.reduce((oldest, t) =>
             accessed(t) < accessed(oldest) ? t : oldest
           );
+          // Issue #352 / iter-3 bug-expert review (HIGH) — LRU eviction
+          // MUST NOT silently discard an Excalidraw editor tab with
+          // unsaved edits. Closing the LRU tab is a side-effect of
+          // openFile; without this guard the user has no chance to
+          // save before their work is destroyed. If the user cancels
+          // the prompt we abort the openFile call entirely (the new
+          // file does not open) — same model as `closeTab`.
+          if (get().excalidrawDirtyByTab[victim.path] === true) {
+            if (!confirmDiscard(1)) {
+              return;
+            }
+          }
           baseTabs = baseTabs.filter((t) => t.path !== victim.path);
           const { [victim.path]: _v, ...restView } = get().viewModeByTab;
           const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
@@ -257,18 +297,11 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
 
     closeTab: (path) => {
       // Issue #352 / AC6 — close-tab guard. If this is a dirty Excalidraw
-      // editor tab, prompt the user before discarding their edits. Use
-      // `globalThis.confirm` (not a typed wrapper) so unit tests can
-      // mock the global directly without injecting a hook seam — same
-      // pattern as `window.matchMedia` in `useTheme`. In headless
-      // environments (`confirm` undefined), behave as if the user
-      // confirmed: closing the app is "discard everything" by definition.
+      // editor tab, prompt the user before discarding their edits.
+      // `confirmDiscard` fail-closes in headless contexts (no confirm)
+      // — destructive action aborted rather than silently allowed.
       if (get().excalidrawDirtyByTab[path] === true) {
-        const ask =
-          typeof globalThis !== "undefined" && typeof globalThis.confirm === "function"
-            ? globalThis.confirm
-            : null;
-        if (ask !== null && !ask("Discard changes?")) {
+        if (!confirmDiscard(1)) {
           return;
         }
       }
@@ -299,16 +332,13 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
 
     closeAllTabs: () => {
       // Issue #352 / AC6 — close-all guard. If ANY tab is a dirty
-      // Excalidraw editor, prompt once for the whole batch. Same
-      // semantics as `closeTab`: missing `confirm` (headless) ⇒ proceed.
+      // Excalidraw editor, prompt once for the whole batch with the
+      // count so the user knows the scope. `confirmDiscard` fail-closes
+      // when `confirm` is unavailable.
       const dirtyMap = get().excalidrawDirtyByTab;
-      const hasDirty = Object.values(dirtyMap).some((v) => v === true);
-      if (hasDirty) {
-        const ask =
-          typeof globalThis !== "undefined" && typeof globalThis.confirm === "function"
-            ? globalThis.confirm
-            : null;
-        if (ask !== null && !ask("Discard changes?")) {
+      const dirtyCount = Object.values(dirtyMap).filter((v) => v === true).length;
+      if (dirtyCount > 0) {
+        if (!confirmDiscard(dirtyCount)) {
           return;
         }
       }

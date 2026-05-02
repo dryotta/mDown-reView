@@ -401,4 +401,138 @@ describe("ExcalidrawView — save / dirty / conflict (#352)", () => {
       useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
     ).toBeUndefined();
   });
+
+  // Issue #352 / iter-3 product-expert + rubber-duck BLOCK — save
+  // failure MUST NOT unmount the canvas. A transient IPC failure
+  // (locked file, AV scan, OneDrive sync, disk full, payload > 10 MB)
+  // should leave the user's unsaved scene intact, with a non-modal
+  // banner above the canvas.
+  it("save IPC rejection surfaces a save-error banner, leaves dirty=true, and KEEPS the canvas mounted", async () => {
+    saveSceneMock.mockRejectedValueOnce(
+      new Error("decoded payload exceeds 10485760-byte cap: 12345678 bytes"),
+    );
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/a.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    const stub = await screen.findByTestId("excalidraw-stub");
+    await act(async () => {
+      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-save-request", {
+          detail: { path: "/ws/a.excalidraw" },
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("excalidraw-save-error-banner")).toBeInTheDocument();
+    });
+    // Canvas STILL mounted — the user's scene isn't lost.
+    expect(screen.getByTestId("excalidraw-stub")).toBeInTheDocument();
+    expect(screen.getByText(/Save failed:/i)).toBeInTheDocument();
+    // Dirty stays true so the Save button stays "live" for retry.
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
+
+    // Dismiss button hides the banner.
+    await act(async () => {
+      screen.getByRole("button", { name: "Dismiss" }).click();
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("excalidraw-save-error-banner")).not.toBeInTheDocument();
+    });
+  });
+
+  // Issue #352 / iter-3 bug-expert MEDIUM — concurrent save guard. A
+  // second save-request fired while the first IPC is in flight must
+  // be coalesced (not race the first), preventing stale-bytes
+  // overwrites.
+  it("coalesces a second save-request while the first is still in flight", async () => {
+    let resolveFirst!: () => void;
+    const firstPromise = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+    saveSceneMock
+      .mockImplementationOnce(() => firstPromise)
+      .mockResolvedValue(undefined);
+
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/a.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    const stub = await screen.findByTestId("excalidraw-stub");
+    await act(async () => {
+      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-save-request", {
+          detail: { path: "/ws/a.excalidraw" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-save-request", {
+          detail: { path: "/ws/a.excalidraw" },
+        }),
+      );
+    });
+
+    // Only ONE save attempt — second was coalesced.
+    expect(saveSceneMock).toHaveBeenCalledTimes(1);
+
+    // Resolve the first; another dispatch should now succeed.
+    await act(async () => {
+      resolveFirst();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-save-request", {
+          detail: { path: "/ws/a.excalidraw" },
+        }),
+      );
+    });
+    expect(saveSceneMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Issue #352 / iter-3 rubber-duck "extra blind spot" — the live
+  // scene only exists inside the mounted Excalidraw component. When
+  // the view unmounts (tab switch, mode change, file close), the
+  // dirty + pending flags MUST clear so a stale dirty dot can't
+  // mislabel a reloaded on-disk scene.
+  it("clears dirty + pending on unmount (rubber-duck extra blind spot)", async () => {
+    useStore.setState({
+      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
+      externalChangePendingByTab: { "/ws/a.excalidraw": true },
+    });
+    const { unmount } = render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/a.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    unmount();
+    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
+    expect(
+      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
+    ).toBeUndefined();
+  });
 });

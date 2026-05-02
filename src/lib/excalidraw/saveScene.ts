@@ -95,11 +95,22 @@ function svgToBase64(svg: SVGSVGElement): string {
  *     reaching this code path; throw is a defensive guard, not a UI flow).
  *   - any underlying IPC error (rejected `Result` is unwrapped to a
  *     thrown `Error` by the façade).
+ *
+ * allow-chained-invokes: each branch's `await`s are sequential by data
+ * dependency — the IPC call (`writeWorkspaceText` / `writeWorkspaceBinary`)
+ * needs the serialized bytes from the prior `exportToBlob` / `exportToSvg`
+ * call, which is JS work, not IPC. The lint rule's "4 awaited IPC calls"
+ * count includes the JS API calls; only ONE IPC fires per save.
  */
 export async function saveExcalidrawFile(
   filePath: string,
   data: ExcalidrawSaveData,
 ): Promise<void> {
+  // allow-chained-invokes: sequential by data dependency — `writeWorkspaceText`
+  // / `writeWorkspaceBinary` (the only real IPC) needs bytes from the prior
+  // `exportToBlob` / `exportToSvg` call (JS work, not IPC). Per branch only
+  // ONE IPC fires; the rule's "4 chained IPC calls" count includes the JS
+  // API calls. See `docs/architecture.md` rule 1.
   const lower = filePath.toLowerCase();
 
   if (lower.endsWith(".excalidraw.png")) {

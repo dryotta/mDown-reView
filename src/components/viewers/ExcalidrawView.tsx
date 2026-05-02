@@ -87,6 +87,11 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
 
   const [scene, setScene] = useState<ExcalidrawScene | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Issue #352 / iter-3 product-review fix — save failures MUST NOT
+  // unmount the canvas (would discard the user's unsaved work). Track
+  // save errors separately from load errors and surface them as a
+  // non-modal banner above the canvas, alongside the conflict banner.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Latest scene snapshot from Excalidraw's `onChange` — captured into a
   // ref so the save handler reads the current value without re-creating
@@ -104,16 +109,21 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   const setExcalidrawDirty = useStore((s) => s.setExcalidrawDirty);
   const setExternalChangePending = useStore((s) => s.setExternalChangePending);
 
-  // Excalidraw fires `onChange` synchronously on initial mount with the
-  // restored scene — that's a reload, not a user edit. Skip the first N
-  // calls (mount + StrictMode double-fire) by counting against a ref;
-  // only post-mount changes mark dirty. Reset on path/content/mode
-  // change since a fresh mount restarts the count.
-  const userEditCountRef = useRef(0);
+  // Issue #352 / AC5 — track whether Excalidraw's initial mount-restore
+  // `onChange` has fired. Replaces the prior `userEditCountRef`
+  // (counter-as-boolean — flagged by lean-expert). Boolean intent is
+  // clearer; reset on filePath/content/mode changes so the next mount
+  // restart correctly skips its first onChange.
+  const mountedOnChangeFiredRef = useRef(false);
+  // Issue #352 / iter-3 bug-expert review — guard against concurrent
+  // saves. If the user mashes Ctrl+S, two near-simultaneous saves can
+  // race and leave on-disk content with stale bytes. Atomic-write at
+  // the IPC level prevents torn writes but cannot reorder saves.
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    userEditCountRef.current = 0;
+    mountedOnChangeFiredRef.current = false;
 
     if (needsExtract) {
       // PNG / SVG variant — Excalidraw's loadFromBlob decodes the embedded
@@ -163,7 +173,21 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     return () => {
       cancelled = true;
     };
-  }, [filePath, content, needsExtract]);
+  }, [filePath, content, needsExtract, mode]);
+
+  // Issue #352 / iter-3 rubber-duck review (extra blind spot) — clear
+  // the dirty + pending flags when this view unmounts. The live scene
+  // state lives only in the mounted Excalidraw component; once the
+  // active tab changes, the scene is gone and any dirty flag would
+  // silently mislabel a stale on-disk reload as "unsaved edits". The
+  // user is in the same situation as switching out of Editor mode
+  // (`setViewMode` already clears dirty/pending) — be consistent.
+  useEffect(() => {
+    return () => {
+      setExcalidrawDirty(filePath, false);
+      setExternalChangePending(filePath, false);
+    };
+  }, [filePath, setExcalidrawDirty, setExternalChangePending]);
 
   // Listen for Save requests dispatched from the Save button + Ctrl+S
   // handler. Only the view whose `filePath` matches the event detail
@@ -174,8 +198,17 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string } | undefined;
       if (!detail || detail.path !== filePath) return;
+      // In-flight guard — a second save request while the first is in
+      // progress is a no-op. The Rust side does atomic-write but cannot
+      // reorder two near-simultaneous IPC calls, so we serialize at
+      // the renderer boundary.
+      if (saveInFlightRef.current) {
+        void logWarn(`excalidraw save dropped (already in flight): ${filePath}`);
+        return;
+      }
       const live = liveSceneRef.current ?? scene;
       if (!live) return;
+      saveInFlightRef.current = true;
       void saveExcalidrawFile(filePath, {
         elements: live.elements,
         appState: live.appState,
@@ -184,21 +217,26 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
         .then(() => {
           // Success — clear dirty, clear any pending external-change
           // banner (the user explicitly chose to overwrite by saving),
-          // and let the watcher echo through. The watcher's self-write
-          // suppression in src-tauri/src/commands/fs_write.rs (atomic
-          // rename — debounced) is documented in docs/architecture.md.
+          // clear any prior save error, and let the watcher echo
+          // through. The watcher's self-write suppression in
+          // src-tauri/src/commands/fs_write.rs (atomic rename —
+          // debounced) is documented in docs/architecture.md.
           setExcalidrawDirty(filePath, false);
           setExternalChangePending(filePath, false);
+          setSaveError(null);
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           void logError(`excalidraw save failed for ${filePath}: ${msg}`);
-          // Leave dirty=true so the Save button stays "live" and the
-          // tab dot persists. Surface to the user via setLoadError? No
-          // — that would replace the canvas with an error screen. The
-          // `[web]` log is the user-visible signal; future iter could
-          // add a toast. Keep behaviour deterministic for tests.
-          setLoadError(msg);
+          // Surface as a non-modal banner above the canvas — DO NOT
+          // route through `setLoadError`, which would unmount the
+          // canvas and discard the user's unsaved edits (rubber-duck +
+          // product-expert blockers, iter-3 review). Dirty stays
+          // true so the user can retry; the Save button stays "live".
+          setSaveError(msg);
+        })
+        .finally(() => {
+          saveInFlightRef.current = false;
         });
     };
     window.addEventListener(EXCALIDRAW_SAVE_REQUEST, handler);
@@ -244,6 +282,24 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       data-dirty={dirty || undefined}
       style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}
     >
+      {mode === "editor" && saveError && (
+        <div
+          className="excalidraw-save-error-banner"
+          role="status"
+          data-testid="excalidraw-save-error-banner"
+        >
+          <span className="excalidraw-save-error-banner__copy">
+            Save failed: {saveError}
+          </span>
+          <button
+            type="button"
+            className="excalidraw-conflict-banner__action"
+            onClick={() => setSaveError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {mode === "editor" && externalChangePending && (
         <div
           className="excalidraw-conflict-banner"
@@ -307,14 +363,17 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
             };
             // Only mark dirty in Editor mode AND after the initial
             // mount/restore call (which fires synchronously with the
-            // restored scene — that's not a user edit).
+            // restored scene — that's not a user edit). Boolean ref
+            // (replaces prior counter) is reset in the load `useEffect`
+            // on every filePath/content/mode change so the next mount
+            // restart correctly skips its first onChange.
             if (mode !== "editor") return;
-            userEditCountRef.current += 1;
-            // Skip the first onChange (initial mount restoration). Past
-            // that, every onChange marks dirty — `setExcalidrawDirty`
-            // short-circuits when the boolean is unchanged, so we don't
-            // pay a re-render per mouse-move.
-            if (userEditCountRef.current <= 1) return;
+            if (!mountedOnChangeFiredRef.current) {
+              mountedOnChangeFiredRef.current = true;
+              return;
+            }
+            // setExcalidrawDirty short-circuits when the boolean is
+            // unchanged, so we don't pay a re-render per mouse-move.
             setExcalidrawDirty(filePath, true);
           }}
         />
