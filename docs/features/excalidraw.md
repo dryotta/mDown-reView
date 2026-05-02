@@ -30,12 +30,11 @@ Excalidraw fetches its custom fonts from `https://esm.run/...` by default. mdown
 
 ### Save semantics
 
-Editor mode supports explicit save only — there is **no autosave** and no save-on-blur. Saves are triggered by:
+Editor mode **auto-saves on change** — there is no Save button and no manual save action. Excalidraw's `<Excalidraw onChange>` fires on every scene mutation (real edits, tool selection, viewport pan); each onChange resets a 2-second debounce timer. After 2 seconds with no further onChange, the live scene is persisted to disk via the workspace-write IPC.
 
-1. The **Save** button in the **top app toolbar** (icon-only floppy-disk, right of the Comments toggle). Visible only when the active tab is an editable Excalidraw file in Editor mode; enabled only when the tab has unsaved changes (the dirty `•` is showing).
-2. **Ctrl+S** (Cmd+S on macOS) when the active tab is an Excalidraw file in Editor mode and writable.
+The save fires only when the **persistent content** has actually diverged from the on-disk baseline. The renderer keeps a `lastSavedHashRef` baseline, computed as a stable hash that strips Excalidraw's volatile `version` / `versionNonce` / `updated` fields (these mutate on every operation including mount-time normalisation passes). Mount-time onChanges produce the same stable hash as the loaded scene, so opening a file does NOT trigger a save. Tool clicks and viewport pans are filtered out the same way.
 
-Both paths dispatch the `mdownreview:excalidraw-save-request` DOM event keyed by file path; the live `<ExcalidrawView/>` (the only surface holding the canvas state) is the listener. This decouples the toolbar + global-shortcut surfaces from the lazy Excalidraw chunk — neither imports `@excalidraw/excalidraw` directly.
+**Cmd+S / Ctrl+S** flushes the pending debounce immediately and shows a transient `Saved` pill (top-right of the canvas, ~1.5s). This restores the muscle-memory affordance for power users — saves still happen automatically; the keyboard shortcut just confirms the action and bypasses the 2s wait.
 
 Format-preserving by file type (each branch is honoured in `src/lib/excalidraw/saveScene.ts`):
 
@@ -46,90 +45,89 @@ Format-preserving by file type (each branch is honoured in `src/lib/excalidraw/s
 | `.excalidraw.png` | `exportToBlob({ ..., mimeType: "image/png", embedScene: true })` → base64 | `write_workspace_binary` |
 | `.excalidraw.svg` | `exportToSvg({ ..., embedScene: true })` → base64 | `write_workspace_binary` |
 
-JSON saves are **verbatim** — no `JSON.stringify(..., null, 2)` rewrap, no custom pretty-printing. Excalidraw's serializer already emits a stable canonical form; re-formatting it would shift line numbers on every save and defeat MRSF's source-line re-anchoring. The PNG/SVG round-trips re-render the raster + freshly embed the scene chunk, so the original file format is preserved (we never silently rewrite a `.excalidraw.png` to canonical `.excalidraw` JSON).
+JSON saves are **verbatim** — no `JSON.stringify(..., null, 2)` rewrap, no custom pretty-printing. Excalidraw's serializer already emits a stable canonical form; re-formatting it would shift line numbers on every save and defeat MRSF's source-line re-anchoring.
 
-### Dirty tracking + close-tab guard
+After every successful save the renderer calls `recordSave(filePath)` (Zustand `lastSaveByPath`) so `useFileWatcher` suppresses the watcher echo of our own write — without this the watcher fires `file-changed`, `useFileContent` would reload, and the loop churns.
 
-Excalidraw's `<Excalidraw onChange>` fires on every scene mutation. The view counts past the initial mount-restore call and then sets `excalidrawDirtyByTab[path] = true` in the tabs slice. The TabBar reads that map and renders a `•` next to the basename when dirty (with `aria-label="Unsaved changes"` for screen readers).
+### "Changes save automatically." info banner
 
-Closing a dirty Excalidraw tab triggers a `globalThis.confirm("Discard changes?")` prompt; cancelling the prompt aborts the close and leaves dirty state intact. `closeAllTabs` prompts once if any open Excalidraw tab is dirty (count-aware copy: `Discard changes to N files?` for batch closes). The same prompt also fires before:
+A dismissible info banner above the canvas teaches users that edits persist without an explicit save action:
 
-- **switching tabs** while a dirty Excalidraw editor is active — the live scene state lives only in the mounted Excalidraw component, so silent unmount would discard the user's edits.
-- **switching out of Editor mode** (to Visual or Source) while dirty.
-- **LRU eviction** in `openFile` when the evicted tab is dirty.
+> Changes save automatically. &nbsp; **[Got it]**
 
-In all four discard paths, `confirmDiscard` fail-closes when `globalThis.confirm` is unavailable (headless contexts) — the destructive action aborts rather than silently destroying unsaved work.
+Dismissed once and stays dismissed forever (per browser profile, tracked in `localStorage` under `mdownreview:excalidraw-autosave-banner-seen`). Pattern mirrors the first-save warning. SSR / cookie-blocked / private mode degrades to "always seen" so the banner doesn't surface where dismissal can't persist.
 
-Dirty Excalidraw editor tabs are **exempt from the `MAX_TABS` LRU cap**. The cap (currently 5) bounds resident tab state for performance; unsaved user edits are exactly the state we cannot silently destroy. When `openFile` would otherwise evict a dirty editor as the LRU candidate, the cap stretches: a clean candidate is preferred, and if every non-active tab is dirty, the new tab opens without evicting anyone (the user pays a small memory cost and keeps their work).
+### Auto-save lifecycle: flush, pause, in-flight coalesce
 
-The dirty flag clears on:
+- **Tab switch / window close / mode switch out of Editor** → the pending debounce is **flushed**, not cancelled. The component's `useEffect` cleanup calls `flushAutoSave()` synchronously so any in-flight edits land on disk before the live scene state is torn down. (Without this, switching tabs within 2s of an edit would silently discard the change.)
+- **External change pending** (conflict banner up) → auto-save is **paused** until the user picks Reload or Keep editing. Don't clobber the on-disk version while the user is deciding.
+- **Concurrent saves** → serialised at the renderer via `saveInFlightRef`. An onChange arriving while a save is in flight sets `pendingSaveRef = true`; after the in-flight save resolves, a follow-up debounce fires automatically so the user's latest edits land on disk.
+- **Three consecutive failures** → auto-save **pauses** and the save-error banner shifts to:
 
-- successful save (the IPC promise resolves).
-- explicit reload via the conflict banner's `Reload` button.
-- mode-switch out of `editor` (after the prompt).
-- tab close (after the prompt).
-- tab switch (after the prompt).
+  > Auto-save paused after repeated failures: <reason> &nbsp; **[Resume] [Dismiss]**
 
-Tabs that are **read-only** (outside any open workspace folder, e.g. files dragged from Explorer or opened via CLI) cannot route through the workspace-write IPC. Their UI is gated:
+  Without this guard a broken disk / readonly drive would surface one error banner per ~2s of editing — UI spam. Resume clears the failure counter and re-engages the loop.
+- **Read-only tabs** (outside any open workspace) — Editor mode is unavailable (the toolbar segmented control hides the Editor button and any stored `editor` mode demotes to `visual`), so auto-save doesn't fire on them.
 
-- the toolbar Editor button is hidden,
-- any stored `editor` mode is demoted to `visual` (canvas stays inspectable),
-- the Save button is hidden,
-- `Ctrl+S` is a no-op on those tabs.
+### Conflict-banner gate
 
-### External-change conflict (watcher contention)
+The `excalidrawDirtyByTab` slice in `tabs.ts` tracks "live scene has diverged from on-disk". ExcalidrawView's `onChange` sets it to `true` when the stable content hash diverges from `lastSavedHashRef`; save success clears it back to `false`.
 
-When the file watcher fires `file-content-changed` on a file open in Editor mode, `useFileContent` checks the dirty flag:
+`useFileContent` reads the flag on every `mdownreview:file-changed` event:
 
-- **Not dirty** → silent reload (existing behaviour).
+- **Not dirty** → silent reload (existing behaviour for non-Excalidraw files too).
 - **Dirty** → set `externalChangePendingByTab[path] = true` instead of bumping the reload key. The view renders a non-modal banner above the canvas:
 
-  > File changed on disk &nbsp; **[Reload]** &nbsp; **[Keep editing — your save will overwrite]**
+  > File changed on disk &nbsp; **[Reload]** &nbsp; **[Keep editing — your changes will overwrite the version on disk]**
 
-  - **Reload** clears dirty + pending, bumps an internal `reloadKey` so `<Excalidraw>` remounts with fresh `initialData`, and dispatches a synthetic `mdownreview:file-changed` event so `useFileContent` re-reads the on-disk bytes (canonical files) or re-runs `extractScene` (binary variants). Without the remount the Excalidraw library would keep showing the stale in-memory scene because `initialData` is consumed only at first mount.
-  - **Keep editing — your save will overwrite** clears pending only; dirty stays true so the next Save will overwrite the on-disk version through the same workspace-write IPC.
+  - **Reload** clears pending, cancels the pending auto-save timer (so a debounced save doesn't clobber the freshly-loaded scene), bumps the internal `reloadKey` so `<Excalidraw>` remounts with fresh `initialData`, and dispatches a synthetic `mdownreview:file-changed` event so `useFileContent` re-reads the on-disk bytes (canonical files) or re-runs `extractScene` (binary variants).
+  - **Keep editing — your changes will overwrite the version on disk** clears pending; the next debounce fire writes the user's version through the same workspace-write IPC.
 
-User-driven, no implicit data loss either way. Mirrors the sidecar conflict UX.
+User-driven, no implicit data loss either way.
 
 ### Save errors
 
-Workspace-write IPC failures (10 MB cap exceeded, file outside workspace, extension not allowlisted, NTFS ADS filename, malformed base64) surface as a non-modal banner above the canvas with friendly copy mapped from the Rust error string and **Retry** / **Dismiss** buttons:
+Workspace-write IPC failures (10 MB cap exceeded, file outside workspace, extension not allowlisted, NTFS ADS filename, malformed base64) surface as a non-modal banner above the canvas with friendly copy mapped from the Rust error string:
 
-> Save failed: Drawing too large to save (12 MB > 10 MB limit). Try removing embedded images or splitting the drawing. &nbsp; **[Retry]** **[Dismiss]**
+> Couldn't save your changes: Drawing too large to save (12 MB > 10 MB limit). Try removing embedded images or splitting the drawing. &nbsp; **[Retry] [Dismiss]**
 
-The banner is `role="alert"` so screen readers announce it immediately. Dirty state stays `true` so the Save button keeps offering retry. The canvas remains mounted — save failures are recoverable, not catastrophic.
+The banner is `role="alert"` so screen readers announce it immediately. The canvas remains mounted — save failures are recoverable, not catastrophic. Retry clears the failure counter and re-fires the save bypassing the debounce.
 
-### First-save warning
+After **3 consecutive failures**, the loop pauses and the banner copy + button shift:
 
-The first time a user successfully saves any Excalidraw file (per browser profile, tracked in `localStorage` under `mdownreview:excalidraw-first-save-warning-seen`), an info-toned banner appears above the canvas:
+> Auto-save paused after repeated failures: <reason> &nbsp; **[Resume] [Dismiss]**
+
+### MRSF first-Editor-entry warning
+
+The first time a user enters **Editor mode** for any Excalidraw file (per browser profile, tracked in `localStorage` under `mdownreview:excalidraw-first-save-warning-seen`), an info-toned banner appears above the canvas:
 
 > Saving a drawing may move some line-anchored comments to file-level. &nbsp; **[Got it]**
 
-This is a one-shot pedagogical hint — Excalidraw re-serialises the JSON on every save, so line numbers shift and Tier-1 line-anchored comments may degrade to file-level via the standard 4-step MRSF re-anchor → orphan flow. The carve-out at [`docs/principles.md`](../principles.md) only stays load-bearing if the user is informed; this banner is the informant.
+This is a one-shot pedagogical hint — Excalidraw re-serialises the JSON on every save, so line numbers shift and Tier-1 line-anchored comments may degrade to file-level via the standard 4-step MRSF re-anchor → orphan flow. The carve-out at [`docs/principles.md`](../principles.md) only stays load-bearing if the user is informed; this banner is the informant. Pre-iter-11 the warning fired on first successful save; under auto-save the user has no explicit save action, so the trigger shifted to first Editor-mode entry — proactive disclosure with a clear cause.
 
 ## Key source
 
-- `src/components/viewers/ExcalidrawView.tsx` — lazy shell mounting `<Excalidraw>`, with theme integration via `useTheme()`, `data-testid="excalidraw-shell"` for E2E, the `onChange` → dirty-tracking wiring, the conflict banner, the save-error banner, the first-save warning banner, and the listener for `mdownreview:excalidraw-save-request`. Owns `reloadKey` for explicit canvas remount on conflict-banner Reload.
-- `src/components/viewers/ExcalidrawSourceMode.tsx` — lazy wrapper that runs `extractScene(filePath)` and feeds pretty-printed JSON to `<SourceView>` so PNG/SVG variants in Source mode display the embedded scene rather than empty content.
+- `src/components/viewers/ExcalidrawView.tsx` — lazy shell mounting `<Excalidraw>`, with theme integration via `useTheme()`, `data-testid="excalidraw-shell"` for E2E, the `onChange` → debounced auto-save wiring, the "Changes save automatically." banner, the save-error banner (with failure-pause + Resume), the conflict banner, the MRSF warning banner, the transient "Saved" pill (Cmd+S flush feedback), and the listener for `mdownreview:excalidraw-flush-save`. Owns `reloadKey` for explicit canvas remount on conflict-banner Reload.
+- `src/components/viewers/ExcalidrawSourceMode.tsx` — lazy wrapper that runs `extractScene(filePath)` and feeds pretty-printed JSON to `<SourceView>` so PNG/SVG variants in Source mode display the embedded scene.
 - `src/lib/excalidraw/extractScene.ts` — thin wrapper over Excalidraw's `loadFromBlob` (PNG/SVG variants → scene JSON for Visual mode + Source mode display).
 - `src/lib/excalidraw/saveScene.ts` — thin wrapper over `serializeAsJSON` / `serializeLibraryAsJSON` / `exportToBlob` / `exportToSvg`; routes to `write_workspace_text` / `write_workspace_binary` per extension.
+- `src/lib/excalidraw/first-save-warning.ts` — `localStorage` chokepoint for the MRSF first-Editor-entry seen flag. `hasSeenMrsfWarning()` / `markMrsfWarningSeen()` (legacy aliases `hasSeenFirstSave` / `markFirstSaveSeen` retained for back-compat).
+- `src/lib/excalidraw/autosave-banner.ts` — `localStorage` chokepoint for the auto-save info banner seen flag.
 - `src/lib/file-types.ts` — `excalidraw` category, `DOUBLE_EXT_MAP`, `ViewMode = "source" | "visual" | "editor"`, `getDefaultView`, `getFiletypeKey`.
 - `src/components/viewers/ViewerToolbar.tsx` — tri-state segmented control gated on `canEdit` (false when the active tab is read-only).
-- `src/components/viewers/EnhancedViewer.tsx` — 3-way switch over `viewMode`, `Save` button rendered in the toolbar trailing slot when the active mode is `editor` and the tab is writable. Routes Source mode for binary excalidraw paths to `<ExcalidrawSourceMode/>`.
-- `src/store/tabs.ts` — `excalidrawDirtyByTab` + `externalChangePendingByTab` maps; `setExcalidrawDirty`, `setExternalChangePending` actions; `confirmDiscard(count)` helper used by `closeTab` / `closeAllTabs` / LRU eviction in `openFile` / `setActiveTab` / `setViewMode`.
-- `src/components/TabBar/TabBar.tsx` — dirty-dot rendering off `excalidrawDirtyByTab` with `aria-label="Unsaved changes"`.
-- `src/hooks/useFileContent.ts` — short-circuits `.excalidraw.png` / `.excalidraw.svg` paths to `status: "ready"` with empty content so the lazy `<ExcalidrawView/>` mounts (instead of routing to `BinaryViewerShell`); gates the `mdownreview:file-changed` reload to surface the conflict banner when the editor is dirty.
-- `src/hooks/useGlobalShortcuts.ts` — `Ctrl/Cmd+S` shortcut bound only to active Excalidraw editor tabs that are writable.
+- `src/components/viewers/EnhancedViewer.tsx` — 3-way switch over `viewMode`. Routes Source mode for binary excalidraw paths to `<ExcalidrawSourceMode/>`.
+- `src/store/tabs.ts` — `excalidrawDirtyByTab` (gates the conflict banner) and `externalChangePendingByTab` (renders the conflict banner) maps; `setExcalidrawDirty`, `setExternalChangePending` actions.
+- `src/hooks/useFileContent.ts` — gates `mdownreview:file-changed` reload on the dirty flag to surface the conflict banner instead of silently reloading mid-edit.
+- `src/hooks/useGlobalShortcuts.ts` — `Ctrl/Cmd+S` shortcut dispatches `mdownreview:excalidraw-flush-save` for active Excalidraw editor tabs.
 - `src-tauri/src/commands/fs_write.rs` — workspace-write chokepoint (`write_workspace_text` / `write_workspace_binary`); see architecture rule 32.
 - `vite.config.ts` `excalidrawAssetCopy` — fonts vendored to `public/excalidraw-assets/`.
-- `scripts/check-bundle-baseline.mjs` + `scripts/bundle-baseline.json` — main-entry-chunk regression guard. Wired to CI; fails the build if the entry exceeds the pinned baseline by more than ±5% OR if the literal `@excalidraw/excalidraw` appears in the entry chunk (lazy boundary regression).
+- `scripts/check-bundle-baseline.mjs` + `scripts/bundle-baseline.json` — main-entry-chunk regression guard. Wired to CI.
 
 ## Known limitations
 
-- **MRSF re-anchor fragility** (documented above). Saving an Excalidraw scene may degrade Tier-1 line-anchored comments to file-level. The first-save warning banner alerts the user once.
-- **Tab switch / mode switch / LRU eviction discard the live scene** unless the user cancels the `Discard changes?` prompt. The user's edits live only in the mounted Excalidraw component; the prompt is the only signal. (We considered persisting the live scene to the tabs slice or keeping the editor mounted off-screen, but both add substantial complexity for a UX that is already user-driven.)
+- **MRSF re-anchor fragility** (documented above). Saving an Excalidraw scene may degrade Tier-1 line-anchored comments to file-level. The first-Editor-entry warning banner alerts the user once.
+- **Multi-window same-file race**: two windows open on the same `.excalidraw` and the user edits in window A → window A auto-saves → window B's watcher fires → window B reloads → window B's user-edits-in-flight in `liveSceneRef` are lost when window B's onChange writes them out (post-watcher) and clobbers window A's edit. Single-instance-per-file dispatch (mirroring `cli-file-open.md`) is the canonical fix and is tracked as a follow-up. See [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md) for the cross-window event + state-sharing patterns this fix would build on.
 - **No native E2E save round-trip yet** — issue #352 spec mandates `e2e/native/excalidraw-real-write.spec.ts`. Browser e2e + the Rust unit tests for `fs_write.rs` cover the IPC contract; native end-to-end (real disk write + read-back inside a Tauri binary) is tracked as a follow-up.
-- **`globalThis.confirm` not native** — the discard prompt uses the webview confirm dialog, not Tauri's native `ask()`. Acceptable for v1; tracked for future migration when the discard-confirm path is converted from synchronous Zustand actions to async.
 
 ## Related rules
 

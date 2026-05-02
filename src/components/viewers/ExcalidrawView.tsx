@@ -90,6 +90,16 @@ interface Props {
 const AUTOSAVE_DEBOUNCE_MS = 2000;
 
 /**
+ * Issue #352 / iter-11 (product F3) — pause auto-save after this many
+ * consecutive failures. Repeated rejections from the workspace-write
+ * IPC (broken disk, readonly drive, AV scan) would otherwise surface
+ * one save-error banner per ~2s of editing, spamming the UI. Pausing
+ * after 3 failures gives the user a single sticky banner; they click
+ * Resume to re-engage the loop.
+ */
+const AUTOSAVE_MAX_CONSECUTIVE_FAILURES = 3;
+
+/**
  * Issue #352 / iter-5 BLOCKER (product F3) — friendly save-error
  * mapping. The Rust workspace-write IPC returns precise but
  * developer-flavoured error strings (e.g. `decoded payload exceeds
@@ -232,6 +242,16 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   const setExcalidrawDirty = useStore((s) => s.setExcalidrawDirty);
   const recordSave = useStore((s) => s.recordSave);
 
+  // Issue #352 / iter-11 (product F3) — auto-save failure pause.
+  // After AUTOSAVE_MAX_CONSECUTIVE_FAILURES consecutive failed saves,
+  // pause the auto-save loop and surface a sticky banner. Without
+  // this, a broken disk / network drive / readonly mount produces
+  // one error banner per debounce-fire (every ~2s of editing) — UI
+  // spam. The user clicks Resume to re-enable; auto-save retries on
+  // the next onChange.
+  const failureCountRef = useRef(0);
+  const [autoSavePaused, setAutoSavePaused] = useState(false);
+
   // Issue #352 / iter-5 BLOCKER (rubber-duck #2) — Excalidraw consumes
   // `initialData` only at mount; changing the prop later does NOT
   // rehydrate the canvas. The conflict-banner Reload button needs to
@@ -350,6 +370,10 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   const performSave = (bypassModeCheck: boolean): void => {
     if (!mountedRef.current) return;
     if (!bypassModeCheck && modeRef.current !== "editor") return;
+    if (autoSavePaused) {
+      // User must explicitly Resume after the failure-pause kicks in.
+      return;
+    }
     if (externalChangePendingRef.current) {
       // Conflict banner is up — do not clobber the on-disk version.
       // The user must explicitly resolve via Reload or Keep editing.
@@ -389,6 +413,9 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
         // Update the on-disk baseline so the next divergence check
         // sees the just-saved scene as canonical.
         lastSavedHashRef.current = savedHash;
+        // Reset the failure counter on success so a transient hiccup
+        // doesn't lead to a permanent pause.
+        failureCountRef.current = 0;
         if (!mountedRef.current) return;
         setSaveError(null);
         // Tell `useFileWatcher` this was OUR save so it can suppress
@@ -403,6 +430,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         void logError(`excalidraw auto-save failed for ${filePath}: ${msg}`);
+        failureCountRef.current += 1;
         if (!mountedRef.current) return;
         // Surface as a non-modal banner above the canvas — DO NOT
         // route through `setLoadError`, which would unmount the
@@ -410,6 +438,12 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
         // product-expert blockers, iter-3 review). Map the precise
         // Rust error to user-facing copy (product F3 — iter-5).
         setSaveError(friendlySaveError(msg));
+        // After N consecutive failures, pause the auto-save loop so
+        // we don't spam one banner per ~2s of edits. The user clicks
+        // Resume to re-engage.
+        if (failureCountRef.current >= AUTOSAVE_MAX_CONSECUTIVE_FAILURES) {
+          setAutoSavePaused(true);
+        }
       })
       .finally(() => {
         saveInFlightRef.current = false;
@@ -502,6 +536,41 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     setShowFirstSaveWarning(true);
   }, [mode]);
 
+  // Issue #352 / iter-11 (product F10 + P8) — transient "Saved" pill
+  // for save-success feedback. Shown for ~1500ms after a successful
+  // save (either via Cmd+S flush or after a debounced auto-save fired
+  // via the user-visible action). Cleared on tab change / mode change
+  // / unmount.
+  const [savedPillVisible, setSavedPillVisible] = useState(false);
+  const savedPillTimerRef = useRef<number | null>(null);
+
+  // Listen for the Cmd+S flush event dispatched by useGlobalShortcuts.
+  // Only the view whose `filePath` matches the event detail responds.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { path: string } | undefined;
+      if (!detail || detail.path !== filePath) return;
+      // Cmd+S: flush the pending save synchronously and show the pill.
+      flushAutoSaveRef.current();
+      if (savedPillTimerRef.current !== null) {
+        clearTimeout(savedPillTimerRef.current);
+      }
+      setSavedPillVisible(true);
+      savedPillTimerRef.current = window.setTimeout(() => {
+        savedPillTimerRef.current = null;
+        if (mountedRef.current) setSavedPillVisible(false);
+      }, 1500);
+    };
+    window.addEventListener("mdownreview:excalidraw-flush-save", handler);
+    return () => {
+      window.removeEventListener("mdownreview:excalidraw-flush-save", handler);
+      if (savedPillTimerRef.current !== null) {
+        clearTimeout(savedPillTimerRef.current);
+        savedPillTimerRef.current = null;
+      }
+    };
+  }, [filePath]);
+
   if (loadError) {
     return (
       <div
@@ -538,6 +607,15 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       data-path={filePath}
       style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}
     >
+      {savedPillVisible && (
+        <div
+          className="excalidraw-saved-pill"
+          role="status"
+          data-testid="excalidraw-saved-pill"
+        >
+          Saved
+        </div>
+      )}
       {mode === "editor" && autoSaveBannerVisible && (
         <div
           className="excalidraw-autosave-banner"
@@ -587,20 +665,24 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           data-testid="excalidraw-save-error-banner"
         >
           <span className="excalidraw-save-error-banner__copy">
-            Couldn&apos;t save your changes: {saveError}
+            {autoSavePaused
+              ? `Auto-save paused after repeated failures: ${saveError}`
+              : `Couldn't save your changes: ${saveError}`}
           </span>
           <button
             type="button"
             className="excalidraw-conflict-banner__action"
             onClick={() => {
-              // Retry — clear the error and immediately attempt
-              // another save. Bypasses the debounce timer.
+              // Retry / Resume — both clear the failure counter and
+              // re-engage the auto-save loop. Bypasses the debounce.
+              failureCountRef.current = 0;
+              setAutoSavePaused(false);
               setSaveError(null);
               runAutoSave();
             }}
             data-testid="excalidraw-save-error-retry"
           >
-            Retry
+            {autoSavePaused ? "Resume" : "Retry"}
           </button>
           <button
             type="button"

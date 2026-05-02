@@ -314,14 +314,27 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
 
     vi.useFakeTimers();
     try {
+      // Bootstrap baseline (iter-11) — first onChange captures the
+      // post-mount stable hash, doesn't schedule a save.
+      await act(async () => {
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
       // Fire 5 onChanges over 1.5s — all within one debounce window.
       for (let i = 0; i < 5; i++) {
         await act(async () => {
           onChange([{ id: `rect-${i}` }], {}, {});
         });
+        // T7 (intra-burst oracle): the debounce-RESET semantic means
+        // no save fires while the user is bursting. Asserting
+        // `not.toHaveBeenCalled` after EACH onChange + 300ms advance
+        // pins down the reset behaviour — a bug that fired one save
+        // per onChange would be caught here, not just by the final
+        // count.
+        expect(saveSceneMock).not.toHaveBeenCalled();
         await act(async () => {
           await vi.advanceTimersByTimeAsync(300);
         });
+        expect(saveSceneMock).not.toHaveBeenCalled();
       }
       // Wait out the full debounce.
       await act(async () => {
@@ -340,6 +353,53 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     // The save received the LAST set of elements.
     const savePayload = saveSceneMock.mock.calls[0][1] as { elements: unknown };
     expect(savePayload.elements).toEqual([{ id: "rect-4" }]);
+  });
+
+  // T4 — dynamic externalChangePending race. The flag flips false→true
+  // DURING the 2s debounce window (e.g. a watcher event arrives mid-edit).
+  // When the timer fires, runAutoSave reads the LATEST value via the ref
+  // and bails. Without the iter-11 ref-mirror, the timer would have
+  // captured `externalChangePending=false` from the closure and saved
+  // anyway, clobbering the external change.
+  it("Auto-save bailing on mid-debounce externalChangePending flip", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/auto-race.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Bootstrap + real edit — schedules the 2s debounce.
+      await act(async () => {
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      await act(async () => {
+        onChange([{ id: "rect-1" }], {}, {});
+      });
+      // Mid-debounce, watcher fires → externalChangePending flips true.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      await act(async () => {
+        useStore.setState({
+          externalChangePendingByTab: { "/ws/auto-race.excalidraw": true },
+        });
+      });
+      // Finish the debounce. Timer fires, but performSave reads the
+      // LATEST flag via the ref and returns without saving.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(saveSceneMock).not.toHaveBeenCalled();
   });
 
   it("Auto-save is paused while externalChangePending is true (don't clobber on-disk changes)", async () => {
@@ -493,5 +553,76 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     ).toBeUndefined();
     expect(fileChangedSpy).toHaveBeenCalled();
     window.removeEventListener("mdownreview:file-changed", fileChangedSpy);
+  });
+
+  // T5 — Reload button cancels any pending auto-save timer. Without
+  // this, a save scheduled before Reload would fire AFTER the reload
+  // and clobber the freshly-loaded scene (rubber-duck #15).
+  it("Reload button cancels the pending auto-save timer (no clobber after reload)", async () => {
+    useStore.setState({
+      externalChangePendingByTab: { "/ws/auto-i.excalidraw": true },
+    });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/auto-i.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Bootstrap + edit, externalChangePending=true so save is paused
+      // even if timer fires; queue the timer anyway so we can verify
+      // it's cancelled.
+      await act(async () => {
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      // Briefly clear pending so onChange schedules a timer, then put
+      // it back so the timer would clobber the external change if it
+      // fired post-Reload.
+      await act(async () => {
+        useStore.setState({
+          externalChangePendingByTab: { "/ws/auto-i.excalidraw": false },
+        });
+      });
+      await act(async () => {
+        onChange([{ id: "rect-1" }], {}, {});
+      });
+      // Advance partway through the 2s debounce.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      // Restore pending so the conflict banner is up.
+      await act(async () => {
+        useStore.setState({
+          externalChangePendingByTab: { "/ws/auto-i.excalidraw": true },
+        });
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    // Click Reload — should cancel the pending timer.
+    await act(async () => {
+      screen.getByRole("button", { name: "Reload" }).click();
+    });
+    // Now advance past the full debounce; if Reload cancelled the
+    // timer, no save fires.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(saveSceneMock).not.toHaveBeenCalled();
   });
 });

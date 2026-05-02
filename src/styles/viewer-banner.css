@@ -111,3 +111,35 @@
 .excalidraw-autosave-banner__copy {
   font-weight: 500;
 }
+
+
+/* Issue #352 / iter-11  transient 'Saved' pill that appears for
+   ~1.5s after a successful Cmd+S flush. Anchored top-right of the
+   Excalidraw view via absolute positioning relative to the viewer
+   shell; doesn't push the canvas down. */
+.excalidraw-view {
+  position: relative;
+}
+
+.excalidraw-saved-pill {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 10;
+  padding: 4px 12px;
+  background: var(--color-success-bg, #ecfdf5);
+  border: 1px solid var(--color-success-border, #6ee7b7);
+  color: var(--color-success-text, #065f46);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  animation: excalidraw-saved-pill-fade 1.5s ease-out forwards;
+}
+
+@keyframes excalidraw-saved-pill-fade {
+  0% { opacity: 0; transform: translateY(-4px); }
+  10% { opacity: 1; transform: translateY(0); }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
