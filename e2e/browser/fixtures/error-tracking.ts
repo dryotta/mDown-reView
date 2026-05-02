@@ -156,6 +156,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
                 }
                 if (cmd === "get_file_viewer_pref") return null;
                 if (cmd === "set_file_viewer_pref") return undefined;
+                if (cmd === "write_workspace_text") return undefined;
+                if (cmd === "write_workspace_binary") return undefined;
                 if (cmd === "register_window_folder") return undefined;
                 if (cmd === "unregister_window_folder") return undefined;
                 if (cmd === "get_sidecar_config")
@@ -215,6 +217,8 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             }
             if (cmd === "get_file_viewer_pref") return null;
             if (cmd === "set_file_viewer_pref") return undefined;
+            if (cmd === "write_workspace_text") return undefined;
+            if (cmd === "write_workspace_binary") return undefined;
             if (cmd === "register_window_folder") return undefined;
             if (cmd === "unregister_window_folder") return undefined;
             if (cmd === "get_sidecar_config")

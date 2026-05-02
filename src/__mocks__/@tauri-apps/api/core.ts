@@ -161,6 +161,8 @@ async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Prom
   }
   if (cmd === "get_file_viewer_pref") return null;
   if (cmd === "set_file_viewer_pref") return undefined;
+  if (cmd === "write_workspace_text") return undefined;
+  if (cmd === "write_workspace_binary") return undefined;
   if (cmd === "get_sidecar_config")
     return {
       enabled: false,

@@ -147,6 +147,35 @@ async canonicalizePath(path: string) : Promise<Result<string, string>> {
 }
 },
 /**
+ * Write a UTF-8 text payload to a workspace file (Excalidraw scene JSON or
+ * `.excalidrawlib`). Bounds: parent inside workspace, extension in
+ * allowlist, no `:` in filename, byte length ≤ `WORKSPACE_WRITE_MAX_BYTES`,
+ * atomic write.
+ */
+async writeWorkspaceText(path: string, text: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("write_workspace_text", { path, text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Write a binary payload (base64-encoded on the wire) to a workspace file
+ * (`.excalidraw.png` / `.excalidraw.svg` re-rendered with embedded scene).
+ * Bounds: parent inside workspace, extension in allowlist, no `:` in
+ * filename, base64 string length ≤ ~14 MB, decoded bytes ≤
+ * `WORKSPACE_WRITE_MAX_BYTES`, atomic write.
+ */
+async writeWorkspaceBinary(path: string, base64: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("write_workspace_binary", { path, base64 }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Combined hot-path: load sidecar → match to file lines → build threads.
  * Single IPC call for the GUI's most common operation.
  * 

@@ -118,7 +118,7 @@ The rules that operationalize the pillars and meta-principles live in domain doc
 
 Explicitly out of scope. Each would damage one of the five pillars.
 
-- Editing file content (breaks *Professional* identity, bloats *Lean*).
+- Editing file content — *except* for files whose canonical authoring surface is part of the file format itself (currently the `.excalidraw` family: `.excalidraw`, `.excalidraw.png`, `.excalidraw.svg`, `.excalidrawlib`). For these, "viewing" without round-tripping the embedded scene would mean shipping a degraded read-only fork of the upstream tool, breaking *Professional*. The carve-out is bounded by an extension allowlist enforced at a single Rust write chokepoint (rule 32 in [`docs/architecture.md`](architecture.md), rule 29 in [`docs/security.md`](security.md)) so the Non-Goal stays load-bearing for every other file type.
 - Git integration, diff views, version history (competitor space; pressures *Lean* + the 10 MB viewer limit).
 - Cloud sync or real-time collaboration (breaks *Lean* + *Reliable* by forcing auth/backend).
 - Plugin/extension system (breaks *Architecturally Sound* via stable-API lock-in).

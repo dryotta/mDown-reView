@@ -307,6 +307,19 @@ export const getFileViewerPref = (path: string): Promise<FileViewerPref | null> 
 export const setFileViewerPref = (path: string, allowImages: boolean): Promise<void> =>
   unwrap(bindings.setFileViewerPref(path, allowImages)).then(() => {});
 
+// Workspace-write IPC chokepoint (issue #352 — Excalidraw foundations) ─────
+// Two split commands route every renderer-initiated workspace mutation
+// through the Rust bounds checker (`commands::fs_write::ensure_writable`).
+// Text path: Excalidraw scene JSON, .excalidrawlib. Binary path: re-rendered
+// .excalidraw.png / .excalidraw.svg with embedded scene (base64 on the wire).
+// There is intentionally NO single `writeWorkspaceFile` — see security
+// rule 29 (`docs/security.md`) for the bounds list.
+export const writeWorkspaceText = (path: string, text: string): Promise<void> =>
+  unwrap(bindings.writeWorkspaceText(path, text)).then(() => {});
+
+export const writeWorkspaceBinary = (path: string, base64: string): Promise<void> =>
+  unwrap(bindings.writeWorkspaceBinary(path, base64)).then(() => {});
+
 // Window registry sync ────────────────────────────────────────────────────
 
 export const registerWindowFolder = (folder: string): Promise<void> =>

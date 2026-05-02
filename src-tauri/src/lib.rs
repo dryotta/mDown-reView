@@ -449,6 +449,8 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::launch::scan_review_files,
                 commands::fs::check_path_exists,
                 commands::fs::canonicalize_path,
+                commands::fs_write::write_workspace_text,
+                commands::fs_write::write_workspace_binary,
                 commands::comments::get::get_file_comments,
                 commands::comments::add_comment::<tauri::Wry>,
                 commands::comments::add_reply::<tauri::Wry>,

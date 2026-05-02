@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Excalidraw runtime assets — vendored from node_modules at Vite buildStart;
+# rebuildable, must not be in git history (issue #352).
+/public/excalidraw-assets/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

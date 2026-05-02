@@ -10,6 +10,7 @@ pub mod config;
 pub mod default_handler;
 pub mod file_viewer_prefs;
 pub mod fs;
+pub mod fs_write;
 pub mod html;
 pub mod launch;
 pub mod onboarding;
@@ -42,6 +43,7 @@ pub use fs::{
     read_dir_inner, read_text_file, read_text_file_inner, stat_file, stat_file_inner,
     update_tree_watched_dirs, FileStat, ReadDirResult, TextFileResult,
 };
+pub use fs_write::{write_workspace_binary, write_workspace_text};
 pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
 #[cfg(debug_assertions)]
 pub use launch::set_root_via_test;
