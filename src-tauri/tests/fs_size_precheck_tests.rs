@@ -1,7 +1,8 @@
 //! Integration tests for the 10 MB size pre-check chokepoint in
 //! `commands::fs::{read_text_file_inner, read_binary_file_inner}`. Lives
-//! out-of-tree so the inline test module does not push `commands/fs.rs`
-//! over the 460-line group budget. Issue #252 group A1.
+//! out-of-tree so the inline test module does not push `commands/fs/read.rs`
+//! over the 400-line architecture rule 23 budget. Issue #252 group A1; the
+//! sibling-module split landed in #355.
 
 use std::io::Write;
 use tempfile::NamedTempFile;

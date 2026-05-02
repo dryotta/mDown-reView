@@ -22,7 +22,7 @@ The folder tree updates live: `useTreeWatcher` registers the root and currently-
 - **Tabs:** `src/components/TabBar/TabBar.tsx`
 - **Store slices:** `src/store/index.ts` — `workspaceSlice`, `uiSlice`; `src/store/tabs.ts` — `tabsSlice` + `MAX_TABS`; `src/store/tabHistory.ts` — `tabHistorySlice` (back/forward, session-only)
 - **Hooks:** `src/hooks/useSearch.ts`, `src/hooks/useTreeWatcher.ts`, `src/hooks/useFolderChildren.ts`, `src/hooks/useGlobalShortcuts.ts`
-- **Rust commands:** `src-tauri/src/commands/fs.rs` — `read_dir`, `update_tree_watched_dirs`; `src-tauri/src/commands/launch.rs` — `scan_review_files`; `src-tauri/src/watcher.rs` — `update_watched_files`
+- **Rust commands:** `src-tauri/src/commands/fs/dir.rs` — `read_dir`; `src-tauri/src/commands/fs/mod.rs` — `update_tree_watched_dirs`; `src-tauri/src/commands/launch.rs` — `scan_review_files`; `src-tauri/src/watcher.rs` — `update_watched_files`
 
 ## Related rules
 

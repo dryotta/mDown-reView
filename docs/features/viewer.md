@@ -56,7 +56,7 @@ Binary files are routed by `read_text_file` returning the sentinel error `binary
 - **Hooks:** `src/hooks/{useFileContent,useSourceHighlighting,useFolding,useScrollToLine,useSearch,useZoom,useGlobalShortcuts,useFindInPage}.ts`
 - **HTML preview helpers:** `src/lib/{url-policy,html-image-rewrite}.ts` — four-case anchor routing and the bounded remote-`<img>` rewrite path.
 - **Find-in-Page:** `src/components/FindInPageBar.tsx` (sticky overlay) + `src/hooks/useFindInPage.ts` (Ctrl+F state + CSS Custom Highlight API painter).
-- **Rust backend:** `src-tauri/src/commands/fs.rs` (`read_text_file`, `read_binary_file`, `stat_file`, `check_path_exists`), `src-tauri/src/commands/remote_asset.rs` (bounded HTTPS image proxy), `src-tauri/src/commands/system.rs` (`reveal_in_folder` — workspace-allowlisted)
+- **Rust backend:** `src-tauri/src/commands/fs/read.rs` (`read_text_file`, `read_binary_file`), `src-tauri/src/commands/fs/mod.rs` (`stat_file`, `check_path_exists`), `src-tauri/src/commands/remote_asset.rs` (bounded HTTPS image proxy), `src-tauri/src/commands/system.rs` (`reveal_in_folder` — workspace-allowlisted)
 
 ## Related rules
 

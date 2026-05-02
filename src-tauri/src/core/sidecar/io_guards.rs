@@ -28,7 +28,7 @@ pub(crate) const SIDECAR_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Read a sidecar file, refusing anything larger than [`SIDECAR_MAX_BYTES`].
 ///
-/// Mirrors the `read_text_file` chokepoint pattern in `commands/fs.rs`: the
+/// Mirrors the `read_text_file` chokepoint pattern in `commands/fs/read.rs`: the
 /// size check happens on already-read bytes (single bounded read of MAX+1),
 /// not on `metadata()` followed by a second read. This avoids two attack
 /// classes documented in `docs/security.md` rule 3:
