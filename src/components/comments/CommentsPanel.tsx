@@ -271,15 +271,6 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     <div className="comments-panel">
       <div className="comments-panel-header">
         <span className="comments-panel-title">Comments ({unresolvedCount})</span>
-        <button
-          className="comment-btn comment-btn-add-file"
-          onClick={() => setShowFileLevelInput((v) => !v)}
-          disabled={!canCommentOnFile}
-          title="Comment on file"
-          aria-label="Comment on file"
-        >
-          +
-        </button>
         <button className="comment-btn" onClick={() => setShowResolved((v) => !v)}>
           {showResolved ? "Hide resolved" : `Show resolved (${resolvedCount})`}
         </button>
