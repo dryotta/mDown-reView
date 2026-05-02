@@ -200,4 +200,83 @@ describe("EnhancedViewer", () => {
       expect(visualBtn).not.toBeDisabled();
     });
   });
+
+  // Issue #352 / AC5 — Save button rendering + dispatch.
+  describe("Excalidraw Save button (#352)", () => {
+    it("does NOT render Save button in Source mode", () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/a.excalidraw": "source" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/ws/a.excalidraw"
+          filePath="/ws/a.excalidraw"
+        />,
+      );
+      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
+    });
+
+    it("does NOT render Save button in Visual mode", () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/a.excalidraw": "visual" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/ws/a.excalidraw"
+          filePath="/ws/a.excalidraw"
+        />,
+      );
+      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
+    });
+
+    it("renders Save button only when category=excalidraw AND mode=editor", () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/a.excalidraw": "editor" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/ws/a.excalidraw"
+          filePath="/ws/a.excalidraw"
+        />,
+      );
+      const btn = screen.getByTestId("excalidraw-save");
+      expect(btn).toBeInTheDocument();
+      expect(btn).toHaveTextContent("Save");
+      expect(btn).toHaveAttribute("title", "Save (Ctrl+S)");
+    });
+
+    it("does NOT render Save button for non-excalidraw editor (no such mode for other types)", () => {
+      // For non-excalidraw, ViewerToolbar is hidden anyway — sanity check
+      // that the Save button is not leaking in.
+      useStore.setState({
+        viewModeByTab: { "/test.md": "editor" as never },
+      });
+      render(<EnhancedViewer content="# x" path="/test.md" filePath="/test.md" />);
+      expect(screen.queryByTestId("excalidraw-save")).not.toBeInTheDocument();
+    });
+
+    it("Save button click dispatches mdownreview:excalidraw-save-request", () => {
+      useStore.setState({
+        viewModeByTab: { "/ws/a.excalidraw": "editor" },
+      });
+      const spy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-save-request", spy);
+
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidraw"}'
+          path="/ws/a.excalidraw"
+          filePath="/ws/a.excalidraw"
+        />,
+      );
+      fireEvent.click(screen.getByTestId("excalidraw-save"));
+      expect(spy).toHaveBeenCalledOnce();
+      const detail = (spy.mock.calls[0][0] as CustomEvent).detail;
+      expect(detail).toEqual({ path: "/ws/a.excalidraw" });
+      window.removeEventListener("mdownreview:excalidraw-save-request", spy);
+    });
+  });
 });

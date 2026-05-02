@@ -94,6 +94,28 @@ export interface TabsSlice {
   viewModeByTab: Record<string, ViewMode>;
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
+  /**
+   * Issue #352 / AC6 — per-tab dirty flag for in-Editor-mode Excalidraw
+   * drawings. Set on Excalidraw `onChange`, cleared on save / reload /
+   * mode-switch out of Editor / tab close. Drives the `•` dot in the tab
+   * title and the close-tab "Discard changes?" guard.
+   *
+   * Session-only — never persisted. Closing the app is "discard everything"
+   * by definition; the user already lost the unsaved edits when the
+   * process exited.
+   */
+  excalidrawDirtyByTab: Record<string, boolean>;
+  /**
+   * Issue #352 / AC7 — per-tab pending external-change flag. The watcher
+   * fired `file-content-changed` on this Excalidraw tab while it was open
+   * in Editor mode AND `excalidrawDirtyByTab[path] === true`, so we held
+   * off on auto-reload and asked the user. The conflict banner above the
+   * canvas reads this flag; clicking [Reload] / [Keep editing] clears it.
+   *
+   * Session-only — never persisted (same rationale as
+   * `excalidrawDirtyByTab`).
+   */
+  externalChangePendingByTab: Record<string, boolean>;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
@@ -119,6 +141,19 @@ export interface TabsSlice {
    * the user retries. No-op when no tab matches `path`.
    */
   setTabReadOnly: (path: string, readOnly: boolean) => void;
+  /**
+   * Issue #352 / AC6 — set/clear the dirty flag for an Excalidraw editor
+   * tab. Setting to `false` removes the entry entirely so a closed tab
+   * doesn't linger in the map. Subscribed by `TabBar` (dirty dot) and
+   * gated by `closeTab` ("Discard changes?" guard).
+   */
+  setExcalidrawDirty: (path: string, dirty: boolean) => void;
+  /**
+   * Issue #352 / AC7 — set/clear the pending-external-change flag for an
+   * Excalidraw editor tab. Setting to `false` removes the entry entirely.
+   * Subscribed by `ExcalidrawView` to gate the conflict banner.
+   */
+  setExternalChangePending: (path: string, pending: boolean) => void;
 }
 
 export function filterStaleTabs(
@@ -165,6 +200,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     activeTabPath: null,
     viewModeByTab: {},
     fileMetaByPath: {},
+    excalidrawDirtyByTab: {},
+    externalChangePendingByTab: {},
 
     openFile: (path, opts) => {
       get().closeMermaidPopout(); // issue #276 — close popout on file open
@@ -193,10 +230,14 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           const { [victim.path]: _v, ...restView } = get().viewModeByTab;
           const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
           const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
+          const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
+          const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
           set({
             viewModeByTab: restView,
             lastSaveByPath: restSave,
             fileMetaByPath: restMeta,
+            excalidrawDirtyByTab: restDirty,
+            externalChangePendingByTab: restPending,
           });
         }
       }
@@ -215,6 +256,22 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     closeTab: (path) => {
+      // Issue #352 / AC6 — close-tab guard. If this is a dirty Excalidraw
+      // editor tab, prompt the user before discarding their edits. Use
+      // `globalThis.confirm` (not a typed wrapper) so unit tests can
+      // mock the global directly without injecting a hook seam — same
+      // pattern as `window.matchMedia` in `useTheme`. In headless
+      // environments (`confirm` undefined), behave as if the user
+      // confirmed: closing the app is "discard everything" by definition.
+      if (get().excalidrawDirtyByTab[path] === true) {
+        const ask =
+          typeof globalThis !== "undefined" && typeof globalThis.confirm === "function"
+            ? globalThis.confirm
+            : null;
+        if (ask !== null && !ask("Discard changes?")) {
+          return;
+        }
+      }
       get().closeMermaidPopout(); // issue #276 — close popout on tab close
       const tabs = get().tabs;
       const idx = tabs.findIndex((t) => t.path === path);
@@ -227,16 +284,34 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
       const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
       const { [path]: _unusedMeta, ...restMeta } = get().fileMetaByPath;
+      const { [path]: _unusedDirty, ...restDirty } = get().excalidrawDirtyByTab;
+      const { [path]: _unusedPending, ...restPending } = get().externalChangePendingByTab;
       set({
         tabs: newTabs,
         activeTabPath: newActive,
         viewModeByTab: restViewModes,
         lastSaveByPath: restSaveByPath,
         fileMetaByPath: restMeta,
+        excalidrawDirtyByTab: restDirty,
+        externalChangePendingByTab: restPending,
       });
     },
 
     closeAllTabs: () => {
+      // Issue #352 / AC6 — close-all guard. If ANY tab is a dirty
+      // Excalidraw editor, prompt once for the whole batch. Same
+      // semantics as `closeTab`: missing `confirm` (headless) ⇒ proceed.
+      const dirtyMap = get().excalidrawDirtyByTab;
+      const hasDirty = Object.values(dirtyMap).some((v) => v === true);
+      if (hasDirty) {
+        const ask =
+          typeof globalThis !== "undefined" && typeof globalThis.confirm === "function"
+            ? globalThis.confirm
+            : null;
+        if (ask !== null && !ask("Discard changes?")) {
+          return;
+        }
+      }
       get().closeMermaidPopout(); // issue #276 — close popout on close-all
       set({
         tabs: [],
@@ -244,6 +319,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         viewModeByTab: {},
         lastSaveByPath: {},
         fileMetaByPath: {},
+        excalidrawDirtyByTab: {},
+        externalChangePendingByTab: {},
       });
     },
 
@@ -277,9 +354,28 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     setViewMode: (path, mode) =>
-      set((s) => ({
-        viewModeByTab: { ...s.viewModeByTab, [path]: mode },
-      })),
+      set((s) => {
+        // Issue #352 / AC6 — when switching OUT of Editor mode, clear the
+        // Excalidraw dirty/pending state for that path. Save behaviour
+        // outside Editor is meaningless ("Visual mode" is a viewer with
+        // no canvas-edit chrome), so the dirty dot would mislead. The
+        // user already explicitly left Editor, so the in-flight scene
+        // edits are dropped per the spec ("cleared on save / reload /
+        // mode-switch out of Editor").
+        const prevMode = s.viewModeByTab[path];
+        if (prevMode === "editor" && mode !== "editor") {
+          const { [path]: _d, ...restDirty } = s.excalidrawDirtyByTab;
+          const { [path]: _p, ...restPending } = s.externalChangePendingByTab;
+          return {
+            viewModeByTab: { ...s.viewModeByTab, [path]: mode },
+            excalidrawDirtyByTab: restDirty,
+            externalChangePendingByTab: restPending,
+          };
+        }
+        return {
+          viewModeByTab: { ...s.viewModeByTab, [path]: mode },
+        };
+      }),
 
     setFileMeta: (path, patch) =>
       set((s) => {
@@ -307,6 +403,32 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       set((s) => ({
         tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly } : t)),
       })),
+
+    setExcalidrawDirty: (path, dirty) =>
+      set((s) => {
+        const current = s.excalidrawDirtyByTab[path] === true;
+        if (current === dirty) return s; // no observable change
+        if (!dirty) {
+          const { [path]: _d, ...rest } = s.excalidrawDirtyByTab;
+          return { excalidrawDirtyByTab: rest };
+        }
+        return {
+          excalidrawDirtyByTab: { ...s.excalidrawDirtyByTab, [path]: true },
+        };
+      }),
+
+    setExternalChangePending: (path, pending) =>
+      set((s) => {
+        const current = s.externalChangePendingByTab[path] === true;
+        if (current === pending) return s;
+        if (!pending) {
+          const { [path]: _p, ...rest } = s.externalChangePendingByTab;
+          return { externalChangePendingByTab: rest };
+        }
+        return {
+          externalChangePendingByTab: { ...s.externalChangePendingByTab, [path]: true },
+        };
+      }),
   };
 }
 

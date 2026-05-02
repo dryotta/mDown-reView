@@ -158,6 +158,92 @@ describe("useFileContent", () => {
     expect(commands.readTextFile).toHaveBeenCalledTimes(1);
   });
 
+  // Issue #352 / AC7 — when a content event arrives for a file open in
+  // Excalidraw editor mode AND the tab is dirty, hold off the reload and
+  // surface a banner via `setExternalChangePending`.
+  it("does NOT reload when path is in Excalidraw editor mode and dirty (#352)", async () => {
+    vi.mocked(commands.readTextFile).mockResolvedValue(tfr("scene"));
+    useStore.setState({
+      viewModeByTab: { "/ws/a.excalidraw": "editor" },
+      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
+      externalChangePendingByTab: {},
+    });
+
+    renderHook(() => useFileContent("/ws/a.excalidraw"));
+    await act(async () => {});
+    expect(commands.readTextFile).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:file-changed", {
+          detail: { path: "/ws/a.excalidraw", kind: "content" },
+        }),
+      );
+    });
+    await act(async () => {});
+
+    // Reload was NOT triggered.
+    expect(commands.readTextFile).toHaveBeenCalledTimes(1);
+    // Pending banner state was set.
+    expect(
+      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
+    ).toBe(true);
+  });
+
+  it("DOES reload when Excalidraw editor mode but tab is clean (#352)", async () => {
+    vi.mocked(commands.readTextFile).mockResolvedValue(tfr("scene"));
+    useStore.setState({
+      viewModeByTab: { "/ws/a.excalidraw": "editor" },
+      excalidrawDirtyByTab: {},
+      externalChangePendingByTab: {},
+    });
+
+    renderHook(() => useFileContent("/ws/a.excalidraw"));
+    await act(async () => {});
+    expect(commands.readTextFile).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:file-changed", {
+          detail: { path: "/ws/a.excalidraw", kind: "content" },
+        }),
+      );
+    });
+    await act(async () => {});
+
+    expect(commands.readTextFile).toHaveBeenCalledTimes(2);
+    expect(
+      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
+    ).toBeUndefined();
+  });
+
+  it("DOES reload non-editor Excalidraw paths (e.g. visual mode) even when dirty (#352)", async () => {
+    vi.mocked(commands.readTextFile).mockResolvedValue(tfr("scene"));
+    useStore.setState({
+      viewModeByTab: { "/ws/a.excalidraw": "visual" },
+      // Dirty alone shouldn't gate — a Visual-mode tab can't have dirty
+      // edits per the slice's mode-switch clearing, but this guards
+      // against the gate triggering on the wrong condition.
+      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
+      externalChangePendingByTab: {},
+    });
+
+    renderHook(() => useFileContent("/ws/a.excalidraw"));
+    await act(async () => {});
+    expect(commands.readTextFile).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:file-changed", {
+          detail: { path: "/ws/a.excalidraw", kind: "content" },
+        }),
+      );
+    });
+    await act(async () => {});
+
+    expect(commands.readTextFile).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores stale response when path changes rapidly (cancellation)", async () => {
     let resolveFirst: (v: {
       content: string;

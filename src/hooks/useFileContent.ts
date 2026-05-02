@@ -26,9 +26,24 @@ export function useFileContent(path: string): FileContent {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string; kind: string };
-      if (detail.path === path && (detail.kind === "content" || detail.kind === "deleted")) {
-        setReloadKey((k) => k + 1);
+      if (detail.path !== path) return;
+      if (detail.kind !== "content" && detail.kind !== "deleted") return;
+      // Issue #352 / AC7 — when a content event arrives for a file that's
+      // currently dirty in Excalidraw Editor mode, hold off the reload
+      // and surface a banner instead. Reading the store inside the
+      // handler avoids re-binding the listener every time the dirty
+      // flag flips. Deleted events still propagate (the file is gone;
+      // there's no scene to keep).
+      if (detail.kind === "content") {
+        const state = useStore.getState();
+        const isEditor = state.viewModeByTab[path] === "editor";
+        const isDirty = state.excalidrawDirtyByTab[path] === true;
+        if (isEditor && isDirty) {
+          state.setExternalChangePending(path, true);
+          return;
+        }
       }
+      setReloadKey((k) => k + 1);
     };
     window.addEventListener("mdownreview:file-changed", handler);
     return () => window.removeEventListener("mdownreview:file-changed", handler);
