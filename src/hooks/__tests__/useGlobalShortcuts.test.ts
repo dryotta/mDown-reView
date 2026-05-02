@@ -346,17 +346,19 @@ describe("useGlobalShortcuts", () => {
   });
 
   // Issue #352 / AC5 — Ctrl+S saves the active Excalidraw editor tab.
-  describe("Ctrl/Cmd+S saves an Excalidraw editor tab (#352)", () => {
-    it("dispatches save-request DOM event for active excalidraw editor tab", () => {
+  describe("Ctrl/Cmd+S in Excalidraw editor mode (#352 iter-10 — auto-save)", () => {
+    it("consumes Ctrl+S (preventDefault) for active excalidraw editor tab — does NOT dispatch save event (auto-save)", () => {
       storeState.activeTabPath = "/ws/scene.excalidraw";
       storeState.viewModeByTab = { "/ws/scene.excalidraw": "editor" };
       const spy = vi.fn();
       window.addEventListener("mdownreview:excalidraw-save-request", spy);
       renderHook(() => useGlobalShortcuts(callbacks));
       const ev = fire({ key: "s" });
-      expect(spy).toHaveBeenCalledOnce();
-      const detail = (spy.mock.calls[0][0] as CustomEvent).detail;
-      expect(detail).toEqual({ path: "/ws/scene.excalidraw" });
+      // No save event dispatched — auto-save handles persistence.
+      expect(spy).not.toHaveBeenCalled();
+      // Browser default (Save Page As) IS prevented for excalidraw
+      // editor tabs so Ctrl+S feels like a no-op rather than opening
+      // the browser save dialog.
       expect(ev.defaultPrevented).toBe(true);
       window.removeEventListener("mdownreview:excalidraw-save-request", spy);
     });
@@ -374,7 +376,7 @@ describe("useGlobalShortcuts", () => {
         bubbles: true,
       });
       window.dispatchEvent(ev);
-      expect(spy).toHaveBeenCalledOnce();
+      expect(spy).not.toHaveBeenCalled();
       window.removeEventListener("mdownreview:excalidraw-save-request", spy);
     });
 

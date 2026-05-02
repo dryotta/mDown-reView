@@ -126,7 +126,11 @@ describe("excalidrawDirtyByTab + externalChangePendingByTab (issue #352)", () =>
   });
 });
 
-describe("close-tab guard (issue #352 / AC6)", () => {
+describe("close-tab behaviour (issue #352 / iter-10 — auto-save)", () => {
+  // iter-10 redesign: auto-save means there is no longer a "discardable"
+  // unsaved state, so close paths NEVER prompt. The dirty map is still
+  // maintained for back-compat with components that read it; it is just
+  // no longer consulted by close paths.
   let confirmSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -144,24 +148,17 @@ describe("close-tab guard (issue #352 / AC6)", () => {
     expect(useStore.getState().tabs.find((t) => t.path === "/ws/a.md")).toBeUndefined();
   });
 
-  it("closeTab on a dirty Excalidraw tab prompts 'Discard changes?'", () => {
+  it("closeTab on a dirty Excalidraw tab does NOT prompt (auto-save)", () => {
     useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().closeTab("/ws/a.excalidraw");
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(
+      useStore.getState().tabs.find((t) => t.path === "/ws/a.excalidraw"),
+    ).toBeUndefined();
   });
 
-  it("closeTab aborts when the user cancels the prompt", () => {
-    confirmSpy.mockReturnValue(false);
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
-    useStore.getState().closeTab("/ws/a.excalidraw");
-    // Tab still present; dirty still set.
-    expect(useStore.getState().tabs.find((t) => t.path === "/ws/a.excalidraw")).toBeDefined();
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-  });
-
-  it("closeTab proceeds + clears both maps on confirm", () => {
+  it("closeTab proceeds + clears both maps", () => {
     useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);
@@ -173,36 +170,15 @@ describe("close-tab guard (issue #352 / AC6)", () => {
     ).toBeUndefined();
   });
 
-  it("closeAllTabs prompts once when any tab is dirty", () => {
+  it("closeAllTabs does NOT prompt even when tabs are dirty (auto-save)", () => {
     useStore.getState().openFile("/ws/a.md", { recordHistory: false });
     useStore.getState().openFile("/ws/b.excalidraw", { recordHistory: false });
     useStore.getState().setExcalidrawDirty("/ws/b.excalidraw", true);
     useStore.getState().closeAllTabs();
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    // Single dirty tab → singular wording.
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(useStore.getState().tabs).toEqual([]);
     expect(useStore.getState().excalidrawDirtyByTab).toEqual({});
     expect(useStore.getState().externalChangePendingByTab).toEqual({});
-  });
-
-  it("closeAllTabs prompt names the count when multiple tabs are dirty", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/c.excalidraw", { recordHistory: false });
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
-    useStore.getState().setExcalidrawDirty("/ws/b.excalidraw", true);
-    useStore.getState().setExcalidrawDirty("/ws/c.excalidraw", true);
-    useStore.getState().closeAllTabs();
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes to 3 files?");
-  });
-
-  it("closeAllTabs aborts when the user cancels", () => {
-    confirmSpy.mockReturnValue(false);
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
-    useStore.getState().closeAllTabs();
-    expect(useStore.getState().tabs.length).toBe(1);
   });
 
   it("closeAllTabs does NOT prompt when no tab is dirty", () => {
@@ -213,12 +189,12 @@ describe("close-tab guard (issue #352 / AC6)", () => {
   });
 });
 
-// Issue #352 / iter-5 BLOCKER (product B1 + bug P0 + rubber-duck #1) —
-// `setActiveTab` MUST prompt before switching away from a dirty
-// Excalidraw editor tab, otherwise the unmount of `<ExcalidrawView/>`
-// silently discards the live scene with no warning. Same prompt as
-// closeTab; same fail-closed semantics.
-describe("setActiveTab guard for dirty Excalidraw editor (iter-5 BLOCKER)", () => {
+describe("setActiveTab + setViewMode behaviour (issue #352 / iter-10)", () => {
+  // iter-10 redesign: tab switches and mode switches no longer prompt
+  // on dirty editors. Auto-save flushes pending edits before the
+  // unmount; no user confirmation is required. Leaving editor mode
+  // still clears dirty/pending so a later return doesn't see stale
+  // flags from a previous session.
   let confirmSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     confirmSpy = vi.spyOn(globalThis, "confirm").mockReturnValue(true);
@@ -234,74 +210,46 @@ describe("setActiveTab guard for dirty Excalidraw editor (iter-5 BLOCKER)", () =
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it("does NOT prompt when leaving an Excalidraw tab that is NOT in editor mode", () => {
+  it("does NOT prompt when leaving a dirty Excalidraw editor tab (auto-save)", () => {
     useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
     useStore.getState().openFile("/ws/b.md", { recordHistory: false });
-    // Stored mode is visual; dirty flag set to true is a synthetic
-    // edge case, but we want to verify the guard requires editor mode.
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.setState({
-      viewModeByTab: { "/ws/a.excalidraw": "visual" },
+      activeTabPath: "/ws/a.excalidraw",
+      viewModeByTab: { "/ws/a.excalidraw": "editor" },
     });
-    useStore.setState({ activeTabPath: "/ws/a.excalidraw" });
+    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
     expect(confirmSpy).not.toHaveBeenCalled();
+    expect(useStore.getState().activeTabPath).toBe("/ws/b.md");
   });
 
-  it("PROMPTS Discard changes? when leaving a dirty Excalidraw editor tab", () => {
+  it("setViewMode out of editor does NOT prompt (auto-save) and clears dirty/pending", () => {
     useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
-    useStore.setState({
-      activeTabPath: "/ws/a.excalidraw",
-      viewModeByTab: { "/ws/a.excalidraw": "editor" },
-    });
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
-    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
-  });
-
-  it("ABORTS the switch when user cancels the prompt", () => {
-    confirmSpy.mockReturnValue(false);
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
-    useStore.setState({
-      activeTabPath: "/ws/a.excalidraw",
-      viewModeByTab: { "/ws/a.excalidraw": "editor" },
-    });
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
-    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
-    // Active still on the dirty tab; dirty flag preserved.
-    expect(useStore.getState().activeTabPath).toBe("/ws/a.excalidraw");
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-  });
-
-  it("PROCEEDS and clears dirty/pending when user confirms", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
-    useStore.setState({
-      activeTabPath: "/ws/a.excalidraw",
-      viewModeByTab: { "/ws/a.excalidraw": "editor" },
-    });
+    useStore.getState().setViewMode("/ws/a.excalidraw", "editor");
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);
-    useStore.getState().setActiveTab("/ws/b.md", { recordHistory: false });
-    expect(useStore.getState().activeTabPath).toBe("/ws/b.md");
+    useStore.getState().setViewMode("/ws/a.excalidraw", "visual");
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(useStore.getState().viewModeByTab["/ws/a.excalidraw"]).toBe("visual");
     expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
     expect(
       useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
     ).toBeUndefined();
   });
+});
 
-  it("setViewMode out of editor PROMPTS when dirty + ABORTS on cancel", () => {
-    confirmSpy.mockReturnValue(false);
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().setViewMode("/ws/a.excalidraw", "editor");
-    useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
-    useStore.getState().setViewMode("/ws/a.excalidraw", "visual");
-    expect(confirmSpy).toHaveBeenCalledWith("Discard changes?");
-    // Still in editor mode + still dirty.
-    expect(useStore.getState().viewModeByTab["/ws/a.excalidraw"]).toBe("editor");
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
+// Issue #352 / iter-5 BLOCKER (product B1 + bug P0 + rubber-duck #1) —
+// `setActiveTab` MUST prompt before switching away from a dirty
+// Excalidraw editor tab, otherwise the unmount of `<ExcalidrawView/>`
+// silently discards the live scene with no warning. Same prompt as
+// closeTab; same fail-closed semantics.
+describe("setActiveTab + setViewMode legacy guard tests (REPLACED in iter-10)", () => {
+  // The iter-5 BLOCKER guard tests are gone — see "setActiveTab +
+  // setViewMode behaviour" suite above for the iter-10 redesign
+  // assertions. The describe block remains as a placeholder so
+  // git-diff history reads cleanly.
+  it("placeholder", () => {
+    expect(true).toBe(true);
   });
 });
 

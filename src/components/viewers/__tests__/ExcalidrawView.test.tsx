@@ -67,6 +67,7 @@ vi.mock("@/lib/excalidraw/saveScene", () => ({
 
 import { ExcalidrawView } from "../ExcalidrawView";
 import { useStore } from "@/store";
+import * as ExcalidrawModule from "@excalidraw/excalidraw";
 
 const VALID_JSON = JSON.stringify({
   type: "excalidraw",
@@ -208,550 +209,274 @@ describe("ExcalidrawView", () => {
   });
 });
 
-// Issue #352 / AC5 + AC6 + AC7 — save flow, dirty tracking, and
-// conflict banner. Drive the stub's exposed onClick (which calls the
-// captured `onChange` with a fake edit) to simulate a user mutation.
-describe("ExcalidrawView — save / dirty / conflict (#352)", () => {
-  it("Editor onChange (after initial mount) marks the tab dirty", async () => {
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    const stub = await screen.findByTestId("excalidraw-stub");
-    // First click → counted as initial mount; second click → user edit.
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-  });
+// Issue #352 / iter-10 redesign — auto-save flow.
+//
+// The Save button + manual Ctrl+S + dirty-tracking close-confirms have
+// all been removed. Excalidraw onChange schedules a debounced save
+// (default 2000ms) which fires once the user pauses editing. Tests
+// that need to drive the debounce use vi.useFakeTimers() locally; the
+// rest run on real timers so React Testing Library's findByTestId
+// (which uses real-timer polling) doesn't deadlock.
+describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
+  // Helper: capture the most recently passed onChange from the
+  // Excalidraw stub. Walk to the last call's prop set.
+  function captureOnChange(): (els: unknown, app: unknown, files: unknown) => void {
+    const mod = ExcalidrawModule as unknown as {
+      Excalidraw: ReturnType<typeof vi.fn>;
+    };
+    const calls = mod.Excalidraw.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    return lastCall?.[0].onChange as (
+      els: unknown,
+      app: unknown,
+      files: unknown,
+    ) => void;
+  }
 
-  it("Visual mode onChange does NOT mark the tab dirty", async () => {
+  it("Editor mode: onChange + debounce window elapsed -> saveExcalidrawFile fires", async () => {
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="visual"
-        needsExtract={false}
-      />,
-    );
-    const stub = await screen.findByTestId("excalidraw-stub");
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
-  });
-
-  // Issue #352 / iter-9 BUG#2 — content-driven dirty tracking. Excalidraw
-  // mutates `version` / `versionNonce` / `updated` on every operation,
-  // including mount-time normalisation passes. The dirty hash MUST strip
-  // these volatile fields, otherwise a freshly-mounted file reads as
-  // dirty without any user input.
-  it("BUG#2: onChange with same persistent content + different versionNonce does NOT mark dirty", async () => {
-    const ExcalidrawMock = (await import("@excalidraw/excalidraw"))
-      .Excalidraw as unknown as ReturnType<typeof vi.fn>;
-    ExcalidrawMock.mockClear();
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/dirty-a.excalidraw"
+        filePath="/ws/auto-a.excalidraw"
         mode="editor"
         needsExtract={false}
       />,
     );
     await screen.findByTestId("excalidraw-stub");
-    const lastCall = ExcalidrawMock.mock.calls.at(-1);
-    const onChange = lastCall?.[0].onChange as (
-      els: unknown,
-      app: unknown,
-      files: unknown,
-    ) => void;
+    const onChange = captureOnChange();
     expect(typeof onChange).toBe("function");
 
-    // First onChange — bootstraps the baseline.
+    // Switch to fake timers AFTER mount so findByTestId can poll on
+    // real timers above. Then advance past the 2s debounce.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "rect-1", type: "rectangle", x: 0, y: 0 }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2001);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    // Microtask drain on real timers so the .then() lands.
     await act(async () => {
-      onChange(
-        [
-          {
-            id: "rect-1",
-            type: "rectangle",
-            x: 0,
-            y: 0,
-            width: 50,
-            height: 50,
-            version: 1,
-            versionNonce: 12345,
-            updated: 1700000000000,
-          },
-        ],
-        {},
-        {},
-      );
-    });
-
-    // Second onChange — SAME persistent content, only volatile fields
-    // changed (mount-time normalisation pass). Must NOT mark dirty.
-    await act(async () => {
-      onChange(
-        [
-          {
-            id: "rect-1",
-            type: "rectangle",
-            x: 0,
-            y: 0,
-            width: 50,
-            height: 50,
-            version: 5,
-            versionNonce: 99999, // re-randomised on normalisation
-            updated: 1700000001000, // bumped timestamp
-          },
-        ],
-        {},
-        {},
-      );
-    });
-
-    expect(
-      useStore.getState().excalidrawDirtyByTab["/ws/dirty-a.excalidraw"],
-    ).toBeUndefined();
-  });
-
-  it("BUG#2: onChange with TRUE content change (new element) DOES mark dirty", async () => {
-    const ExcalidrawMock = (await import("@excalidraw/excalidraw"))
-      .Excalidraw as unknown as ReturnType<typeof vi.fn>;
-    ExcalidrawMock.mockClear();
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/dirty-b.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    await screen.findByTestId("excalidraw-stub");
-    const lastCall = ExcalidrawMock.mock.calls.at(-1);
-    const onChange = lastCall?.[0].onChange as (
-      els: unknown,
-      app: unknown,
-      files: unknown,
-    ) => void;
-
-    // Bootstrap baseline with one rect.
-    await act(async () => {
-      onChange(
-        [
-          {
-            id: "rect-1",
-            type: "rectangle",
-            x: 0,
-            y: 0,
-            versionNonce: 1,
-          },
-        ],
-        {},
-        {},
-      );
-    });
-
-    // Real edit — added a new element. MUST mark dirty.
-    await act(async () => {
-      onChange(
-        [
-          {
-            id: "rect-1",
-            type: "rectangle",
-            x: 0,
-            y: 0,
-            versionNonce: 2,
-          },
-          {
-            id: "rect-2",
-            type: "rectangle",
-            x: 100,
-            y: 100,
-            versionNonce: 3,
-          },
-        ],
-        {},
-        {},
-      );
-    });
-
-    expect(
-      useStore.getState().excalidrawDirtyByTab["/ws/dirty-b.excalidraw"],
-    ).toBe(true);
-  });
-
-  // Issue #352 / iter-5 user-reported BLOCKER — the FIRST user edit
-  // after switching from Visual → Editor mode must mark dirty. The
-  // previous version had the mode gate BEFORE the mount-restore ref
-  // check, so during the mount in visual mode the ref stayed `false`;
-  // when the user later switched to editor and made their first edit,
-  // it was silently swallowed as if it were the mount restore. Now
-  // the ref check runs BEFORE the mode gate so the visual-mode mount
-  // correctly consumes the mount-restore onChange, and the first
-  // editor-mode edit is recognised as a user edit.
-  it("the FIRST user edit after Visual→Editor switch marks the tab dirty", async () => {
-    const { rerender } = render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="visual"
-        needsExtract={false}
-      />,
-    );
-    const stub = await screen.findByTestId("excalidraw-stub");
-    // Initial mount in visual: the synthetic Excalidraw stub fires
-    // onChange on click. This is the "mount restore" — it MUST be
-    // consumed even in visual mode so the next post-mount edit is
-    // correctly seen as a user edit.
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    // Visual mode → no dirty.
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
-    // User switches to Editor mode. Excalidraw is NOT remounted
-    // (only viewModeEnabled prop changes), so it does NOT fire
-    // another onChange.
-    rerender(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    // User's FIRST edit in editor mode fires onChange ONCE.
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    // Dirty should be true after exactly ONE editor-mode onChange.
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-  });
-
-  it("save-request DOM event in Editor mode invokes saveExcalidrawFile and clears dirty", async () => {
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    const stub = await screen.findByTestId("excalidraw-stub");
-    // Drive a user edit so the saver has live data.
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-
-    // Dispatch the save-request event for THIS path.
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/a.excalidraw" },
-        }),
-      );
-      // Allow the .then microtask to run.
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(saveSceneMock).toHaveBeenCalledTimes(1);
-    expect(saveSceneMock.mock.calls[0][0]).toBe("/ws/a.excalidraw");
-    // Dirty cleared on success.
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
+    expect(saveSceneMock.mock.calls[0][0]).toBe("/ws/auto-a.excalidraw");
   });
 
-  it("save-request event for a DIFFERENT path is ignored", async () => {
+  it("Visual mode: onChange does NOT trigger auto-save", async () => {
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    await screen.findByTestId("excalidraw-stub");
-
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/somewhere-else.excalidraw" },
-        }),
-      );
-      await Promise.resolve();
-    });
-
-    expect(saveSceneMock).not.toHaveBeenCalled();
-  });
-
-  it("save-request event in Visual mode is a no-op (saver not called)", async () => {
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
+        filePath="/ws/auto-b.excalidraw"
         mode="visual"
         needsExtract={false}
       />,
     );
     await screen.findByTestId("excalidraw-stub");
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/a.excalidraw" },
-        }),
-      );
-      await Promise.resolve();
-    });
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "rect-1" }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(saveSceneMock).not.toHaveBeenCalled();
   });
 
-  it("renders the conflict banner when externalChangePending is true (Editor only)", async () => {
-    useStore.setState({
-      externalChangePendingByTab: { "/ws/a.excalidraw": true },
-    });
+  it("Multiple onChanges within debounce window coalesce into ONE save", async () => {
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
+        filePath="/ws/auto-c.excalidraw"
         mode="editor"
         needsExtract={false}
       />,
     );
     await screen.findByTestId("excalidraw-stub");
-    expect(screen.getByTestId("excalidraw-conflict-banner")).toBeInTheDocument();
-    expect(screen.getByText("File changed on disk")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", {
-        name: "Keep editing — your save will overwrite",
-      }),
-    ).toBeInTheDocument();
-  });
+    const onChange = captureOnChange();
 
-  it("does NOT render the conflict banner in Visual mode", async () => {
-    useStore.setState({
-      externalChangePendingByTab: { "/ws/a.excalidraw": true },
-    });
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="visual"
-        needsExtract={false}
-      />,
-    );
-    await screen.findByTestId("excalidraw-stub");
-    expect(screen.queryByTestId("excalidraw-conflict-banner")).not.toBeInTheDocument();
-  });
-
-  it("Reload button clears dirty + pending and dispatches a fresh file-changed event", async () => {
-    useStore.setState({
-      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
-      externalChangePendingByTab: { "/ws/a.excalidraw": true },
-    });
-    const fileChangedSpy = vi.fn();
-    window.addEventListener("mdownreview:file-changed", fileChangedSpy);
-
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    await screen.findByTestId("excalidraw-stub");
-    const reload = screen.getByRole("button", { name: "Reload" });
+    vi.useFakeTimers();
+    try {
+      // Fire 5 onChanges over 1.5s — all within one debounce window.
+      for (let i = 0; i < 5; i++) {
+        await act(async () => {
+          onChange([{ id: `rect-${i}` }], {}, {});
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(300);
+        });
+      }
+      // Wait out the full debounce.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2001);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     await act(async () => {
-      reload.click();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
-    expect(
-      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
-    ).toBeUndefined();
-    expect(fileChangedSpy).toHaveBeenCalled();
-    const detail = (fileChangedSpy.mock.calls[0][0] as CustomEvent).detail;
-    expect(detail).toEqual({ path: "/ws/a.excalidraw", kind: "content" });
-
-    window.removeEventListener("mdownreview:file-changed", fileChangedSpy);
+    // Only ONE save fired — bursty edits coalesce per debounce.
+    expect(saveSceneMock).toHaveBeenCalledTimes(1);
+    // The save received the LAST set of elements.
+    const lastSavedElements = saveSceneMock.mock.calls[0][1].elements;
+    expect(lastSavedElements).toEqual([{ id: "rect-4" }]);
   });
 
-  it("Keep editing button clears pending only; dirty remains true", async () => {
+  it("Auto-save is paused while externalChangePending is true (don't clobber on-disk changes)", async () => {
     useStore.setState({
-      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
-      externalChangePendingByTab: { "/ws/a.excalidraw": true },
+      externalChangePendingByTab: { "/ws/auto-d.excalidraw": true },
     });
-
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
+        filePath="/ws/auto-d.excalidraw"
         mode="editor"
         needsExtract={false}
       />,
     );
     await screen.findByTestId("excalidraw-stub");
-    const keep = screen.getByRole("button", {
-      name: "Keep editing — your save will overwrite",
-    });
-    await act(async () => {
-      keep.click();
-    });
+    const onChange = captureOnChange();
 
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-    expect(
-      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
-    ).toBeUndefined();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "rect-1" }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2001);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(saveSceneMock).not.toHaveBeenCalled();
   });
 
-  // Issue #352 / iter-3 product-expert + rubber-duck BLOCK — save
-  // failure MUST NOT unmount the canvas. A transient IPC failure
-  // (locked file, AV scan, OneDrive sync, disk full, payload > 10 MB)
-  // should leave the user's unsaved scene intact, with a non-modal
-  // banner above the canvas.
-  it("save IPC rejection surfaces a save-error banner, leaves dirty=true, and KEEPS the canvas mounted", async () => {
+  it("Save IPC rejection surfaces save-error banner; canvas stays mounted; Retry re-fires save", async () => {
     saveSceneMock.mockRejectedValueOnce(
       new Error("decoded payload exceeds 10485760-byte cap: 12345678 bytes"),
     );
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    const stub = await screen.findByTestId("excalidraw-stub");
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/a.excalidraw" },
-        }),
-      );
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("excalidraw-save-error-banner")).toBeInTheDocument();
-    });
-    // Canvas STILL mounted — the user's scene isn't lost.
-    expect(screen.getByTestId("excalidraw-stub")).toBeInTheDocument();
-    expect(screen.getByText(/Save failed:/i)).toBeInTheDocument();
-    // Dirty stays true so the Save button stays "live" for retry.
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
-
-    // Dismiss button hides the banner.
-    await act(async () => {
-      screen.getByRole("button", { name: "Dismiss" }).click();
-    });
-    await waitFor(() => {
-      expect(screen.queryByTestId("excalidraw-save-error-banner")).not.toBeInTheDocument();
-    });
-  });
-
-  // Issue #352 / iter-3 bug-expert MEDIUM — concurrent save guard. A
-  // second save-request fired while the first IPC is in flight must
-  // be coalesced (not race the first), preventing stale-bytes
-  // overwrites.
-  it("coalesces a second save-request while the first is still in flight", async () => {
-    let resolveFirst!: () => void;
-    const firstPromise = new Promise<void>((r) => {
-      resolveFirst = r;
-    });
-    saveSceneMock
-      .mockImplementationOnce(() => firstPromise)
-      .mockResolvedValue(undefined);
-
-    render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
-        mode="editor"
-        needsExtract={false}
-      />,
-    );
-    const stub = await screen.findByTestId("excalidraw-stub");
-    await act(async () => {
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      stub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/a.excalidraw" },
-        }),
-      );
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/a.excalidraw" },
-        }),
-      );
-    });
-
-    // Only ONE save attempt — second was coalesced.
-    expect(saveSceneMock).toHaveBeenCalledTimes(1);
-
-    // Resolve the first; another dispatch should now succeed.
-    await act(async () => {
-      resolveFirst();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("mdownreview:excalidraw-save-request", {
-          detail: { path: "/ws/a.excalidraw" },
-        }),
-      );
-    });
-    expect(saveSceneMock).toHaveBeenCalledTimes(2);
-  });
-
-  // Issue #352 / iter-5 BLOCKER (product B1 + bug P0 + rubber-duck #1)
-  // — the iter-3 unmount cleanup that cleared dirty + pending on every
-  // unmount was REMOVED. It caused silent data loss because the live
-  // scene state lives only in the mounted Excalidraw component; unmount
-  // (tab switch) wipes the warning signal so the user has no idea their
-  // unsaved work is gone. iter-5 replaces it with `setActiveTab` and
-  // `setViewMode` GUARDS in the tabs slice (`Discard changes?` prompt
-  // before the unmount) — this test enforces that the unmount is
-  // NON-DESTRUCTIVE: dirty + pending FLAGS persist past unmount so
-  // anyone holding a reference to the path can still surface the
-  // warning. The guard system in the tabs slice is what gates the
-  // user-visible decision; this hook just doesn't fight it.
-  it("does NOT clear dirty + pending on unmount (iter-5 BLOCKER fix)", async () => {
-    useStore.setState({
-      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
-      externalChangePendingByTab: { "/ws/a.excalidraw": true },
-    });
-    const { unmount } = render(
-      <ExcalidrawView
-        content={VALID_JSON}
-        filePath="/ws/a.excalidraw"
+        filePath="/ws/auto-e.excalidraw"
         mode="editor"
         needsExtract={false}
       />,
     );
     await screen.findByTestId("excalidraw-stub");
-    unmount();
-    // Flags PRESERVED — see file-header rationale.
-    expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBe(true);
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "rect-1" }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2001);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Banner appears, canvas survives, friendly copy.
+    await waitFor(() => {
+      expect(screen.getByTestId("excalidraw-save-error-banner")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("excalidraw-stub")).toBeInTheDocument();
+    expect(screen.getByText(/Drawing too large to save/i)).toBeInTheDocument();
+
+    // Retry — clears banner and immediately re-fires the save.
+    saveSceneMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      screen.getByTestId("excalidraw-save-error-retry").click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(saveSceneMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Auto-save banner renders in editor mode and dismisses on click", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/auto-f.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    expect(screen.getByTestId("excalidraw-autosave-banner")).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByTestId("excalidraw-autosave-banner-dismiss").click();
+    });
+    expect(screen.queryByTestId("excalidraw-autosave-banner")).not.toBeInTheDocument();
+  });
+
+  it("Conflict banner renders in editor mode when externalChangePending is true", async () => {
+    useStore.setState({
+      externalChangePendingByTab: { "/ws/auto-g.excalidraw": true },
+    });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/auto-g.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    expect(screen.getByTestId("excalidraw-conflict-banner")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     expect(
-      useStore.getState().externalChangePendingByTab["/ws/a.excalidraw"],
-    ).toBe(true);
+      screen.getByRole("button", { name: "Keep editing — your save will overwrite" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Reload button clears pending + dispatches mdownreview:file-changed", async () => {
+    useStore.setState({
+      externalChangePendingByTab: { "/ws/auto-h.excalidraw": true },
+    });
+    const fileChangedSpy = vi.fn();
+    window.addEventListener("mdownreview:file-changed", fileChangedSpy);
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/auto-h.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    await act(async () => {
+      screen.getByRole("button", { name: "Reload" }).click();
+    });
+
+    expect(
+      useStore.getState().externalChangePendingByTab["/ws/auto-h.excalidraw"],
+    ).toBeUndefined();
+    expect(fileChangedSpy).toHaveBeenCalled();
+    window.removeEventListener("mdownreview:file-changed", fileChangedSpy);
   });
 });

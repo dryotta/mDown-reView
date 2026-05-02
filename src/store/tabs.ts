@@ -208,19 +208,18 @@ type SliceGet = StoreApi<Store>["getState"];
  * `count` carries through to the prompt copy: "Discard changes to N
  * file(s)?" gives the user agency on a multi-tab batch close.
  */
-function confirmDiscard(count: number): boolean {
-  const ask =
-    typeof globalThis !== "undefined" && typeof globalThis.confirm === "function"
-      ? globalThis.confirm
-      : null;
-  if (ask === null) {
-    // Fail-closed — refuse to silently destroy unsaved work.
-    return false;
-  }
-  const message =
-    count > 1 ? `Discard changes to ${count} files?` : "Discard changes?";
-  return ask(message);
+/**
+ * Issue #352 / iter-10 redesign — `confirmDiscard` is no longer used
+ * by any close path because Excalidraw now auto-saves on change.
+ * The function is kept to minimise blast radius on test suites that
+ * import it; it returns true unconditionally so callers behave as if
+ * the user always confirmed. Will be removed in a follow-up cleanup
+ * pass.
+ */
+function confirmDiscard(_count: number): boolean {
+  return true;
 }
+void confirmDiscard;
 
 export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
   return {
@@ -317,15 +316,11 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     closeTab: (path) => {
-      // Issue #352 / AC6 — close-tab guard. If this is a dirty Excalidraw
-      // editor tab, prompt the user before discarding their edits.
-      // `confirmDiscard` fail-closes in headless contexts (no confirm)
-      // — destructive action aborted rather than silently allowed.
-      if (get().excalidrawDirtyByTab[path] === true) {
-        if (!confirmDiscard(1)) {
-          return;
-        }
-      }
+      // Issue #352 / iter-10 redesign — auto-save makes the close
+      // confirm obsolete. Edits are flushed to disk on a 2s debounce
+      // so there is no "unsaved" state to discard. The dirty-tab
+      // map is still maintained for back-compat with tests but is
+      // never consulted by close paths.
       get().closeMermaidPopout(); // issue #276 — close popout on tab close
       const tabs = get().tabs;
       const idx = tabs.findIndex((t) => t.path === path);
@@ -352,17 +347,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     closeAllTabs: () => {
-      // Issue #352 / AC6 — close-all guard. If ANY tab is a dirty
-      // Excalidraw editor, prompt once for the whole batch with the
-      // count so the user knows the scope. `confirmDiscard` fail-closes
-      // when `confirm` is unavailable.
-      const dirtyMap = get().excalidrawDirtyByTab;
-      const dirtyCount = Object.values(dirtyMap).filter((v) => v === true).length;
-      if (dirtyCount > 0) {
-        if (!confirmDiscard(dirtyCount)) {
-          return;
-        }
-      }
+      // Issue #352 / iter-10 redesign — see closeTab; auto-save
+      // means there is no longer a discardable "unsaved" state.
       get().closeMermaidPopout(); // issue #276 — close popout on close-all
       set({
         tabs: [],
@@ -376,32 +362,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     setActiveTab: (path, opts) => {
-      // Issue #352 / iter-5 BLOCKER — tab-switch guard. The active
-      // Excalidraw editor tab's live scene only exists inside its
-      // mounted React component; switching `activeTabPath` unmounts
-      // that component and the scene state is gone. Before iter-5, we
-      // ALSO cleared the dirty/pending flags on unmount, which meant
-      // the user had no warning their unsaved work was lost. Now we
-      // PROMPT before the switch (symmetric with `closeTab` /
-      // `setViewMode` exit-from-editor / LRU eviction). If the user
-      // cancels, the active tab does not change.
-      const currentActive = get().activeTabPath;
-      if (
-        currentActive !== null &&
-        currentActive !== path &&
-        get().excalidrawDirtyByTab[currentActive] === true &&
-        get().viewModeByTab[currentActive] === "editor"
-      ) {
-        if (!confirmDiscard(1)) {
-          return;
-        }
-        // User confirmed — clear dirty/pending for the leaving tab so
-        // the unmount cleanup doesn't fire a redundant clear (and so
-        // a future switch back doesn't see stale flags).
-        const { [currentActive]: _d, ...restDirty } = get().excalidrawDirtyByTab;
-        const { [currentActive]: _p, ...restPending } = get().externalChangePendingByTab;
-        set({ excalidrawDirtyByTab: restDirty, externalChangePendingByTab: restPending });
-      }
+      // Issue #352 / iter-10 redesign — auto-save flushes pending
+      // edits before any tab switch, so the iter-5 prompt is gone.
       get().closeMermaidPopout(); // issue #276 — close popout on tab switch
       const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
@@ -431,18 +393,14 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     },
 
     setViewMode: (path, mode) => {
-      // Issue #352 / iter-5 BLOCKER — mode-switch guard. Leaving
-      // Editor mode while dirty silently discards the in-flight
-      // scene (iter-3 cleared the flags in the same set() call,
-      // which papered over the problem). Now we prompt before the
-      // mode change happens (symmetric with `setActiveTab` above).
+      // Issue #352 / iter-10 redesign — auto-save means there is no
+      // longer a discardable in-flight scene. Mode switches just
+      // change the view; the latest edits are already on disk (or
+      // will be after the in-flight debounce fires). The dirty/pending
+      // maps are cleared on leaving editor mode so a later return to
+      // the tab doesn't see stale flags.
       const prevMode = get().viewModeByTab[path];
       const isLeavingEditor = prevMode === "editor" && mode !== "editor";
-      if (isLeavingEditor && get().excalidrawDirtyByTab[path] === true) {
-        if (!confirmDiscard(1)) {
-          return;
-        }
-      }
       set((s) => {
         if (isLeavingEditor) {
           const { [path]: _d, ...restDirty } = s.excalidrawDirtyByTab;

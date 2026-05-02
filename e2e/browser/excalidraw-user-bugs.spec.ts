@@ -230,17 +230,15 @@ async function setupMocks(
   );
 }
 
-test.describe("Excalidraw user-reported bugs (#352 iter-7+)", () => {
+test.describe("Excalidraw auto-save (#352 iter-10)", () => {
   test.beforeEach(async ({ page }) => {
     page.on("pageerror", (err) => {
       throw new Error(`Browser error: ${err.message}`);
     });
   });
 
-  // ── Bug #2: false-positive dirty on mount ──────────────────────────────
-  test("BUG#2: opening .excalidraw in Editor mode does NOT mark tab dirty without user edit", async ({
-    page,
-  }) => {
+  // Auto-save banner is visible on Editor mode (per app launch).
+  test("auto-save banner renders + dismisses", async ({ page }) => {
     await setupMocks(page, [
       { name: "diagram.excalidraw", content: POPULATED_EXCALIDRAW },
     ]);
@@ -252,32 +250,37 @@ test.describe("Excalidraw user-reported bugs (#352 iter-7+)", () => {
       .getByRole("button", { name: /^editor$/i })
       .click();
 
-    // Wait for Excalidraw to fully mount + fire its on-mount onChange
-    // events. Real Excalidraw fires onChange synchronously after mount
-    // and again when fonts/library load, so we wait long enough to
-    // observe the false-positive that iter-7 produces.
-    await page.waitForTimeout(2000);
-
-    // The Save button is in the top app toolbar. If onChange normalisation
-    // sets dirty=true, the button enables. EXPECTED: stays disabled.
-    const saveBtn = page.getByTestId("app-toolbar-save");
-    await expect(saveBtn).toBeVisible();
-    await expect(saveBtn).toBeDisabled({ timeout: 5_000 });
-    await expect(saveBtn).toHaveAttribute("title", "No unsaved changes");
-
-    // The tab dirty-dot must also NOT appear.
-    const tab = page.locator(".tab", { hasText: "diagram.excalidraw" });
-    await expect(tab).not.toHaveClass(/(^|\s)dirty(\s|$)/);
-    await expect(tab.locator(".tab-dirty-dot")).toHaveCount(0);
+    const banner = page.getByTestId("excalidraw-autosave-banner");
+    await expect(banner).toBeVisible();
+    await page.getByTestId("excalidraw-autosave-banner-dismiss").click();
+    await expect(banner).not.toBeVisible();
   });
 
-  // ── Bug #1: close prompt missing after edit ────────────────────────────
-  test("BUG#1: closing a dirty Excalidraw tab prompts the user to confirm discard", async ({
-    page,
-  }) => {
+  // After a real edit (via imperative API), the auto-save IPC fires
+  // within ~3s of the edit. We assert write_workspace_text was called
+  // with the file path.
+  test("auto-save fires after edit (debounced ~2s)", async ({ page }) => {
+    const writes: { path: string }[] = [];
+    await page.exposeFunction("__recordWrite", (path: string) => {
+      writes.push({ path });
+    });
     await setupMocks(page, [
-      { name: "diagram.excalidraw", content: EMPTY_EXCALIDRAW },
+      { name: "diagram.excalidraw", content: POPULATED_EXCALIDRAW },
     ]);
+    // Patch the mock to record write_workspace_text calls.
+    await page.addInitScript(() => {
+      const origMock = window.__TAURI_IPC_MOCK__;
+      window.__TAURI_IPC_MOCK__ = async (cmd: string, args: Record<string, unknown>) => {
+        if (cmd === "write_workspace_text") {
+          const path = (args as { path: string }).path;
+          await (window as unknown as {
+            __recordWrite: (p: string) => Promise<void>;
+          }).__recordWrite(path);
+          return null;
+        }
+        return origMock?.(cmd, args);
+      };
+    });
     await page.goto("/");
 
     await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
@@ -285,37 +288,22 @@ test.describe("Excalidraw user-reported bugs (#352 iter-7+)", () => {
       .locator(".viewer-toolbar")
       .getByRole("button", { name: /^editor$/i })
       .click();
+    await expect(page.locator(".excalidraw__canvas.interactive").first()).toBeVisible();
+    await page.waitForTimeout(500);
 
-    // Wait for Excalidraw's interactive canvas to mount and for the
-    // first onChange to capture the post-mount baseline. iter-8 BUG#2
-    // bootstraps the dirty baseline from the first onChange, so an
-    // explicit settle delay is needed before we drive a real edit.
-    const canvas = page.locator(".excalidraw__canvas.interactive").first();
-    await expect(canvas).toBeVisible();
-    await page.waitForTimeout(1000);
-
-    // Pre-condition: not dirty after mount + settle (BUG#2 fix).
-    await expect(page.getByTestId("app-toolbar-save")).toBeDisabled();
-
-    // Drive a real edit through Excalidraw's imperative API. Adding a
-    // brand-new rectangle to the scene mutates `elements`, and the
-    // resulting onChange fires with a content hash that differs from
-    // the post-mount baseline — exactly the user's real path. We use
-    // the imperative API rather than canvas pointer events because
-    // Playwright's mouse events are unreliable against Excalidraw's
-    // pointer-based input handling. (See iter-8 issue notes.)
+    // Drive a real edit through the imperative API.
     await page.evaluate(() => {
       const w = window as unknown as {
         __EXCALIDRAW_API__?: {
-          updateScene: (scene: { elements: unknown[] }) => void;
+          updateScene: (s: { elements: unknown[] }) => void;
           getSceneElementsIncludingDeleted: () => readonly unknown[];
         };
       };
       const api = w.__EXCALIDRAW_API__;
-      if (!api) throw new Error("__EXCALIDRAW_API__ not exposed by ExcalidrawView");
+      if (!api) throw new Error("__EXCALIDRAW_API__ not exposed");
       const existing = api.getSceneElementsIncludingDeleted();
       const newRect = {
-        id: "test-rect-1",
+        id: "test-rect",
         type: "rectangle",
         x: 100,
         y: 100,
@@ -344,38 +332,18 @@ test.describe("Excalidraw user-reported bugs (#352 iter-7+)", () => {
       api.updateScene({ elements: [...existing, newRect] });
     });
 
-    // Wait for dirty=true to propagate — the Save button is the
-    // visible signal (enabled iff `excalidrawDirtyByTab[path] === true`).
-    await expect(page.getByTestId("app-toolbar-save")).toBeEnabled({
-      timeout: 5_000,
-    });
+    // Wait for debounce (2s) plus buffer.
+    await page.waitForTimeout(3000);
 
-    // Click the close × on the tab. closeTab() in tabs.ts must read
-    // `excalidrawDirtyByTab[path] === true` and call confirmDiscard
-    // → window.confirm.
-    const tab = page.locator(".tab", { hasText: "diagram.excalidraw" });
-    await tab.locator(".tab-close").click();
-
-    // Assertion: window.confirm MUST have been called with a discard
-    // prompt before the tab unmounts.
-    await expect
-      .poll(
-        async () =>
-          page.evaluate(
-            () =>
-              (window as Window & { __MOCK_STATE__?: MockState }).__MOCK_STATE__
-                ?.confirmCalls ?? [],
-          ),
-        { timeout: 5_000 },
-      )
-      .toContainEqual(expect.stringMatching(/[Dd]iscard/));
+    expect(writes.length).toBeGreaterThanOrEqual(1);
+    expect(writes[0].path).toContain("diagram.excalidraw");
   });
 
-  // ── Bug #3: .excalidrawlib does NOT show grid in Visual mode ───────────
-  // Allowlist the StrictMode-induced "duplicate key" console warning that
-  // React emits when Excalidraw's library merge runs twice on mount. This
-  // is upstream behaviour gated on dev-only React StrictMode and does NOT
-  // affect production rendering — the library grid still appears.
+  // ── Bug #3 (iter-8): .excalidrawlib library grid renders ───────────────
+  // Allowlist the StrictMode-induced "duplicate key" console warning
+  // that React emits when Excalidraw's library merge runs twice on
+  // mount. Upstream behaviour gated on dev-only React StrictMode; the
+  // grid renders fine in production.
   test.use({
     consoleErrorAllowlist: [
       "Encountered two children with the same key",

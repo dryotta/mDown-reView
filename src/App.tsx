@@ -11,7 +11,6 @@ import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
-import { useCloseGuard } from "@/hooks/useCloseGuard";
 import { useAuthor } from "@/lib/vm/useAuthor";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
@@ -27,11 +26,10 @@ import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
 import { basename } from "@/lib/path-utils";
 import { isSidecarFile } from "@/lib/file-types";
-import { IconFile, IconFolder, IconComment, IconSave } from "@/components/Icons";
+import { IconFile, IconFolder, IconComment } from "@/components/Icons";
 import "@/styles/app.css";
 import "@/styles/print.css";
 import { recordStartupPhase, unregisterWindowFolder } from "@/lib/tauri-commands";
-import { getFileCategory } from "@/lib/file-types";
 import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 export default function App() {
@@ -57,35 +55,10 @@ export default function App() {
   // comment threads on a comment-storage file.
   const activeIsSidecar = activeTabPath !== null && isSidecarFile(activeTabPath);
 
-  // Issue #352 / iter-5 user-reported — Save button moved from the
-  // per-viewer toolbar to the top app toolbar. Visible only when the
-  // active tab is an editable Excalidraw file in editor mode; enabled
-  // only when the tab has unsaved changes. Reads narrow primitives so
-  // unrelated tab mutations don't re-render <App/>.
-  const activeViewMode = useStore((s) =>
-    activeTabPath ? s.viewModeByTab[activeTabPath] : undefined,
-  );
-  const activeIsDirty = useStore((s) =>
-    activeTabPath ? s.excalidrawDirtyByTab[activeTabPath] === true : false,
-  );
-  const activeIsReadOnly = useStore((s) =>
-    activeTabPath
-      ? s.tabs.find((t) => t.path === activeTabPath)?.readOnly === true
-      : false,
-  );
-  const activeIsExcalidrawEditable =
-    activeTabPath !== null &&
-    getFileCategory(activeTabPath) === "excalidraw" &&
-    activeViewMode === "editor" &&
-    !activeIsReadOnly;
-  const handleAppToolbarSave = useCallback(() => {
-    if (!activeTabPath) return;
-    window.dispatchEvent(
-      new CustomEvent("mdownreview:excalidraw-save-request", {
-        detail: { path: activeTabPath },
-      }),
-    );
-  }, [activeTabPath]);
+  // Issue #352 / iter-10 redesign — Excalidraw uses auto-save on
+  // change (debounced inside ExcalidrawView). The Save button + Ctrl+S
+  // dispatch + dirty-tracking close-confirms have been removed; the
+  // user no longer has an "unsaved changes" state to reason about.
 
   // Update document.title to reflect the active file and root folder
   useEffect(() => {
@@ -178,7 +151,6 @@ export default function App() {
   };
   useMenuListeners(menuCallbacks);
   useGlobalShortcuts(menuCallbacks);
-  useCloseGuard();
   useLaunchArgsBootstrap();
   useOpenFileTab();
 
@@ -226,22 +198,6 @@ export default function App() {
                 }
               >
                 <IconComment /> Comments
-              </button>
-            )}
-            {activeIsExcalidrawEditable && (
-              <button
-                className="toolbar-btn"
-                onClick={handleAppToolbarSave}
-                disabled={!activeIsDirty}
-                title={
-                  activeIsDirty
-                    ? "Save (Ctrl+S)"
-                    : "No unsaved changes"
-                }
-                aria-label="Save"
-                data-testid="app-toolbar-save"
-              >
-                <IconSave /> Save
               </button>
             )}
           </div>
