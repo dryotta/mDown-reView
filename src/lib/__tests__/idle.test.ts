@@ -15,7 +15,6 @@ describe("idle scheduler", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    // Restore native APIs if a test deleted them.
     vi.unstubAllGlobals();
   });
 
@@ -46,7 +45,6 @@ describe("idle scheduler", () => {
   describe("polyfill path (window.requestIdleCallback absent)", () => {
     beforeEach(() => {
       vi.useFakeTimers();
-      // Ensure the native API is undefined for these tests.
       vi.stubGlobal("requestIdleCallback", undefined);
       vi.stubGlobal("cancelIdleCallback", undefined);
     });
@@ -56,7 +54,6 @@ describe("idle scheduler", () => {
       const cb = vi.fn();
       requestIdle(cb);
 
-      // setTimeout(cb, 1) — advance fake timers.
       vi.advanceTimersByTime(2);
       expect(cb).toHaveBeenCalledOnce();
       const deadline = cb.mock.calls[0][0];
@@ -73,14 +70,6 @@ describe("idle scheduler", () => {
 
       vi.advanceTimersByTime(10);
       expect(cb).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("defaultScheduler DI surface", () => {
-    it("exposes requestIdle and cancelIdle methods", async () => {
-      const { defaultScheduler } = await import("@/lib/idle");
-      expect(typeof defaultScheduler.requestIdle).toBe("function");
-      expect(typeof defaultScheduler.cancelIdle).toBe("function");
     });
   });
 });

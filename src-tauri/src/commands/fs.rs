@@ -184,15 +184,51 @@ pub struct TextFileResult {
 
 /// Shared 10 MB hard cap. Canonical in `docs/security.md` rule 1.
 const MAX_SIZE: usize = 10 * 1024 * 1024;
-/// Read a text file, rejecting binary files and files >10 MB.
+
+/// Read a file's bytes with the canonical 10 MB cap pattern.
 ///
-/// Returns decoded UTF-8 + `size_bytes` + `line_count` + `mtime_ms`.
-/// Metadata + body come from the same `open()` so the caller cannot observe
-/// a torn (content, mtime) pair. Pre-check via `file.metadata()` is fstat on
-/// the open handle (TOCTOU-safe vs. path swap); reject before allocating.
-/// Read uses `take(MAX_SIZE + 1)` + post-read length check to defend against
-/// special files (`/dev/zero`, FIFOs) reporting `len() == 0`. Mirrors
-/// `core::sidecar::read_capped`. Workspace-allowlisted via [`ensure_readable`].
+/// Combines:
+///   1. fstat pre-check (open-handle `metadata().len()`) — TOCTOU-safe O(1)
+///      reject for multi-GB files vs. path-swap attacks.
+///   2. `Vec::with_capacity(meta.len().min(MAX_SIZE))` — pre-allocate; bounded
+///      by MAX_SIZE so attacker-controlled `meta.len()` cannot OOM.
+///   3. `File::take(MAX_SIZE + 1)` + post-read `bytes.len() > MAX_SIZE` —
+///      defends against special files (`/dev/zero`, FIFOs, network FS) that
+///      report `len() == 0` while streaming unbounded bytes.
+///
+/// Returns the bytes and the open-handle metadata (caller extracts mtime
+/// from the same `open()` so content + mtime cannot be torn).
+///
+/// Mirrors `core::sidecar::read_capped`. See `docs/security.md` rules 1-3.
+fn read_file_capped(path: &str) -> Result<(Vec<u8>, std::fs::Metadata), String> {
+    let file = std::fs::File::open(path).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    let meta = file.metadata().map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    if meta.len() > MAX_SIZE as u64 {
+        return Err("file_too_large".into());
+    }
+    let mut bytes = Vec::with_capacity(meta.len().min(MAX_SIZE as u64) as usize);
+    file.take(MAX_SIZE as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| {
+            tracing::error!("[rust] command error: {}", e);
+            e.to_string()
+        })?;
+    if bytes.len() > MAX_SIZE {
+        return Err("file_too_large".into());
+    }
+    Ok((bytes, meta))
+}
+
+/// Read a text file, rejecting binary files and files >10 MB. Returns
+/// decoded UTF-8 + `size_bytes` + `line_count` + `mtime_ms`. Workspace-
+/// allowlisted via [`ensure_readable`]; cap + TOCTOU semantics live in
+/// [`read_file_capped`] (see also `docs/security.md` rules 1-3).
 #[mdr_command]
 pub fn read_text_file(
     path: String,
@@ -204,38 +240,12 @@ pub fn read_text_file(
 
 /// Inner impl, decoupled from `tauri::State` so tests can exercise pure I/O.
 pub fn read_text_file_inner(path: String) -> Result<TextFileResult, String> {
-    let file = std::fs::File::open(&path).map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-    let meta = file.metadata().map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-    // fstat pre-check: reject before allocating so multi-GB files cannot OOM.
-    // Reads `metadata().len()` from the open handle, not via a second path
-    // lookup (TOCTOU-safe).
-    if meta.len() > MAX_SIZE as u64 {
-        return Err("file_too_large".into());
-    }
+    let (bytes, meta) = read_file_capped(&path)?;
     let mtime_ms = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64);
-
-    // `take(MAX_SIZE + 1)` bounds the read so special files (`/dev/zero`,
-    // FIFOs, network FS) reporting `len() == 0` cannot stream unboundedly.
-    let mut bytes = Vec::with_capacity(meta.len().min(MAX_SIZE as u64) as usize);
-    file.take(MAX_SIZE as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| {
-            tracing::error!("[rust] command error: {}", e);
-            e.to_string()
-        })?;
-    if bytes.len() > MAX_SIZE {
-        return Err("file_too_large".into());
-    }
 
     // Detect binary by scanning first 512 bytes for null bytes
     let scan_len = bytes.len().min(512);
@@ -258,9 +268,9 @@ pub fn read_text_file_inner(path: String) -> Result<TextFileResult, String> {
     })
 }
 
-/// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
-///
-/// Workspace-allowlisted via [`ensure_readable`].
+/// Read a binary file, returning base64-encoded content. Rejects files
+/// >10 MB. Workspace-allowlisted via [`ensure_readable`]; cap semantics
+/// live in [`read_file_capped`].
 #[mdr_command]
 pub fn read_binary_file(
     path: String,
@@ -272,30 +282,7 @@ pub fn read_binary_file(
 
 /// Inner impl, no workspace guard. Mirrors [`read_text_file_inner`].
 pub fn read_binary_file_inner(path: String) -> Result<String, String> {
-    let file = std::fs::File::open(&path).map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-    let meta = file.metadata().map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-    // fstat pre-check; see `read_text_file_inner` for full rationale.
-    if meta.len() > MAX_SIZE as u64 {
-        return Err("file_too_large".into());
-    }
-
-    let mut bytes = Vec::with_capacity(meta.len().min(MAX_SIZE as u64) as usize);
-    file.take(MAX_SIZE as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| {
-            tracing::error!("[rust] command error: {}", e);
-            e.to_string()
-        })?;
-    if bytes.len() > MAX_SIZE {
-        return Err("file_too_large".into());
-    }
-
+    let (bytes, _meta) = read_file_capped(&path)?;
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }

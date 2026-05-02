@@ -29,18 +29,10 @@ async readDir(path: string, limit: number | null, showSidecars: boolean | null) 
 }
 },
 /**
- * Read a text file, rejecting binary files and files >10 MB.
- * 
- * Returns the decoded UTF-8 content alongside `size_bytes` (raw byte length
- * of the on-disk file), `line_count` (logical lines as defined by
- * [`str::lines`]), and `mtime_ms` (last-modified epoch ms; `None` when the
- * platform/FS does not expose it). The file handle's metadata is read
- * before the body so content + mtime come from the same `open()` and the
- * caller cannot observe a torn (content_v1, mtime_v2) pair.
- * 
- * Workspace-allowlisted: the path is run through [`ensure_readable`] before
- * any I/O. Mirrors `stat_file` so a malicious renderer cannot read arbitrary
- * disk paths via the IPC.
+ * Read a text file, rejecting binary files and files >10 MB. Returns
+ * decoded UTF-8 + `size_bytes` + `line_count` + `mtime_ms`. Workspace-
+ * allowlisted via [`ensure_readable`]; cap + TOCTOU semantics live in
+ * [`read_file_capped`] (see also `docs/security.md` rules 1-3).
  */
 async readTextFile(path: string) : Promise<Result<TextFileResult, string>> {
     try {
@@ -51,9 +43,9 @@ async readTextFile(path: string) : Promise<Result<TextFileResult, string>> {
 }
 },
 /**
- * Read a binary file, returning base64-encoded content. Rejects files >10 MB.
- * 
- * Workspace-allowlisted via [`ensure_readable`].
+ * Read a binary file, returning base64-encoded content. Rejects files
+ * >10 MB. Workspace-allowlisted via [`ensure_readable`]; cap semantics
+ * live in [`read_file_capped`].
  */
 async readBinaryFile(path: string) : Promise<Result<string, string>> {
     try {
