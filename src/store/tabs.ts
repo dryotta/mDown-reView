@@ -10,7 +10,7 @@
  *     from this map (see `FileMeta` below); there is no separate
  *     reload-timestamp map (the historic `lastFileReloadedAt` /
  *     `lastCommentsReloadedAt` slices were removed once mtimes covered the use
- *     case). Canonical TextFileResult chokepoint — see commands/fs/read.rs:13-26.
+ *     case). Canonical TextFileResult chokepoint — see commands/fs/read.rs:13-24.
  *
  * The slice creator function is composed into the combined store in
  * `src/store/index.ts`. It uses the typed `set`/`get` signatures from

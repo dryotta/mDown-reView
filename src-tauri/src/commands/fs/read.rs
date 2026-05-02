@@ -1,7 +1,8 @@
-//! File-content reads: text + binary, with the canonical 10 MB cap pattern
-//! and the workspace guard.
+//! File-content reads: text + binary, with the canonical 10 MB cap pattern.
 //!
 //! See `docs/security.md` rules 1-3 for the full read-bounds policy.
+//! The workspace allowlist guard ([`super::ensure_readable`]) lives in
+//! [`super`]; this module only consumes it.
 
 use super::ensure_readable;
 use crate::mdr_command;
@@ -17,7 +18,7 @@ pub struct TextFileResult {
     pub line_count: usize,
     /// Last-modified time as epoch milliseconds. `None` if the platform/FS
     /// does not expose mtime or it is before the UNIX epoch. Mirrors the
-    /// `*_ms` epoch convention used by [`FileStat::mtime_ms`]. Surfaced
+    /// `*_ms` epoch convention used by [`super::FileStat::mtime_ms`]. Surfaced
     /// here so callers can detect external edits (mtime jumps) without a
     /// follow-up `stat_file` IPC round-trip.
     pub mtime_ms: Option<i64>,

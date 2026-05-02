@@ -1,16 +1,14 @@
 //! Filesystem-facing IPC commands: directory listing, file reads, stat, and
 //! tree-watcher updates.
 //!
-//! Split into sibling submodules in #355:
-//! - [`read`] — `read_text_file` / `read_binary_file` (and `_inner`s) plus the
-//!   private `read_file_capped` helper and `TextFileResult`.
-//! - [`dir`] — `read_dir` / `read_dir_inner`, `ReadDirResult`,
-//!   `DEFAULT_READ_DIR_LIMIT`, sidecar/sidecar_root filtering.
-//!
-//! This `mod.rs` keeps the small helpers (`canonicalize_path`,
-//! `check_path_exists`, `ensure_readable`, `stat_file`, `update_tree_watched_dirs`)
-//! plus the flat `pub use` block so callers continue to address every item via
-//! `commands::fs::Foo` regardless of which submodule it lives in.
+//! Sibling-module split landed in #355 to keep every file under the rule 23
+//! 400-line budget. Read paths live in [`read`] (10 MB cap pattern,
+//! `docs/security.md` rules 1-3); directory listing in [`dir`] (sidecar +
+//! sidecar_root filtering). This `mod.rs` keeps the cross-cutting items —
+//! `ensure_readable` workspace guard, `stat_file*`, `check_path_exists`,
+//! `canonicalize_path`, `update_tree_watched_dirs` — and the flat `pub use`
+//! block so the parent `commands/mod.rs` re-exports plus tests continue to
+//! address every item via `commands::fs::Foo`.
 
 use crate::core::paths::canonicalize_no_verbatim;
 use crate::mdr_command;

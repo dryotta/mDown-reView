@@ -736,7 +736,7 @@ export type TextFileResult = { content: string; size_bytes: number; line_count: 
 /**
  * Last-modified time as epoch milliseconds. `None` if the platform/FS
  * does not expose mtime or it is before the UNIX epoch. Mirrors the
- * `*_ms` epoch convention used by [`FileStat::mtime_ms`]. Surfaced
+ * `*_ms` epoch convention used by [`super::FileStat::mtime_ms`]. Surfaced
  * here so callers can detect external edits (mtime jumps) without a
  * follow-up `stat_file` IPC round-trip.
  */

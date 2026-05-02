@@ -156,7 +156,7 @@ src/
 
 src-tauri/src/
   commands/                 ← Tauri commands grouped by feature area:
-    fs.rs · comments/ · search.rs · html.rs · launch.rs
+    fs/ · comments/ · search.rs · html.rs · launch.rs
     config.rs               ← author / preferences IPC (set_author, get_author)
     onboarding.rs           ← onboarding state IPC (state read)
     cli_shim.rs             ← CLI shim install/status/remove (+ macos/windows/unsupported submodules)
