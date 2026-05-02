@@ -245,12 +245,26 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       })),
 
     setFileMeta: (path, patch) =>
-      set((s) => ({
-        fileMetaByPath: {
-          ...s.fileMetaByPath,
-          [path]: { ...s.fileMetaByPath[path], ...patch },
-        },
-      })),
+      set((s) => {
+        const prev = s.fileMetaByPath[path];
+        const merged: FileMeta = { ...prev, ...patch };
+        if (
+          prev !== undefined &&
+          prev.sizeBytes === merged.sizeBytes &&
+          prev.lineCount === merged.lineCount &&
+          prev.fileMtime === merged.fileMtime &&
+          prev.commentsMtime === merged.commentsMtime
+        ) {
+          // No observable change — return same state so subscribers don't fire.
+          return s;
+        }
+        return {
+          fileMetaByPath: {
+            ...s.fileMetaByPath,
+            [path]: merged,
+          },
+        };
+      }),
 
     setTabReadOnly: (path, readOnly) =>
       set((s) => ({

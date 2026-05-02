@@ -13,7 +13,8 @@ import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
 import { SIZE_WARN_THRESHOLD, truncateSelectedText } from "@/lib/comment-utils";
 import { isSidecarFile } from "@/lib/file-types";
-import { emitCommentFlash, flashElement, onCommentFlash } from "@/lib/comment-flash";
+import { emitCommentFlash } from "@/lib/comment-flash";
+import { useCommentFlashListener } from "@/hooks/useCommentFlashListener";
 import "@/styles/source-viewer.css";
 
 interface Props {
@@ -86,23 +87,13 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
   const scrollToLineTransform = useCallback((line: number) => line - 1, []);
   useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, undefined, filePath);
 
-  // Listen for cross-surface flash events. When the panel (or another
-  // marker) emits a flash for a line in this file, find the matching
-  // `[data-line-idx]` rows and run the keyframe animation imperatively
-  // so re-clicking re-fires.
-  useEffect(() => {
-    return onCommentFlash((detail) => {
-      if (detail.filePath !== filePath) return;
-      const startLine = detail.line;
-      const endLine = detail.endLine ?? detail.line;
-      const root = sourceLinesRef.current;
-      if (!root) return;
-      for (let ln = startLine; ln <= endLine; ln++) {
-        const el = root.querySelector(`[data-line-idx="${ln - 1}"]`) as HTMLElement | null;
-        if (el) flashElement(el);
-      }
-    });
-  }, [filePath]);
+  // Cross-surface flash listener — shared with MarkdownViewer via
+  // `useCommentFlashListener`. SourceView's row attribute is `data-line-idx`
+  // (0-indexed), so we pass a custom selector that converts the 1-indexed
+  // detail.line to the 0-indexed DOM attribute.
+  useCommentFlashListener(filePath, sourceLinesRef, {
+    selector: (line) => `[data-line-idx="${line - 1}"]`,
+  });
 
   // Stable handlers — recompute identity only when their dependencies actually
   // change. This is what allows `React.memo` on `SourceLine` to skip re-renders
@@ -122,7 +113,10 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
 
   const handleMarkerClick = useCallback(
     (ln: number) => {
-      emitCommentFlash({ filePath, line: ln });
+      // Marker click on a single source-view row — kind is always "line".
+      // (Range/file/unmatched flashes originate from CommentsPanel, which
+      // has access to the full MatchedComment context for kind derivation.)
+      emitCommentFlash({ kind: "line", filePath, line: ln });
     },
     [filePath]
   );

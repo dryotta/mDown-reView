@@ -208,6 +208,113 @@ describe("14.3 – CommentsPanel", () => {
     window.removeEventListener("scroll-to-line", handler);
   });
 
+  // ─── Iter 3 / #280 G1: clicking a panel row emits CommentFlashDetail
+  // tagged with the correct `kind` per anchor type. Spy on the raw
+  // `dispatchEvent` so we can introspect the CustomEvent payload. ────
+  describe("emits comment-flash with the correct kind discriminator", () => {
+    function captureFlashDetails(): import("@/lib/comment-flash").CommentFlashDetail[] {
+      const captured: import("@/lib/comment-flash").CommentFlashDetail[] = [];
+      vi.spyOn(window, "dispatchEvent").mockImplementation((e: Event) => {
+        if (e.type === "comment-flash") {
+          captured.push(
+            (e as CustomEvent<import("@/lib/comment-flash").CommentFlashDetail>).detail
+          );
+        }
+        return true;
+      });
+      return captured;
+    }
+
+    it("kind:'line' for a single-line anchor", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-line", "Line anchor", {
+            line: 5,
+            matchedLineNumber: 5,
+            anchor: { kind: "line", line: 5 },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "line",
+        filePath: FILE,
+        line: 5,
+        commentId: "c-line",
+      });
+    });
+
+    it("kind:'range' for an end_line > matchedLineNumber anchor", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-range", "Range anchor", {
+            line: 3,
+            end_line: 7,
+            matchedLineNumber: 3,
+            anchor: { kind: "line", line: 3, end_line: 7 },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "range",
+        filePath: FILE,
+        line: 3,
+        endLine: 7,
+        commentId: "c-range",
+      });
+    });
+
+    it("kind:'file' for an anchor_kind='file' comment", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-file", "File anchor", {
+            anchor_kind: "file",
+            matchedLineNumber: 0,
+            anchor: { kind: "file" },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "file",
+        filePath: FILE,
+        commentId: "c-file",
+      });
+    });
+
+    it("kind:'unmatched' for an orphaned comment", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-orphan", "Orphan", {
+            isOrphaned: true,
+            line: 99,
+            matchedLineNumber: 0,
+            anchor: { kind: "line", line: 99 },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "unmatched",
+        filePath: FILE,
+        commentId: "c-orphan",
+      });
+    });
+  });
+
   it("shows unresolved count in header", () => {
     setMockComments([
       makeThread(makeComment("1", "A", { line: 1, matchedLineNumber: 1 })),

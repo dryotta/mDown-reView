@@ -52,15 +52,30 @@ export function useFileContent(path: string): FileContent {
     readTextFile(path)
       .then((result) => {
         if (cancelled) return;
-        setState({
-          status: "ready",
-          content: result.content,
-          sizeBytes: result.size_bytes,
-          lineCount: result.line_count,
+        // Functional update with byte-identical bailout: when prev already
+        // reflects this exact ready state, return prev so React's Object.is
+        // check skips the re-render. Frequent under AI-agent regenerate-by-
+        // save where mtime advances but content/size/lineCount don't.
+        setState((prev) => {
+          if (
+            prev.status === "ready" &&
+            prev.content === result.content &&
+            prev.sizeBytes === result.size_bytes &&
+            prev.lineCount === result.line_count
+          ) {
+            return prev;
+          }
+          return {
+            status: "ready",
+            content: result.content,
+            sizeBytes: result.size_bytes,
+            lineCount: result.line_count,
+          };
         });
-        // Populate session-only file-meta cache so StatusBar (and any other
-        // observer) can read sizeBytes/lineCount/fileMtime via store
-        // selectors instead of issuing a second `read_text_file` IPC.
+        // ALWAYS call setFileMeta — mtime can advance independently of
+        // content (StatusBar reads `fileMtime`). The store-level slice
+        // diff in tabs.ts short-circuits when the merged meta is
+        // field-by-field identical, so this is cheap when truly no-op.
         useStore.getState().setFileMeta(path, {
           sizeBytes: result.size_bytes,
           lineCount: result.line_count,
@@ -74,11 +89,25 @@ export function useFileContent(path: string): FileContent {
           const status = msg.includes("file_too_large") ? "too_large" : "binary";
           // Set placeholder status immediately so the UI doesn't sit on a
           // spinner; enrich with byte size from a follow-up stat call.
-          setState({ status });
+          setState((prev) =>
+            prev.status === status &&
+            prev.sizeBytes === undefined &&
+            prev.mtimeMs === undefined &&
+            prev.content === undefined
+              ? prev
+              : { status }
+          );
           statFile(path)
             .then((s) => {
               if (cancelled) return;
-              setState({ status, sizeBytes: s.size_bytes, mtimeMs: s.mtime_ms ?? null });
+              const nextMtime = s.mtime_ms ?? null;
+              setState((prev) =>
+                prev.status === status &&
+                prev.sizeBytes === s.size_bytes &&
+                prev.mtimeMs === nextMtime
+                  ? prev
+                  : { status, sizeBytes: s.size_bytes, mtimeMs: nextMtime }
+              );
               // Mirror the text-success path: propagate sizeBytes + mtime to
               // the FileMeta cache so StatusBar can render mtime for binary /
               // too-large files too. lineCount is intentionally omitted —
@@ -92,7 +121,11 @@ export function useFileContent(path: string): FileContent {
               /* keep placeholder without size on stat failure */
             });
         } else {
-          setState({ status: "error", error: msg });
+          setState((prev) =>
+            prev.status === "error" && prev.error === msg
+              ? prev
+              : { status: "error", error: msg }
+          );
         }
       });
     return () => { cancelled = true; };

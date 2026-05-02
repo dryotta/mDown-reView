@@ -8,7 +8,13 @@ import { CommentInput } from "./CommentInput";
 import { fingerprintAnchor } from "@/lib/anchor-fingerprint";
 import { deriveAnchor } from "@/lib/anchor-derive";
 import { error as logError, warn as logWarn } from "@/logger";
-import { emitCommentFlash, flashElement, onCommentFlash } from "@/lib/comment-flash";
+import {
+  assertNeverFlashKind,
+  buildFlashDetail,
+  emitCommentFlash,
+  flashElement,
+  onCommentFlash,
+} from "@/lib/comment-flash";
 import type { CommentAnchor, MatchedComment } from "@/lib/tauri-commands";
 import type { CommentError } from "@/lib/bindings";
 import "@/styles/comments.css";
@@ -115,6 +121,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     (comment: MatchedComment, threadFilePath: string) => {
       const line = comment.matchedLineNumber ?? comment.line ?? 1;
       setFocusedThread(comment.id);
+      const flashDetail = buildFlashDetail(comment, threadFilePath);
       if (threadFilePath !== filePath) {
         // Iter 10 Group B — queue the scroll target BEFORE opening the file
         // so the destination viewer drains it on mount via
@@ -127,12 +134,12 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         // The destination viewer will pick up the flash on mount via the
         // `comment-flash` event we fire here — same-file flow does the
         // same dispatch below.
-        emitCommentFlash({ filePath: threadFilePath, line, commentId: comment.id });
+        emitCommentFlash(flashDetail);
         return;
       }
       onScrollToLine?.(line);
       window.dispatchEvent(new CustomEvent("scroll-to-line", { detail: { line } }));
-      emitCommentFlash({ filePath: threadFilePath, line, commentId: comment.id });
+      emitCommentFlash(flashDetail);
     },
     [onScrollToLine, filePath, openFile, setFocusedThread, setPendingScrollTarget]
   );
@@ -147,22 +154,44 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
     [handleClick]
   );
 
-  // Cross-surface flash listener for panel rows. When a marker (or another
-  // panel row) emits `comment-flash`, every row whose anchored line matches
-  // the event's line gets the keyframe animation re-fired imperatively —
-  // multi-comment lines highlight all matching rows at once.
+  // Cross-surface flash listener for panel rows. Switches on the
+  // discriminator (iter 3 of #280):
+  //   - file / unmatched: look up the row by `data-comment-id` (commentId
+  //     from the detail). Body has no DOM target for these kinds.
+  //   - line:  match by `data-comment-line` (existing single-line lookup).
+  //   - range: fan out from `line` to `endLine` inclusive, flashing each
+  //     row whose `data-comment-line` lands inside the span.
   useEffect(() => {
     return onCommentFlash((detail) => {
       const root = bodyRef.current;
       if (!root) return;
-      const items = root.querySelectorAll<HTMLElement>(
-        `.comment-panel-item[data-comment-file-path="${CSS.escape(detail.filePath)}"]`
-      );
-      items.forEach((el) => {
-        const lineAttr = el.getAttribute("data-comment-line");
-        if (!lineAttr) return;
-        if (Number(lineAttr) === detail.line) flashElement(el);
-      });
+      switch (detail.kind) {
+        case "file":
+        case "unmatched": {
+          const el = root.querySelector<HTMLElement>(
+            `.comment-panel-item[data-comment-id="${CSS.escape(detail.commentId)}"]`
+          );
+          if (el) flashElement(el);
+          return;
+        }
+        case "line":
+        case "range": {
+          const startLine = detail.line;
+          const endLine = detail.kind === "range" ? detail.endLine : detail.line;
+          const items = root.querySelectorAll<HTMLElement>(
+            `.comment-panel-item[data-comment-file-path="${CSS.escape(detail.filePath)}"]`
+          );
+          items.forEach((el) => {
+            const lineAttr = el.getAttribute("data-comment-line");
+            if (!lineAttr) return;
+            const ln = Number(lineAttr);
+            if (ln >= startLine && ln <= endLine) flashElement(el);
+          });
+          return;
+        }
+        default:
+          assertNeverFlashKind(detail);
+      }
     });
   }, []);
 
@@ -307,6 +336,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
                 tabIndex={0}
                 data-comment-file-path={tp}
                 data-comment-line={matchedLine ?? ""}
+                data-comment-id={thread.root.id}
                 onClick={() => handleClick(thread.root, tp)}
                 onKeyDown={(e) => handleKeyDown(e, thread.root, tp)}
               >

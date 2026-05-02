@@ -602,6 +602,17 @@
   margin-bottom: 8px;
 }
 
+/* iter 3 / #280 / AC5 — re-anchor visibility metadata row.
+   Element carries both `comment-orphan-banner` and `comment-rematched-banner`
+   classes, so this rule overrides the warning palette with an informational
+   (muted blue) palette. Structural rules (padding, radius, font-size) inherit. */
+.comment-orphan-banner.comment-rematched-banner {
+  background: var(--color-info-soft, rgba(96, 165, 250, 0.12));
+  color: var(--color-text-muted, var(--color-text, #1f2328));
+  border-color: var(--color-info, rgba(96, 165, 250, 0.4));
+  font-weight: 400;
+}
+
 /* Reply area (replaced by .comment-thread-reply-input) */
 
 /* Type badges */
