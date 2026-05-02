@@ -63,6 +63,50 @@ export function useFileContent(path: string): FileContent {
       return;
     }
 
+    // Issue #352 / iter-4 AC1+AC2 fix — `.excalidraw.png` / `.excalidraw.svg`
+    // are binary on disk, but the user-visible category is `excalidraw`
+    // (a viewable surface). Routing them through the binary fallthrough
+    // would land on `BinaryViewerShell`, missing the lazy
+    // `<ExcalidrawView/>` mount entirely. Instead, short-circuit here:
+    // mark status="ready" with empty content so `EnhancedViewer` mounts
+    // and `<ExcalidrawView needsExtract>` re-reads the binary via
+    // `extractScene` (which uses `read_binary_file` under the 10 MB
+    // cap). The Source-mode wrapper will run the same extraction and
+    // pretty-print the JSON.
+    const lower = path.toLowerCase();
+    if (lower.endsWith(".excalidraw.png") || lower.endsWith(".excalidraw.svg")) {
+      // Stat the file so the StatusBar still gets size/mtime.
+      let cancelled = false;
+      statFile(path)
+        .then((s) => {
+          if (cancelled) return;
+          setState({
+            status: "ready",
+            content: "",
+            sizeBytes: s.size_bytes,
+            lineCount: 0,
+            mtimeMs: s.mtime_ms ?? null,
+          });
+          useStore.getState().setFileMeta(path, {
+            sizeBytes: s.size_bytes,
+            lineCount: 0,
+            fileMtime: s.mtime_ms ?? undefined,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setState({
+            status: "ready",
+            content: "",
+            sizeBytes: 0,
+            lineCount: 0,
+          });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     let cancelled = false;
     readTextFile(path)
       .then((result) => {

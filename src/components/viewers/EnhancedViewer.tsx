@@ -23,6 +23,13 @@ const MermaidView = lazy(() =>
 const LazyExcalidrawView = lazy(() =>
   import("./ExcalidrawView").then((m) => ({ default: m.ExcalidrawView }))
 );
+// Issue #352 / iter-4 AC2 — Source mode for `.excalidraw.png` / `.excalidraw.svg`
+// runs `extractScene` (which lives in the same lazy chunk as `ExcalidrawView`)
+// and feeds pretty-printed JSON to `SourceView`. Lazy so the main bundle
+// stays excalidraw-free until first PNG/SVG-source view.
+const LazyExcalidrawSourceMode = lazy(() =>
+  import("./ExcalidrawSourceMode").then((m) => ({ default: m.ExcalidrawSourceMode }))
+);
 
 /**
  * Custom DOM event name dispatched from the Save button + Ctrl+S handler
@@ -176,7 +183,28 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
         visualDisabledReason={visualDisabled ? MARKDOWN_VISUAL_DISABLED_TOOLTIP : undefined}
       />
       {showSource ? (
-        <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} zoom={zoom} />
+        // Issue #352 / iter-4 AC2 — for `.excalidraw.png` / `.excalidraw.svg`
+        // Source mode shows the EXTRACTED scene JSON, not the raw binary
+        // bytes. Routing happens here (not in `SourceView`) so the lazy
+        // `extractScene` import only fires when a PNG/SVG source view
+        // actually renders.
+        isExcalidraw &&
+        (path.toLowerCase().endsWith(".excalidraw.png") ||
+          path.toLowerCase().endsWith(".excalidraw.svg")) ? (
+          <Suspense fallback={<SkeletonLoader />}>
+            <LazyExcalidrawSourceMode
+              key={filePath}
+              filePath={filePath}
+              fileSize={fileSize}
+              wordWrap={wordWrap}
+              zoom={zoom}
+              // Trick the syntax highlighter into using JSON.
+              syntaxPath={`${path}.json`}
+            />
+          </Suspense>
+        ) : (
+          <SourceView content={content} path={path} filePath={filePath} fileSize={fileSize} wordWrap={wordWrap} zoom={zoom} />
+        )
       ) : (
         <div className="enhanced-viewer-content">
           <Suspense fallback={<SkeletonLoader />}>

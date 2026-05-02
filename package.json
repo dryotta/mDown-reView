@@ -20,6 +20,8 @@
     "lint:typed": "eslint --config eslint.typed.config.js src/",
     "lint:markdown-surfaces": "node scripts/check-markdown-surfaces.mjs",
     "lint:skills": "node scripts/lint-skills.mjs",
+    "check:bundle-baseline": "node scripts/check-bundle-baseline.mjs",
+    "check:bundle-baseline:update": "node scripts/check-bundle-baseline.mjs --update-baseline",
     "test-exploratory-e2e": "tsx .claude/skills/test-exploratory-e2e/runner/explore.ts",
     "test-exploratory-e2e:repl": "tsx .claude/skills/test-exploratory-e2e/runner/repl.ts",
     "test-exploratory-loop:wait": "tsx .claude/skills/test-exploratory-loop/runner/wait-for-main.ts",
