@@ -107,6 +107,14 @@ const EXEMPT_COMMANDS: &[&str] = &[
     "edit_comment",
     "update_comment",
     "delete_comment",
+    // Workspace-write IPCs (issue #352 — Excalidraw foundations):
+    // ensure_writable uses the same path-allowlist (window-scoped at
+    // watcher.rs) via `is_path_or_parent_allowed` to prevent
+    // cross-window writes. The `window` arg is not needed because the
+    // path itself is the scope unit and the allowlist already filters.
+    // The extension allowlist + 10 MB cap further bound the surface.
+    "write_workspace_text",
+    "write_workspace_binary",
 ];
 
 /// Per-window-state-mutating commands that MUST take a `window: tauri::Window`

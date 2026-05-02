@@ -112,7 +112,7 @@ pub fn write_workspace_text(
 /// `tauri::State` wrapper. Tests call this directly because `tauri::State`
 /// can only be constructed by the runtime — same split pattern as
 /// `commands::fs::read_text_file_inner`.
-pub fn write_workspace_text_inner(
+pub(crate) fn write_workspace_text_inner(
     state: &WatcherState,
     path: &str,
     text: &str,
@@ -147,7 +147,7 @@ pub fn write_workspace_binary(
 
 /// Inner implementation of [`write_workspace_binary`]. See
 /// [`write_workspace_text_inner`] for rationale.
-pub fn write_workspace_binary_inner(
+pub(crate) fn write_workspace_binary_inner(
     state: &WatcherState,
     path: &str,
     base64: &str,
@@ -361,5 +361,21 @@ mod tests {
         let raw = b"\x89PNG\r\n\x1a\n<embedded scene>";
         write_workspace_binary_inner(&state, &target.to_string_lossy(), &B64.encode(raw)).unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), raw);
+    }
+
+    #[test]
+    fn accepts_text_payload_at_exact_10mb_boundary() {
+        // The cap guard is `>` not `>=`, so exactly WORKSPACE_WRITE_MAX_BYTES
+        // must round-trip. Locks in the off-by-one boundary for the
+        // size-cap arithmetic introduced in iter 1 of issue #352.
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("boundary.excalidraw");
+        let exactly_max = "x".repeat(WORKSPACE_WRITE_MAX_BYTES);
+        write_workspace_text_inner(&state, &target.to_string_lossy(), &exactly_max).unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().len() as usize,
+            WORKSPACE_WRITE_MAX_BYTES
+        );
     }
 }
