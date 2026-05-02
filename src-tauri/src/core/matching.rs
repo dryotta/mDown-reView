@@ -1,14 +1,19 @@
 use crate::core::fuzzy::fuzzy_score;
+use crate::core::md_strip::strip_md_inline;
 use crate::core::types::{MatchedComment, MrsfComment};
 use sha2::{Digest, Sha256};
 
 const FUZZY_THRESHOLD: f64 = 0.6;
 
-/// Match comments to file lines using the 4-step re-anchoring algorithm.
+/// Match comments to file lines using the re-anchoring algorithm.
 ///
 /// For each comment:
 /// 1. Exact `selected_text` substring match (original line first, then full scan)
 ///    — when multiple matches exist, pick closest to original line (MRSF §7.2)
+/// 1b. Markdown-stripped substring match — recovers visual-mode selections
+///    that span inline-formatting markers (`**bold**`, `[link](url)`, etc.)
+///    where the rendered text the user selected is not literally present in
+///    the source line. Same closest-to-original-line tiebreaker as 1.
 /// 2. Line fallback with plausibility check (MRSF §7.4 step 2b)
 /// 3. Fuzzy match via Levenshtein similarity
 /// 4. Orphan at clamped line or 1
@@ -131,7 +136,75 @@ pub fn match_comments(
                         original_line: orig_line,
                     };
                 }
-                // No matches found — fall through to step 2
+                // No matches found — try normalized (markdown-stripped) match
+                // before falling through to step 2. This covers the common
+                // visual-mode case where the user's selection spans an
+                // inline-formatting marker (`**bold**`, `[link](url)`, etc.)
+                // so the rendered text they selected is not literally present
+                // on any line, but IS present on a line once the markers are
+                // stripped to their rendered form. See `core::md_strip`.
+                let stripped_matches: Vec<u32> = file_lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, line)| strip_md_inline(line).contains(sel))
+                    .map(|(i, _)| (i as u32) + 1)
+                    .collect();
+
+                if stripped_matches.len() == 1 {
+                    let new_line = stripped_matches[0];
+                    let re_derived = new_line != orig_line.unwrap_or(0);
+                    let outcome = if re_derived { "normalized-relocated" } else { "normalized-orig" };
+                    emit_match_event(
+                        cmd, &comment.id, &file_hash, outcome,
+                        orig_line, orig_end, new_line, orig_end, re_derived,
+                    );
+                    let mut c = comment.clone();
+                    c.line = Some(new_line);
+                    return MatchedComment {
+                        comment: c,
+                        matched_line_number: new_line,
+                        is_orphaned: false,
+                        anchored_text: None,
+                        original_line: orig_line,
+                    };
+                } else if stripped_matches.len() > 1 {
+                    if let Some(ol) = orig_line {
+                        let best = *stripped_matches
+                            .iter()
+                            .min_by_key(|&&m| (m as i64 - ol as i64).unsigned_abs())
+                            .unwrap();
+                        let re_derived = best != ol;
+                        let outcome = if re_derived { "normalized-relocated" } else { "normalized-orig" };
+                        emit_match_event(
+                            cmd, &comment.id, &file_hash, outcome,
+                            orig_line, orig_end, best, orig_end, re_derived,
+                        );
+                        let mut c = comment.clone();
+                        c.line = Some(best);
+                        return MatchedComment {
+                            comment: c,
+                            matched_line_number: best,
+                            is_orphaned: false,
+                            anchored_text: None,
+                            original_line: orig_line,
+                        };
+                    }
+                    let first = stripped_matches[0];
+                    emit_match_event(
+                        cmd, &comment.id, &file_hash, "normalized-ambiguous",
+                        orig_line, orig_end, first, orig_end, true,
+                    );
+                    let mut c = comment.clone();
+                    c.line = Some(first);
+                    return MatchedComment {
+                        comment: c,
+                        matched_line_number: first,
+                        is_orphaned: false,
+                        anchored_text: None,
+                        original_line: orig_line,
+                    };
+                }
+                // No normalized matches either — fall through to step 2
             }
 
             // Step 2: Line/column fallback with plausibility check (MRSF §7.4 step 2)
@@ -246,7 +319,10 @@ fn emit_match_event(
     matched_end: Option<u32>,
     re_derived: bool,
 ) {
-    let warn_outcome = matches!(outcome, "exact-ambiguous" | "orphan" | "fuzzy");
+    let warn_outcome = matches!(
+        outcome,
+        "exact-ambiguous" | "orphan" | "fuzzy" | "normalized-ambiguous"
+    );
     let suppress_warn = cmd == "get_file_badges";
 
     // Pre-format Option fields as `<n|none>` strings so tracing always emits
@@ -565,5 +641,103 @@ mod tests {
         assert!(!result[0].is_orphaned);
         assert_eq!(result[0].anchored_text.as_deref(), Some("hello World!"));
         assert_eq!(result[0].original_line, Some(2));
+    }
+
+    // --- Step 1b: visual-mode (rendered text) selection across markers ---
+
+    #[test]
+    fn visual_selection_across_bold_marker_matches() {
+        // Source line has a bold marker; user selected the rendered text
+        // in visual view, which doesn't contain the `**` markers.
+        let comments = vec![make_comment("c1", Some(1), Some("Hello world here"))];
+        let lines = vec!["Hello **world** here"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(
+            !result[0].is_orphaned,
+            "selection across bold marker should not orphan"
+        );
+    }
+
+    #[test]
+    fn visual_selection_across_link_matches() {
+        let comments = vec![make_comment("c1", Some(1), Some("Click here please"))];
+        let lines = vec!["Click [here](https://example.com) please"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn visual_selection_across_inline_code_matches() {
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("Use cargo build --release now"),
+        )];
+        let lines = vec!["Use `cargo build --release` now"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn visual_selection_across_strikethrough_matches() {
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("This deprecated text"),
+        )];
+        let lines = vec!["This ~~deprecated~~ text"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn visual_selection_across_combined_inline_formats_matches() {
+        // Mirrors line 32 of samples/markdown/01-gfm-basics.md.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("fast Vec<u8> allocation must not reallocate"),
+        )];
+        let lines = vec![
+            "A line that mixes them: a *fast* `Vec<u8>` allocation **must not** ~~reallocate~~.",
+        ];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn visual_selection_picks_closest_line_when_multiple_strip_to_same_text() {
+        // Both line 1 and line 5 strip to "shared text"; the comment was
+        // originally on line 4, so it should re-anchor to line 5 (closest).
+        let comments = vec![make_comment("c1", Some(4), Some("shared text"))];
+        let lines = vec![
+            "**shared** text",
+            "filler one",
+            "filler two",
+            "filler three",
+            "*shared* text",
+        ];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 5);
+        assert!(!result[0].is_orphaned);
+        assert_eq!(result[0].original_line, Some(4));
+    }
+
+    #[test]
+    fn visual_selection_no_marker_on_line_falls_through_to_other_steps() {
+        // No inline markers anywhere → step 1b matches the same lines as
+        // step 1, so step 1 succeeds first and step 1b doesn't fire. This
+        // is just a sanity check that the new step is non-disruptive.
+        let comments = vec![make_comment("c1", Some(2), Some("plain text"))];
+        let lines = vec!["first line", "plain text here", "third line"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 2);
+        assert!(!result[0].is_orphaned);
     }
 }

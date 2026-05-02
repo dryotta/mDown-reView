@@ -7,6 +7,7 @@ pub mod html_assets;
 pub mod json;
 pub mod kql;
 pub mod matching;
+pub mod md_strip;
 pub mod mrsf_version;
 pub mod onboarding;
 pub mod paths;

@@ -227,6 +227,123 @@ describe("useSelectionToolbar — handleMouseUp positioning (A2)", () => {
   });
 });
 
+// ── Whitespace trimming on captured selection text ────────────────────────
+
+describe("useSelectionToolbar — handleMouseUp trims whitespace from selectedText", () => {
+  function makeLineEl(idx: number, text = "hello world"): HTMLElement {
+    const el = document.createElement("span");
+    el.setAttribute("data-line-idx", String(idx));
+    document.body.appendChild(el);
+    el.appendChild(document.createTextNode(text));
+    return el;
+  }
+
+  function mockSelectionWithRange(range: Range, text: string) {
+    const sel = {
+      isCollapsed: false,
+      toString: () => text,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, "getSelection").mockReturnValue(sel);
+  }
+
+  // jsdom doesn't implement Range.getClientRects/getBoundingClientRect.
+  // Stub both with a generic non-zero rect so positioning code can run.
+  function stubRangeRects() {
+    const rect = {
+      top: 100,
+      left: 50,
+      bottom: 115,
+      right: 200,
+      width: 150,
+      height: 15,
+      x: 50,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectList = {
+      length: 1,
+      item: (i: number) => (i === 0 ? rect : null),
+      0: rect,
+    } as unknown as DOMRectList;
+    const proto = Range.prototype as unknown as Record<string, unknown>;
+    const originals = {
+      getClientRects: proto.getClientRects,
+      getBoundingClientRect: proto.getBoundingClientRect,
+    };
+    proto.getClientRects = (() => rectList) as unknown;
+    proto.getBoundingClientRect = (() => rect) as unknown;
+    return () => {
+      proto.getClientRects = originals.getClientRects;
+      proto.getBoundingClientRect = originals.getBoundingClientRect;
+    };
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    Object.defineProperty(window, "innerWidth", { value: 800, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 600, configurable: true });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("strips leading and trailing whitespace from raw selected text", () => {
+    const el = makeLineEl(2, "  hello world  ");
+    const range = document.createRange();
+    range.setStart(el.firstChild!, 0);
+    range.setEnd(el.firstChild!, 15);
+    mockSelectionWithRange(range, "  hello world  ");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() => useSelectionToolbar());
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar?.selectedText).toBe("hello world");
+  });
+
+  it("strips trailing newline that comes from selection past a paragraph boundary", () => {
+    const el = makeLineEl(0, "trailing newline");
+    const range = document.createRange();
+    range.setStart(el.firstChild!, 0);
+    range.setEnd(el.firstChild!, 16);
+    mockSelectionWithRange(range, "trailing newline\n");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() => useSelectionToolbar());
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar?.selectedText).toBe("trailing newline");
+  });
+
+  it("clears the toolbar when raw selection contains only whitespace", () => {
+    const el = makeLineEl(0, "   ");
+    const range = document.createRange();
+    range.setStart(el.firstChild!, 0);
+    range.setEnd(el.firstChild!, 3);
+    mockSelectionWithRange(range, "   ");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() => useSelectionToolbar());
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar).toBeNull();
+  });
+});
+
 describe("useSelectionToolbar with custom lineAttribute and lineOffset", () => {
   it("defaults to data-line-idx with offset 1", () => {
     const { result } = renderHook(() => useSelectionToolbar());

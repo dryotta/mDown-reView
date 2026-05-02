@@ -34,8 +34,15 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
       return;
     }
     const range = sel.getRangeAt(0);
-    const selectedText = sel.toString();
-    if (!selectedText.trim()) {
+    const rawText = sel.toString();
+    // Strip leading/trailing whitespace before storing — selections that
+    // extend slightly past a word (a common triple-click overshoot) or
+    // that include a trailing newline from a paragraph boundary would
+    // otherwise persist with that noise into the MRSF sidecar and break
+    // the matcher's per-line substring search (file lines are split on
+    // '\n', so a stored "\n" can never substring-match a single line).
+    const selectedText = rawText.trim();
+    if (!selectedText) {
       setSelectionToolbar(null);
       return;
     }

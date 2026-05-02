@@ -14,7 +14,7 @@ Every feature, review decision, and engineering trade-off is judged against thes
 The app looks and feels like a tool a developer would pay for. Instant keyboard shortcuts, native menubar, polish details (ghost entries, comment badges, "Copy path" in About), no amateur rough edges. Shipping a feature that is visibly half-finished damages this pillar more than not shipping it at all.
 
 ### Reliable
-Comments are the product, and comments are indestructible. MRSF sidecars, 4-step re-anchoring, ghost entries for deleted sources, atomic writes, save-loop prevention, and a watcher that survives editor rename patterns all exist to honor this pillar. A feature that risks losing a user comment does not ship.
+Comments are the product, and comments are indestructible. MRSF sidecars, the re-anchoring algorithm, ghost entries for deleted sources, atomic writes, save-loop prevention, and a watcher that survives editor rename patterns all exist to honor this pillar. A feature that risks losing a user comment does not ship.
 
 ### Performant
 Fast startup, fast file open, fast search, fast render — even on folders of thousands of files. Performance is measured, not intuited. Budgets are numeric and tracked.
