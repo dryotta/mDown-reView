@@ -251,6 +251,11 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     vi.useFakeTimers();
     try {
       await act(async () => {
+        // First onChange — bootstraps baseline (iter-11). No save scheduled.
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      await act(async () => {
+        // Real edit — different elements → save scheduled.
         onChange([{ id: "rect-1", type: "rectangle", x: 0, y: 0 }], {}, {});
       });
       await act(async () => {
@@ -333,8 +338,8 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     // Only ONE save fired — bursty edits coalesce per debounce.
     expect(saveSceneMock).toHaveBeenCalledTimes(1);
     // The save received the LAST set of elements.
-    const lastSavedElements = saveSceneMock.mock.calls[0][1].elements;
-    expect(lastSavedElements).toEqual([{ id: "rect-4" }]);
+    const savePayload = saveSceneMock.mock.calls[0][1] as { elements: unknown };
+    expect(savePayload.elements).toEqual([{ id: "rect-4" }]);
   });
 
   it("Auto-save is paused while externalChangePending is true (don't clobber on-disk changes)", async () => {
@@ -354,6 +359,11 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
 
     vi.useFakeTimers();
     try {
+      await act(async () => {
+        // Bootstrap baseline so divergence is detectable. Save still
+        // pauses below because externalChangePending=true.
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
       await act(async () => {
         onChange([{ id: "rect-1" }], {}, {});
       });
@@ -384,6 +394,11 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     vi.useFakeTimers();
     try {
       await act(async () => {
+        // Bootstrap baseline (iter-11).
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      await act(async () => {
+        // Real edit triggers the failing save.
         onChange([{ id: "rect-1" }], {}, {});
       });
       await act(async () => {

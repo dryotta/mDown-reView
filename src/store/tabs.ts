@@ -194,33 +194,6 @@ export function filterStaleTabs(
 type SliceSet = StoreApi<Store>["setState"];
 type SliceGet = StoreApi<Store>["getState"];
 
-/**
- * Issue #352 / iter-3 lean-expert review — single confirm-discard
- * helper used by `closeTab`, `closeAllTabs`, and the LRU eviction path
- * in `openFile`. Returns `true` if the destructive action should
- * proceed (user confirmed, or no dirty tabs to confirm against).
- *
- * **Fail-closed in headless contexts** (no `globalThis.confirm`): we
- * abort the destructive action rather than silently discard. Iter-2
- * landed `confirm` available in jsdom + Tauri runtime; absence is an
- * unsupported configuration.
- *
- * `count` carries through to the prompt copy: "Discard changes to N
- * file(s)?" gives the user agency on a multi-tab batch close.
- */
-/**
- * Issue #352 / iter-10 redesign — `confirmDiscard` is no longer used
- * by any close path because Excalidraw now auto-saves on change.
- * The function is kept to minimise blast radius on test suites that
- * import it; it returns true unconditionally so callers behave as if
- * the user always confirmed. Will be removed in a follow-up cleanup
- * pass.
- */
-function confirmDiscard(_count: number): boolean {
-  return true;
-}
-void confirmDiscard;
-
 export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
   return {
     tabs: [],
@@ -247,33 +220,14 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const baseTabs = get().tabs;
       if (baseTabs.length >= MAX_TABS) {
         const activePath = get().activeTabPath;
-        // Issue #352 / iter-5 user-reported — dirty Excalidraw editor
-        // tabs are EXEMPT from MAX_TABS LRU eviction. The cap exists
-        // to bound resident tab state for performance; unsaved user
-        // edits are precisely the state we MUST NOT silently destroy
-        // (Reliable pillar). If the only LRU candidates are dirty
-        // editors, we let the cap stretch — the user pays a small
-        // memory cost and keeps their work. We still prompt before
-        // evicting a dirty editor IF a clean candidate is unavailable
-        // and the user would otherwise be denied the open.
-        const dirtyMap = get().excalidrawDirtyByTab;
-        const cleanCandidates = baseTabs.filter(
-          (t) => t.path !== activePath && dirtyMap[t.path] !== true,
-        );
-        if (cleanCandidates.length === 0) {
-          // No clean tab to evict — append the new one without
-          // evicting anyone. Cap is exceeded; the dirty editor(s)
-          // stay safely mounted.
-          set({
-            tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
-            activeTabPath: path,
-          });
-          if (recordHistory) get().pushHistory(path);
-          void classifyAndMarkReadOnly(path, set);
-          return;
-        }
+        // Issue #352 / iter-10 redesign — auto-save means evicted tabs
+        // already have their content on disk. The previous "exempt
+        // dirty editors from eviction" carve-out (iter-5) is no longer
+        // needed: the cap can apply uniformly. Pick the oldest non-active
+        // tab as the victim.
+        const candidates = baseTabs.filter((t) => t.path !== activePath);
         const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
-        const victim = cleanCandidates.reduce((oldest, t) =>
+        const victim = candidates.reduce((oldest, t) =>
           accessed(t) < accessed(oldest) ? t : oldest
         );
         // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.

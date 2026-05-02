@@ -1,7 +1,7 @@
 import {
   Excalidraw,
 } from "@excalidraw/excalidraw";
-import { startTransition, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 import { SkeletonLoader } from "./SkeletonLoader";
 
@@ -129,6 +129,46 @@ function friendlySaveError(rust: string): string {
   return rust;
 }
 
+/**
+ * Issue #352 / iter-11 — STABLE content hash for auto-save divergence
+ * detection. Strips Excalidraw's volatile `version` / `versionNonce` /
+ * `updated` fields (mutated on every operation including mount-time
+ * normalisation passes) so the hash reflects PERSISTENT content only.
+ *
+ * Two scenes hash equal iff their persistent content (elements,
+ * library items, appState) is the same. Tool selection, viewport pan,
+ * cursor position, and Excalidraw's mount-time versionNonce churn do
+ * NOT shift the hash.
+ *
+ * Used by the auto-save debouncer to skip the IPC when the live scene
+ * is byte-identical to what's already on disk (lastSavedHashRef).
+ */
+function stableContentHash(
+  elements: ReadonlyArray<unknown>,
+  libraryItems: ReadonlyArray<unknown> | null,
+): string {
+  const stripVolatile = (el: unknown): Record<string, unknown> => {
+    if (el === null || typeof el !== "object") return {};
+    const { version: _v, versionNonce: _vn, updated: _u, ...rest } =
+      el as Record<string, unknown>;
+    return rest;
+  };
+  const stableElements = elements.map(stripVolatile);
+  const stableLib =
+    libraryItems !== null && libraryItems.length > 0
+      ? libraryItems.map((item) => {
+          const stripped = stripVolatile(item);
+          // Library items contain nested elements that ALSO carry the
+          // volatile fields — strip them too, otherwise lib hash drifts.
+          const innerElements = Array.isArray(stripped.elements)
+            ? (stripped.elements as unknown[]).map(stripVolatile)
+            : stripped.elements;
+          return { ...stripped, elements: innerElements };
+        })
+      : null;
+  return JSON.stringify({ elements: stableElements, libraryItems: stableLib });
+}
+
 export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props) {
   const theme = useTheme();
   const excalidrawTheme: "light" | "dark" = theme === "dark" ? "dark" : "light";
@@ -152,32 +192,50 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     () => !autoSaveBannerDismissedThisLaunch,
   );
 
-  // Latest scene snapshot from Excalidraw's `onChange` — captured into a
-  // ref so the save handler reads the current value without re-creating
-  // the listener on every keystroke. Mirrors the pattern in `useImageData`
-  // for one-shot listeners with always-fresh reads.
-  const liveSceneRef = useRef<ExcalidrawScene | null>(null);
-
-  // Issue #352 / iter-10 redesign — auto-save state.
-  //   - `externalChangePending`: render-time gate for the conflict banner.
-  //     Auto-save is paused while `true` so we don't clobber an external
-  //     change before the user has chosen Reload vs Keep editing.
-  //   - `saveInFlightRef`: prevents two saves running concurrently. The
-  //     Rust workspace-write IPC is atomic per call but cannot reorder
-  //     two near-simultaneous calls, so we serialise at the renderer
-  //     boundary and coalesce missed onChanges via `pendingSaveRef`.
+  // Refs (rule: high-frequency / non-render state is in refs).
+  //
+  //   - `liveSceneRef`: latest scene snapshot from Excalidraw's
+  //     `onChange`. Read at save time so we capture the user's most
+  //     recent edits.
+  //   - `lastSavedHashRef`: stable content hash of the LAST successful
+  //     save (or the post-mount baseline if no save has fired yet).
+  //     iter-11 uses byte-level comparison via a stable hash that
+  //     strips Excalidraw's volatile `version` / `versionNonce` /
+  //     `updated` fields — those mutate on every operation including
+  //     mount-time normalisation passes (font load, library merge),
+  //     which would otherwise drive constant false-positive saves.
+  //   - `saveInFlightRef`: serialises concurrent saves at the renderer.
+  //     The Rust workspace-write IPC is atomic per call but cannot
+  //     reorder two near-simultaneous calls.
+  //   - `pendingSaveRef`: set when an onChange arrives while a save
+  //     is already in flight. After the in-flight save resolves we
+  //     schedule a follow-up so the user's latest edit lands on disk.
   //   - `autoSaveTimerRef`: window.setTimeout id for the debounced save.
-  //     Cleared on every onChange (debounce reset) and on unmount.
-  //   - `pendingSaveRef`: set to `true` when an onChange fires while a
-  //     save is already in flight. After the in-flight save resolves we
-  //     check this flag and schedule another save so the user's latest
-  //     edit still lands on disk.
+  //   - `mountedRef`: gates post-unmount state updates and the in-flight
+  //     follow-up scheduler so a torn-down view doesn't fire ghost saves
+  //     or call setState on an unmounted component.
+  const liveSceneRef = useRef<ExcalidrawScene | null>(null);
+  const lastSavedHashRef = useRef<string | null>(null);
+  const saveInFlightRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+
   const externalChangePending = useStore(
     (s) => s.externalChangePendingByTab[filePath] === true,
   );
-  const saveInFlightRef = useRef(false);
-  const autoSaveTimerRef = useRef<number | null>(null);
-  const pendingSaveRef = useRef(false);
+  // Issue #352 / iter-11 — auto-save lifecycle wiring. We call:
+  //   * `setExcalidrawDirty(path, true)` when the live scene diverges
+  //     from the last-saved baseline (gates the conflict banner in
+  //     `useFileContent` so external changes during edit are surfaced
+  //     instead of silently overwritten).
+  //   * `setExcalidrawDirty(path, false)` after a successful save.
+  //   * `recordSave(path)` after a successful save (suppresses the
+  //     watcher echo so our own write doesn't trigger a remount loop;
+  //     see `useFileWatcher.ts:82-87`).
+  const setExcalidrawDirty = useStore((s) => s.setExcalidrawDirty);
+  const recordSave = useStore((s) => s.recordSave);
+
   // Issue #352 / iter-5 BLOCKER (rubber-duck #2) — Excalidraw consumes
   // `initialData` only at mount; changing the prop later does NOT
   // rehydrate the canvas. The conflict-banner Reload button needs to
@@ -267,41 +325,65 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     };
   }, [filePath, content, needsExtract, reloadKey]);
 
-  // Issue #352 / iter-10 redesign — auto-save core. `runAutoSave`
-  // is the single save path: serialises the live scene, calls the
-  // workspace-write IPC, and surfaces failures via the saveError
-  // banner. Coalesces concurrent calls via `saveInFlightRef` and
-  // re-fires once the in-flight save resolves if a later onChange
-  // arrived during it (`pendingSaveRef`).
+  // Issue #352 / iter-11 — auto-save core.
   //
-  // Wrapped in a stable `useCallback` so the onChange-driven
-  // scheduler can list it in deps without re-registering listeners
-  // on every re-render. `liveSceneRef`/refs are read INSIDE so we
-  // see the latest scene at flush time, not at scheduler-creation
-  // time.
-  // `runAutoSaveRef` holds the latest `runAutoSave` so the queued
-  // follow-up after an in-flight save resolves can call it without
-  // the callback referencing itself (which the React-compiler lint
-  // flags). Updated in an effect after each render.
-  const runAutoSaveRef = useRef<() => void>(() => {});
-  const runAutoSave = useCallback(() => {
-    if (mode !== "editor") return;
-    if (externalChangePending) {
+  // Architecture: `performSave` is a stable function that reads
+  // reactive props/state (mode, externalChangePending) via refs so
+  // the debounce timer or Retry click can call it later without
+  // closure traps. Two entry points wrap it:
+  //   - `runAutoSave`: subject to mode + externalChangePending gates
+  //     (the normal debounce path).
+  //   - `flushAutoSave`: BYPASSES the mode gate (we're flushing
+  //     precisely because we're about to lose `mode==="editor"`),
+  //     but still respects `externalChangePending`.
+  //
+  // Why refs instead of `useEffectEvent`: the React Hooks lint rule
+  // restricts useEffectEvent to Effect bodies, but our setTimeout
+  // callback fires outside any effect — and the Retry click handler
+  // is an event handler. The ref-mirror pattern is the supported
+  // alternative and keeps the lint clean.
+  const modeRef = useRef(mode);
+  const externalChangePendingRef = useRef(externalChangePending);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  useEffect(() => {
+    externalChangePendingRef.current = externalChangePending;
+  }, [externalChangePending]);
+
+  const performSave = (bypassModeCheck: boolean): void => {
+    if (!mountedRef.current) return;
+    if (!bypassModeCheck && modeRef.current !== "editor") return;
+    if (externalChangePendingRef.current) {
       // Conflict banner is up — do not clobber the on-disk version.
       // The user must explicitly resolve via Reload or Keep editing.
       return;
     }
     if (saveInFlightRef.current) {
-      // Another save is already running. Mark a follow-up so the
-      // user's latest edits land on disk after the in-flight call
-      // resolves.
+      // Another save is running; queue a follow-up so the latest
+      // edits still land on disk.
       pendingSaveRef.current = true;
       return;
     }
-    const live = liveSceneRef.current ?? scene;
+    const live = liveSceneRef.current;
     if (!live) return;
+    const liveHash = stableContentHash(
+      live.elements,
+      live.libraryItems ?? null,
+    );
+    if (liveHash === lastSavedHashRef.current) {
+      // No persistent-content drift since the last save (or the
+      // post-mount baseline). Skip the IPC entirely — this is what
+      // suppresses the iter-7/iter-9 "save fires on mount" bug:
+      // Excalidraw normalises on mount and emits onChange events
+      // with bumped versionNonces; the stable hash strips those, so
+      // the first onChange post-mount captures the same hash as
+      // subsequent normalisation events.
+      return;
+    }
     saveInFlightRef.current = true;
     const wasFirstSave = !hasSeenFirstSave();
+    const savedHash = liveHash;
     void saveExcalidrawFile(filePath, {
       elements: live.elements,
       appState: live.appState,
@@ -309,10 +391,22 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       libraryItems: live.libraryItems ?? null,
     })
       .then(() => {
+        // Update the on-disk baseline so the next divergence check
+        // sees the just-saved scene as canonical.
+        lastSavedHashRef.current = savedHash;
+        if (!mountedRef.current) return;
         setSaveError(null);
+        // Tell `useFileWatcher` this was OUR save so it can suppress
+        // the watcher echo (otherwise our save → watcher → reload
+        // chain churns indefinitely).
+        recordSave(filePath);
+        // Clear dirty so the conflict-banner gate in `useFileContent`
+        // resets — external edits arriving AFTER this save will see
+        // dirty===false and trigger a clean reload, not a conflict.
+        setExcalidrawDirty(filePath, false);
         // Issue #352 / iter-5 BLOCKER (product F5) — first-save
-        // MRSF warning toast. Show ONLY on the first successful save
-        // per browser profile, then never again.
+        // MRSF warning. Show ONLY on the first successful save per
+        // browser profile, then never again.
         if (wasFirstSave) {
           markFirstSaveSeen();
           setShowFirstSaveWarning(true);
@@ -321,6 +415,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         void logError(`excalidraw auto-save failed for ${filePath}: ${msg}`);
+        if (!mountedRef.current) return;
         // Surface as a non-modal banner above the canvas — DO NOT
         // route through `setLoadError`, which would unmount the
         // canvas and discard the user's unsaved edits (rubber-duck +
@@ -330,39 +425,72 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       })
       .finally(() => {
         saveInFlightRef.current = false;
+        if (!mountedRef.current) return;
         // If a coalesced save was queued during the in-flight call,
-        // schedule it now so the latest edits make it to disk.
+        // schedule it now via the standard debounce so the latest
+        // edits make it to disk.
         if (pendingSaveRef.current) {
           pendingSaveRef.current = false;
-          // Use a microtask-ish delay (0) rather than the full debounce
-          // — the user has already paused for 2s once; firing the
-          // follow-up right away keeps the on-disk state fresh.
           autoSaveTimerRef.current = window.setTimeout(() => {
             autoSaveTimerRef.current = null;
-            runAutoSaveRef.current();
+            performSave(false);
           }, 0);
         }
       });
-  }, [mode, filePath, scene, externalChangePending]);
+  };
 
-  useEffect(() => {
-    runAutoSaveRef.current = runAutoSave;
-  }, [runAutoSave]);
+  const runAutoSave = (): void => {
+    performSave(false);
+  };
 
-  // Cancel any pending auto-save on unmount or when deps change so we
-  // don't fire a stale save against a tab the user has navigated away
-  // from. Safe even if the timer has already fired (clearTimeout is
-  // a no-op for unknown ids).
+  const flushAutoSave = (): void => {
+    if (autoSaveTimerRef.current !== null) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    performSave(true);
+  };
+
+  // Mirror the latest `flushAutoSave` into a ref so unmount/mode-leave
+  // effects can call it without re-firing on every render. Updated in
+  // an effect (cannot write to refs during render per React Compiler).
+  const flushAutoSaveRef = useRef(flushAutoSave);
   useEffect(() => {
+    flushAutoSaveRef.current = flushAutoSave;
+  });
+
+  // Mount tracker + cleanup. On unmount we FLUSH (not cancel) the
+  // pending debounce so a tab switch within 2s doesn't lose the user's
+  // edits. Then mark the component unmounted so async save callbacks
+  // skip setState. Empty deps — runs once.
+  useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      if (autoSaveTimerRef.current !== null) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
+      flushAutoSaveRef.current();
+      mountedRef.current = false;
     };
-  }, [filePath]);
+  }, []);
 
-  const deferredScene = useDeferredValue(scene);
+  // Flush on EDITOR-LEAVE: the user clicked Source/Visual on a tab
+  // they were editing. Without this, the in-flight debounce fires
+  // post-mode-change with mode!=="editor" and bails — losing the edit.
+  const wasEditorRef = useRef(mode === "editor");
+  useEffect(() => {
+    const wasEditor = wasEditorRef.current;
+    wasEditorRef.current = mode === "editor";
+    if (wasEditor && mode !== "editor") {
+      flushAutoSaveRef.current();
+    }
+  }, [mode]);
+
+  // Reset the post-mount baseline when the tab's source-of-truth
+  // changes (filePath, on-disk content, reloadKey from Reload button,
+  // or needsExtract for binary variants). The next onChange after a
+  // load captures the new baseline; subsequent edits are detected
+  // via stableContentHash divergence.
+  useEffect(() => {
+    lastSavedHashRef.current = null;
+  }, [filePath, content, needsExtract, reloadKey]);
 
   if (loadError) {
     return (
@@ -379,7 +507,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     );
   }
 
-  if (!deferredScene) {
+  if (!scene) {
     return (
       <div
         className="enhanced-viewer-content excalidraw-view"
@@ -532,15 +660,15 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
         <Excalidraw
           key={reloadKey}
           initialData={{
-            elements: deferredScene.elements as never,
-            appState: deferredScene.appState as never,
-            files: deferredScene.files as never,
+            elements: scene.elements as never,
+            appState: scene.appState as never,
+            files: scene.files as never,
             // Issue #352 / iter-7 user-reported (#4) — `.excalidrawlib`
             // initial data populates the library panel via
             // `appState.openSidebar = { name: 'library' }` (set in the
             // load effect) plus the libraryItems array here.
-            ...(deferredScene.libraryItems
-              ? { libraryItems: deferredScene.libraryItems as never }
+            ...(scene.libraryItems
+              ? { libraryItems: scene.libraryItems as never }
               : {}),
           }}
           viewModeEnabled={mode === "visual"}
@@ -565,7 +693,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           onChange={(elements, appState, files) => {
             // Always capture the latest snapshot for the save handler.
             // Library items live on appState, not files.
-            liveSceneRef.current = {
+            const live: ExcalidrawScene = {
               elements: elements as ReadonlyArray<unknown>,
               appState: appState as unknown as Record<string, unknown>,
               files: files as unknown as Record<string, unknown>,
@@ -573,21 +701,46 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
                 ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
                   .libraryItems ?? null),
             };
-            // Issue #352 / iter-10 redesign — auto-save scheduler.
-            // Excalidraw fires onChange for both real edits and
-            // non-content events (tool selection, viewport pan,
-            // theme, cursor). For dirty tracking we used to filter
-            // those out via a content hash; for auto-save we don't
-            // need to — saving the same bytes back to disk is a
-            // no-op (Rust workspace-write atomic-replaces, file
-            // mtime advances but the content is identical, watcher
-            // dedupes). Keeping the scheduler simple avoids the
-            // hash-volatility bugs from iter-7 → iter-9.
+            liveSceneRef.current = live;
+            // Issue #352 / iter-11 — auto-save scheduler.
             //
-            // Pause auto-save while NOT in editor mode (Visual /
-            // Source must not write back) and while the conflict
-            // banner is up (don't clobber an external change).
+            // Excalidraw fires onChange for both real edits and non-content
+            // events (tool selection, viewport pan, theme, cursor). The
+            // stableContentHash check inside `performSave` filters those
+            // out at SAVE time so we don't pay an IPC for non-content
+            // events even though we scheduled a debounce.
+            //
+            // Bootstrap baseline: the FIRST onChange after a load captures
+            // the current hash as the on-disk baseline. This ensures the
+            // mount-time normalisation onChanges (which Excalidraw fires
+            // with bumped versionNonces, stripped by stableContentHash to
+            // match the loaded scene's hash) don't trigger a save just
+            // because the file was opened.
+            //
+            // We also flip the dirty flag here when content has actually
+            // diverged from baseline — that's the conflict-banner gate
+            // in `useFileContent` (set when buffer != on-disk; clear on
+            // save success).
             if (mode !== "editor") return;
+            const liveHash = stableContentHash(
+              live.elements,
+              live.libraryItems ?? null,
+            );
+            if (lastSavedHashRef.current === null) {
+              // First post-load onChange — this IS the on-disk
+              // canonical form (Excalidraw normalises on mount; the
+              // stable hash strips the volatile fields).
+              lastSavedHashRef.current = liveHash;
+              return;
+            }
+            if (liveHash === lastSavedHashRef.current) {
+              // Non-content event (tool change, pan, etc.). Don't
+              // touch dirty; don't reschedule the save.
+              return;
+            }
+            // Real content drift. Mark dirty (gates the conflict
+            // banner) and reset the debounce.
+            setExcalidrawDirty(filePath, true);
             if (autoSaveTimerRef.current !== null) {
               clearTimeout(autoSaveTimerRef.current);
             }

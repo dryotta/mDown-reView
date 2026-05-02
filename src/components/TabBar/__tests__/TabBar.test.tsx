@@ -81,26 +81,6 @@ describe("8.1 – tab display", () => {
     setup([{ path: "/docs/README.md" }], "/docs/README.md");
     expect(screen.queryByLabelText(/read-only · outside workspace/i)).not.toBeInTheDocument();
   });
-
-  // Issue #352 / AC6 — dirty dot rendered when `excalidrawDirtyByTab[path]
-  // === true`. The dot carries an accessible label so a11y audits surface
-  // the unsaved-changes state.
-  it("renders the dirty dot (•) when excalidrawDirtyByTab[path] is true", () => {
-    useStore.setState({
-      tabs: [{ path: "/ws/a.excalidraw", scrollTop: 0 }],
-      activeTabPath: "/ws/a.excalidraw",
-      excalidrawDirtyByTab: { "/ws/a.excalidraw": true },
-    });
-    render(<TabBar />);
-    const dot = screen.getByLabelText(/unsaved changes/i);
-    expect(dot).toBeInTheDocument();
-    expect(dot).toHaveTextContent("•");
-  });
-
-  it("does NOT render the dirty dot when excalidrawDirtyByTab is empty", () => {
-    setup([{ path: "/ws/a.excalidraw" }], "/ws/a.excalidraw");
-    expect(screen.queryByLabelText(/unsaved changes/i)).not.toBeInTheDocument();
-  });
 });
 
 // ─── 8.2: Tab interactions and badges ────────────────────────────────────────

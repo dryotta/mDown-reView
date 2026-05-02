@@ -13,20 +13,12 @@ function TabItem({
   unresolvedCount,
   severity,
   readOnly,
-  dirty,
   tabRef,
 }: {
   path: string;
   unresolvedCount: number;
   severity?: Severity;
   readOnly?: boolean;
-  /**
-   * Issue #352 / AC6 — `true` when this tab is an Excalidraw editor with
-   * unsaved changes. Renders a `•` next to the basename to signal
-   * unsaved state. The dot is announced via `aria-label="Unsaved
-   * changes"` for screen readers.
-   */
-  dirty?: boolean;
   tabRef?: (el: HTMLDivElement | null) => void;
 }) {
   const activeTabPath = useStore((s) => s.activeTabPath);
@@ -38,7 +30,7 @@ function TabItem({
   return (
     <div
       ref={tabRef}
-      className={`tab${isActive ? " active" : ""}${dirty ? " dirty" : ""}`}
+      className={`tab${isActive ? " active" : ""}`}
       title={path}
       onClick={() => {
         // History recording (B2) is centralized in `tabs.setActiveTab`.
@@ -47,15 +39,6 @@ function TabItem({
       role="tab"
       aria-selected={isActive}
     >
-      {dirty && (
-        <span
-          className="tab-dirty-dot"
-          aria-label="Unsaved changes"
-          title="Unsaved changes"
-        >
-          •
-        </span>
-      )}
       <span className="tab-name">{name}</span>
       <span className="tab-trailing">
         {readOnly && (
@@ -90,11 +73,6 @@ export function TabBar() {
   const activeTabPath = useStore((s) => s.activeTabPath);
   const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs]);
   const fileBadges = useFileBadges(tabPaths);
-  // Issue #352 / AC6 — read the dirty map at the parent so each TabItem
-  // gets a primitive `dirty` boolean (not a reference). Narrow selector
-  // keeps non-dirty tab updates from re-rendering this top-level
-  // component on every cursor move in the canvas.
-  const dirtyMap = useStore((s) => s.excalidrawDirtyByTab);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -190,7 +168,6 @@ export function TabBar() {
             unresolvedCount={fileBadges[tab.path]?.count ?? 0}
             severity={fileBadges[tab.path]?.max_severity}
             readOnly={tab.readOnly === true}
-            dirty={dirtyMap[tab.path] === true}
             tabRef={setTabRef(tab.path)}
           />
         ))}

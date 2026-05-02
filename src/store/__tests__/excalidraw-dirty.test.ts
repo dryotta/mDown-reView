@@ -253,78 +253,37 @@ describe("setActiveTab + setViewMode legacy guard tests (REPLACED in iter-10)", 
   });
 });
 
-describe("LRU eviction respects dirty Excalidraw editor tabs (issue #352)", () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    confirmSpy = vi.spyOn(globalThis, "confirm").mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    confirmSpy.mockRestore();
-  });
-
-  it("evicting a clean tab silently cleans its (empty) maps — no prompt", () => {
+describe("LRU eviction (issue #352 / iter-11)", () => {
+  // iter-11 redesign: with auto-save, evicted tabs already have their
+  // content on disk. The previous "exempt dirty Excalidraw editors
+  // from MAX_TABS eviction" carve-out is gone — the cap applies
+  // uniformly. This suite asserts the simplified eviction.
+  it("evicting a clean tab silently cleans its (empty) maps", () => {
     // Open MAX_TABS+1 to force eviction. MAX_TABS is 5.
     for (let i = 0; i < 5; i++) {
       useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
     // Open a new tab — this triggers LRU eviction of /ws/0.md (oldest).
     useStore.getState().openFile("/ws/new.md", { recordHistory: false });
-    // No prompt fired since no dirty tabs.
-    expect(confirmSpy).not.toHaveBeenCalled();
     expect(
       useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
     ).toBeUndefined();
+    expect(useStore.getState().tabs.length).toBe(5);
   });
 
-  it("BYPASSES MAX_TABS when ALL LRU candidates are dirty Excalidraw editors (no prompt, all preserved)", () => {
-    // Open MAX_TABS tabs and mark every non-active one as dirty.
+  it("evicts the oldest non-active tab regardless of dirty flag (auto-save handles persistence)", () => {
     for (let i = 0; i < 5; i++) {
       useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
-    // Active is /ws/4.md (most recent open). Mark all the others dirty.
+    // /ws/0.md is the oldest. Mark it dirty (legacy concept — the
+    // map still exists for the conflict-banner gate, but no longer
+    // exempts the tab from eviction).
     useStore.getState().setExcalidrawDirty("/ws/0.md", true);
-    useStore.getState().setExcalidrawDirty("/ws/1.md", true);
-    useStore.getState().setExcalidrawDirty("/ws/2.md", true);
-    useStore.getState().setExcalidrawDirty("/ws/3.md", true);
-
-    // Open a 6th tab — every non-active candidate is dirty, so the
-    // cap stretches.
+    // /ws/4.md is active (just-opened).
     useStore.getState().openFile("/ws/new.md", { recordHistory: false });
-
-    // No prompt — the user wasn't asked to discard.
-    expect(confirmSpy).not.toHaveBeenCalled();
-    // All four dirty tabs survive.
-    for (let i = 0; i < 4; i++) {
-      expect(
-        useStore.getState().tabs.find((t) => t.path === `/ws/${i}.md`),
-      ).toBeDefined();
-      expect(useStore.getState().excalidrawDirtyByTab[`/ws/${i}.md`]).toBe(true);
-    }
-    // Cap is exceeded.
-    expect(useStore.getState().tabs.length).toBe(6);
-    // New tab opened.
-    expect(useStore.getState().tabs.find((t) => t.path === "/ws/new.md")).toBeDefined();
-  });
-
-  it("evicts the OLDEST CLEAN tab when a dirty editor exists alongside it", () => {
-    for (let i = 0; i < 5; i++) {
-      useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
-    }
-    // /ws/0.md is the oldest, mark it dirty.
-    useStore.getState().setExcalidrawDirty("/ws/0.md", true);
-    // /ws/4.md is the active (just-opened); the next-LRU clean is /ws/1.md.
-
-    useStore.getState().openFile("/ws/new.md", { recordHistory: false });
-
-    // No prompt — only clean tabs are eligible victims.
-    expect(confirmSpy).not.toHaveBeenCalled();
-    // Dirty tab survives.
-    expect(useStore.getState().tabs.find((t) => t.path === "/ws/0.md")).toBeDefined();
-    // Oldest CLEAN tab evicted.
-    expect(useStore.getState().tabs.find((t) => t.path === "/ws/1.md")).toBeUndefined();
-    // Cap respected (5).
+    // /ws/0.md (oldest non-active) is evicted even though it had
+    // dirty=true. With auto-save, its content is already on disk.
+    expect(useStore.getState().tabs.find((t) => t.path === "/ws/0.md")).toBeUndefined();
     expect(useStore.getState().tabs.length).toBe(5);
   });
 });
