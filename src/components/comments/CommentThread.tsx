@@ -152,6 +152,14 @@ export function CommentThread({ rootComment, replies = [], filePath }: CommentTh
           ⚠ Original location not found — comment may need manual review
         </div>
       )}
+      {!rootComment.isOrphaned &&
+        rootComment.originalLine != null &&
+        rootComment.matchedLineNumber != null &&
+        rootComment.originalLine !== rootComment.matchedLineNumber && (
+          <div className="comment-orphan-banner comment-rematched-banner" role="note">
+            originally line {rootComment.originalLine} → re-anchored to {rootComment.matchedLineNumber}
+          </div>
+        )}
       <CommentItem comment={rootComment} variant="root" filePath={filePath} onStartReply={() => setReplying(true)} />
       {replies.length > 0 && (
         <div className="comment-thread-replies">

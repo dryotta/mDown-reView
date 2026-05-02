@@ -115,7 +115,7 @@ describe("CommentInput – draft persistence (Group E)", () => {
     expect(textarea.value).toBe("in progress");
   });
 
-  it("onSave clears the draft key", () => {
+  it("onSave clears the draft key", async () => {
     const onSave = vi.fn();
     render(<CommentInput onSave={onSave} onClose={() => {}} draftKey={KEY} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "to save" } });
@@ -123,7 +123,9 @@ describe("CommentInput – draft persistence (Group E)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     expect(onSave).toHaveBeenCalledWith("to save");
-    expect(localStorage.getItem(KEY)).toBeNull();
+    // Iter 3 (#280) AC6 — handleSave is now async; draft clears after the
+    // awaited onSave resolves.
+    await waitFor(() => expect(localStorage.getItem(KEY)).toBeNull());
   });
 
   it("onCancel clears the draft key", () => {
@@ -161,5 +163,136 @@ describe("CommentInput – draft persistence (Group E)", () => {
     } finally {
       Storage.prototype.setItem = setItem;
     }
+  });
+});
+
+// ─── Iter 3 / #280 / AC6 — async onSave + inline error banner ────────────────
+
+describe("CommentInput – async onSave + save-error banner (AC6)", () => {
+  const KEY = "test::ac6::draft";
+
+  beforeEach(() => {
+    // Iter 3 forward-fix (test-expert nit): clear logger mock call history
+    // between tests so cross-test residue doesn't satisfy assertions.
+    vi.clearAllMocks();
+  });
+
+  it("rejected onSave shows the inline error banner with role=alert", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("boom"));
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "hello" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/boom/);
+    expect(alert).toHaveClass("comment-input-error");
+  });
+
+  it("rejected onSave preserves the draft (loss-on-error fix)", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("network"));
+    render(<CommentInput onSave={onSave} onClose={() => {}} draftKey={KEY} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "important text" } });
+    expect(localStorage.getItem(KEY)).toBe("important text");
+
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await screen.findByRole("alert");
+
+    // Draft must remain so the user can retry without retyping.
+    expect(localStorage.getItem(KEY)).toBe("important text");
+    // Textarea also retains its content.
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("important text");
+  });
+
+  it("rejected onSave logs '[web] CommentInput save failed:' via @/logger", async () => {
+    const logger = await import("@/logger");
+    const onSave = vi.fn().mockRejectedValue(new Error("boom"));
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    await screen.findByRole("alert");
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("CommentInput save failed: boom")
+    );
+  });
+
+  it("successful onSave clears the draft and renders no banner", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<CommentInput onSave={onSave} onClose={() => {}} draftKey={KEY} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "ok" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    await waitFor(() => expect(localStorage.getItem(KEY)).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("sync onSave (legacy void signature) still works — backward compat", async () => {
+    const onSave = vi.fn(); // returns undefined synchronously
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sync" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    expect(onSave).toHaveBeenCalledWith("sync");
+    // No banner ever surfaces — the awaited Promise.resolve(undefined) succeeds.
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("a successful retry after a failure clears the previous banner", async () => {
+    const onSave = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("first failure"))
+      .mockResolvedValueOnce(undefined);
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "retry me" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await screen.findByRole("alert");
+
+    // Click Save again — the second attempt resolves, error must clear.
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("non-Error rejection is rendered via String(e) in the banner", async () => {
+    const onSave = vi.fn().mockRejectedValue("string-shaped failure");
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("string-shaped failure");
+  });
+
+  // ── Iter 3 forward-fix (bug-expert BLOCK): Save in-flight guard.
+  // Without this guard, a rapid double-click (or held Ctrl+Enter) fires
+  // onSave twice, persisting duplicate threads through addComment IPC.
+  it("Save button is disabled while a save is in flight (no double-fire)", async () => {
+    let resolveOuter: () => void = () => {};
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((r) => {
+          resolveOuter = r;
+        })
+    );
+    render(<CommentInput onSave={onSave} onClose={() => {}} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "guard" } });
+    const btn = screen.getByRole("button", { name: /^save/i });
+
+    // First click starts the in-flight save.
+    fireEvent.click(btn);
+    // Second click while in-flight must be ignored.
+    fireEvent.click(btn);
+    // Held Ctrl+Enter must also be ignored.
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", ctrlKey: true });
+
+    // onSave fired exactly once despite three save attempts.
+    expect(onSave).toHaveBeenCalledTimes(1);
+    // Button is disabled and shows the "Saving…" label while in-flight.
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).toMatch(/saving/i);
+
+    // Once the IPC resolves, the guard releases.
+    resolveOuter();
+    await waitFor(() => expect(btn).not.toBeDisabled());
   });
 });

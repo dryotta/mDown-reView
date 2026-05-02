@@ -420,3 +420,50 @@ describe("CommentThread - Markdown rendering", () => {
     expect(commentText?.classList.contains("md-wrap-cascade")).toBe(true);
   });
 });
+
+// ─── Re-anchor banner (iter 3 / #280 / AC5) ──────────────────────────────────
+
+describe("CommentThread - Re-anchor banner", () => {
+  it("does not show re-anchor banner when originalLine === matchedLineNumber", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ originalLine: 5, matchedLineNumber: 5, isOrphaned: false })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.queryByText(/originally line/i)).not.toBeInTheDocument();
+  });
+
+  it("shows literal 'originally line N → re-anchored to M' when lines differ", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ originalLine: 5, matchedLineNumber: 12, isOrphaned: false })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(
+      screen.getByText(/originally line 5 → re-anchored to 12/)
+    ).toBeInTheDocument();
+  });
+
+  it("orphan banner takes precedence over re-anchor banner when isOrphaned is true", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ originalLine: 5, matchedLineNumber: 12, isOrphaned: true })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.getByText(/Original location not found/i)).toBeInTheDocument();
+    expect(screen.queryByText(/originally line/i)).not.toBeInTheDocument();
+  });
+
+  it("does not show re-anchor banner when originalLine is null/undefined", () => {
+    render(
+      <CommentThread
+        rootComment={makeComment({ originalLine: null, matchedLineNumber: 12, isOrphaned: false })}
+        filePath="/test/file.md"
+      />
+    );
+    expect(screen.queryByText(/originally line/i)).not.toBeInTheDocument();
+  });
+});

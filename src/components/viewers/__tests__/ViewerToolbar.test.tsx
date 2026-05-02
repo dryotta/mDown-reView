@@ -67,74 +67,34 @@ describe("ViewerToolbar", () => {
     expect(screen.queryByRole("button", { name: /open externally/i })).toBeNull();
   });
 
-  // ── Iter 5 Group B: Comment on file button ────────────────────────────────
-  describe("onCommentOnFile (iter 5 group B)", () => {
-    it("does NOT render the button when no callback is provided", () => {
-      render(<ViewerToolbar activeView="source" onViewChange={vi.fn()} />);
-      expect(screen.queryByRole("button", { name: /comment on file/i })).toBeNull();
-    });
-
-    it("renders the button when a callback is provided", () => {
-      render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} />,
-      );
-      expect(screen.getByRole("button", { name: /comment on file/i })).toBeInTheDocument();
-    });
-
-    it("invokes onCommentOnFile when clicked", () => {
-      const onCommentOnFile = vi.fn();
-      render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={onCommentOnFile} />,
-      );
-      fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
-      expect(onCommentOnFile).toHaveBeenCalledTimes(1);
-    });
-
-    it("renders the toolbar (and button) even when hidden, no wrap toggle, and no zoom — entry point must be universal", () => {
+  // ── G4: centerSlot composition ────────────────────────────────────────────
+  describe("centerSlot (G4 — composition over prop-bag)", () => {
+    it("renders the centerSlot inside .viewer-toolbar-center", () => {
       const { container } = render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} hidden onCommentOnFile={vi.fn()} />,
+        <ViewerToolbar
+          activeView="source"
+          onViewChange={vi.fn()}
+          centerSlot={<span data-testid="cs">x</span>}
+        />,
+      );
+      const center = container.querySelector(".viewer-toolbar-center");
+      expect(center).not.toBeNull();
+      expect(center?.querySelector('[data-testid="cs"]')).not.toBeNull();
+    });
+
+    it("renders the toolbar (and centerSlot) even when hidden + no wrap + no zoom — entry point must be universal", () => {
+      const { container } = render(
+        <ViewerToolbar
+          activeView="source"
+          onViewChange={vi.fn()}
+          hidden
+          centerSlot={<span data-testid="cs">x</span>}
+        />,
       );
       expect(container.querySelector(".viewer-toolbar")).not.toBeNull();
-      expect(screen.getByRole("button", { name: /comment on file/i })).toBeInTheDocument();
+      expect(screen.getByTestId("cs")).toBeInTheDocument();
       // The Source/Visual toggle is still suppressed when `hidden` is set.
       expect(screen.queryByRole("button", { name: /^source$/i })).toBeNull();
-    });
-  });
-
-  // ── File-level badge (next to "Comment on file") ──────────────────────────
-  describe("file-level badge", () => {
-    it("does NOT render a badge when fileCommentCount is 0", () => {
-      const { container } = render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} fileCommentCount={0} />,
-      );
-      expect(container.querySelector(".viewer-toolbar-file-badge")).toBeNull();
-    });
-
-    it("renders the badge with the count when fileCommentCount > 0", () => {
-      const { container } = render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} fileCommentCount={3} fileCommentSeverity="high" />,
-      );
-      const badge = container.querySelector(".viewer-toolbar-file-badge");
-      expect(badge).not.toBeNull();
-      expect(badge?.textContent).toBe("3");
-      expect(badge?.getAttribute("data-severity")).toBe("high");
-      expect(badge?.getAttribute("aria-label")).toMatch(/3 unresolved comments/i);
-    });
-
-    it("does NOT render the badge when no `onCommentOnFile` callback is provided (button is hidden)", () => {
-      // The badge lives inside the button — without the button, no badge.
-      const { container } = render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} fileCommentCount={5} />,
-      );
-      expect(container.querySelector(".viewer-toolbar-file-badge")).toBeNull();
-    });
-
-    it("uses singular wording in aria-label when count is 1", () => {
-      const { container } = render(
-        <ViewerToolbar activeView="source" onViewChange={vi.fn()} onCommentOnFile={vi.fn()} fileCommentCount={1} />,
-      );
-      const badge = container.querySelector(".viewer-toolbar-file-badge");
-      expect(badge?.getAttribute("aria-label")).toMatch(/1 unresolved comment(?!s)/);
     });
   });
 

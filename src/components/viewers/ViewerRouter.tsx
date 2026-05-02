@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useStore } from "@/store";
 import { useFileContent } from "@/hooks/useFileContent";
 import { isSidecarFile } from "@/lib/file-types";
-import { useFileBadges } from "@/hooks/useFileBadges";
 import { SkeletonLoader } from "./SkeletonLoader";
 import { EnhancedViewer } from "./EnhancedViewer";
 import { ImageViewerShell } from "./ImageViewerShell";
@@ -11,6 +10,7 @@ import { TooLargePlaceholder } from "./TooLargePlaceholder";
 import { DeletedFileViewer } from "./DeletedFileViewer";
 import { FileActionsBar } from "./FileActionsBar";
 import { ViewerToolbar } from "./ViewerToolbar";
+import { ToolbarFileCommentPill } from "./ToolbarFileCommentPill";
 import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 interface Props {
@@ -66,15 +66,15 @@ export function ViewerRouter({ path }: Props) {
   }, [path]);
   const commentOnFile = isSidecar ? undefined : handleCommentOnFile;
 
-  // File-level badge data: count of unresolved file-anchored threads + worst
-  // severity. Reuses `get_file_badges` (same IPC the tree/tabs use, so the
-  // sidecar load is amortised across surfaces; reloads on `comments-changed`
-  // are debounced inside the hook). Memoise the path array so the hook's
-  // pathsKey effect doesn't refire on every render.
-  const fileBadgePaths = useMemo(() => [path], [path]);
-  const fileBadges = useFileBadges(fileBadgePaths);
-  const fileCommentCount = fileBadges[path]?.file_level_count ?? 0;
-  const fileCommentSeverity = fileBadges[path]?.max_severity ?? null;
+  // G4 — file-level entry point composes via `centerSlot`. The pill owns its
+  // own narrow `useComments(path)` subscription (rule 30, narrow selectors)
+  // and renders only when there is something to show — avoiding the
+  // prop-drill of counts/severity through the toolbar that the previous
+  // iteration did. Sidecar files (.review.yaml/.review.json) stay
+  // pill-less: app-managed metadata gets no file-level comment surface.
+  const centerSlot = commentOnFile
+    ? <ToolbarFileCommentPill filePath={path} onCommentOnFile={commentOnFile} />
+    : undefined;
 
   // Guard flag: suppresses scroll-save during programmatic scroll restore
   const restoringRef = useRef(false);
@@ -166,7 +166,7 @@ export function ViewerRouter({ path }: Props) {
   // mount a minimal `ViewerToolbar` (toggle hidden, no zoom) above each one
   // to surface the file-anchored "Comment on file" entry point universally.
   if (status === "image") {
-    return <ImageViewerShell key={path} path={path} onCommentOnFile={commentOnFile} fileCommentCount={fileCommentCount} fileCommentSeverity={fileCommentSeverity} />;
+    return <ImageViewerShell key={path} path={path} centerSlot={centerSlot} />;
   }
 
   if (status === "too_large") {
@@ -176,9 +176,7 @@ export function ViewerRouter({ path }: Props) {
           activeView="visual"
           onViewChange={() => {}}
           hidden
-          onCommentOnFile={commentOnFile}
-          fileCommentCount={fileCommentCount}
-          fileCommentSeverity={fileCommentSeverity}
+          centerSlot={centerSlot}
           trailing={<FileActionsBar path={path} />}
         />
         <TooLargePlaceholder key={path} path={path} size={sizeBytes} />
@@ -187,7 +185,7 @@ export function ViewerRouter({ path }: Props) {
   }
 
   if (status === "binary") {
-    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} onCommentOnFile={commentOnFile} fileCommentCount={fileCommentCount} fileCommentSeverity={fileCommentSeverity} />;
+    return <BinaryViewerShell key={path} path={path} size={sizeBytes} mtime={mtimeMs} centerSlot={centerSlot} />;
   }
 
   if (status === "error") {
@@ -198,9 +196,7 @@ export function ViewerRouter({ path }: Props) {
             activeView="visual"
             onViewChange={() => {}}
             hidden
-            onCommentOnFile={commentOnFile}
-            fileCommentCount={fileCommentCount}
-            fileCommentSeverity={fileCommentSeverity}
+            centerSlot={centerSlot}
           />
           <DeletedFileViewer key={path} filePath={path} />
         </div>
@@ -212,9 +208,7 @@ export function ViewerRouter({ path }: Props) {
           activeView="visual"
           onViewChange={() => {}}
           hidden
-          onCommentOnFile={commentOnFile}
-          fileCommentCount={fileCommentCount}
-          fileCommentSeverity={fileCommentSeverity}
+          centerSlot={centerSlot}
           trailing={<FileActionsBar path={path} />}
         />
         <div className="viewer-placeholder">
@@ -232,9 +226,7 @@ export function ViewerRouter({ path }: Props) {
         path={path}
         filePath={path}
         fileSize={sizeBytes}
-        onCommentOnFile={commentOnFile}
-        fileCommentCount={fileCommentCount}
-        fileCommentSeverity={fileCommentSeverity}
+        centerSlot={centerSlot}
       />
     </div>
   );

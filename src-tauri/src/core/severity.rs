@@ -73,6 +73,7 @@ mod tests {
             matched_line_number: 1,
             is_orphaned: false,
             anchored_text: None,
+            original_line: None,
         }
     }
 

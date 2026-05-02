@@ -32,9 +32,15 @@ describe("BinaryViewerShell", () => {
     expect(screen.getByRole("button", { name: /reveal in folder/i })).toBeInTheDocument();
   });
 
-  it("renders Comment on file button when onCommentOnFile is provided", () => {
+  it("renders centerSlot when provided", () => {
     const onCof = vi.fn();
-    render(<BinaryViewerShell path="/ws/sample.bin" size={512} onCommentOnFile={onCof} />);
+    render(
+      <BinaryViewerShell
+        path="/ws/sample.bin"
+        size={512}
+        centerSlot={<button onClick={onCof}>Comment on file</button>}
+      />,
+    );
     const btn = screen.getByRole("button", { name: /comment on file/i });
     fireEvent.click(btn);
     expect(onCof).toHaveBeenCalledOnce();

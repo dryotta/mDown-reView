@@ -26,7 +26,7 @@ fn bench_get_file_comments(c: &mut Criterion) {
                 let s = sidecar::load_sidecar(&small_path.to_string_lossy())
                     .unwrap()
                     .unwrap();
-                let matched = matching::match_comments(&s.comments, &small_lines);
+                let matched = matching::match_comments(&s.comments, &small_lines, "/bench", "bench");
                 threads::group_into_threads(&matched)
             })
         });
@@ -64,7 +64,7 @@ fn bench_get_file_comments(c: &mut Criterion) {
 
     group.bench_function("get_file_comments_large", |b| {
         b.iter(|| {
-            let matched = matching::match_comments(&large_comments, &large_lines);
+            let matched = matching::match_comments(&large_comments, &large_lines, "/bench", "bench");
             threads::group_into_threads(&matched)
         })
     });

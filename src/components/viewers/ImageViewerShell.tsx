@@ -1,25 +1,22 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { useZoom } from "@/hooks/useZoom";
 import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
 import { ViewerToolbar } from "./ViewerToolbar";
 import { FileActionsBar } from "./FileActionsBar";
 import { ImageViewer } from "./ImageViewer";
-import type { Severity } from "@/lib/tauri-commands";
 
 interface Props {
   path: string;
-  onCommentOnFile?: () => void;
-  fileCommentCount?: number;
-  fileCommentSeverity?: Severity | null;
+  /** G4 — forwarded to `ViewerToolbar.centerSlot`. Composition over prop-bag. */
+  centerSlot?: ReactNode;
 }
 
 /**
  * Shell component that owns zoom state and composes the ViewerToolbar
- * above ImageViewer. Zoom surfaces through the toolbar instead of the
- * image viewer's body. `fileCommentCount` drives the file-level badge
- * next to the "Comment on file" button.
+ * above ImageViewer. Zoom surfaces through the toolbar; the optional
+ * `centerSlot` is where callers plug in `<ToolbarFileCommentPill ...>`.
  */
-export function ImageViewerShell({ path, onCommentOnFile, fileCommentCount, fileCommentSeverity }: Props) {
+export function ImageViewerShell({ path, centerSlot }: Props) {
   const { zoom, zoomIn, zoomOut, reset } = useZoom(".image");
   const containerRef = useRef<HTMLDivElement>(null);
   useCtrlWheelZoom(containerRef, zoomIn, zoomOut);
@@ -30,9 +27,7 @@ export function ImageViewerShell({ path, onCommentOnFile, fileCommentCount, file
         activeView="visual"
         onViewChange={() => {}}
         hidden
-        onCommentOnFile={onCommentOnFile}
-        fileCommentCount={fileCommentCount}
-        fileCommentSeverity={fileCommentSeverity}
+        centerSlot={centerSlot}
         zoom={{ zoom, onZoomIn: zoomIn, onZoomOut: zoomOut, onReset: reset }}
         trailing={<FileActionsBar path={path} />}
       />
@@ -40,3 +35,4 @@ export function ImageViewerShell({ path, onCommentOnFile, fileCommentCount, file
     </div>
   );
 }
+

@@ -26,6 +26,7 @@ fn make_matched(id: &str, reply_to: Option<&str>, line: u32) -> MatchedComment {
         matched_line_number: line,
         is_orphaned: false,
         anchored_text: None,
+        original_line: None,
     }
 }
 

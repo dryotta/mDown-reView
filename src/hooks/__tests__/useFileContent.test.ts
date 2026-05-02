@@ -332,4 +332,129 @@ describe("useFileContent", () => {
     expect(meta?.fileMtime).toBe(1_700_000_000_500);
     expect(meta?.sizeBytes).toBe(4096);
   });
+
+  // Group G3 (issue #280, iter 3): functional setState bailout. Byte-identical
+  // reloads (frequent under AI-agent regenerate-by-save) must NOT trigger a
+  // re-render of consumers. Verified via reference identity on the returned
+  // state object — React 19 bails the re-render via `Object.is(prev, prev)`
+  // when a functional updater returns `prev`.
+  describe("byte-identical reload bailout", () => {
+    const dispatchReload = (path: string) =>
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:file-changed", {
+          detail: { path, kind: "content" },
+        })
+      );
+
+    it("preserves state reference identity on byte-identical reload", async () => {
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "stable",
+        size_bytes: 6,
+        line_count: 1,
+        mtime_ms: 1,
+      });
+
+      const { result } = renderHook(() => useFileContent("/p/f.md"));
+      await act(async () => {});
+      const before = result.current;
+      expect(before.content).toBe("stable");
+
+      // Reload returns identical bytes — even with a different mtime the
+      // setState must bail (mtime is not part of the FileContent shape).
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "stable",
+        size_bytes: 6,
+        line_count: 1,
+        mtime_ms: 2,
+      });
+      await act(async () => {
+        dispatchReload("/p/f.md");
+      });
+      await act(async () => {});
+
+      const after = result.current;
+      expect(after).toBe(before); // reference identity — React bailed
+      expect(after.content).toBe("stable");
+    });
+
+    it("creates a new state reference when content changes", async () => {
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "v1",
+        size_bytes: 2,
+        line_count: 1,
+        mtime_ms: 1,
+      });
+      const { result } = renderHook(() => useFileContent("/p/f.md"));
+      await act(async () => {});
+      const before = result.current;
+
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "v2",
+        size_bytes: 2,
+        line_count: 1,
+        mtime_ms: 2,
+      });
+      await act(async () => {
+        dispatchReload("/p/f.md");
+      });
+      await act(async () => {});
+
+      expect(result.current).not.toBe(before);
+      expect(result.current.content).toBe("v2");
+    });
+
+    it("creates a new state reference when sizeBytes changes (even if content string ref differs)", async () => {
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "abc",
+        size_bytes: 3,
+        line_count: 1,
+        mtime_ms: 1,
+      });
+      const { result } = renderHook(() => useFileContent("/p/f.md"));
+      await act(async () => {});
+      const before = result.current;
+
+      // Same content string but different reported size_bytes: defends
+      // the sizeBytes branch of the equality check.
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "abc",
+        size_bytes: 99,
+        line_count: 1,
+        mtime_ms: 2,
+      });
+      await act(async () => {
+        dispatchReload("/p/f.md");
+      });
+      await act(async () => {});
+
+      expect(result.current).not.toBe(before);
+      expect(result.current.sizeBytes).toBe(99);
+    });
+
+    it("creates a new state reference when lineCount changes", async () => {
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "abc",
+        size_bytes: 3,
+        line_count: 1,
+        mtime_ms: 1,
+      });
+      const { result } = renderHook(() => useFileContent("/p/f.md"));
+      await act(async () => {});
+      const before = result.current;
+
+      vi.mocked(commands.readTextFile).mockResolvedValue({
+        content: "abc",
+        size_bytes: 3,
+        line_count: 7,
+        mtime_ms: 2,
+      });
+      await act(async () => {
+        dispatchReload("/p/f.md");
+      });
+      await act(async () => {});
+
+      expect(result.current).not.toBe(before);
+      expect(result.current.lineCount).toBe(7);
+    });
+  });
 });

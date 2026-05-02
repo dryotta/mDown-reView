@@ -119,6 +119,27 @@
   opacity: 0.7;
 }
 
+/* Iter 3 / #280 / AC6 — inline save-error banner inside CommentInput.
+   Mirrors `.comments-panel-error` palette so the two save-failure surfaces
+   are visually consistent. The panel banner is scoped to the typed
+   `outside-workspace` self-heal (see CommentsPanel.handleSaveFileLevel);
+   this banner surfaces every other addComment rejection, raised by
+   CommentInput.handleSave's try/catch around `await onSave(value)`. */
+.comment-input-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  border: 1px solid var(--color-severity-high, #c0392b);
+  border-radius: 6px;
+  background: rgba(192, 57, 43, 0.08);
+  color: var(--color-severity-high, #c0392b);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 /* Comment thread — single card for root + replies */
 .comment-thread {
   padding: 10px;
@@ -600,6 +621,17 @@
   font-size: 12px;
   color: var(--color-text, #1f2328);
   margin-bottom: 8px;
+}
+
+/* iter 3 / #280 / AC5 — re-anchor visibility metadata row.
+   Element carries both `comment-orphan-banner` and `comment-rematched-banner`
+   classes, so this rule overrides the warning palette with an informational
+   (muted blue) palette. Structural rules (padding, radius, font-size) inherit. */
+.comment-orphan-banner.comment-rematched-banner {
+  background: var(--color-info-soft, rgba(96, 165, 250, 0.12));
+  color: var(--color-text-muted, var(--color-text, #1f2328));
+  border-color: var(--color-info, rgba(96, 165, 250, 0.4));
+  font-weight: 400;
 }
 
 /* Reply area (replaced by .comment-thread-reply-input) */

@@ -140,6 +140,7 @@ pub fn get_file_badges_inner(
                         matched_line_number: if matches!(c.anchor, Anchor::File) { 1 } else { 0 },
                         is_orphaned: false,
                         anchored_text: None,
+                        original_line: None,
                     });
                 }
             }
@@ -150,7 +151,7 @@ pub fn get_file_badges_inner(
                 source_reads.fetch_add(1, Ordering::Relaxed);
                 let content = std::fs::read_to_string(fp).unwrap_or_default();
                 let lines: Vec<&str> = content.lines().collect();
-                crate::core::matching::match_comments(&line_only, &lines)
+                crate::core::matching::match_comments(&line_only, &lines, fp, "get_file_badges")
             };
 
             let mut matched = line_matched;

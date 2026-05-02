@@ -6,48 +6,47 @@ import { useStore } from "@/store";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/logger");
 
-// B2 (iter 7 forward-fix) — `ViewerToolbar` now reads per-tab badge counts
-// via `useFileBadges`. Stub it so router tests don't depend on the IPC mock
-// surface for the comments-changed / file-changed listeners.
-vi.mock("@/hooks/useFileBadges", () => ({
-  useFileBadges: () => ({}),
+// G4 — `ViewerRouter` no longer reads `useFileBadges`; the file-level pill
+// owns its own narrow `useComments(path)` subscription. Mock the pill to
+// render a stable button so router-wiring tests can click "Comment on file"
+// without standing up a full sidecar fixture.
+vi.mock("../ToolbarFileCommentPill", () => ({
+  ToolbarFileCommentPill: ({ filePath, onCommentOnFile }: { filePath: string; onCommentOnFile: () => void }) => (
+    <button data-testid="pill-btn" data-path={filePath} onClick={onCommentOnFile}>
+      Comment on file
+    </button>
+  ),
 }));
 
 // Mock child viewers as simple test stubs
 vi.mock("../EnhancedViewer", () => ({
-  EnhancedViewer: ({ filePath, fileSize, onCommentOnFile }: { filePath: string; fileSize?: number; onCommentOnFile?: () => void }) => (
+  EnhancedViewer: ({ filePath, fileSize, centerSlot }: { filePath: string; fileSize?: number; centerSlot?: React.ReactNode }) => (
     <div
       data-testid="enhanced-viewer"
       data-path={filePath}
       data-filesize={fileSize}
-      data-has-comment-on-file={onCommentOnFile ? "true" : "false"}
+      data-has-center-slot={centerSlot ? "true" : "false"}
     >
       EnhancedViewer
-      {onCommentOnFile && (
-        <button data-testid="enhanced-viewer-comment-btn" onClick={onCommentOnFile}>cof</button>
-      )}
+      {centerSlot}
     </div>
   ),
 }));
 
 vi.mock("../ImageViewerShell", () => ({
-  ImageViewerShell: ({ path, onCommentOnFile }: { path: string; onCommentOnFile?: () => void }) => (
-    <div data-testid="image-viewer-shell" data-path={path} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
+  ImageViewerShell: ({ path, centerSlot }: { path: string; centerSlot?: React.ReactNode }) => (
+    <div data-testid="image-viewer-shell" data-path={path} data-has-center-slot={centerSlot ? "true" : "false"}>
       ImageViewerShell
-      {onCommentOnFile && (
-        <button data-testid="image-shell-comment-btn" onClick={onCommentOnFile}>cof</button>
-      )}
+      {centerSlot}
     </div>
   ),
 }));
 
 vi.mock("../BinaryViewerShell", () => ({
-  BinaryViewerShell: ({ path, size, onCommentOnFile }: { path: string; size?: number; onCommentOnFile?: () => void }) => (
-    <div data-testid="binary-viewer-shell" data-path={path} data-size={size} data-has-comment-on-file={onCommentOnFile ? "true" : "false"}>
+  BinaryViewerShell: ({ path, size, centerSlot }: { path: string; size?: number; centerSlot?: React.ReactNode }) => (
+    <div data-testid="binary-viewer-shell" data-path={path} data-size={size} data-has-center-slot={centerSlot ? "true" : "false"}>
       BinaryViewerShell
-      {onCommentOnFile && (
-        <button data-testid="binary-shell-comment-btn" onClick={onCommentOnFile}>cof</button>
-      )}
+      {centerSlot}
     </div>
   ),
 }));
@@ -170,69 +169,69 @@ describe("ViewerRouter routing", () => {
 
 // ─── Iter 5 Group B: file-anchored entry point is universal ─────────────────
 
-describe("ViewerRouter — onCommentOnFile is wired in every viewer branch", () => {
-  function expectCommentOnFileButton() {
+describe("ViewerRouter — file-level pill is wired in every viewer branch", () => {
+  function expectPillButton() {
     const btn = screen.getByRole("button", { name: /comment on file/i });
     expect(btn).toBeInTheDocument();
     return btn;
   }
 
-  it("EnhancedViewer (text) receives an onCommentOnFile callback", () => {
+  it("EnhancedViewer (text) receives a centerSlot", () => {
     mockUseFileContent.mockReturnValue({ status: "ready", content: "# Hello" });
     useStore.setState({ tabs: [{ path: "/r.md", scrollTop: 0 }] });
     render(<ViewerRouter path="/r.md" />);
-    expect(screen.getByTestId("enhanced-viewer").dataset.hasCommentOnFile).toBe("true");
+    expect(screen.getByTestId("enhanced-viewer").dataset.hasCenterSlot).toBe("true");
   });
 
-  it("clicking the wired callback in EnhancedViewer sets pendingFileLevelInputFor and shows comments pane", () => {
+  it("clicking the wired pill in EnhancedViewer sets pendingFileLevelInputFor and shows comments pane", () => {
     mockUseFileContent.mockReturnValue({ status: "ready", content: "# Hello" });
     useStore.setState({ tabs: [{ path: "/r.md", scrollTop: 0 }], pendingFileLevelInputFor: null, commentsPaneVisible: false });
     render(<ViewerRouter path="/r.md" />);
-    fireEvent.click(screen.getByTestId("enhanced-viewer-comment-btn"));
+    fireEvent.click(screen.getByTestId("pill-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/r.md");
     expect(useStore.getState().commentsPaneVisible).toBe(true);
   });
 
-  it("image viewer passes onCommentOnFile to ImageViewerShell", () => {
+  it("image viewer passes centerSlot to ImageViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "image" });
     useStore.setState({ tabs: [{ path: "/x.png", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/x.png" />);
-    expect(screen.getByTestId("image-viewer-shell").dataset.hasCommentOnFile).toBe("true");
-    fireEvent.click(screen.getByTestId("image-shell-comment-btn"));
+    expect(screen.getByTestId("image-viewer-shell").dataset.hasCenterSlot).toBe("true");
+    fireEvent.click(screen.getByTestId("pill-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/x.png");
   });
 
-  it("audio file (binary) surfaces a Comment-on-file button via BinaryViewerShell", () => {
+  it("audio file (binary) surfaces a Comment-on-file pill via BinaryViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "binary" });
     useStore.setState({ tabs: [{ path: "/s.mp3", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/s.mp3" />);
-    expect(screen.getByTestId("binary-viewer-shell").dataset.hasCommentOnFile).toBe("true");
-    fireEvent.click(screen.getByTestId("binary-shell-comment-btn"));
+    expect(screen.getByTestId("binary-viewer-shell").dataset.hasCenterSlot).toBe("true");
+    fireEvent.click(screen.getByTestId("pill-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/s.mp3");
   });
 
-  it("binary viewer passes onCommentOnFile to BinaryViewerShell", () => {
+  it("binary viewer passes centerSlot to BinaryViewerShell", () => {
     mockUseFileContent.mockReturnValue({ status: "binary" });
     useStore.setState({ tabs: [{ path: "/b.bin", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/b.bin" />);
-    expect(screen.getByTestId("binary-viewer-shell").dataset.hasCommentOnFile).toBe("true");
-    fireEvent.click(screen.getByTestId("binary-shell-comment-btn"));
+    expect(screen.getByTestId("binary-viewer-shell").dataset.hasCenterSlot).toBe("true");
+    fireEvent.click(screen.getByTestId("pill-btn"));
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/b.bin");
   });
 
-  it("too_large placeholder surfaces a Comment-on-file button", () => {
+  it("too_large placeholder surfaces a Comment-on-file pill", () => {
     mockUseFileContent.mockReturnValue({ status: "too_large", sizeBytes: 99 });
     useStore.setState({ tabs: [{ path: "/big.csv", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/big.csv" />);
-    fireEvent.click(expectCommentOnFileButton());
+    fireEvent.click(expectPillButton());
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/big.csv");
   });
 
-  it("error branch (non-ghost) renders a toolbar with Comment-on-file and FileActionsBar", () => {
+  it("error branch (non-ghost) renders a toolbar with the pill and FileActionsBar", () => {
     mockUseFileContent.mockReturnValue({ status: "error", error: "boom" });
     useStore.setState({ tabs: [{ path: "/missing.md", scrollTop: 0 }], pendingFileLevelInputFor: null });
     render(<ViewerRouter path="/missing.md" />);
-    fireEvent.click(expectCommentOnFileButton());
+    fireEvent.click(expectPillButton());
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/missing.md");
   });
 });

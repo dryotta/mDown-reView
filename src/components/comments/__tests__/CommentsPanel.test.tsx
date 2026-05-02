@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CommentsPanel } from "../CommentsPanel";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
@@ -208,6 +208,113 @@ describe("14.3 – CommentsPanel", () => {
     window.removeEventListener("scroll-to-line", handler);
   });
 
+  // ─── Iter 3 / #280 G1: clicking a panel row emits CommentFlashDetail
+  // tagged with the correct `kind` per anchor type. Spy on the raw
+  // `dispatchEvent` so we can introspect the CustomEvent payload. ────
+  describe("emits comment-flash with the correct kind discriminator", () => {
+    function captureFlashDetails(): import("@/lib/comment-flash").CommentFlashDetail[] {
+      const captured: import("@/lib/comment-flash").CommentFlashDetail[] = [];
+      vi.spyOn(window, "dispatchEvent").mockImplementation((e: Event) => {
+        if (e.type === "comment-flash") {
+          captured.push(
+            (e as CustomEvent<import("@/lib/comment-flash").CommentFlashDetail>).detail
+          );
+        }
+        return true;
+      });
+      return captured;
+    }
+
+    it("kind:'line' for a single-line anchor", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-line", "Line anchor", {
+            line: 5,
+            matchedLineNumber: 5,
+            anchor: { kind: "line", line: 5 },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "line",
+        filePath: FILE,
+        line: 5,
+        commentId: "c-line",
+      });
+    });
+
+    it("kind:'range' for an end_line > matchedLineNumber anchor", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-range", "Range anchor", {
+            line: 3,
+            end_line: 7,
+            matchedLineNumber: 3,
+            anchor: { kind: "line", line: 3, end_line: 7 },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "range",
+        filePath: FILE,
+        line: 3,
+        endLine: 7,
+        commentId: "c-range",
+      });
+    });
+
+    it("kind:'file' for an anchor_kind='file' comment", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-file", "File anchor", {
+            anchor_kind: "file",
+            matchedLineNumber: 0,
+            anchor: { kind: "file" },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "file",
+        filePath: FILE,
+        commentId: "c-file",
+      });
+    });
+
+    it("kind:'unmatched' for an orphaned comment", () => {
+      setMockComments([
+        makeThread(
+          makeComment("c-orphan", "Orphan", {
+            isOrphaned: true,
+            line: 99,
+            matchedLineNumber: 0,
+            anchor: { kind: "line", line: 99 },
+          })
+        ),
+      ]);
+      const captured = captureFlashDetails();
+      render(<CommentsPanel filePath={FILE} />);
+      fireEvent.click(document.querySelector(".comment-panel-item")!);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual({
+        kind: "unmatched",
+        filePath: FILE,
+        commentId: "c-orphan",
+      });
+    });
+  });
+
   it("shows unresolved count in header", () => {
     setMockComments([
       makeThread(makeComment("1", "A", { line: 1, matchedLineNumber: 1 })),
@@ -357,7 +464,7 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
-  it("Save calls addComment with { kind: 'file' } anchor", () => {
+  it("Save calls addComment with { kind: 'file' } anchor", async () => {
     render(<CommentsPanel filePath={FILE} />);
     fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
 
@@ -366,14 +473,23 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mockAddComment).toHaveBeenCalledWith(FILE, "high-level note", { kind: "file" });
+    // Iter 3 (#280) AC6 — handler is async; let the resolved IPC settle so
+    // the post-success setState (close input) flushes before the next test.
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    );
   });
 
-  it("Save closes the inline input", () => {
+  it("Save closes the inline input on successful save", async () => {
     render(<CommentsPanel filePath={FILE} />);
     fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // Iter 3 (#280) AC6 — handler is async; the input closes only after the
+    // awaited addComment resolves.
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    );
   });
 
   it("Cancel hides the inline input without saving", () => {
@@ -400,37 +516,27 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/some/other.md");
   });
 
-  // ── Failure surface (binary-file persistence regression) ──────────────────
-  // Before this surface existed, a file-level addComment that failed (most
-  // commonly: `path not in workspace`) was silently dropped via
-  // `.catch(() => {})` and the input closed as if everything were fine —
-  // leaving the user with no comment on disk and no UI feedback.
+  // ── Failure surface: AC6 (iter 3 / #280) ──────────────────────────────────
+  // For non-typed errors (the common addComment failure path), the panel now
+  // RETHROWS so CommentInput's local `.comment-input-error` banner surfaces
+  // the failure inside the composer — the user can read the message AND
+  // retry without losing the textarea text. The panel-level banner remains
+  // scoped to the typed `outside-workspace` self-heal (test below).
 
-  it("surfaces an error banner when addComment rejects", async () => {
-    mockAddComment.mockRejectedValueOnce(new Error("path not in workspace"));
+  it("non-typed addComment rejection surfaces inside CommentInput (composer stays open)", async () => {
+    mockAddComment.mockRejectedValueOnce(new Error("network down"));
     render(<CommentsPanel filePath={FILE} />);
     fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "binary note" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    // The input still closes optimistically (responsive UX).
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    // Error banner appears asynchronously after the rejection settles.
+    // CommentInput's inline banner shows the rejection message.
     const banner = await screen.findByRole("alert");
-    expect(banner.textContent).toMatch(/could not save comment/i);
-    expect(banner.textContent).toMatch(/path not in workspace/);
-  });
-
-  it("dismiss button clears the error banner", async () => {
-    mockAddComment.mockRejectedValueOnce(new Error("path not in workspace"));
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: /dismiss error/i }));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(banner).toHaveClass("comment-input-error");
+    expect(banner.textContent).toMatch(/network down/);
+    // Composer stays mounted so the user can retry without retyping.
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("binary note");
   });
 
   it("does not show an error banner on a successful save", async () => {
@@ -440,9 +546,10 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "ok" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    // Wait for the IPC promise to settle in the test microtask queue.
-    await Promise.resolve();
-    await Promise.resolve();
+    // Wait for the input to close (success path).
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -472,6 +579,33 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     const tab = useStore.getState().tabs.find((t) => t.path === FILE);
     expect(tab?.readOnly).toBe(true);
   });
+
+  // ── Iter 3 forward-fix (rubber-duck BLOCK): the typed `outside-workspace`
+  // self-heal MUST preserve the user's draft. Without the rethrow added in
+  // the forward-fix, CommentInput's success branch would clear the draft —
+  // silently losing the user's text on a workspace-boundary block.
+  it("CommentError 'outside-workspace' preserves the draft (rubber-duck regression)", async () => {
+    useStore.setState({
+      tabs: [{ path: FILE, scrollTop: 0 }],
+      activeTabPath: FILE,
+    });
+    mockAddComment.mockRejectedValueOnce({ kind: "outside-workspace", path: FILE });
+
+    render(<CommentsPanel filePath={FILE} />);
+    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "important note" } });
+    // Verify draft was persisted before save.
+    const draftEntry = Object.entries(localStorage).find(([, v]) => v === "important note");
+    expect(draftEntry).toBeDefined();
+    const draftKey = draftEntry![0];
+
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await screen.findByRole("alert"); // workspace banner appears
+
+    // Draft must NOT be cleared by the typed self-heal — user can fix the
+    // workspace boundary and retry without re-typing.
+    expect(localStorage.getItem(draftKey)).toBe("important note");
+  });
 });
 
 // ─── Iter 6 Group A C5 — file-level "+" composer draftKey persistence ───────
@@ -481,7 +615,7 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
     localStorage.clear();
   });
 
-  it("persists draft to localStorage on type and clears on Save", () => {
+  it("persists draft to localStorage on type and clears on Save", async () => {
     const { unmount } = render(<CommentsPanel filePath={FILE} />);
     fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "WIP draft" } });
@@ -491,9 +625,12 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
     expect(stored).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-    // Slot is cleared on Save.
-    const remaining = Object.entries(localStorage).find(([, v]) => v === "WIP draft");
-    expect(remaining).toBeUndefined();
+    // Iter 3 (#280) AC6 — Save is async; draft clears after the awaited
+    // addComment resolves.
+    await waitFor(() => {
+      const remaining = Object.entries(localStorage).find(([, v]) => v === "WIP draft");
+      expect(remaining).toBeUndefined();
+    });
     unmount();
   });
 

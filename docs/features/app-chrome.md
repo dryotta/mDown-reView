@@ -16,7 +16,7 @@ After the post-redesign cleanup, the toolbar carries no theme dropdown or About 
 
 ### Viewer toolbar (sticky)
 
-Each viewer renders a `ViewerToolbar` overlay at the top of its scroll container. It is `position: sticky; top: 0; z-index: 2`, so it stays in view as the body scrolls. It carries the active-view toggle (Source ↔ Visual) for files that support both, plus a Wrap toggle for source views, a **Comment on file** button (opens an inline file-level composer in the comments panel), and a **Next unresolved (workspace-wide)** button that jumps to the next file in the workspace with unresolved threads — the same action chord-bound to `N`.
+Each viewer renders a `ViewerToolbar` overlay at the top of its scroll container. It is `position: sticky; top: 0; z-index: 2`, so it stays in view as the body scrolls. Its left and right groups are hard-coded JSX — left holds the active-view toggle (Source ↔ Visual for files that support both) plus the Wrap toggle for source views, and the right holds the `ZoomControl`. Two `ReactNode` composition seams sit between those groups: a `centerSlot` for per-viewer affordances (the **file/orphan pill** plugged in by `ViewerRouter` for commentable viewers — `ToolbarFileCommentPill` renders an always-on **Comment on file** button whose label gains a `"{N} file {M} orphan"` count summary when there is at least one unresolved file-anchored or orphan thread) and a `trailing` slot used by `EnhancedViewer` to plug in `FileActionsBar`. The pill's counts are derived in TS from the same `useComments(filePath)` subscription the panel uses, routed through the typed `deriveAnchor()` adapter (`deriveAnchor(root).kind === "file"` for the file count, `root.isOrphaned` for the orphan count, resolved threads excluded) — never raw `anchor_kind` string equality at consumer sites and never from `FileBadge.file_level_count`. This is the only place these counts are visible in viewer chrome (rule 31 in [`docs/architecture.md`](../architecture.md) covers the producer side and prescribes the consumer-side `deriveAnchor` route; the slot composition itself follows `architecture-avoid-boolean-props` + `patterns-children-over-render-props` in [`docs/best-practices-common/react/composition-patterns.md`](../best-practices-common/react/composition-patterns.md)).
 
 ### Status bar
 
@@ -44,7 +44,7 @@ flowchart LR
 
 - **Top toolbar:** `src/App.tsx` (`.toolbar` block) · `src/styles/app.css` (`.toolbar*` rules)
 - **Tab bar:** `src/components/TabBar/TabBar.tsx` · `src/styles/tab-bar.css` (`.tab-bar-wrapper` flex-shrink:1, min-width:0)
-- **Viewer toolbar (sticky):** `src/components/viewers/ViewerToolbar.tsx` · `src/styles/viewer-toolbar.css` (`position: sticky; top: 0; z-index: 2`)
+- **Viewer toolbar (sticky):** `src/components/viewers/ViewerToolbar.tsx` · `src/styles/viewer-toolbar.css` (`position: sticky; top: 0; z-index: 2`) · slot-prop composition (rule `patterns-children-over-render-props` in [`docs/best-practices-common/react/composition-patterns.md`](../best-practices-common/react/composition-patterns.md))
 - **Status bar:** `src/components/StatusBar/StatusBar.tsx` · `src/styles/status-bar.css`
 - **Store fields:** `src/store/tabs.ts` — `fileMetaByPath`, `lastFileReloadedAt`, `lastCommentsReloadedAt`, `activeTabPath` (all session-only, never persisted — rule 15 in [`docs/architecture.md`](../architecture.md))
 - **Hook contract:** `src/hooks/useFileContent.ts` (calls `setFileMeta` on success); `src/lib/vm/use-comments.ts` (calls `setLastCommentsReloadedAt`)
@@ -66,3 +66,4 @@ For the canonical rule set governing per-window menus, window-scoped events, reg
 - Native menu events forwarded as Tauri events — rule 24 in [`docs/architecture.md`](../architecture.md).
 - File-size budgets for the chrome files — rule 23 in [`docs/architecture.md`](../architecture.md).
 - Multi-window menu/event/state contracts — `multiwin-*` rules in [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md).
+- ViewerToolbar slot composition over prop-bag growth — `architecture-avoid-boolean-props` + `patterns-children-over-render-props` in [`docs/best-practices-common/react/composition-patterns.md`](../best-practices-common/react/composition-patterns.md).

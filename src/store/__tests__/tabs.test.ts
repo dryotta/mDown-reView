@@ -69,3 +69,55 @@ describe("tabs slice closes mermaid popout (issue #276)", () => {
     expect(useStore.getState().mermaidPopoutOpenFor).not.toBeNull();
   });
 });
+
+describe("setFileMeta slice diff (issue #280, iter 3, group G3)", () => {
+  it("returns the same fileMetaByPath reference when patch is field-by-field identical", () => {
+    useStore.getState().setFileMeta("/foo.md", {
+      sizeBytes: 100,
+      lineCount: 5,
+      fileMtime: 1000,
+      commentsMtime: null,
+    });
+    const before = useStore.getState().fileMetaByPath;
+
+    // Re-apply the identical patch.
+    useStore.getState().setFileMeta("/foo.md", {
+      sizeBytes: 100,
+      lineCount: 5,
+      fileMtime: 1000,
+      commentsMtime: null,
+    });
+    const after = useStore.getState().fileMetaByPath;
+
+    expect(Object.is(before, after)).toBe(true);
+  });
+
+  it("creates a new fileMetaByPath reference when fileMtime changes", () => {
+    useStore.getState().setFileMeta("/foo.md", {
+      sizeBytes: 100,
+      lineCount: 5,
+      fileMtime: 1000,
+    });
+    const before = useStore.getState().fileMetaByPath;
+
+    useStore.getState().setFileMeta("/foo.md", { fileMtime: 2000 });
+    const after = useStore.getState().fileMetaByPath;
+
+    expect(Object.is(before, after)).toBe(false);
+    expect(after["/foo.md"]?.fileMtime).toBe(2000);
+    // Other fields must survive the merge.
+    expect(after["/foo.md"]?.sizeBytes).toBe(100);
+    expect(after["/foo.md"]?.lineCount).toBe(5);
+  });
+
+  it("creates a new fileMetaByPath reference for a path with no existing entry", () => {
+    const before = useStore.getState().fileMetaByPath;
+    expect(before["/new.md"]).toBeUndefined();
+
+    useStore.getState().setFileMeta("/new.md", { sizeBytes: 42 });
+    const after = useStore.getState().fileMetaByPath;
+
+    expect(Object.is(before, after)).toBe(false);
+    expect(after["/new.md"]?.sizeBytes).toBe(42);
+  });
+});

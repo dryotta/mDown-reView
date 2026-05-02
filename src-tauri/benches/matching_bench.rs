@@ -66,7 +66,7 @@ fn bench_match_comments(c: &mut Criterion) {
     let small_subset: Vec<MrsfComment> = small_comments.into_iter().take(10).collect();
 
     group.bench_function("10_comments_100_lines", |b| {
-        b.iter(|| matching::match_comments(&small_subset, &small_lines_ref))
+        b.iter(|| matching::match_comments(&small_subset, &small_lines_ref, "/bench", "bench"))
     });
 
     // Medium: 50 synthetic comments, 1000 lines
@@ -75,7 +75,7 @@ fn bench_match_comments(c: &mut Criterion) {
     let med_comments = synthetic_comments(&med_lines, 50, 20);
 
     group.bench_function("50_comments_1000_lines", |b| {
-        b.iter(|| matching::match_comments(&med_comments, &med_lines_ref))
+        b.iter(|| matching::match_comments(&med_comments, &med_lines_ref, "/bench", "bench"))
     });
 
     // Large: 200 synthetic comments, 5000 lines
@@ -84,7 +84,7 @@ fn bench_match_comments(c: &mut Criterion) {
     let large_comments = synthetic_comments(&large_lines, 200, 25);
 
     group.bench_function("200_comments_5000_lines", |b| {
-        b.iter(|| matching::match_comments(&large_comments, &large_lines_ref))
+        b.iter(|| matching::match_comments(&large_comments, &large_lines_ref, "/bench", "bench"))
     });
 
     group.finish();
