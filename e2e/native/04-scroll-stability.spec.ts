@@ -19,7 +19,7 @@ test.describe("Scroll Stability", () => {
    */
   async function getScrollContainer(nativePage: import("@playwright/test").Page) {
     return nativePage.evaluate(() => {
-      const candidates = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+      const candidates = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
       for (const el of candidates) {
         if (el.scrollHeight > el.clientHeight + 10) return true;
       }
@@ -58,7 +58,7 @@ test.describe("Scroll Stability", () => {
         const targetScroll = (step + 1) * 200;
 
         const actualPos = await nativePage.evaluate((target) => {
-          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               el.scrollTop = target;
@@ -73,7 +73,7 @@ test.describe("Scroll Stability", () => {
 
         // Re-read the position to check for oscillation
         const settledPos = await nativePage.evaluate(() => {
-          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               return el.scrollTop;
@@ -135,7 +135,7 @@ test.describe("Scroll Stability", () => {
 
       // Programmatically scroll down
       await nativePage.evaluate(() => {
-        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             el.scrollTop = 500;
@@ -149,7 +149,7 @@ test.describe("Scroll Stability", () => {
       const samples: number[] = [];
       for (let i = 0; i < 5; i++) {
         const pos = await nativePage.evaluate(() => {
-          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               return el.scrollTop;
@@ -215,7 +215,7 @@ test.describe("Scroll Stability", () => {
       await nativePage.waitForTimeout(1000);
 
       const posAfterWheel = await nativePage.evaluate(() => {
-        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             return el.scrollTop;
@@ -230,7 +230,7 @@ test.describe("Scroll Stability", () => {
         // Verify position is stable after wheel stops
         await nativePage.waitForTimeout(500);
         const posAfterSettle = await nativePage.evaluate(() => {
-          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+          const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
           for (const el of containers) {
             if (el.scrollHeight > el.clientHeight + 10) {
               return el.scrollTop;
@@ -248,7 +248,7 @@ test.describe("Scroll Stability", () => {
       // Also verify programmatic scroll still works correctly
       const scrollTarget = 400;
       await nativePage.evaluate((target) => {
-        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             el.scrollTop = target;
@@ -260,7 +260,7 @@ test.describe("Scroll Stability", () => {
       await nativePage.waitForTimeout(500);
 
       const finalPos = await nativePage.evaluate(() => {
-        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region');
+        const containers = document.querySelectorAll<HTMLElement>('.viewer-scroll-region, .source-lines');
         for (const el of containers) {
           if (el.scrollHeight > el.clientHeight + 10) {
             return el.scrollTop;
