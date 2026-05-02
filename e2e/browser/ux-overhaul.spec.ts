@@ -360,19 +360,28 @@ test.describe("UX overhaul (#41) — hover-stable close button", () => {
 });
 
 test.describe("UX overhaul (#41) — toolbar enumeration", () => {
-  test("F8 — top toolbar exposes exactly [Open File, Open Folder, Comments] (#160 removed Settings gear)", async ({ page }) => {
-    await installMock(page, makeFiles(0));
+  test("F8 — top toolbar exposes [Open File, Open Folder] on welcome and adds [Comments] when a file is open (#160 removed Settings gear)", async ({ page }) => {
+    // Use a 1-file fixture so we can exercise both states (welcome
+    // screen + with active tab) in a single test.
+    const files = makeFiles(1);
+    await installMock(page, files);
     await page.goto("/");
 
     // Wait for the toolbar to mount
     const group = page.locator(".toolbar .toolbar-btn-group");
     await expect(group).toBeVisible();
 
-    // Three buttons — #160 removed the Settings gear; Help → Settings is the sole entry.
-    await expect(group.locator("button")).toHaveCount(3);
+    // Welcome state: two buttons. The Comments toggle is intentionally
+    // hidden when no tab is active — it has nothing to act on.
+    await expect(group.locator("button")).toHaveCount(2);
+    let buttonTexts = await group.locator("button").allInnerTexts();
+    expect(buttonTexts.map((t) => t.trim())).toEqual(["Open File", "Open Folder"]);
 
-    // Order matters per AC.
-    const buttonTexts = await group.locator("button").allInnerTexts();
+    // Open the file → Comments toggle reappears.
+    await page.locator(".folder-tree").getByText(files[0].name).click();
+
+    await expect(group.locator("button")).toHaveCount(3);
+    buttonTexts = await group.locator("button").allInnerTexts();
     expect(buttonTexts.map((t) => t.trim())).toEqual(["Open File", "Open Folder", "Comments"]);
 
     // No Theme/About/Settings buttons in the top toolbar.

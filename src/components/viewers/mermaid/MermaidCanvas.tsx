@@ -119,11 +119,17 @@ export function MermaidCanvas({ content, path, zoom, setZoom, readOnly }: Props)
   /** Imperative transform writer. The wrapper owns translate (pan) AND a
    *  scale ratio (`effective / committed`) that bridges the gap between
    *  the user's current effective scale and the most recently baked SVG
-   *  size. After settle, ratio = 1 and the transform is translate-only. */
+   *  size. After settle, ratio = 1 and the transform is translate-only.
+   *
+   *  Reads `zoomRef.current` (not the `zoom` prop) so the function
+   *  remains correct when invoked from a closure captured at mount —
+   *  e.g. the ResizeObserver callback in the `[]`-deps useEffect below
+   *  closes over the first render's `applyTransform`. Routing through
+   *  the per-render-updated ref defeats that stale-closure trap. */
   const applyTransform = () => {
     const el = transformRef.current;
     if (!el) return;
-    const effective = zoom * fitScaleRef.current;
+    const effective = zoomRef.current * fitScaleRef.current;
     const committed = committedScaleRef.current || 1;
     const ratio = effective / committed;
     el.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${ratio})`;

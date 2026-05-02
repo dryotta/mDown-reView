@@ -62,14 +62,6 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
           </button>
         </div>
 
-        <button
-          type="button"
-          className="welcome-settings-link"
-          onClick={openSettings}
-        >
-          Set up CLI, file associations, and agent integration → Settings
-        </button>
-
         {recentItems.length > 0 && (
           <div className="welcome-recent">
             <h2 className="welcome-recent-title">Recent</h2>
@@ -101,6 +93,16 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
           </div>
         )}
       </div>
+
+      {/* Anchored bottom-right of the welcome surface so the centered
+          content above stays vertically balanced regardless of recents. */}
+      <button
+        type="button"
+        className="welcome-settings-link"
+        onClick={openSettings}
+      >
+        Set up CLI, file associations, and agent integration → Settings
+      </button>
     </div>
   );
 }

@@ -181,18 +181,20 @@ export default function App() {
             <button className="toolbar-btn" onClick={handleOpenFolderClick} title="Open folder">
               <IconFolder /> Open Folder
             </button>
-            <button
-              className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible && !activeIsSidecar ? " active" : ""}`}
-              onClick={toggleCommentsPane}
-              disabled={activeIsSidecar}
-              title={
-                activeIsSidecar
-                  ? "Comments are disabled on .review.yaml/.review.json sidecar files"
-                  : "Toggle comments pane (Ctrl+Shift+C)"
-              }
-            >
-              <IconComment /> Comments
-            </button>
+            {activeTabPath && (
+              <button
+                className={`toolbar-btn toolbar-btn-toggle${commentsPaneVisible && !activeIsSidecar ? " active" : ""}`}
+                onClick={toggleCommentsPane}
+                disabled={activeIsSidecar}
+                title={
+                  activeIsSidecar
+                    ? "Comments are disabled on .review.yaml/.review.json sidecar files"
+                    : "Toggle comments pane (Ctrl+Shift+C)"
+                }
+              >
+                <IconComment /> Comments
+              </button>
+            )}
           </div>
           <ErrorBoundary>
             <TabBar />

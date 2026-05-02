@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CommentsPanel } from "../CommentsPanel";
 import { useComments } from "@/lib/vm/use-comments";
 import { useCommentActions } from "@/lib/vm/use-comment-actions";
@@ -73,6 +73,20 @@ function setMockComments(threads: CommentThreadType[]) {
     comments: allComments,
     loading: false,
     reload: vi.fn(),
+  });
+}
+
+/**
+ * Open the file-level composer the same way production does: by setting
+ * `pendingFileLevelInputFor` (the toolbar's "Comment on file" button
+ * routes through `requestFileLevelInput`, which sets this flag). The
+ * panel's auto-open effect mirrors the flag into local state then
+ * clears the flag. Replaces the previous `+` button click which was
+ * removed when the redundant in-panel button was deleted.
+ */
+function openFileLevelComposer(filePath: string = FILE) {
+  act(() => {
+    useStore.setState({ pendingFileLevelInputFor: filePath });
   });
 }
 
@@ -443,64 +457,13 @@ describe("14.3 – CommentsPanel", () => {
 });
 
 // ─── Iter 5 Group B: file-level comment entry point ──────────────────────────
+//
+// The panel no longer renders an in-header `+` button (removed because
+// the toolbar's "Comment on file" button drives the same flow via
+// `pendingFileLevelInputFor`). These tests exercise the auto-open path
+// that ALL production callers funnel through.
 
 describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
-  it("'+' button is disabled when filePath is empty", () => {
-    render(<CommentsPanel filePath="" />);
-    const addBtn = screen.getByRole("button", { name: /comment on file/i });
-    expect(addBtn).toBeDisabled();
-  });
-
-  it("'+' button is enabled when filePath is non-empty", () => {
-    render(<CommentsPanel filePath={FILE} />);
-    const addBtn = screen.getByRole("button", { name: /comment on file/i });
-    expect(addBtn).not.toBeDisabled();
-  });
-
-  it("clicking '+' opens an inline CommentInput above the thread list", () => {
-    render(<CommentsPanel filePath={FILE} />);
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
-  });
-
-  it("Save calls addComment with { kind: 'file' } anchor", async () => {
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
-
-    const textarea = screen.getByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "high-level note" } });
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    expect(mockAddComment).toHaveBeenCalledWith(FILE, "high-level note", { kind: "file" });
-    // Iter 3 (#280) AC6 — handler is async; let the resolved IPC settle so
-    // the post-success setState (close input) flushes before the next test.
-    await waitFor(() =>
-      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    );
-  });
-
-  it("Save closes the inline input on successful save", async () => {
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-    // Iter 3 (#280) AC6 — handler is async; the input closes only after the
-    // awaited addComment resolves.
-    await waitFor(() =>
-      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    );
-  });
-
-  it("Cancel hides the inline input without saving", () => {
-    render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(mockAddComment).not.toHaveBeenCalled();
-  });
-
   it("auto-opens input when pendingFileLevelInputFor === filePath and clears the flag", () => {
     useStore.setState({ pendingFileLevelInputFor: FILE });
     render(<CommentsPanel filePath={FILE} />);
@@ -516,6 +479,55 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     expect(useStore.getState().pendingFileLevelInputFor).toBe("/some/other.md");
   });
 
+  it("does NOT auto-open the input when filePath is empty (canCommentOnFile guard)", () => {
+    // When no file is open the auto-open effect short-circuits because
+    // pendingFileLevelInputFor is null (production never sets it for an
+    // empty path), AND the render guard `showFileLevelInput &&
+    // canCommentOnFile` blocks the textbox. Belt-and-braces: even if
+    // the flag is forced to "", the falsy check at the effect level
+    // prevents the input from appearing.
+    useStore.setState({ pendingFileLevelInputFor: "" });
+    render(<CommentsPanel filePath="" />);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("Save calls addComment with { kind: 'file' } anchor", async () => {
+    render(<CommentsPanel filePath={FILE} />);
+    openFileLevelComposer();
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "high-level note" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(mockAddComment).toHaveBeenCalledWith(FILE, "high-level note", { kind: "file" });
+    // Iter 3 (#280) AC6 — handler is async; let the resolved IPC settle so
+    // the post-success setState (close input) flushes before the next test.
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    );
+  });
+
+  it("Save closes the inline input on successful save", async () => {
+    render(<CommentsPanel filePath={FILE} />);
+    openFileLevelComposer();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    // Iter 3 (#280) AC6 — handler is async; the input closes only after the
+    // awaited addComment resolves.
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    );
+  });
+
+  it("Cancel hides the inline input without saving", () => {
+    render(<CommentsPanel filePath={FILE} />);
+    openFileLevelComposer();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(mockAddComment).not.toHaveBeenCalled();
+  });
+
   // ── Failure surface: AC6 (iter 3 / #280) ──────────────────────────────────
   // For non-typed errors (the common addComment failure path), the panel now
   // RETHROWS so CommentInput's local `.comment-input-error` banner surfaces
@@ -526,7 +538,7 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
   it("non-typed addComment rejection surfaces inside CommentInput (composer stays open)", async () => {
     mockAddComment.mockRejectedValueOnce(new Error("network down"));
     render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    openFileLevelComposer();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "binary note" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -542,7 +554,7 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
   it("does not show an error banner on a successful save", async () => {
     mockAddComment.mockResolvedValueOnce(undefined);
     render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    openFileLevelComposer();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "ok" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -569,7 +581,7 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     mockAddComment.mockRejectedValueOnce({ kind: "outside-workspace", path: FILE });
 
     render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    openFileLevelComposer();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "note" } });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -592,7 +604,7 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
     mockAddComment.mockRejectedValueOnce({ kind: "outside-workspace", path: FILE });
 
     render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    openFileLevelComposer();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "important note" } });
     // Verify draft was persisted before save.
     const draftEntry = Object.entries(localStorage).find(([, v]) => v === "important note");
@@ -608,7 +620,7 @@ describe("CommentsPanel — file-level comment entry (iter 5 group B)", () => {
   });
 });
 
-// ─── Iter 6 Group A C5 — file-level "+" composer draftKey persistence ───────
+// ─── Iter 6 Group A C5 — file-level composer draftKey persistence ──────────
 
 describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
   beforeEach(() => {
@@ -617,7 +629,7 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
 
   it("persists draft to localStorage on type and clears on Save", async () => {
     const { unmount } = render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    openFileLevelComposer();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "WIP draft" } });
 
     // Some key in localStorage now contains the draft text.
@@ -636,7 +648,7 @@ describe("CommentsPanel — file-level draft persistence (iter 6 C5)", () => {
 
   it("clears draft on Cancel", () => {
     render(<CommentsPanel filePath={FILE} />);
-    fireEvent.click(screen.getByRole("button", { name: /comment on file/i }));
+    openFileLevelComposer();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "to discard" } });
     expect(Object.entries(localStorage).find(([, v]) => v === "to discard")).toBeDefined();
 

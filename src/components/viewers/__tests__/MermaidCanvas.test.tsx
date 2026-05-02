@@ -32,9 +32,11 @@ let originalGetBBox: PropertyDescriptor | undefined;
 let originalClientWidth: PropertyDescriptor | undefined;
 let originalClientHeight: PropertyDescriptor | undefined;
 let originalGetBoundingClientRect: PropertyDescriptor | undefined;
+const capturedROCallbacks: ResizeObserverCallback[] = [];
 
 beforeEach(() => {
   cleanup();
+  capturedROCallbacks.length = 0;
 
   // rAF — run synchronously so scheduleApply() flushes before assertions.
   originalRAF = window.requestAnimationFrame;
@@ -46,9 +48,18 @@ beforeEach(() => {
   window.cancelAnimationFrame = function cafNoop(): void {} as typeof window.cancelAnimationFrame;
 
   // ResizeObserver — jsdom omits it. Use a real class (vitest warns when
-  // vi.fn() is invoked with `new`).
+  // vi.fn() is invoked with `new`). Capture the ctor callback per-instance
+  // on the instance itself so individual specs can opt into firing it
+  // (the stale-closure regression test in particular). The ctor signature
+  // must match the spec: `new ResizeObserver(cb)` is what production code
+  // uses.
   originalRO = window.ResizeObserver;
   class StubResizeObserver {
+    public callback: ResizeObserverCallback;
+    constructor(cb: ResizeObserverCallback) {
+      this.callback = cb;
+      capturedROCallbacks.push(cb);
+    }
     observe(): void {}
     unobserve(): void {}
     disconnect(): void {}
@@ -265,6 +276,84 @@ describe("MermaidCanvas — pan re-clamp on zoom change", () => {
     });
     expect(transform.style.transform).toContain("translate(0px, 0px)");
     expect(transform.style.transform).toContain("scale(0.4)");
+  });
+});
+
+describe("MermaidCanvas — resize after zoom (stale-closure regression)", () => {
+  it("ResizeObserver fires after zoom change → applyTransform reads CURRENT zoom, not the mount-time closure", async () => {
+    // BUG: applyTransform used to close over the `zoom` PROP from the
+    // render that defined it. The ResizeObserver callback is registered
+    // in a `useEffect(..., [])` (mount-once), so it captures the FIRST
+    // render's applyTransform. After a zoom change, the RO would
+    // - bake the SVG correctly via applyScaleToSvg(zoomRef.current × fit)
+    //   (zoomRef IS updated by the per-render layout effect)
+    // - but then call the stale applyTransform, which writes a CSS
+    //   transform with effective = INITIAL zoom × fit.
+    // Net visible effect: the wrapper's CSS scale ratio (effective /
+    // committed) became (initialZoom / currentZoom), so a 4x zoom
+    // displayed at ~1x after resize, a 0.5x zoom displayed at ~1x, etc.
+    //
+    // FIX: applyTransform reads `zoomRef.current` instead of `zoom`.
+    // This regression test fires the captured RO callback after a zoom
+    // re-render and asserts the resulting transform's scale ratio is 1
+    // (effective ≡ committed because the RO already baked the SVG at
+    // the new effective).
+    //
+    // Initial render at zoom=1: bbox 2000×1500 in 800×600 container →
+    // fit=0.4, effective=committed=0.4, ratio=1.
+    const { rerender, transform } = await renderCanvas({ zoom: 1 });
+    expect(transform.style.transform).toContain("scale(1)");
+
+    // Re-render at zoom=4. Per-render layout effect updates zoomRef=4
+    // and writes scale(4) (effective=4×0.4=1.6 vs committed=0.4 → ratio=4).
+    await act(async () => {
+      rerender(
+        <MermaidCanvas content="graph TD; A --> B" path={null} zoom={4} setZoom={vi.fn()} />,
+      );
+    });
+    expect(transform.style.transform).toContain("scale(4)");
+
+    // Now simulate a window resize. The container size in jsdom is
+    // pinned to 800×600 by the prototype shim, so the RO callback re-
+    // computes fit at the SAME 0.4 — what matters for this regression
+    // is the call sequence (RO → applyScaleToSvg → applyTransform), not
+    // a numeric fit change. After: applyScaleToSvg bakes at 4×0.4=1.6
+    // (committedScaleRef=1.6); applyTransform must read zoomRef=4 and
+    // emit ratio=1, NOT ratio=0.25 (the buggy pre-fix value where
+    // applyTransform read the mount-time zoom=1 and computed
+    // 1×0.4 / 1.6 = 0.25).
+    expect(capturedROCallbacks.length).toBeGreaterThan(0);
+    const fire = capturedROCallbacks[capturedROCallbacks.length - 1];
+    await act(async () => {
+      // Cast to any-ish ResizeObserverEntry[] — the production callback
+      // never reads its args (it queries `c.clientWidth`/`clientHeight`
+      // imperatively), so an empty entry list is fine.
+      fire([] as unknown as ResizeObserverEntry[], {} as ResizeObserver);
+    });
+    expect(transform.style.transform).toContain("scale(1)");
+    // Sanity: still translated to (0,0) — the re-clamp shouldn't have
+    // moved pan because we didn't pan.
+    expect(transform.style.transform).toContain("translate(0px, 0px)");
+  });
+
+  it("zoom=0.5 → resize must NOT visually 'reset to 100%' (pre-fix symptom)", async () => {
+    // Pre-fix: at zoom=0.5 the RO baked SVG at 0.5×0.4=0.2 (committed=0.2)
+    // then the stale applyTransform wrote ratio = (1×0.4)/0.2 = 2 — a 2x
+    // CSS upscale that visually rendered the diagram at fit (~100%
+    // effective), exactly the user-reported symptom. Post-fix the ratio
+    // is (0.5×0.4)/0.2 = 1.
+    const { rerender, transform } = await renderCanvas({ zoom: 1 });
+    await act(async () => {
+      rerender(
+        <MermaidCanvas content="graph TD; A --> B" path={null} zoom={0.5} setZoom={vi.fn()} />,
+      );
+    });
+    expect(transform.style.transform).toContain("scale(0.5)");
+    const fire = capturedROCallbacks[capturedROCallbacks.length - 1];
+    await act(async () => {
+      fire([] as unknown as ResizeObserverEntry[], {} as ResizeObserver);
+    });
+    expect(transform.style.transform).toContain("scale(1)");
   });
 });
 

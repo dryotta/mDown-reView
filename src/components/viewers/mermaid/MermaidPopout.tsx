@@ -13,7 +13,7 @@ import "@/styles/mermaid-popout.css";
  * mermaid diagram in a maximised, interaction-rich surface (issue #276).
  *
  * DOM structure:
- *   <div class="mermaid-popout-overlay">     ← transparent full-bleed
+ *   <div class="mermaid-popout-overlay">     ← dimmed full-bleed
  *                                              click interceptor (so gap
  *                                              clicks don't fall through
  *                                              to the underlying viewer)
@@ -40,8 +40,10 @@ import "@/styles/mermaid-popout.css";
  * zoom is shared, and the "Fit" button is a `bumpZoom(".mmd", "reset")`
  * call (reset = ZOOM_DEFAULT = 1.0).
  *
- * `aria-modal="false"` reflects reality: there's no focus trap and no
- * backdrop dim. The dialog is dismissable via Esc + the close button.
+ * `aria-modal="false"` reflects reality: there's no focus trap. The
+ * overlay paints a backdrop dim (matching About / Settings) for visual
+ * separation, but the dialog is dismissable via Esc + the close button
+ * and focus is not trapped.
  */
 export function MermaidPopout() {
   const openFor = useStore((s) => s.mermaidPopoutOpenFor);

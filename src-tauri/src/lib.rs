@@ -133,7 +133,13 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
     let close_all_tabs = MenuItem::with_id(
         handle, id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
+    // macOS HIG mandates Cmd+, for Settings (rule `mac-menu-settings-placement`
+    // in docs/best-practices-common/tauri/macos-platform.md); on Windows the
+    // accelerator is intentionally omitted — we don't reserve Ctrl+, globally.
+    #[cfg(target_os = "macos")]
     let help_settings = MenuItem::with_id(handle, id("help-settings"), "Settings…", true, Some("CmdOrCtrl+,"))?;
+    #[cfg(not(target_os = "macos"))]
+    let help_settings = MenuItem::with_id(handle, id("help-settings"), "Settings…", true, None::<&str>)?;
 
     let toggle_comments_pane = MenuItem::with_id(
         handle, id("toggle-comments-pane"), "Toggle Comments Pane", true, Some("CmdOrCtrl+Shift+C"),
@@ -245,10 +251,12 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
             .quit()
             .build()?;
 
+        // "Bring All to Front" is a macOS-only Window-menu convention
+        // (Apple HIG); on Windows the equivalent affordance is the
+        // taskbar group thumbnail, so we omit it here.
         let win_minimize = MenuItem::with_id(handle, id("win-minimize"), "Minimize", true, None::<&str>)?;
-        let win_bring_all = MenuItem::with_id(handle, id("win-bring-all"), "Bring All to Front", true, None::<&str>)?;
         let window_menu = SubmenuBuilder::new(handle, "Window")
-            .item(&win_minimize).separator().item(&win_bring_all)
+            .item(&win_minimize)
             .separator().item(&toggle_devtools).build()?;
 
         let about_item = MenuItem::with_id(handle, id("about"), "About mdownreview", true, None::<&str>)?;

@@ -139,16 +139,33 @@ function pressKey(opts: { key: string; ctrlKey?: boolean; shiftKey?: boolean; me
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("App – toolbar rendering", () => {
-  it("renders Open File, Open Folder, and Comments buttons; Settings/Theme/About buttons removed from toolbar", async () => {
+  it("renders Open File and Open Folder buttons; Settings/Theme/About buttons removed from toolbar", async () => {
     await renderApp();
 
     expect(screen.getByText("Open File")).toBeInTheDocument();
     expect(screen.getByText("Open Folder")).toBeInTheDocument();
-    expect(screen.getByText("Comments")).toBeInTheDocument();
     // Gear icon removed from toolbar in #160.
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByText("System")).not.toBeInTheDocument();
     expect(screen.queryByText("About")).not.toBeInTheDocument();
+  });
+
+  it("hides the Comments toolbar button when no file is open", async () => {
+    // Default state: no active tab. The Comments button (which only
+    // makes sense for an open file) is gated behind `activeTabPath` so
+    // the toolbar stays focused on the open-file/open-folder onboarding
+    // path on the welcome screen.
+    await renderApp();
+    expect(screen.queryByText("Comments")).not.toBeInTheDocument();
+  });
+
+  it("shows the Comments toolbar button when a file is open", async () => {
+    useStore.setState({
+      tabs: [{ path: "/foo.md", scrollTop: 0 }],
+      activeTabPath: "/foo.md",
+    });
+    await renderApp();
+    expect(screen.getByText("Comments")).toBeInTheDocument();
   });
 
   it("shows WelcomeView when no active tab", async () => {
