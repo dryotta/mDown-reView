@@ -247,6 +247,146 @@ describe("ExcalidrawView — save / dirty / conflict (#352)", () => {
     expect(useStore.getState().excalidrawDirtyByTab["/ws/a.excalidraw"]).toBeUndefined();
   });
 
+  // Issue #352 / iter-9 BUG#2 — content-driven dirty tracking. Excalidraw
+  // mutates `version` / `versionNonce` / `updated` on every operation,
+  // including mount-time normalisation passes. The dirty hash MUST strip
+  // these volatile fields, otherwise a freshly-mounted file reads as
+  // dirty without any user input.
+  it("BUG#2: onChange with same persistent content + different versionNonce does NOT mark dirty", async () => {
+    const ExcalidrawMock = (await import("@excalidraw/excalidraw"))
+      .Excalidraw as unknown as ReturnType<typeof vi.fn>;
+    ExcalidrawMock.mockClear();
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/dirty-a.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const lastCall = ExcalidrawMock.mock.calls.at(-1);
+    const onChange = lastCall?.[0].onChange as (
+      els: unknown,
+      app: unknown,
+      files: unknown,
+    ) => void;
+    expect(typeof onChange).toBe("function");
+
+    // First onChange — bootstraps the baseline.
+    await act(async () => {
+      onChange(
+        [
+          {
+            id: "rect-1",
+            type: "rectangle",
+            x: 0,
+            y: 0,
+            width: 50,
+            height: 50,
+            version: 1,
+            versionNonce: 12345,
+            updated: 1700000000000,
+          },
+        ],
+        {},
+        {},
+      );
+    });
+
+    // Second onChange — SAME persistent content, only volatile fields
+    // changed (mount-time normalisation pass). Must NOT mark dirty.
+    await act(async () => {
+      onChange(
+        [
+          {
+            id: "rect-1",
+            type: "rectangle",
+            x: 0,
+            y: 0,
+            width: 50,
+            height: 50,
+            version: 5,
+            versionNonce: 99999, // re-randomised on normalisation
+            updated: 1700000001000, // bumped timestamp
+          },
+        ],
+        {},
+        {},
+      );
+    });
+
+    expect(
+      useStore.getState().excalidrawDirtyByTab["/ws/dirty-a.excalidraw"],
+    ).toBeUndefined();
+  });
+
+  it("BUG#2: onChange with TRUE content change (new element) DOES mark dirty", async () => {
+    const ExcalidrawMock = (await import("@excalidraw/excalidraw"))
+      .Excalidraw as unknown as ReturnType<typeof vi.fn>;
+    ExcalidrawMock.mockClear();
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/dirty-b.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const lastCall = ExcalidrawMock.mock.calls.at(-1);
+    const onChange = lastCall?.[0].onChange as (
+      els: unknown,
+      app: unknown,
+      files: unknown,
+    ) => void;
+
+    // Bootstrap baseline with one rect.
+    await act(async () => {
+      onChange(
+        [
+          {
+            id: "rect-1",
+            type: "rectangle",
+            x: 0,
+            y: 0,
+            versionNonce: 1,
+          },
+        ],
+        {},
+        {},
+      );
+    });
+
+    // Real edit — added a new element. MUST mark dirty.
+    await act(async () => {
+      onChange(
+        [
+          {
+            id: "rect-1",
+            type: "rectangle",
+            x: 0,
+            y: 0,
+            versionNonce: 2,
+          },
+          {
+            id: "rect-2",
+            type: "rectangle",
+            x: 100,
+            y: 100,
+            versionNonce: 3,
+          },
+        ],
+        {},
+        {},
+      );
+    });
+
+    expect(
+      useStore.getState().excalidrawDirtyByTab["/ws/dirty-b.excalidraw"],
+    ).toBe(true);
+  });
+
   // Issue #352 / iter-5 user-reported BLOCKER — the FIRST user edit
   // after switching from Visual → Editor mode must mark dirty. The
   // previous version had the mode gate BEFORE the mount-restore ref

@@ -11,6 +11,7 @@ import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
+import { useCloseGuard } from "@/hooks/useCloseGuard";
 import { useAuthor } from "@/lib/vm/useAuthor";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
@@ -177,6 +178,7 @@ export default function App() {
   };
   useMenuListeners(menuCallbacks);
   useGlobalShortcuts(menuCallbacks);
+  useCloseGuard();
   useLaunchArgsBootstrap();
   useOpenFileTab();
 

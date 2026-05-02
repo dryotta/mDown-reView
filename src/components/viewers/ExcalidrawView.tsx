@@ -1,7 +1,5 @@
 import {
   Excalidraw,
-  hashElementsVersion,
-  getLibraryItemsHash,
 } from "@excalidraw/excalidraw";
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 
@@ -125,25 +123,58 @@ function friendlySaveError(rust: string): string {
 }
 
 /**
- * Issue #352 / iter-7 user-reported BLOCKER (#3) — content hash for
- * accurate dirty detection. Combines Excalidraw's element-version
- * hash (which only changes when ELEMENTS change — not when
- * appState/cursor/zoom/tool changes) with the library-items hash for
- * library files. Two scenes hash equal iff their persistent content
- * is the same; tool selection, viewport pan, etc. don't shift the
- * hash. The dirty flag is now a function of "current hash !==
- * last-saved hash" rather than "any onChange has fired".
+ * Issue #352 / iter-9 user-reported BUG#2 — STABLE content hash for
+ * dirty detection.
+ *
+ * iter-7 used `hashElementsVersion` (which hashes by `versionNonce`) +
+ * `getLibraryItemsHash`. `versionNonce` is a random 32-bit value that
+ * Excalidraw mutates on every operation including mount-time
+ * normalisation passes (font load, library merge, restore-pass), so the
+ * hash drifts during mount even when no user edits happen — the tab
+ * reads as dirty the moment it opens. iter-8's "first onChange =
+ * baseline" workaround helped in fast-mount Vite-dev test fixtures but
+ * still failed under real Tauri / WebView2 timing where multiple
+ * normalisation onChanges fire across an unbounded window.
+ *
+ * Fix: build the hash from the PERSISTENT element shape only — strip
+ * the three fields Excalidraw mutates per operation:
+ *   - `version`        — incremented on every mutation
+ *   - `versionNonce`   — randomised on every mutation
+ *   - `updated`        — timestamp on every mutation
+ *
+ * (See `bumpVersion` in @excalidraw/excalidraw — these three are the
+ * documented "version" fields. Everything else is persistent content.)
+ *
+ * The result is JSON.stringified after stripping. Object-key order is
+ * stable in modern engines for non-numeric string keys, which suffices
+ * for round-trip equality of mount-then-no-edit scenes. We don't need
+ * a cryptographic hash — string equality is enough and avoids hash
+ * collisions entirely.
  */
-function computeContentHash(
+function stableContentHash(
   elements: ReadonlyArray<unknown>,
   libraryItems: ReadonlyArray<unknown> | null,
 ): string {
-  const elemHash = hashElementsVersion(elements as never);
-  const libHash =
+  const stripVolatile = (el: unknown): Record<string, unknown> => {
+    if (el === null || typeof el !== "object") return {};
+    const { version: _v, versionNonce: _vn, updated: _u, ...rest } =
+      el as Record<string, unknown>;
+    return rest;
+  };
+  const stableElements = elements.map(stripVolatile);
+  const stableLib =
     libraryItems !== null && libraryItems.length > 0
-      ? getLibraryItemsHash(libraryItems as never)
-      : "";
-  return `${elemHash}|${libHash}`;
+      ? libraryItems.map((item) => {
+          const stripped = stripVolatile(item);
+          // Library items contain nested elements that ALSO carry the
+          // volatile fields — strip them too, otherwise lib hash drifts.
+          const innerElements = Array.isArray(stripped.elements)
+            ? (stripped.elements as unknown[]).map(stripVolatile)
+            : stripped.elements;
+          return { ...stripped, elements: innerElements };
+        })
+      : null;
+  return JSON.stringify({ elements: stableElements, libraryItems: stableLib });
 }
 
 export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props) {
@@ -335,7 +366,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       // Snapshot the to-save content hash so we can update the
       // baseline on success — any subsequent onChange whose hash
       // matches this will correctly read as not-dirty.
-      const savedHash = computeContentHash(live.elements, live.libraryItems ?? null);
+      const savedHash = stableContentHash(live.elements, live.libraryItems ?? null);
       void saveExcalidrawFile(filePath, {
         elements: live.elements,
         appState: live.appState,
@@ -586,7 +617,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
             const liveLibraryItems =
               ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
                 .libraryItems ?? null);
-            const currentHash = computeContentHash(
+            const currentHash = stableContentHash(
               elements as ReadonlyArray<unknown>,
               liveLibraryItems,
             );
