@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { useRenderCount } from "@/hooks/dev/useRenderCount";
 import { useStore } from "@/store";
@@ -28,17 +28,24 @@ interface Props {
  * the FolderTree subtree (passed via `children`) re-uses the same
  * element identity from App and bails out via React's children
  * referential-equality optimisation.
+ *
+ * While a drag is in progress, the `is-dragging` class disables the
+ * wrapper's `width` transition so the pane tracks the cursor exactly.
+ * Without this the 0.2 s ease-out in folder-tree.css runs on every
+ * mousemove tick, making the pane lag behind the pointer.
  */
 export function FolderPaneShell({ children, hideDragHandle }: Props) {
   useRenderCount("FolderPaneShell");
   const folderPaneWidth = useStore((s) => s.folderPaneWidth);
   const setFolderPaneWidth = useStore((s) => s.setFolderPaneWidth);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       dragRef.current = { startX: e.clientX, startWidth: folderPaneWidth };
+      setIsDragging(true);
       const onMove = (e: MouseEvent) => {
         if (!dragRef.current) return;
         const delta = e.clientX - dragRef.current.startX;
@@ -50,6 +57,7 @@ export function FolderPaneShell({ children, hideDragHandle }: Props) {
       };
       const onUp = () => {
         dragRef.current = null;
+        setIsDragging(false);
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
@@ -59,9 +67,17 @@ export function FolderPaneShell({ children, hideDragHandle }: Props) {
     [folderPaneWidth, setFolderPaneWidth]
   );
 
+  const className = [
+    "folder-pane-wrapper",
+    hideDragHandle ? "folder-pane-hidden" : "",
+    isDragging ? "is-dragging" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div
-      className={`folder-pane-wrapper${hideDragHandle ? " folder-pane-hidden" : ""}`}
+      className={className}
       style={{ "--folder-pane-width": `${folderPaneWidth}px` } as React.CSSProperties}
     >
       {children}

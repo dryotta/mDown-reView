@@ -1,4 +1,11 @@
 .folder-tree {
+  /* Fill the wrapper. Without `flex: 1` the tree is content-sized and
+     leaves a gap before .drag-handle when the wrapper is wider than the
+     content (the visible drag handle would float at the content edge,
+     not at the right of the visible pane). `min-width: 0` lets it
+     shrink below content width when the user drags the pane narrower. */
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -218,17 +225,40 @@
   flex: 0 0 auto;
 }
 
-/* Slide transition for folder pane */
+/* Slide transition for folder pane.
+ *
+ * Sizing uses `width` (not `max-width`) so the wrapper actually grows
+ * when --folder-pane-width grows. `max-width` alone leaves the wrapper
+ * content-sized — the user could drag the handle right but the visible
+ * pane never widened past the longest tree row.
+ *
+ * `flex-shrink: 0` keeps the wrapper at exactly --folder-pane-width
+ * inside the flex .main-area (otherwise flex would shrink it back when
+ * the viewer area cannot fit). The drag handler in
+ * src/components/FolderPaneShell.tsx clamps the value to
+ * `window.innerWidth * 0.5`, so the wrapper cannot starve the viewer.
+ *
+ * The transition runs on open/close (when the .folder-pane-hidden
+ * class toggles). During an active resize drag, FolderPaneShell adds
+ * the `is-dragging` class so the wrapper tracks the cursor without
+ * easing — every mousemove sets a new --folder-pane-width and a 0.2 s
+ * transition would lag behind the pointer.
+ */
 .folder-pane-wrapper {
   display: flex;
   overflow: hidden;
-  transition: max-width 0.2s ease-out, opacity 0.2s ease-out;
-  max-width: var(--folder-pane-width, 240px);
+  transition: width 0.2s ease-out, opacity 0.2s ease-out;
+  width: var(--folder-pane-width, 240px);
+  flex-shrink: 0;
   opacity: 1;
 }
 
+.folder-pane-wrapper.is-dragging {
+  transition: none;
+}
+
 .folder-pane-wrapper.folder-pane-hidden {
-  max-width: 0;
+  width: 0;
   opacity: 0;
 }
 
