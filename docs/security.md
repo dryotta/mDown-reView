@@ -13,9 +13,9 @@ Canonical for threat-model and safety rules. Cite violations as "violates rule N
 ## Rules
 
 ### File-read bounds
-1. Every Rust command that opens a file enforces a 10 MB hard cap. (`commands/fs.rs:91-94` in `read_text_file`; `:120-123` in `read_binary_file`.)
+1. Every Rust command that opens a file enforces a 10 MB hard cap. The cap is a single module-level `const MAX_SIZE: usize = 10 * 1024 * 1024;` shared by both readers. Each reader pre-checks `metadata().len()` on the open handle (fstat — TOCTOU-safe vs. path swap) before allocating, and pairs it with a `File::take(MAX_SIZE + 1)` + post-read length check so special files (`/dev/zero`, FIFOs) reporting `len() == 0` cannot slip through. (`commands/fs.rs:218-220` + `:236-238` in `read_text_file_inner`; `commands/fs.rs:284-286` + `:295-297` in `read_binary_file_inner`.)
 2. `read_text_file` rejects binaries by scanning the first 512 bytes for NUL, and only succeeds on valid UTF-8. (`commands/fs.rs:96-100, 103-106`.)
-3. Size and binary checks happen on already-read bytes, not on `metadata()` before a second read (no TOCTOU). (`commands/fs.rs:85` comment.) Sidecar reads in `core/sidecar.rs::read_capped` follow the same chokepoint pattern: `File::take(MAX+1).read_to_end` then a post-read size check, so symlinks to virtual files (e.g. `/dev/zero`) cannot bypass the 10 MB cap via a metadata-reported `len() == 0`. The cap covers `load_sidecar` and `patch_comment`.
+3. Size pre-check uses `file.metadata()` on the open handle (fstat, not a second path lookup) and is paired with `File::take(MAX+1)` + post-read length check to defend against special files (`/dev/zero`, FIFOs, named pipes, network FS) reporting `len() == 0` while streaming unbounded bytes. Mirrors `core/sidecar.rs::read_capped`. The cap covers `load_sidecar` and `patch_comment`; sidecar YAML further rejects anchors/aliases before parsing (see rule 8).
 4. `read_dir` canonicalizes the requested path and rejects any request whose canonical form differs from the canonicalized input. (`commands/fs.rs:19-32`.)
 
 ### Sidecar atomicity & integrity
