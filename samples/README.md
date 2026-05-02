@@ -15,6 +15,7 @@ through each subfolder. Each subfolder targets one viewer.
 | [`csv/`](./csv/) | `CsvView` | Simple / wide / tab-separated / unicode / embedded quotes & commas |
 | [`html/`](./html/) | `HtmlPreviewView` | Sandboxed iframe — simple / styled / **JS-must-not-execute** / with images / local CSS files / local links / anchors / scheme matrix |
 | [`mermaid/`](./mermaid/) | `MermaidView` (.mmd, .mermaid) | Flowchart, sequence, state, class, gantt, ER |
+| [`excalidraw/`](./excalidraw/) | `ExcalidrawView` (.excalidraw, .excalidrawlib, .excalidraw.svg, .excalidraw.png) | Canonical scene JSON, library file, real SVG + PNG bytes with embedded scenes (Source / Visual / Editor modes) |
 | [`kql/`](./kql/) | `KqlPlanView` | Simple / multi-stage / `.csl` extension |
 | [`source/`](./source/) | `SourceView` (Shiki) | Rust, TS, Python, Go, C++, Java, SQL, YAML, TOML, Dockerfile, Makefile, shell, diff |
 | [`images/`](./images/) | `ImageViewer` | JPEG, PNG (RGBA / large / portrait / 1px), GIF (static + animated), BMP, ICO, WebP, SVG (gradients + diagrams) |
@@ -57,6 +58,12 @@ See [`markdown/README.md`](./markdown/README.md) for the per-file index. Scope s
 - Each `.mmd` file renders a single diagram with theme-aware palette.
 - `securityLevel: "strict"` blocks click-events.
 
+### Excalidraw — `excalidraw/`
+- Four routing paths: canonical `.excalidraw` / `.excalidrawlib` (raw JSON) and image variants `.excalidraw.svg` / `.excalidraw.png` (real bytes with embedded scene).
+- Visual mode is the default; Source mode shows the raw / extracted scene JSON (Tier-1 commenting on canonical files, Tier-2 on PNG/SVG variants); Editor mode supports in-place editing through the workspace-write IPC chokepoint.
+- `4-shapes.excalidraw.svg` and `5-shapes.excalidraw.png` embed the same scene as `1-shapes.excalidraw` — opening all three should produce identical visuals.
+- Image variants use the uncompressed Format-B payload shape (verbatim scene JSON) so they round-trip through `loadFromBlob` without `pako`/deflate. See `excalidraw/README.md` for details.
+
 ### KQL — `kql/`
 - Both `.kql` and `.csl` route to `KqlPlanView`.
 - Multi-stage queries render as a tree.
@@ -96,6 +103,9 @@ python samples/generate_images.py
 
 # WAV + ZIP + raw binary blobs into samples/binary/ (stdlib only)
 python samples/generate_binary.py
+
+# Excalidraw fixtures (canonical .excalidraw, .excalidrawlib, .excalidraw.svg, .excalidraw.png; stdlib only)
+python samples/generate_excalidraw.py
 ```
 
 `generate_images.py` requires Pillow (`pip install Pillow`); the other
