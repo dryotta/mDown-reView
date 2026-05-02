@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, useLayoutEffect } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStore } from "@/store";
 import { useComments } from "@/lib/vm/use-comments";
 import { SelectionToolbar } from "@/components/comments/SelectionToolbar";
@@ -11,7 +12,12 @@ import { useScrollToLine } from "@/hooks/useScrollToLine";
 import { useSourceLineModel, type SearchMatchInLine } from "@/hooks/useSourceLineModel";
 import { SearchBar } from "./SearchBar";
 import { SourceLine } from "./source/SourceLine";
-import { SIZE_WARN_THRESHOLD, truncateSelectedText } from "@/lib/comment-utils";
+import { truncateSelectedText } from "@/lib/comment-utils";
+import {
+  SIZE_WARN_THRESHOLD,
+  SOURCE_BASE_LINE_PX,
+  SOURCE_OVERSCAN,
+} from "@/lib/viewer-budgets";
 import { isSidecarFile } from "@/lib/file-types";
 import { emitCommentFlash } from "@/lib/comment-flash";
 import { useCommentFlashListener } from "@/hooks/useCommentFlashListener";
@@ -74,25 +80,85 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
 
   const { threadsByLine } = useThreadsByLine(threads);
 
-  // Auto-scroll to current match
+  const model = useSourceLineModel({
+    lines,
+    threadsByLine,
+    foldStartMap,
+    collapsedLines,
+    query,
+    matchesByLine,
+    highlightedLines,
+  });
+
+  // Iter 2 of #252 — row virtualisation. The model is the post-fold
+  // sequence of LineModel items; the virtualizer windows them into the
+  // viewport. `getScrollElement` returns the `.source-lines` container
+  // (overflow-auto, the sole scrolling chokepoint of this viewer).
+  // The default `measureElement` reads `element.offsetHeight` which lets
+  // word-wrapped rows recompute height after layout so the spacer height
+  // stays accurate.
+  const rowVirtualizer = useVirtualizer({
+    count: model.length,
+    getScrollElement: () => sourceLinesRef.current,
+    estimateSize: () => SOURCE_BASE_LINE_PX,
+    overscan: SOURCE_OVERSCAN,
+  });
+
+  // Map a 0-indexed line number back to its post-fold row index in the
+  // virtualizer. Returns -1 when the line is inside a collapsed fold.
+  const lineToRowIdx = useMemo(() => {
+    const m = new Map<number, number>();
+    for (let i = 0; i < model.length; i++) {
+      m.set(model[i].idx, i);
+    }
+    return m;
+  }, [model]);
+
+  const scrollLineIntoView = useCallback(
+    (lineIdx0: number, align: "center" | "start" | "auto" = "center") => {
+      const rowIdx = lineToRowIdx.get(lineIdx0);
+      if (rowIdx === undefined) return false;
+      rowVirtualizer.scrollToIndex(rowIdx, { align });
+      return true;
+    },
+    [lineToRowIdx, rowVirtualizer],
+  );
+
+  // Auto-scroll to current match — virtualiser drives the scroll so rows
+  // outside the rendered window mount in time for the match to be visible.
   useEffect(() => {
     if (currentIndex < 0 || !matches[currentIndex]) return;
-    const lineIdx = matches[currentIndex].lineIndex;
-    const lineEl = document.querySelector(`[data-line-idx="${lineIdx}"]`);
-    lineEl?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [currentIndex, matches]);
+    scrollLineIntoView(matches[currentIndex].lineIndex);
+  }, [currentIndex, matches, scrollLineIntoView]);
 
   // Scroll-to-line from CommentsPanel click. Panel sends a `comment-flash`
   // event for the visual highlight; this hook owns the scroll only.
   const scrollToLineTransform = useCallback((line: number) => line - 1, []);
-  useScrollToLine(sourceLinesRef, "data-line-idx", scrollToLineTransform, undefined, filePath);
+  // Iter 2 of #252 — `scrollOverride` lets the virtualiser handle scroll
+  // for off-screen rows. Returns true when the row is in the model
+  // (i.e. not inside a collapsed fold).
+  const scrollOverride = useCallback(
+    (line: number) => scrollLineIntoView(line - 1),
+    [scrollLineIntoView],
+  );
+  useScrollToLine(
+    sourceLinesRef,
+    "data-line-idx",
+    scrollToLineTransform,
+    undefined,
+    filePath,
+    scrollOverride,
+  );
 
   // Cross-surface flash listener — shared with MarkdownViewer via
   // `useCommentFlashListener`. SourceView's row attribute is `data-line-idx`
   // (0-indexed), so we pass a custom selector that converts the 1-indexed
-  // detail.line to the 0-indexed DOM attribute.
+  // detail.line to the 0-indexed DOM attribute. The `onMissingElement`
+  // hook drives the virtualiser so flashes for off-screen lines scroll-
+  // then-flash via the listener's RAF retry.
   useCommentFlashListener(filePath, sourceLinesRef, {
     selector: (line) => `[data-line-idx="${line - 1}"]`,
+    onMissingElement: (line) => scrollLineIntoView(line - 1),
   });
 
   // Stable handlers — recompute identity only when their dependencies actually
@@ -125,17 +191,73 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
     void handleAddSelectionComment(filePath);
   }, [handleAddSelectionComment, filePath]);
 
-  const model = useSourceLineModel({
-    lines,
-    threadsByLine,
-    foldStartMap,
-    collapsedLines,
-    query,
-    matchesByLine,
-    highlightedLines,
-  });
+  // Iter 2 of #252 — `.source-lines` is the inner scroll container (overflow:
+  // auto + flex-bounded — see `source-viewer.css`). Because scrolling no
+  // longer happens on `ViewerRouter`'s `.viewer-scroll-region`, the existing
+  // tab-level `scrollTop` save/restore in `ViewerRouter` is a no-op for
+  // source-mode tabs. Restore the contract here, but persist into a
+  // **separate** `tab.sourceScrollTop` field so the visual-mode scroll
+  // (owned by `ViewerRouter`) and the source-mode scroll (owned by this
+  // hook) cannot cross-pollute each other when the user toggles view modes
+  // within a tab — each surface has its own coordinate space and its own
+  // store slot.
+  useLayoutEffect(() => {
+    const el = sourceLinesRef.current;
+    if (!el) return;
+    const saved =
+      useStore.getState().tabs.find((t) => t.path === filePath)?.sourceScrollTop ?? 0;
+    if (saved <= 0) {
+      el.scrollTop = 0;
+      return;
+    }
+    // The virtualiser may not have measured rows yet; retry up to ~20 frames
+    // (mirrors the `ViewerRouter` retry loop) until the scroll position
+    // applies (i.e. the spacer has grown tall enough to accept it).
+    let cancelled = false;
+    let retries = 20;
+    let rafHandle: number | null = null;
+    const tryRestore = () => {
+      rafHandle = null;
+      if (cancelled || !sourceLinesRef.current || retries <= 0) return;
+      sourceLinesRef.current.scrollTop = saved;
+      if (sourceLinesRef.current.scrollTop > 0) return;
+      retries--;
+      rafHandle = requestAnimationFrame(tryRestore);
+    };
+    rafHandle = requestAnimationFrame(tryRestore);
+    return () => {
+      cancelled = true;
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+    };
+  }, [filePath]);
+
+  const setSourceScrollTopAction = useStore((s) => s.setSourceScrollTop);
+  const scrollSaveRafRef = useRef<number | null>(null);
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const top = (e.target as HTMLDivElement).scrollTop;
+      if (scrollSaveRafRef.current !== null) {
+        cancelAnimationFrame(scrollSaveRafRef.current);
+      }
+      scrollSaveRafRef.current = requestAnimationFrame(() => {
+        scrollSaveRafRef.current = null;
+        setSourceScrollTopAction(filePath, top);
+      });
+    },
+    [filePath, setSourceScrollTopAction],
+  );
+  useEffect(() => {
+    return () => {
+      if (scrollSaveRafRef.current !== null) {
+        cancelAnimationFrame(scrollSaveRafRef.current);
+      }
+    };
+  }, []);
 
   const showSizeWarning = fileSize !== undefined && fileSize > SIZE_WARN_THRESHOLD;
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
 
   return (
     <div
@@ -166,24 +288,45 @@ export function SourceView({ content, path, filePath, fileSize, wordWrap, zoom }
         className="source-lines"
         ref={sourceLinesRef}
         onMouseUp={commentable ? handleMouseUp : undefined}
+        onScroll={handleScroll}
       >
-        {model.map((item) => (
-          <SourceLine
-            key={item.idx}
-            idx={item.idx}
-            lineNum={item.lineNum}
-            filePath={filePath}
-            contentHtml={item.contentHtml}
-            isSelectionActive={false}
-            foldRegion={item.foldRegion}
-            isCollapsed={item.isCollapsed}
-            lineThreads={item.lineThreads}
-            commentable={commentable}
-            onToggleFold={toggleFold}
-            onAddCommentClick={handleAddCommentClick}
-            onMarkerClick={handleMarkerClick}
-          />
-        ))}
+        <div
+          className="source-lines-spacer"
+          style={{ height: `${totalSize}px`, position: "relative", width: "100%" }}
+        >
+          {virtualItems.map((vi) => {
+            const item = model[vi.index];
+            return (
+              <div
+                key={vi.key}
+                data-index={vi.index}
+                ref={rowVirtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  transform: `translateY(${vi.start}px)`,
+                }}
+              >
+                <SourceLine
+                  idx={item.idx}
+                  lineNum={item.lineNum}
+                  filePath={filePath}
+                  contentHtml={item.contentHtml}
+                  isSelectionActive={false}
+                  foldRegion={item.foldRegion}
+                  isCollapsed={item.isCollapsed}
+                  lineThreads={item.lineThreads}
+                  commentable={commentable}
+                  onToggleFold={toggleFold}
+                  onAddCommentClick={handleAddCommentClick}
+                  onMarkerClick={handleMarkerClick}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
       {commentable && selectionToolbar && (
         <SelectionToolbar

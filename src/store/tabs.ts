@@ -29,7 +29,24 @@ export const MAX_TABS = 5;
 
 export interface Tab {
   path: string;
+  /**
+   * Last persisted scroll position of the *visual-mode* scroll surface
+   * (`.viewer-scroll-region`). Owned exclusively by `ViewerRouter`'s
+   * onScroll/restore effects. Source-mode tabs persist their scroll
+   * position in `sourceScrollTop` instead — see iter 2 of issue #252,
+   * which moved source-mode scrolling to the inner `.source-lines`
+   * container so virtualisation can measure visible rows.
+   */
   scrollTop: number;
+  /**
+   * Last persisted scroll position of the *source-mode* scroll surface
+   * (`.source-lines`, which became the virtualizer's overflow:auto
+   * chokepoint in iter 2 of #252). Owned exclusively by `SourceView`'s
+   * onScroll/restore effects. Optional only for backwards-compat with
+   * persisted snapshots written before the field existed; treat
+   * `undefined` as 0.
+   */
+  sourceScrollTop?: number;
   /**
    * Wall-clock timestamp of the last time this tab was opened or activated.
    * Drives LRU eviction. Optional only for backwards-compatibility with persisted
@@ -81,6 +98,15 @@ export interface TabsSlice {
   closeAllTabs: () => void;
   setActiveTab: (path: string, opts?: { recordHistory?: boolean }) => void;
   setScrollTop: (path: string, scrollTop: number) => void;
+  /**
+   * Iter 2 of #252 — persist the source-mode scroll surface separately
+   * from `scrollTop` (which still owns the visual-mode scroll surface).
+   * Two writers (ViewerRouter for visual, SourceView for source) into one
+   * field would cross-pollute coordinate spaces on view-mode toggle and
+   * cross-tab navigation. `setSourceScrollTop` is the canonical entry
+   * point for `SourceView`; ViewerRouter never touches it.
+   */
+  setSourceScrollTop: (path: string, sourceScrollTop: number) => void;
   setViewMode: (path: string, mode: "source" | "visual") => void;
   /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
   setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
@@ -236,6 +262,16 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       if (!tab || tab.scrollTop === scrollTop) return;
       set((s) => ({
         tabs: s.tabs.map((t) => (t.path === path ? { ...t, scrollTop } : t)),
+      }));
+    },
+
+    setSourceScrollTop: (path, sourceScrollTop) => {
+      const tab = get().tabs.find((t) => t.path === path);
+      if (!tab || (tab.sourceScrollTop ?? 0) === sourceScrollTop) return;
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.path === path ? { ...t, sourceScrollTop } : t,
+        ),
       }));
     },
 

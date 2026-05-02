@@ -38,6 +38,18 @@ interface Props {
    * row that would scroll independently.
    */
   trailing?: ReactNode;
+  /**
+   * Iter 3 of #252 — when true, the **Visual** button is disabled (greyed,
+   * `aria-disabled`, click is a no-op) and `visualDisabledReason` becomes
+   * the tooltip text. Used by `EnhancedViewer` to clamp markdown files
+   * ≥ 1 MB to source-mode-only because ReactMarkdown parsing blocks
+   * the main thread for many seconds at that size. The clamp is render-
+   * time only; `view` state stays as the user selected it so the toggle
+   * naturally re-enables if the file shrinks below the cap.
+   */
+  visualDisabled?: boolean;
+  /** Tooltip text shown on the disabled Visual button. */
+  visualDisabledReason?: string;
 }
 
 /**
@@ -47,7 +59,19 @@ interface Props {
  * `EnhancedViewer`, or rendered above headerless media viewers by
  * `ViewerRouter`.
  */
-export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle, wordWrap, onToggleWrap, zoom, centerSlot, trailing }: Props) {
+export function ViewerToolbar({
+  activeView,
+  onViewChange,
+  hidden,
+  showWrapToggle,
+  wordWrap,
+  onToggleWrap,
+  zoom,
+  centerSlot,
+  trailing,
+  visualDisabled,
+  visualDisabledReason,
+}: Props) {
   if (hidden && !showWrapToggle && !zoom && !trailing && !centerSlot) return null;
 
   return (
@@ -63,9 +87,12 @@ export function ViewerToolbar({ activeView, onViewChange, hidden, showWrapToggle
               Source
             </button>
             <button
-              className={`viewer-toolbar-btn${activeView === "visual" ? " active" : ""}`}
-              onClick={() => onViewChange("visual")}
+              className={`viewer-toolbar-btn${activeView === "visual" ? " active" : ""}${visualDisabled ? " is-disabled" : ""}`}
+              onClick={visualDisabled ? undefined : () => onViewChange("visual")}
               aria-pressed={activeView === "visual"}
+              aria-disabled={visualDisabled || undefined}
+              disabled={visualDisabled}
+              title={visualDisabled ? visualDisabledReason : undefined}
             >
               Visual
             </button>

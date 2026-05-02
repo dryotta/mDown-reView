@@ -111,6 +111,17 @@ These apply to **every** viewer in every tier, no exceptions:
 
 7. **Consistent zoom.** Viewers that support zoom use the shared `useZoom(filetypeKey)` hook and `ZoomControl` component. Custom zoom state (e.g. a local `scale` variable with custom buttons) is not permitted — it breaks keyboard shortcuts (Ctrl+=/−/0), persistence, and the per-filetype zoom store. Viewers where zoom is not meaningful may omit `ZoomControl` from the toolbar — document the reason in this file.
 
+## Large-file behaviour (iter 3 of #252)
+
+mdownreview enforces an explicit cap on **markdown rendering** so the app stays responsive on large documents:
+
+- **`.md` / `.mdx` files at/above 1 MB** open in **source-mode-only**. The visual toggle is rendered but disabled (`aria-disabled` + tooltip explaining why), the user can still read the file and add line/selection comments through `SourceView`. The clamp is render-time so the toggle re-enables naturally if a file shrinks below the cap on next open. Constant: `MARKDOWN_VISUAL_CAP_BYTES` in `src/lib/viewer-budgets.ts`.
+- **All source-mode files** are rendered with **row virtualisation** (`@tanstack/react-virtual`) — only viewport-visible rows plus `SOURCE_OVERSCAN` mount in the DOM. A 50K-line log mounts ~75 rows, not 50K. Comments, fold, search-scroll, flash, and the selection toolbar all keep working through the virtualizer's `scrollToIndex` API and the listener's RAF retry on missing elements.
+- **Shiki syntax highlighting is idle-chunked**: first paint is HTML-escaped plain text so the file is readable immediately; colour fades in chunk-by-chunk via `requestIdleCallback` (polyfilled in `src/lib/idle.ts` for WKWebView, which never shipped the API). Each chunk highlights `SOURCE_HIGHLIGHT_CHUNK_LINES` lines and yields when frame-budget remaining drops below `SOURCE_HIGHLIGHT_IDLE_BUDGET_MS`.
+- **`MarkdownViewer` uses `useDeferredValue(content)`** so the heavy ReactMarkdown parse can yield to high-priority renders (find-bar input, scrolling, gutter clicks). Cheap regex pre-scans (frontmatter, math detection, remote-image refs) and gutter click line-text stay on raw `content` so banners and click handlers respond without delay.
+
+Above the 10 MB hard cap the file is rejected at the Rust IPC boundary (`commands/fs.rs::read_file_capped` — fstat pre-check + bounded `Vec::with_capacity` + `take(MAX+1)` post-read length check) and `TooLargePlaceholder` is shown.
+
 ## Checklist for adding a new viewer
 
 When a new file type or viewer is added:

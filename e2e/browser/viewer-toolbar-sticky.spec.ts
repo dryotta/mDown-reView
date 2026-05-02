@@ -83,39 +83,60 @@ interface CheckpointResult {
 }
 
 /**
- * Scrolls `.viewer-scroll-region` to `targetRatio` of its scrollable
+ * Scrolls the viewer's scroll surface to `targetRatio` of its scrollable
  * range and returns the relevant rects in the same evaluate call so
  * sticky-update races are avoided (the browser flushes sticky
  * positioning before returning from `scrollTo`).
+ *
+ * `scrollSelector` defaults to `.viewer-scroll-region` (the markdown
+ * visual-mode scroll container). After iter 2 of #252, source-mode tests
+ * pass `.source-lines` because virtualisation moved scrolling to that
+ * inner overflow:auto container — the outer region no longer overflows
+ * because `enhanced-viewer--fill` makes the chain height-bounded.
  */
 async function scrollAndMeasure(
   page: Page,
   targetRatio: number,
+  scrollSelector = ".viewer-scroll-region",
 ): Promise<CheckpointResult> {
-  return page.evaluate((ratio) => {
-    const scroll = document.querySelector(".viewer-scroll-region") as HTMLElement | null;
-    const toolbar = document.querySelector(".viewer-toolbar") as HTMLElement | null;
-    if (!scroll || !toolbar) {
-      throw new Error("scroll region or toolbar not in DOM");
-    }
-    const max = scroll.scrollHeight - scroll.clientHeight;
-    const target = Math.round(max * ratio);
-    scroll.scrollTo(0, target);
-    return {
-      scrollTop: scroll.scrollTop,
-      scrollHeight: scroll.scrollHeight,
-      clientHeight: scroll.clientHeight,
-      toolbarTop: toolbar.getBoundingClientRect().top,
-      scrollRegionTop: scroll.getBoundingClientRect().top,
-    };
-  }, targetRatio);
+  return page.evaluate(
+    ({ ratio, sel }) => {
+      const scroll = document.querySelector(sel) as HTMLElement | null;
+      const toolbar = document.querySelector(".viewer-toolbar") as HTMLElement | null;
+      if (!scroll || !toolbar) {
+        throw new Error(`scroll surface (${sel}) or toolbar not in DOM`);
+      }
+      const max = scroll.scrollHeight - scroll.clientHeight;
+      const target = Math.round(max * ratio);
+      scroll.scrollTo(0, target);
+      return {
+        scrollTop: scroll.scrollTop,
+        scrollHeight: scroll.scrollHeight,
+        clientHeight: scroll.clientHeight,
+        toolbarTop: toolbar.getBoundingClientRect().top,
+        scrollRegionTop: scroll.getBoundingClientRect().top,
+      };
+    },
+    { ratio: targetRatio, sel: scrollSelector },
+  );
 }
 
 const CHECKPOINTS = [0, 0.25, 0.5, 0.75, 1];
 
-async function assertStickyAtCheckpoints(page: Page, label: string): Promise<void> {
+async function assertStickyAtCheckpoints(
+  page: Page,
+  label: string,
+  scrollSelector = ".viewer-scroll-region",
+): Promise<void> {
+  // Capture the toolbar's top *before* any scroll. Source mode's toolbar
+  // sits outside the inner `.source-lines` scroll surface, so the toolbar
+  // never moves when that surface scrolls — the assertion becomes "the
+  // toolbar's getBoundingClientRect().top is constant across checkpoints",
+  // which subsumes the original markdown-mode check
+  // (toolbar.top === scrollRegion.top).
+  const baseline = await scrollAndMeasure(page, 0, scrollSelector);
   for (const ratio of CHECKPOINTS) {
-    const m = await scrollAndMeasure(page, ratio);
+    const m = await scrollAndMeasure(page, ratio, scrollSelector);
     // Sanity: there must be real scroll to test against (otherwise the
     // bug is unreachable and the test is meaningless).
     expect(
@@ -123,8 +144,8 @@ async function assertStickyAtCheckpoints(page: Page, label: string): Promise<voi
       `${label} @ ${ratio}: viewer must overflow viewport (got ${m.scrollHeight} vs ${m.clientHeight})`,
     ).toBeGreaterThan(m.clientHeight + 100);
     expect(
-      Math.abs(m.toolbarTop - m.scrollRegionTop),
-      `${label} @ ratio ${ratio}: toolbar.top=${m.toolbarTop} expected to equal scrollRegion.top=${m.scrollRegionTop} (±1px)`,
+      Math.abs(m.toolbarTop - baseline.toolbarTop),
+      `${label} @ ratio ${ratio}: toolbar.top=${m.toolbarTop} drifted from baseline=${baseline.toolbarTop} (±1px)`,
     ).toBeLessThanOrEqual(1);
   }
 }
@@ -152,7 +173,11 @@ test.describe("Viewer toolbar sticky positioning (#90)", () => {
     await page.locator(".folder-tree").getByText("tall.ts").click();
     await expect(page.locator(".source-view")).toBeVisible();
     await expect(page.locator(".viewer-toolbar").first()).toBeVisible();
-    await assertStickyAtCheckpoints(page, "source");
+    // Iter 2 of #252 — source mode scrolls inside `.source-lines` (the
+    // virtualizer's overflow:auto chokepoint). The outer
+    // `.viewer-scroll-region` no longer overflows because
+    // `enhanced-viewer--fill` makes the chain height-bounded for source mode.
+    await assertStickyAtCheckpoints(page, "source", ".source-lines");
   });
 
   test("markdown with mermaid (stacking-context-heavy) — toolbar stays pinned", async ({ page }) => {

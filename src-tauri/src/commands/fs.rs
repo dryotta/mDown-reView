@@ -4,6 +4,7 @@ use super::is_sidecar_file;
 use crate::core::paths::canonicalize_no_verbatim;
 use crate::core::types::DirEntry;
 use crate::mdr_command;
+use std::io::Read;
 
 /// Canonicalize an absolute path to the long form without the Windows `\\?\`
 /// verbatim prefix. Used by the renderer to normalize paths at workspace-open
@@ -181,18 +182,53 @@ pub struct TextFileResult {
     pub mtime_ms: Option<i64>,
 }
 
-/// Read a text file, rejecting binary files and files >10 MB.
+/// Shared 10 MB hard cap. Canonical in `docs/security.md` rule 1.
+const MAX_SIZE: usize = 10 * 1024 * 1024;
+
+/// Read a file's bytes with the canonical 10 MB cap pattern.
 ///
-/// Returns the decoded UTF-8 content alongside `size_bytes` (raw byte length
-/// of the on-disk file), `line_count` (logical lines as defined by
-/// [`str::lines`]), and `mtime_ms` (last-modified epoch ms; `None` when the
-/// platform/FS does not expose it). The file handle's metadata is read
-/// before the body so content + mtime come from the same `open()` and the
-/// caller cannot observe a torn (content_v1, mtime_v2) pair.
+/// Combines:
+///   1. fstat pre-check (open-handle `metadata().len()`) — TOCTOU-safe O(1)
+///      reject for multi-GB files vs. path-swap attacks.
+///   2. `Vec::with_capacity(meta.len().min(MAX_SIZE))` — pre-allocate; bounded
+///      by MAX_SIZE so attacker-controlled `meta.len()` cannot OOM.
+///   3. `File::take(MAX_SIZE + 1)` + post-read `bytes.len() > MAX_SIZE` —
+///      defends against special files (`/dev/zero`, FIFOs, network FS) that
+///      report `len() == 0` while streaming unbounded bytes.
 ///
-/// Workspace-allowlisted: the path is run through [`ensure_readable`] before
-/// any I/O. Mirrors `stat_file` so a malicious renderer cannot read arbitrary
-/// disk paths via the IPC.
+/// Returns the bytes and the open-handle metadata (caller extracts mtime
+/// from the same `open()` so content + mtime cannot be torn).
+///
+/// Mirrors `core::sidecar::read_capped`. See `docs/security.md` rules 1-3.
+fn read_file_capped(path: &str) -> Result<(Vec<u8>, std::fs::Metadata), String> {
+    let file = std::fs::File::open(path).map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    let meta = file.metadata().map_err(|e| {
+        tracing::error!("[rust] command error: {}", e);
+        e.to_string()
+    })?;
+    if meta.len() > MAX_SIZE as u64 {
+        return Err("file_too_large".into());
+    }
+    let mut bytes = Vec::with_capacity(meta.len().min(MAX_SIZE as u64) as usize);
+    file.take(MAX_SIZE as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| {
+            tracing::error!("[rust] command error: {}", e);
+            e.to_string()
+        })?;
+    if bytes.len() > MAX_SIZE {
+        return Err("file_too_large".into());
+    }
+    Ok((bytes, meta))
+}
+
+/// Read a text file, rejecting binary files and files >10 MB. Returns
+/// decoded UTF-8 + `size_bytes` + `line_count` + `mtime_ms`. Workspace-
+/// allowlisted via [`ensure_readable`]; cap + TOCTOU semantics live in
+/// [`read_file_capped`] (see also `docs/security.md` rules 1-3).
 #[mdr_command]
 pub fn read_text_file(
     path: String,
@@ -202,37 +238,14 @@ pub fn read_text_file(
     read_text_file_inner(canonical.to_string_lossy().into_owned())
 }
 
-/// Inner implementation, decoupled from `tauri::State` and from the workspace
-/// guard so unit/integration tests can exercise the pure-I/O behaviour
-/// (binary detection, size cap, mtime piggyback) without spinning up a
-/// `tauri::App` or registering a workspace.
+/// Inner impl, decoupled from `tauri::State` so tests can exercise pure I/O.
 pub fn read_text_file_inner(path: String) -> Result<TextFileResult, String> {
-    use std::io::Read;
-
-    // Open once; pull metadata + content from the same handle so mtime
-    // matches the bytes returned (single open(), no second path lookup).
-    let mut file = std::fs::File::open(&path).map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-    let mtime_ms = file
-        .metadata()
+    let (bytes, meta) = read_file_capped(&path)?;
+    let mtime_ms = meta
+        .modified()
         .ok()
-        .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64);
-
-    // Read first, then check size (eliminates TOCTOU race between metadata + read)
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-
-    const MAX_SIZE: usize = 10 * 1024 * 1024;
-    if bytes.len() > MAX_SIZE {
-        return Err("file_too_large".into());
-    }
 
     // Detect binary by scanning first 512 bytes for null bytes
     let scan_len = bytes.len().min(512);
@@ -255,9 +268,9 @@ pub fn read_text_file_inner(path: String) -> Result<TextFileResult, String> {
     })
 }
 
-/// Read a binary file, returning base64-encoded content. Rejects files >10 MB.
-///
-/// Workspace-allowlisted via [`ensure_readable`].
+/// Read a binary file, returning base64-encoded content. Rejects files
+/// >10 MB. Workspace-allowlisted via [`ensure_readable`]; cap semantics
+/// live in [`read_file_capped`].
 #[mdr_command]
 pub fn read_binary_file(
     path: String,
@@ -267,20 +280,9 @@ pub fn read_binary_file(
     read_binary_file_inner(canonical.to_string_lossy().into_owned())
 }
 
-/// Inner implementation of [`read_binary_file`], without the workspace guard.
-/// Mirrors [`read_text_file_inner`] so tests can exercise the pure-I/O
-/// behaviour (size cap, base64 encode) without touching `WatcherState`.
+/// Inner impl, no workspace guard. Mirrors [`read_text_file_inner`].
 pub fn read_binary_file_inner(path: String) -> Result<String, String> {
-    let bytes = std::fs::read(&path).map_err(|e| {
-        tracing::error!("[rust] command error: {}", e);
-        e.to_string()
-    })?;
-
-    const MAX_SIZE: usize = 10 * 1024 * 1024;
-    if bytes.len() > MAX_SIZE {
-        return Err("file_too_large".into());
-    }
-
+    let (bytes, _meta) = read_file_capped(&path)?;
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }

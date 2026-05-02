@@ -31,16 +31,31 @@
 /* ── SourceView line-based layout ────────────────────────────────── */
 
 .source-view {
-  /* See `.markdown-viewer` in markdown.css — `min-height` keeps the
-     sticky containing block growing with content so `.viewer-toolbar`
-     does not collapse on continued scroll (#90). */
-  min-height: 100%;
+  /* Iter 2 of #252 — flex-bounded layout so `.source-lines` (overflow:auto)
+     can be the scroll container that drives the @tanstack/react-virtual
+     virtualizer. The legacy `min-height: 100%` covered the case where
+     SourceView was rendered inside a content-grow scroll region; the
+     virtualised version requires a definite height so the inner overflow
+     engages. `EnhancedViewer` opts source mode into `enhanced-viewer--fill`
+     specifically to make this height chain definite. */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   background: var(--color-bg);
   padding-left: 8px;
   --source-zoom: 1;
 }
 
 .source-lines {
+  /* Iter 2 of #252 — virtualizer scroll container. The spacer descendant
+     (`<div class="source-lines-spacer">`) carries the full virtual
+     `getTotalSize()` height; visible rows are absolute-positioned via
+     translateY against it. */
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
   font-size: calc(13px * var(--source-zoom));
   font-family: "SFMono-Regular", Consolas, monospace;
 }

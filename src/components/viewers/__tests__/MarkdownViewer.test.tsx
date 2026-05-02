@@ -338,8 +338,42 @@ describe("Iter 5 Wave 1 — split-preservation", () => {
     await waitFor(() => {
       // We don't load real rehype-katex in jsdom, but the rendering pipeline
       // must not throw — the markdown-body still mounts even before KaTeX
+
       // resolves.
       expect(document.querySelector(".markdown-body")).toBeInTheDocument();
+    });
+  });
+});
+
+//  Iter 3 of #252  useDeferredValue smoke test 
+
+describe("iter 3 of #252  useDeferredValue", () => {
+  it("renders content from the deferred value into the markdown body", async () => {
+    const content = "# Hello iter3";
+    render(<MarkdownViewer content={content} filePath={FILE_PATH} />);
+
+    // The deferred value is identity-equal to `content` on first commit
+    // (no interruption), so the rendered heading contains the content text.
+    // rehype-autolink-headings prepends a `#` anchor, so we match-contain.
+    await waitFor(() => {
+      const h1 = document.querySelector(".markdown-body h1");
+      expect(h1?.textContent ?? "").toContain("Hello iter3");
+    });
+  });
+
+  it("updates rendered content when the source content prop changes", async () => {
+    const { rerender } = render(
+      <MarkdownViewer content="# Alpha" filePath={FILE_PATH} />
+    );
+    await waitFor(() => {
+      const h1 = document.querySelector(".markdown-body h1");
+      expect(h1?.textContent ?? "").toContain("Alpha");
+    });
+
+    rerender(<MarkdownViewer content="# Beta" filePath={FILE_PATH} />);
+    await waitFor(() => {
+      const h1 = document.querySelector(".markdown-body h1");
+      expect(h1?.textContent ?? "").toContain("Beta");
     });
   });
 });

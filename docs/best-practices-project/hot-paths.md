@@ -12,24 +12,28 @@ Every flagged hotspot needs evidence (profile, benchmark, or specific code-bound
 
 ### `hot-path: markdown-viewer-render`
 
-**File:** `src/components/viewers/MarkdownViewer.tsx`
+**File:** `src/components/viewers/MarkdownViewer.tsx`, `src/components/viewers/EnhancedViewer.tsx`, `src/lib/viewer-budgets.ts`
 
 Sensitive to:
 - Shiki syntax highlighting cost on large code blocks.
 - Re-renders triggered by Zustand selectors that return new object references each call.
 - `react-markdown` component map churn (recreating the components object on every render forces React to remount everything).
+- **`<ReactMarkdown>` parse blocking the main thread** — the hot path MUST feed `useDeferredValue(content)` into the React-Markdown render. The cheap regex pre-scans (frontmatter, math, remote-image refs) MUST stay on raw `content` so the surrounding chrome reacts immediately.
+- **Markdown ≥ 1 MB visual mode** — `EnhancedViewer` MUST clamp `.md` files at/above `MARKDOWN_VISUAL_CAP_BYTES` to source-mode-only. Removing the clamp regresses to multi-second freezes on cold open.
 
-First-look checks: memoization on the Markdown element, `useDeferredValue` on the source text, stable references for the `components` prop.
+First-look checks: memoization on the Markdown element, `useDeferredValue(content)` on the source text passed to `<ReactMarkdown>`, stable references for the `components` prop, the 1 MB visual cap is enforced in `EnhancedViewer.tsx`.
 
 ### `hot-path: source-view-shiki`
 
-**File:** `src/components/viewers/SourceView.tsx`, `src/hooks/useSourceHighlighting.ts`
+**File:** `src/components/viewers/SourceView.tsx`, `src/hooks/useSourceHighlighting.ts`, `src/lib/idle.ts`, `src/lib/viewer-budgets.ts`
 
 Sensitive to:
 - Per-line `codeToHtml` calls (one Shiki invocation per line of source) — degrades quadratically vs document-level highlighting.
 - Singleton highlighter not reused across mounts.
+- **Idle chunking regressions**: a single `codeToHtml(deferredContent, …)` call against a 5 MB file blocks the main thread for many seconds. The hook MUST chunk via `requestIdleCallback` (polyfilled in `src/lib/idle.ts` for WKWebView) at `SOURCE_HIGHLIGHT_CHUNK_LINES` per chunk and yield when `timeRemaining()` falls below `SOURCE_HIGHLIGHT_IDLE_BUDGET_MS`.
+- **Virtualisation regressions**: `SourceView` MUST mount only viewport-visible rows + `SOURCE_OVERSCAN` via `@tanstack/react-virtual`. A flat `model.map(...)` over the full line model regresses to O(N) DOM nodes for N-line files.
 
-First-look checks: confirm Shiki is highlighting per-document, not per-line; confirm the highlighter instance is reused.
+First-look checks: confirm Shiki runs idle-chunked (search for `requestIdle`/`splitShikiHtmlByLine`); confirm `useVirtualizer` is the row-mounting path in `SourceView.tsx`; confirm budget constants come from `lib/viewer-budgets.ts` (no inline numbers).
 
 ### `hot-path: mermaid-render`
 

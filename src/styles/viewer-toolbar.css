@@ -73,6 +73,23 @@
   color: white;
 }
 
+/* Iter 3 of #252 — disabled state for the Visual button when an `.md` file
+   is at/above MARKDOWN_VISUAL_CAP_BYTES (1 MB). The button stays in the
+   toggle group for layout consistency but is non-interactive (greyed,
+   strikethrough cursor, no hover treatment). The actual non-clickability
+   is enforced in `ViewerToolbar.tsx` (the `disabled` HTML attribute +
+   `onClick` no-op); CSS only governs visual treatment. */
+.viewer-toolbar-btn.is-disabled,
+.viewer-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.viewer-toolbar-btn.is-disabled:hover,
+.viewer-toolbar-btn:disabled:hover {
+  background: transparent;
+}
+
 .viewer-toolbar-wrap {
   border: 1px solid var(--color-border);
   border-radius: 4px;

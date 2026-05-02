@@ -98,4 +98,60 @@ describe("ViewerToolbar", () => {
     });
   });
 
+  // ── Iter 3 of #252: visualDisabled markdown soft cap ─────────────────────
+  describe("visualDisabled (markdown ≥ 1 MB clamp)", () => {
+    it("disables the Visual button with aria-disabled + tooltip when visualDisabled is true", () => {
+      render(
+        <ViewerToolbar
+          activeView="source"
+          onViewChange={vi.fn()}
+          visualDisabled
+          visualDisabledReason="Markdown rendering disabled."
+        />
+      );
+      const visualBtn = screen.getByRole("button", { name: /visual/i });
+      expect(visualBtn).toBeDisabled();
+      expect(visualBtn).toHaveAttribute("aria-disabled", "true");
+      expect(visualBtn).toHaveAttribute("title", "Markdown rendering disabled.");
+      expect(visualBtn).toHaveClass("is-disabled");
+    });
+
+    it("click on disabled Visual button does not fire onViewChange", () => {
+      const onChange = vi.fn();
+      render(
+        <ViewerToolbar
+          activeView="source"
+          onViewChange={onChange}
+          visualDisabled
+          visualDisabledReason="nope"
+        />
+      );
+      const visualBtn = screen.getByRole("button", { name: /visual/i });
+      fireEvent.click(visualBtn);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("Source button stays clickable while Visual is disabled", () => {
+      const onChange = vi.fn();
+      render(
+        <ViewerToolbar
+          activeView="source"
+          onViewChange={onChange}
+          visualDisabled
+          visualDisabledReason="nope"
+        />
+      );
+      fireEvent.click(screen.getByRole("button", { name: /source/i }));
+      expect(onChange).toHaveBeenCalledWith("source");
+    });
+
+    it("does not disable the Visual button when visualDisabled is false / undefined", () => {
+      render(<ViewerToolbar activeView="source" onViewChange={vi.fn()} />);
+      const visualBtn = screen.getByRole("button", { name: /visual/i });
+      expect(visualBtn).not.toBeDisabled();
+      expect(visualBtn).not.toHaveAttribute("aria-disabled", "true");
+      expect(visualBtn).not.toHaveClass("is-disabled");
+    });
+  });
+
 });
