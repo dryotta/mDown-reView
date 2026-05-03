@@ -1185,6 +1185,250 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     expect(saveSceneMock).toHaveBeenCalledTimes(4);
   });
 
+  // P0-3 regression — bug-expert + product-expert.
+  // Pre-iter-21 the SaveErrorBanner rendered identical
+  // [Resume] [Dismiss] buttons regardless of recoverable-vs-paused
+  // state. Clicking Dismiss while paused removed the banner without
+  // resuming autosave, leaving the user with NO autosave + NO
+  // visible signal. Edits then lived in RAM until close-flush
+  // (best-effort over CloseRequested only). Post-fix, Dismiss is
+  // hidden when paused — the only way out of pause is Resume.
+  it("[P0-3] save-error banner has NO Dismiss button while paused (only Resume)", async () => {
+    saveSceneMock.mockRejectedValue(new Error("disk full"));
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p03-pause-no-dismiss.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Bootstrap baseline.
+      await act(async () => {
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      // 3 consecutive failures to enter the paused state.
+      for (let i = 1; i <= 3; i++) {
+        await act(async () => {
+          onChange([{ id: `rect-${i}` }], {}, {});
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2100);
+        });
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Banner shows the paused copy.
+    await waitFor(() => {
+      const banner = screen.getByTestId("excalidraw-save-error-banner");
+      expect(banner.textContent).toMatch(/paused/i);
+    });
+    // Resume button present.
+    expect(
+      screen.getByTestId("excalidraw-save-error-retry").textContent,
+    ).toMatch(/Resume/i);
+    // CRITICAL: Dismiss button is HIDDEN while paused. Pre-iter-21
+    // it rendered identically and clicking it would silently
+    // remove the only signal that autosave was disabled.
+    expect(
+      screen.queryByTestId("excalidraw-save-error-dismiss"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("[P0-3] save-error banner DOES show Dismiss in the recoverable (not paused) state", async () => {
+    // First failure only — banner shows "Couldn't save your changes:"
+    // with [Retry] [Dismiss]. Dismiss is fine here because autosave
+    // is still active; the next onChange re-arms the debounce.
+    saveSceneMock.mockRejectedValueOnce(new Error("transient"));
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p03-recoverable-dismiss.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      await act(async () => {
+        onChange([{ id: "edit-1" }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Banner shows the recoverable copy (NOT paused).
+    await waitFor(() => {
+      const banner = screen.getByTestId("excalidraw-save-error-banner");
+      expect(banner.textContent).toMatch(/Couldn't save/i);
+      expect(banner.textContent).not.toMatch(/paused/i);
+    });
+    // Retry + Dismiss BOTH present.
+    expect(
+      screen.getByTestId("excalidraw-save-error-retry").textContent,
+    ).toMatch(/Retry/i);
+    expect(
+      screen.getByTestId("excalidraw-save-error-dismiss"),
+    ).toBeInTheDocument();
+  });
+
+  // P0-4 regression — pre-iter-21 there was no persistent save-state
+  // indicator. With autosave-only + Save button hidden + transient
+  // SavedPill gated to Cmd+S, the user could not tell if their last
+  // edit had landed on disk after a 2 s pause. Post-fix, an
+  // always-visible status pill at the canvas top-right shows
+  // saved / unsaved / saving / failed.
+  it("[P0-4] save-status indicator renders 'Saved' on mount in editor mode", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p04-status-saved.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const indicator = await screen.findByTestId("excalidraw-save-status");
+    expect(indicator.getAttribute("data-status")).toBe("saved");
+    expect(indicator.textContent).toMatch(/Saved/i);
+  });
+
+  it("[P0-4] save-status indicator flips to 'Unsaved' on edit, then 'Saving…' during the save IPC", async () => {
+    let resolveSave: () => void = () => {};
+    saveSceneMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p04-status-edit.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Bootstrap baseline.
+      await act(async () => {
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      // First real edit — dirty=true.
+      await act(async () => {
+        onChange([{ id: "rect-1" }], {}, {});
+      });
+      // Status should be 'unsaved' (debounce pending; no save in flight yet).
+      // Use sync getByTestId — fake timers prevent findByTestId polling.
+      let indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("unsaved");
+
+      // Advance into the save IPC start.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      indicator = screen.getByTestId("excalidraw-save-status");
+      // Status flipped to 'saving' because the IPC is mid-flight
+      // (the mock's promise hasn't resolved yet).
+      expect(indicator.getAttribute("data-status")).toBe("saving");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Resolve the save and let the .finally bookkeeping commit.
+    await act(async () => {
+      resolveSave();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // Status returns to 'saved'.
+    await waitFor(() => {
+      const indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("saved");
+    });
+  });
+
+  it("[P0-4] save-status indicator flips to 'failed' when the IPC rejects", async () => {
+    saveSceneMock.mockRejectedValue(new Error("disk full"));
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p04-status-failed.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      await act(async () => {
+        onChange([{ id: "edit-1" }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    // Real timers restored — sync assertion or waitFor both fine.
+    await waitFor(() => {
+      const indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("failed");
+    });
+  });
+
+  it("[P0-4] save-status indicator is HIDDEN in visual mode (read-only)", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p04-status-visual.excalidraw"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    expect(
+      screen.queryByTestId("excalidraw-save-status"),
+    ).not.toBeInTheDocument();
+  });
+
   // Iter-14 regression: bug-expert MEDIUM. notifyChange used to
   // unconditionally `setExcalidrawDirty(true)` on every onChange,
   // including viewport pan / tool-select that produce no

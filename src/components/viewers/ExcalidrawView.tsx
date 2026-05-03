@@ -8,6 +8,8 @@ import {
   FirstEntryBanner,
   SavedPill,
   SaveErrorBanner,
+  SaveStatusIndicator,
+  type SaveStatus,
 } from "./excalidraw/ExcalidrawBanners";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -154,7 +156,24 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     autoSavePaused,
     retryAfterFailure,
     savedPillVisible,
+    saveInFlight,
   } = useExcalidrawAutoSave(filePath, mode, externalChangePending);
+
+  // Iter-21 (#352 product-expert P0-2) — derive the persistent
+  // save-status pill state. Read `excalidrawDirty` directly from
+  // the store so the pill flips synchronously when notifyChange
+  // marks dirty (without re-rendering on unrelated store mutations).
+  const isDirty = useStore(
+    (s) => s.excalidrawDirtyByTab[filePath] === true,
+  );
+  const saveStatus: SaveStatus =
+    saveError && !autoSavePaused
+      ? "failed"
+      : saveInFlight
+        ? "saving"
+        : isDirty
+          ? "unsaved"
+          : "saved";
 
   // Iter-21 (#352 P0-1) — seed the autosave hook's library baseline
   // from the just-loaded scene BEFORE Excalidraw fires its first
@@ -297,6 +316,9 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}
     >
       {savedPillVisible && <SavedPill />}
+      {mode === "editor" && !savedPillVisible && (
+        <SaveStatusIndicator status={saveStatus} />
+      )}
       {mode === "editor" && firstEntryBannerVisible && (
         <FirstEntryBanner
           onDismiss={() => {

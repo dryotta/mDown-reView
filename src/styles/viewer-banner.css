@@ -154,3 +154,59 @@
   85% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* ── Iter-21 (#352 product-expert P0-2) ─ persistent save-status indicator
+   Pinned to the top-right of the canvas with a colored dot + label so the
+   user always knows whether their last edit has landed on disk. Sits in
+   the same corner as the transient SavedPill but is always present in
+   editor mode (the pill takes z-priority on Cmd+S so it visually replaces
+   the indicator for ~1.5s).  */
+.excalidraw-save-status {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  pointer-events: none;
+  background: var(--color-bg, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-fg-muted, #6b7280);
+}
+.excalidraw-save-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.excalidraw-save-status--saved {
+  color: var(--color-success-text, #065f46);
+  border-color: var(--color-success-border, #6ee7b7);
+  background: var(--color-success-bg, #ecfdf5);
+}
+.excalidraw-save-status--unsaved {
+  color: var(--color-warning-text, #92400e);
+  border-color: var(--color-warning-border, #fbbf24);
+  background: var(--color-warning-bg, #fffbeb);
+}
+.excalidraw-save-status--saving {
+  color: var(--color-fg-muted, #6b7280);
+}
+.excalidraw-save-status--saving .excalidraw-save-status__dot {
+  animation: excalidraw-save-status-pulse 1.2s ease-in-out infinite;
+}
+.excalidraw-save-status--failed {
+  color: var(--color-error-text, #b91c1c);
+  border-color: var(--color-error-border, #fca5a5);
+  background: var(--color-error-bg, #fee2e2);
+}
+@keyframes excalidraw-save-status-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}

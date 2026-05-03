@@ -98,13 +98,31 @@ export function SaveErrorBanner({
       >
         {paused ? "Resume" : "Retry"}
       </button>
-      <button
-        type="button"
-        className="excalidraw-conflict-banner__action"
-        onClick={onDismiss}
-      >
-        Dismiss
-      </button>
+      {/*
+       * Iter-21 (#352 product-expert P0-1): Dismiss is rendered ONLY
+       * in the recoverable-error state. When `paused === true`,
+       * autosave is HALTED until the user clicks Resume — and the
+       * banner is the only on-canvas affordance signalling that
+       * fact. Pre-iter-21 a Dismiss button rendered identically in
+       * both states; the user could click it during pause, the
+       * banner would vanish, and they'd keep drawing into an
+       * autosave-disabled session with no UI signal. Edits then
+       * lived in RAM only until the close-flush handshake (best-
+       * effort over CloseRequested only). The banner now stays
+       * pinned in the paused state until the user explicitly
+       * acknowledges by clicking Resume — failure-pause is no
+       * longer dismissible.
+       */}
+      {!paused && (
+        <button
+          type="button"
+          className="excalidraw-conflict-banner__action"
+          onClick={onDismiss}
+          data-testid="excalidraw-save-error-dismiss"
+        >
+          Dismiss
+        </button>
+      )}
     </div>
   );
 }
@@ -158,6 +176,56 @@ export function SavedPill() {
       data-testid="excalidraw-saved-pill"
     >
       Saved
+    </div>
+  );
+}
+
+/**
+ * Iter-21 (#352 product-expert P0-2) — persistent save-status
+ * indicator pinned to the top-right of the canvas. Replaces the
+ * affordance gap left by the autosave-only design: the user has no
+ * Save button, no document-edited indicator, and the transient
+ * SavedPill flashes only on Cmd+S successes. Without this indicator
+ * a user who pauses for a beat after editing could not tell whether
+ * their changes had landed on disk.
+ *
+ * States (priority order — first matching wins):
+ *   - **failed**: `saveError && !paused` — surfaces alongside the
+ *     SaveErrorBanner; the banner explains, the indicator confirms.
+ *   - **saving**: `saveInFlight === true` — IPC is in flight.
+ *   - **unsaved**: `dirty === true` — pending edit waiting to debounce
+ *     or coalesce with an in-flight save.
+ *   - **saved**: otherwise — last persisted state matches the live
+ *     scene + library.
+ *
+ * The paused state is intentionally NOT surfaced here — the
+ * SaveErrorBanner already pins itself to the canvas top with full
+ * copy + Resume button (and post-iter-21 cannot be dismissed). A
+ * second indicator would just stack a redundant signal.
+ */
+export type SaveStatus = "saved" | "unsaved" | "saving" | "failed";
+
+interface SaveStatusIndicatorProps {
+  status: SaveStatus;
+}
+
+export function SaveStatusIndicator({ status }: SaveStatusIndicatorProps) {
+  const copy: Record<SaveStatus, string> = {
+    saved: "Saved",
+    unsaved: "Unsaved",
+    saving: "Saving…",
+    failed: "Save failed",
+  };
+  return (
+    <div
+      className={`excalidraw-save-status excalidraw-save-status--${status}`}
+      role="status"
+      aria-live="polite"
+      data-testid="excalidraw-save-status"
+      data-status={status}
+    >
+      <span className="excalidraw-save-status__dot" aria-hidden="true" />
+      <span className="excalidraw-save-status__copy">{copy[status]}</span>
     </div>
   );
 }

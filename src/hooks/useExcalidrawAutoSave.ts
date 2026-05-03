@@ -107,6 +107,16 @@ export interface AutoSaveState {
   autoSavePaused: boolean;
   retryAfterFailure: () => void;
   savedPillVisible: boolean;
+  /**
+   * Iter-21 (#352 product-expert P0-2) — reactive flag that goes true
+   * for the duration of an in-flight `saveExcalidrawFile` IPC. The
+   * persistent save-status indicator in the toolbar consumes this to
+   * surface a "Saving…" state. Without a persistent indicator the
+   * autosave-only design left the user with no on-screen affordance
+   * to confirm their last edit had landed on disk; the transient
+   * SavedPill flashed only on Cmd+S successes.
+   */
+  saveInFlight: boolean;
 }
 
 export function useExcalidrawAutoSave(
@@ -125,6 +135,11 @@ export function useExcalidrawAutoSave(
   const [saveError, setSaveError] = useState<string | null>(null);
   const [autoSavePaused, setAutoSavePaused] = useState(false);
   const [savedPillVisible, setSavedPillVisible] = useState(false);
+  // Iter-21 (#352 product-expert P0-2) — reactive flag for the
+  // persistent save-status indicator. Tracks `saveInFlightRef` but
+  // surfaced as React state so the toolbar status pill re-renders
+  // when a save starts / completes.
+  const [saveInFlight, setSaveInFlight] = useState(false);
 
   const liveSceneRef = useRef<ExcalidrawScene | null>(null);
   // Iter-21 (#352 bug-expert P0-1): library items live on a separate
@@ -229,6 +244,7 @@ export function useExcalidrawAutoSave(
       return;
     }
     saveInFlightRef.current = true;
+    if (mountedRef.current) setSaveInFlight(true);
     // Reset the void flag for THIS save (each save tracks its own race
     // against `resetBaseline`).
     voidInFlightSaveRef.current = false;
@@ -306,6 +322,7 @@ export function useExcalidrawAutoSave(
       })
       .finally(() => {
         saveInFlightRef.current = false;
+        if (mountedRef.current) setSaveInFlight(false);
         // Pending follow-up drain: if a fresh onChange queued
         // `pendingSaveRef` while the IPC was in flight, schedule a
         // follow-up. Crucially, drain even after unmount via fire-
@@ -625,5 +642,6 @@ export function useExcalidrawAutoSave(
     autoSavePaused,
     retryAfterFailure,
     savedPillVisible,
+    saveInFlight,
   };
 }
