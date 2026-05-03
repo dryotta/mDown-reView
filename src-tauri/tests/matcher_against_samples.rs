@@ -120,17 +120,30 @@ fn gfm_basics_selection_in_blockquote_with_link_and_code() {
 
 #[test]
 fn gfm_basics_cross_block_selection_from_heading_into_following_paragraph() {
-    // Heading on line 9 ("# H1 Heading") immediately followed by other
-    // headings on lines 10-14. User selects across multiple headings.
-    // (Compound cross-block; the rendered text is "H1 Heading\nH2 Heading\nH3 Heading".)
+    // 01-gfm-basics.md:
+    //   line  9: "# H1 Heading"
+    //   line 10: "## H2 Heading"
+    //   line 11: "### H3 Heading"
+    // The visual viewer shows "H1 Heading", "H2 Heading", "H3 Heading"
+    // as three rendered headings — `getSelection().toString()` does
+    // NOT return the source-bytes `#`/`##`/`###` markers, only the
+    // rendered text joined by `\n`. The matcher must strip block
+    // markers in its projection so this RENDERED form matches fully.
     let comment = comment_with_selection(
         9,
         Some(11),
-        "# H1 Heading\n## H2 Heading\n### H3 Heading",
+        "H1 Heading\nH2 Heading\nH3 Heading",
     );
     let m = match_one("01-gfm-basics.md", comment);
     assert!(!m.is_orphaned);
     assert_eq!(m.matched_line_number, 9);
+    // FULL match required — best-prefix would silently drop the
+    // trailing headings; that's the user-visible bug we're fixing.
+    let anchored = m.anchored_text.as_deref().unwrap_or("");
+    assert!(
+        anchored.contains("H3 Heading"),
+        "anchored_text should cover the FULL selection; got {anchored:?}"
+    );
 }
 
 // ── 11-kitchen-sink.md ──────────────────────────────────────────────
@@ -314,4 +327,247 @@ fn unrelated_selection_orphans() {
     );
     let m = match_one("01-gfm-basics.md", comment);
     assert!(m.is_orphaned, "unrelated text must orphan, got line {}", m.matched_line_number);
+}
+
+// ── Block-marker stripping (rendered-text user contract) ────────────
+//
+// `getSelection().toString()` returns the RENDERED text, which has no
+// block-level markdown markers (`# `, `> `, `- `, `1. `, `[ ]`, `[x]`,
+// `[!TIP]`, HR `---`). The matcher must strip those from its
+// projection so cross-block selections substring-match cleanly.
+// "Match the selection as completely as possible" — full match wins
+// over best-prefix recovery.
+
+#[test]
+fn rendered_cross_heading_selection_matches_fully() {
+    // Lines 17-22 of 11-kitchen-sink.md:
+    //   "# Level 1"
+    //   "## Level 2"
+    //   "### Level 3"
+    //   "#### Level 4"
+    //   "##### Level 5"
+    //   "###### Level 6"
+    // User dragging across the rendered headings sees "Level 1"
+    // through "Level 6" with newlines between (no `#` markers).
+    let comment = comment_with_selection(
+        17,
+        Some(22),
+        "Level 1\nLevel 2\nLevel 3\nLevel 4\nLevel 5\nLevel 6",
+    );
+    let m = match_one("11-kitchen-sink.md", comment);
+    assert!(
+        !m.is_orphaned,
+        "rendered cross-heading selection must anchor; got orphan"
+    );
+    assert_eq!(m.matched_line_number, 17);
+    // Critical: must be a FULL match, not best-prefix recovery —
+    // the user's "as much as possible" contract requires the WHOLE
+    // selection to match when block markers are the only obstacle.
+    let anchored = m.anchored_text.as_deref().unwrap_or("");
+    assert!(
+        anchored.contains("Level 6"),
+        "anchored_text should cover the FULL selection (incl. Level 6); \
+         got {anchored:?} — best-prefix recovery would drop trailing levels"
+    );
+}
+
+#[test]
+fn rendered_cross_task_list_selection_matches_fully() {
+    // Lines 40-41 of 11-kitchen-sink.md:
+    //   "- [x] Done — first task"
+    //   "- [ ] Pending — second task"
+    // Visual rendering shows checkboxes (DOM elements) followed by
+    // "Done — first task" / "Pending — second task". The selection
+    // captures only the text, no `- [ ]` / `- [x]` markers.
+    let comment = comment_with_selection(
+        40,
+        Some(41),
+        "Done — first task\nPending — second task",
+    );
+    let m = match_one("11-kitchen-sink.md", comment);
+    assert!(
+        !m.is_orphaned,
+        "rendered cross-task-list selection must anchor; got orphan"
+    );
+    assert_eq!(m.matched_line_number, 40);
+    let anchored = m.anchored_text.as_deref().unwrap_or("");
+    assert!(
+        anchored.contains("Pending") && anchored.contains("second task"),
+        "anchored_text should cover BOTH list items (full match); \
+         got {anchored:?} — partial match means best-prefix dropped line 41"
+    );
+}
+
+#[test]
+fn rendered_gfm_alert_blockquote_cross_line_selection_matches_fully() {
+    // Lines 7-9 of 11-kitchen-sink.md:
+    //   "> [!TIP]"
+    //   "> If you found a regression on this page, narrow it down by opening"
+    //   "> the dedicated single-feature file (01–10) that covers the surface."
+    // remarkGithubAlerts strips the `[!TIP]` marker from the rendered
+    // output; the `> ` markers are also absent visually. Selection
+    // captures only the prose text.
+    let comment = comment_with_selection(
+        8,
+        Some(9),
+        "If you found a regression on this page, narrow it down by opening\n\
+         the dedicated single-feature file (01–10) that covers the surface.",
+    );
+    let m = match_one("11-kitchen-sink.md", comment);
+    assert!(
+        !m.is_orphaned,
+        "rendered alert-blockquote cross-line selection must anchor; got orphan"
+    );
+    assert_eq!(m.matched_line_number, 8);
+    let anchored = m.anchored_text.as_deref().unwrap_or("");
+    assert!(
+        anchored.contains("dedicated single-feature file"),
+        "anchored_text should cover the FULL selection; got {anchored:?} \
+         — partial match means best-prefix dropped line 9"
+    );
+}
+
+#[test]
+fn rendered_cross_paragraph_through_hr_anchors_at_first_paragraph() {
+    // 11-kitchen-sink.md: line 9 is the last line of the alert
+    // blockquote, line 11 is the HR `---`, line 13 is `## Heading
+    // anchors`. A user that drags from inside the alert through the
+    // HR into the next heading captures rendered text WITHOUT the
+    // `---` glyphs (browsers don't include `<hr>` content in the
+    // selection string). The matcher should anchor at the start of
+    // the captured prose, not orphan because of the intervening HR.
+    let comment = comment_with_selection(
+        9,
+        Some(13),
+        "the dedicated single-feature file (01–10) that covers the surface.\nHeading anchors",
+    );
+    let m = match_one("11-kitchen-sink.md", comment);
+    assert!(
+        !m.is_orphaned,
+        "rendered selection across HR must anchor; got orphan"
+    );
+    // Full match would put us at line 9. If only best-prefix
+    // recovers (dropping "Heading anchors"), we still land at line 9.
+    assert_eq!(m.matched_line_number, 9);
+}
+
+#[test]
+fn rendered_setext_heading_underline_does_not_block_match() {
+    // Construct a setext-heading scenario inline (no sample uses
+    // setext, but the matcher must still handle it). Source:
+    //   "Setext H1"
+    //   "========="
+    //   ""
+    //   "Following paragraph here."
+    // Rendered: an H1 reading "Setext H1" followed by the paragraph.
+    // User selection: "Setext H1\nFollowing paragraph here."
+    use mdown_review_lib::core::matching::match_comments;
+    let lines = vec![
+        "Setext H1",
+        "=========",
+        "",
+        "Following paragraph here.",
+    ];
+    let comment = comment_with_selection(1, Some(4), "Setext H1\nFollowing paragraph here.");
+    let result = match_comments(&[comment], &lines, "/test/setext.md", "test");
+    let m = result.into_iter().next().unwrap();
+    assert!(!m.is_orphaned, "setext cross-paragraph must anchor");
+    assert_eq!(m.matched_line_number, 1);
+    let anchored = m.anchored_text.as_deref().unwrap_or("");
+    assert!(
+        anchored.contains("Following paragraph here"),
+        "anchored_text should include trailing paragraph (full match); got {anchored:?}"
+    );
+}
+
+#[test]
+fn rendered_cross_row_table_selection_matches_through_alignment_row() {
+    // 02-tables.md lines 7-9:
+    //   "| Name | Type | Notes |"               (header row, line 7)
+    //   "|---|---|---|"                          (alignment row, line 8 — invisible)
+    //   "| `read_text_file` | IPC command | …"   (body row,   line 9)
+    // User drag from a header cell into the body row captures the
+    // rendered text "Type Notes\nread_text_file IPC command" with a
+    // single newline (the alignment row contributes nothing visible).
+    let comment = comment_with_selection(
+        7,
+        Some(9),
+        "Type Notes\nread_text_file IPC command",
+    );
+    let m = match_one("02-tables.md", comment);
+    assert!(
+        !m.is_orphaned,
+        "cross-row table selection must anchor through alignment row"
+    );
+    // Either line 7 (start of selection) is fine; line 9 would also
+    // be acceptable. The KEY property: the alignment row does NOT
+    // inject `--- :---: ---:` garbage that breaks the substring match.
+    assert!(
+        m.matched_line_number == 7 || m.matched_line_number == 9,
+        "expected line 7 or 9; got {}",
+        m.matched_line_number
+    );
+}
+
+#[test]
+fn rendered_footnote_reference_does_not_break_match() {
+    // 11-kitchen-sink.md line 32 ends with `…and a footnote reference[^kitchen].`
+    // The rendered output replaces `[^kitchen]` with a superscript link
+    // that displays as a number (e.g. "¹" or "1"). A selection that
+    // starts before the footnote reference and ends after must not
+    // hit the literal `[^kitchen]` token in the projection.
+    //
+    // We capture only the prose ("a footnote reference") which DOES
+    // appear on line 32. The projection must not contain `[^kitchen]`
+    // garbage that would cause the closest-to-orig-line tie-break to
+    // pick a different line that has the substring more cleanly.
+    let comment = comment_with_selection(
+        32,
+        Some(32),
+        "a footnote reference",
+    );
+    let m = match_one("11-kitchen-sink.md", comment);
+    assert!(!m.is_orphaned);
+    assert_eq!(m.matched_line_number, 32);
+}
+
+// ── Best-prefix recovery: lowered MIN_PREFIX_CHARS ──────────────────
+
+#[test]
+fn best_prefix_recovers_short_heading_after_lowered_floor() {
+    // After fix: MIN_PREFIX_CHARS lowered to 8 so 10-char headings like
+    // "H1 Heading" survive trimming. Build a query with a recoverable
+    // 10-char prefix and bogus tail.
+    use mdown_review_lib::core::matching::match_comments;
+    let lines = vec!["# H1 Heading", "Other content here."];
+    // 10-char prefix "H1 Heading" + bogus tail.
+    let comment = comment_with_selection(1, Some(1), "H1 Heading absent-trail");
+    let result = match_comments(&[comment], &lines, "/test/h1.md", "test");
+    let m = result.into_iter().next().unwrap();
+    assert!(!m.is_orphaned, "10-char prefix must recover");
+    assert_eq!(m.matched_line_number, 1);
+}
+
+// ── CJK / no-whitespace char-level best-prefix fallback ─────────────
+
+#[test]
+fn cjk_no_whitespace_query_recovers_via_char_level_prefix() {
+    // CJK paragraphs have no ASCII spaces. Best-prefix word-level
+    // trimming would yield zero candidates; the char-level fallback
+    // (gated on word_count < MIN_PREFIX_WORDS) trims trailing chars
+    // to recover the leading prefix.
+    use mdown_review_lib::core::matching::match_comments;
+    // Source line: "你好世界这是一段测试文字" (12 chars, no spaces).
+    // Selection: "你好世界这是一段测试文字含杂尾" (extra 3 chars at the end).
+    // The trailing 3 chars don't appear in the source — char-level
+    // best-prefix should drop them and anchor at line 1.
+    let lines = vec!["你好世界这是一段测试文字。"];
+    let comment = comment_with_selection(1, Some(1), "你好世界这是一段测试文字含杂尾");
+    let result = match_comments(&[comment], &lines, "/test/cjk.md", "test");
+    let m = result.into_iter().next().unwrap();
+    assert!(
+        !m.is_orphaned,
+        "CJK query without whitespace should recover via char-level prefix"
+    );
+    assert_eq!(m.matched_line_number, 1);
 }

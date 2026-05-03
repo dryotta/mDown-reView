@@ -35,9 +35,18 @@ use crate::core::projection::RenderedProjection;
 /// accept. Below this, we'd risk anchoring on a common phrase like
 /// "the" or "click". Calibrated for English prose; tighter than the
 /// fuzzy step's existing 0.6 threshold.
-const MIN_PREFIX_CHARS: usize = 12;
+///
+/// Lowered from 12 to 8 so 10-char rendered headings like
+/// `H1 Heading` (after block-prefix strip removes `# `) survive the
+/// best-prefix gate. The closest-to-orig-line tie-break still picks
+/// the right instance when the same phrase repeats.
+const MIN_PREFIX_CHARS: usize = 8;
 
 /// Minimum word count that a prefix must retain before it can match.
+/// Whitespace queries (English prose) keep this floor to avoid
+/// noisy single-word anchors. Whitespace-free queries (CJK, single
+/// long token) bypass the word floor and use a char-level retry
+/// instead — see `best_prefix_chars`.
 const MIN_PREFIX_WORDS: usize = 2;
 
 // NOTE: there is no per-call cap on prefix attempts or candidate
@@ -96,8 +105,9 @@ pub fn find_match(
         });
     }
 
-    // Tier 2: best-prefix retry. Iterate longest → shortest along word
-    // boundaries until a prefix matches or the prefix is too short.
+    // Tier 2a: word-boundary best-prefix retry. Iterate longest →
+    // shortest along whitespace boundaries until a prefix matches or
+    // the prefix is too short.
     for prefix in best_prefix_candidates(&normalized) {
         if let Some(line) = best_match_line(prefix, projection, orig_line, orig_end_line) {
             return Some(MultilineMatch {
@@ -105,6 +115,28 @@ pub fn find_match(
                 is_prefix: true,
                 matched_text: prefix.to_string(),
             });
+        }
+    }
+
+    // Tier 2b: char-boundary best-prefix retry — only fires when the
+    // query has fewer whitespace-separated words than `MIN_PREFIX_WORDS`,
+    // i.e. CJK / Thai / unbroken URL-like text where the word floor
+    // would yield zero candidates. Trims one char at a time from the
+    // tail; same `MIN_PREFIX_CHARS` floor applies.
+    //
+    // Cost: at most `query.chars().count() - MIN_PREFIX_CHARS` retries.
+    // For typical CJK selections (≤ MRSF §6.2 4 KB cap) this caps at a
+    // few thousand iterations of `str::find` — still well below the
+    // matcher's overall budget.
+    if word_count(&normalized) < MIN_PREFIX_WORDS {
+        for prefix in best_prefix_chars(&normalized) {
+            if let Some(line) = best_match_line(prefix, projection, orig_line, orig_end_line) {
+                return Some(MultilineMatch {
+                    line,
+                    is_prefix: true,
+                    matched_text: prefix.to_string(),
+                });
+            }
         }
     }
 
@@ -241,6 +273,57 @@ fn best_prefix_candidates(query: &str) -> impl Iterator<Item = &str> {
         })
 }
 
+/// Iterator over progressively shorter char-level prefixes of `query`,
+/// going longest → shortest. Trims one **char** (not byte, not word)
+/// at a time from the end. Stops once the prefix would fall below
+/// `MIN_PREFIX_CHARS`. The full query is NOT yielded — callers
+/// already tried it.
+///
+/// Used for whitespace-free queries (CJK, single long token) where
+/// `best_prefix_candidates` would yield zero candidates and the
+/// "match as much as possible, reduce from the end" contract would
+/// otherwise be unreachable.
+fn best_prefix_chars(query: &str) -> impl Iterator<Item = &str> + '_ {
+    // Pre-compute char-end byte offsets so we can slice without
+    // re-scanning the string for each shortening. `char_indices`
+    // yields (byte_offset, char) for each char start; we want the
+    // boundaries AFTER each char (i.e. the start of the NEXT char,
+    // or `query.len()` for the last). Skip the full-length boundary
+    // because the full query was already tried.
+    let mut boundaries: Vec<usize> = query
+        .char_indices()
+        .map(|(i, _)| i)
+        .collect();
+    // Discard the 0 entry; we want positions ≥ 1 (each is the byte
+    // offset where the char ENDS / next char starts). Keep them in
+    // order of increasing length so we can iterate longest → shortest
+    // by reverse-walking.
+    boundaries.remove(0); // remove offset 0 (empty prefix)
+    boundaries.push(query.len()); // add the full-length boundary so
+                                   // "everything except last char" is yielded first
+
+    boundaries
+        .into_iter()
+        .rev()
+        // Skip the full length — caller already tried it.
+        .skip(1)
+        .filter_map(move |end| {
+            let prefix = &query[..end];
+            if prefix.chars().count() < MIN_PREFIX_CHARS {
+                return None;
+            }
+            // Don't trim mid-whitespace — if the trimmed prefix ends
+            // in whitespace, peel it back to the previous non-space
+            // boundary so we don't anchor on a trailing run of
+            // spaces (cosmetic; matches `best_prefix_candidates`).
+            let trimmed = prefix.trim_end();
+            if trimmed.is_empty() || trimmed.chars().count() < MIN_PREFIX_CHARS {
+                return None;
+            }
+            Some(trimmed)
+        })
+}
+
 /// Count whitespace-separated words in `s` (cheap; not Unicode-aware
 /// because `MIN_PREFIX_WORDS` is a coarse safety net, not a linguistic
 /// measurement).
@@ -283,19 +366,19 @@ mod tests {
 
     #[test]
     fn cross_block_match_via_newline_boundary() {
-        // User selects from heading into following paragraph; the raw
-        // selection contains '\n'. After lossy normalization, the '\n'
-        // becomes ' ' (whitespace pass) — and the projection joins
-        // blank-separated source lines with ' ' too — so the cross-
-        // block selection matches.
+        // User selects from a heading into the following paragraph;
+        // `getSelection().toString()` returns the RENDERED text (no
+        // `#` marker) joined by `\n`. After lossy normalization, the
+        // `\n` becomes ` ` — and the projection's block-prefix strip
+        // already dropped the `#` marker — so the cross-block
+        // selection matches the projection's flat rendered text.
         let p = proj(&[
             "# Heading",
             "",
             "Paragraph with content.",
         ]);
-        // Note: heading "# Heading" stays as-is because md_strip
-        // only strips inline (not block) markers.
-        let m = find_match("# Heading\nParagraph with content.", &p, Some(1), Some(3)).unwrap();
+        // Projection: "Heading Paragraph with content."
+        let m = find_match("Heading\nParagraph with content.", &p, Some(1), Some(3)).unwrap();
         // The match starts at line 1.
         assert_eq!(m.line, 1);
     }
@@ -395,13 +478,57 @@ mod tests {
     fn best_prefix_candidates_drops_trailing_words_in_order() {
         let cuts: Vec<&str> = best_prefix_candidates("alpha beta gamma delta epsilon").collect();
         // Full string is skipped. Prefixes go longest → shortest.
+        // After lowering MIN_PREFIX_CHARS to 8:
         // "alpha beta gamma delta" → 22 chars / 4 words → ok
         // "alpha beta gamma"       → 16 chars / 3 words → ok
-        // "alpha beta"             → 10 chars / 2 words → BELOW 12 chars → dropped
-        // "alpha"                  → 5 chars / 1 word   → dropped
-        assert_eq!(cuts.len(), 2);
-        assert_eq!(cuts[0], "alpha beta gamma delta");
-        assert_eq!(cuts[1], "alpha beta gamma");
+        // "alpha beta"             → 10 chars / 2 words → ok (≥ 8 chars)
+        // "alpha"                  → 5 chars / 1 word   → BELOW 8 chars + 2 words → dropped
+        assert_eq!(cuts, vec!["alpha beta gamma delta", "alpha beta gamma", "alpha beta"]);
+    }
+
+    #[test]
+    fn best_prefix_chars_iterates_longest_to_shortest() {
+        // No-whitespace query with 12 chars; MIN_PREFIX_CHARS = 8.
+        // Expect prefixes of 11, 10, 9, 8 chars, in order.
+        let cuts: Vec<&str> = best_prefix_chars("ABCDEFGHIJKL").collect();
+        assert_eq!(cuts.len(), 4, "got {cuts:?}");
+        assert_eq!(cuts[0], "ABCDEFGHIJK");
+        assert_eq!(cuts[3], "ABCDEFGH");
+    }
+
+    #[test]
+    fn cjk_no_whitespace_query_recovers_via_char_level_prefix() {
+        // 12 CJK chars; trim trailing 2 → 10 char prefix matches.
+        let p = proj(&["你好世界这是一段测试文字。"]);
+        let m = find_match("你好世界这是一段测试文字含杂尾", &p, Some(1), Some(1)).unwrap();
+        assert!(m.is_prefix);
+        assert_eq!(m.line, 1);
+        // Recovered prefix should be the leading 12 CJK chars.
+        assert!(m.matched_text.starts_with("你好世界这是一段测试文字"));
+    }
+
+    #[test]
+    fn short_heading_recovers_via_lowered_min_prefix_chars() {
+        // After lowering MIN_PREFIX_CHARS to 8, a 10-char heading
+        // prefix like "H1 Heading" survives best-prefix trimming.
+        let p = proj(&["H1 Heading", "Other content."]);
+        let m = find_match("H1 Heading absent-trail", &p, Some(1), Some(1)).unwrap();
+        assert!(m.is_prefix);
+        assert_eq!(m.line, 1);
+    }
+
+    #[test]
+    fn whitespace_query_does_not_use_char_level_fallback() {
+        // For a whitespace query that is too short to recover via
+        // word-level (single word, < MIN_PREFIX_CHARS=8 after trim),
+        // we must NOT fall through to char-level — that would anchor
+        // on noisy 8-char fragments. word_count("hello world") = 2,
+        // which is ≥ MIN_PREFIX_WORDS, so char-level is bypassed.
+        let p = proj(&["totally unrelated text"]);
+        let m = find_match("hello world here", &p, Some(1), Some(1));
+        // None of the word-level prefixes match either, so result is
+        // None — char fallback isn't used because word_count ≥ 2.
+        assert!(m.is_none());
     }
 
     #[test]

@@ -39,6 +39,7 @@
 //! every comment for that file, so the amortized cost is one strip +
 //! normalize per source line per file refresh.
 
+use crate::core::block_strip::strip_block_prefix;
 use crate::core::md_strip::strip_md_inline;
 use crate::core::normalize::normalize_lossy;
 
@@ -154,12 +155,48 @@ fn is_fence_marker(raw: &str) -> bool {
     false
 }
 
-/// Rich projection used outside fenced blocks: strip inline markdown
-/// markers, strip inline HTML, flatten table-cell pipes, normalize.
+/// Rich projection used outside fenced blocks: strip block-level
+/// prefix (heading/list/blockquote/HR markers), strip inline markdown
+/// markers, flatten table-cell pipes, drop GFM table alignment rows,
+/// normalize whitespace.
 fn project_line_rich(raw: &str) -> String {
-    let stripped = strip_md_inline(raw);
+    if is_alignment_row(raw) {
+        // Alignment rows (`|---|:---:|---:|`) are invisible in the
+        // rendered HTML; their literal `:---:` content would inject
+        // garbage into cross-row table selections.
+        return String::new();
+    }
+    // Block-level prefix strip runs FIRST so the body sees the same
+    // shape every other prose line does. Doing it after inline strip
+    // would force every inline regex to handle the leading `> # `.
+    let no_block = strip_block_prefix(raw);
+    let stripped = strip_md_inline(&no_block);
     let unpiped = strip_table_cell_pipes(&stripped);
     normalize_lossy(&unpiped)
+}
+
+/// True when a line is a GFM table alignment row — bracketed pipes
+/// containing only dashes, colons, and whitespace. The browser
+/// renders this as table styling (column alignment) with no visible
+/// text, so the projection must contribute nothing for it. Without
+/// this the projection injects `--- :---: ---:` between header and
+/// body rows and breaks cross-row selection matching.
+fn is_alignment_row(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.len() < 3 || !trimmed.starts_with('|') || !trimmed.ends_with('|') {
+        return false;
+    }
+    // Inside the bracketing pipes, every char must be `-`, `:`, `|`,
+    // or whitespace. Need at least two internal pipes for ≥ 2 cells
+    // (so `|---|` alone doesn't qualify — that's an HR-like single
+    // cell which the matcher won't see anyway, but be conservative).
+    if trimmed.matches('|').count() < 3 {
+        return false;
+    }
+    let inner = &trimmed[1..trimmed.len() - 1];
+    inner
+        .chars()
+        .all(|c| matches!(c, '-' | ':' | '|' | ' ' | '\t'))
 }
 
 /// Literal projection used INSIDE fenced code blocks: only normalize
@@ -267,17 +304,16 @@ mod tests {
 
     #[test]
     fn cross_block_selection_can_match_after_normalize() {
-        // After normalization the query's '\n' becomes ' ', and the
-        // projection joins everything with ' ', so a query that
-        // selects from a heading into the next paragraph matches.
+        // After block-prefix strip + whitespace normalize, a heading
+        // followed by a paragraph projects to flat rendered text with
+        // no `#` marker — exactly what `getSelection().toString()`
+        // returns when the user drags from heading to paragraph.
         let p = build_for(&[
             "# Heading",
             "",
             "Paragraph with content.",
         ]);
-        // The projection collapses the blank line: heading and
-        // paragraph are joined by a single space.
-        assert_eq!(p.text, "# Heading Paragraph with content.");
+        assert_eq!(p.text, "Heading Paragraph with content.");
     }
 
     #[test]
@@ -358,12 +394,34 @@ mod tests {
     }
 
     #[test]
-    fn table_alignment_row_collapses() {
+    fn table_alignment_row_projects_to_empty() {
+        // GFM table alignment rows are invisible in the rendered HTML
+        // (browsers translate them into column styling). A
+        // cross-row selection captures NO `--- :---: ---:` glyphs, so
+        // the projection MUST contribute nothing for them. Without
+        // this, cross-row selection matching breaks because of
+        // `--- :---: ---:` garbage between header and body rows.
         let p = build_for(&["|---|:---:|---:|"]);
-        // The alignment row's content is just dashes/colons after pipe
-        // stripping → " --- :---: ---:" → after normalize, those
-        // characters survive.
-        assert_eq!(p.text, "--- :---: ---:");
+        assert_eq!(p.text, "");
+    }
+
+    #[test]
+    fn cross_row_selection_matches_through_alignment_row() {
+        // Header row joined to body row by a single space — alignment
+        // row contributes nothing to the projection.
+        let lines = vec![
+            "| Name | Type | Notes |",
+            "|---|---|---|",
+            "| `read_text_file` | IPC command | Returns now |",
+        ];
+        let p = build_for(&lines);
+        // The whole "Type Notes read_text_file IPC command" sweep
+        // must appear without any dashes or colons interleaved.
+        assert!(
+            p.text.contains("Type Notes read_text_file IPC command"),
+            "alignment row injected garbage between header and body: {:?}",
+            p.text
+        );
     }
 
     #[test]

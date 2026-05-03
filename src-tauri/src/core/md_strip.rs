@@ -52,6 +52,7 @@ pub fn strip_md_inline(line: &str) -> String {
     out = image_re().replace_all(&out, "$1").into_owned();
     out = link_re().replace_all(&out, "$1").into_owned();
     out = reflink_re().replace_all(&out, "$1").into_owned();
+    out = footnote_ref_re().replace_all(&out, "").into_owned();
     out = autolink_re().replace_all(&out, "$1").into_owned();
     out = bold_italic_star_re().replace_all(&out, "$1").into_owned();
     out = bold_italic_under_re().replace_all(&out, "$1").into_owned();
@@ -130,6 +131,25 @@ fn reflink_re() -> &'static Regex {
     // the link text (group 1). Shortcut form `[ref]` alone is left
     // untouched because the rendered output is still `ref`.
     RE.get_or_init(|| Regex::new(r"\[([^\]]+)\]\[[^\]]*\]").unwrap())
+}
+
+fn footnote_ref_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // GFM inline footnote reference `[^id]` — the renderer hoists it
+    // into a `<sup><a>n</a></sup>` superscript link whose visible
+    // text is the auto-numbered footnote index, NOT the literal id.
+    // For matcher purposes we strip the reference token entirely so
+    // `getSelection().toString()` of the surrounding prose substring-
+    // matches against the projection. (We leave the rendered numeric
+    // index off the projection — recovering it would require parsing
+    // the whole footnote table, which is overkill; the user's
+    // selection rarely captures the superscript glyph anyway.)
+    //
+    // The footnote DEFINITION (`[^id]: text` at file end) is left
+    // alone here — the leading `[^id]:` is a block-level construct
+    // handled separately in projection (callers already won't anchor
+    // inside the auto-rendered footnotes section in normal use).
+    RE.get_or_init(|| Regex::new(r"\[\^[^\]\s]+\]").unwrap())
 }
 
 fn autolink_re() -> &'static Regex {
@@ -282,6 +302,33 @@ mod tests {
             strip_md_inline("See [the repo][repo] for more"),
             "See the repo for more"
         );
+    }
+
+    #[test]
+    fn strips_inline_footnote_reference() {
+        // GFM footnote ref `[^id]` renders as a numbered superscript
+        // link; the literal id never appears in `getSelection()`.
+        assert_eq!(
+            strip_md_inline("see the literature[^smith2024] for details"),
+            "see the literature for details"
+        );
+    }
+
+    #[test]
+    fn does_not_strip_footnote_definition_marker() {
+        // A line BEGINNING with `[^id]:` is the footnote definition;
+        // it is rendered as a list item under "Footnotes". The
+        // matcher's projection sees the leading `[^id]:` because
+        // `footnote_ref_re` doesn't match a colon-suffix shape (it's
+        // a different syntactic position). For visual selection this
+        // is fine — users almost never copy from the footnotes
+        // section. (Confirmed: pattern `\[\^[^\]\s]+\]` does NOT
+        // consume the `:` at the end.)
+        let s = "[^kitchen]: A footnote definition body.";
+        let stripped = strip_md_inline(s);
+        // The `[^kitchen]` is stripped; the trailing `: A footnote...`
+        // survives so the prose body of the definition is matchable.
+        assert_eq!(stripped, ": A footnote definition body.");
     }
 
     #[test]

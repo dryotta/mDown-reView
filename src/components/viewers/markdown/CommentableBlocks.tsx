@@ -112,6 +112,52 @@ export function CommentableTableCell(Tag: "td" | "th") {
   };
 }
 
+// Detail/summary disclosure: stamp `data-source-line` inline on the
+// element itself so the wrapping `<details>` shape (and its required
+// direct-child `<summary>`) is preserved. `makeCommentableBlock`
+// would inject a `<div>` between `<details>` and `<summary>`, which
+// browsers misparse — the disclosure toggle would break and the
+// summary would be re-rendered as anonymous text.
+export function CommentableDetails({
+  children,
+  node,
+  ...props
+}: ComponentPropsWithoutRef<"details"> & ExtraProps) {
+  const line = node?.position?.start.line ?? 0;
+  const endLine = node?.position?.end.line ?? line;
+  const { commentCountByLine } = useContext(MdCommentContext);
+  const count = commentCountByLine.get(line) ?? 0;
+  return (
+    <details
+      {...props}
+      data-source-line={line}
+      data-source-end-line={endLine}
+      data-comment-count={count > 0 ? formatBadgeCount(count) : undefined}
+      className={`md-commentable-block${count > 0 ? " has-comments" : ""}`}
+    >
+      {children}
+    </details>
+  );
+}
+
+export function CommentableSummary({
+  children,
+  node,
+  ...props
+}: ComponentPropsWithoutRef<"summary"> & ExtraProps) {
+  const line = node?.position?.start.line ?? 0;
+  const endLine = node?.position?.end.line ?? line;
+  return (
+    <summary
+      {...props}
+      data-source-line={line}
+      data-source-end-line={endLine}
+    >
+      {children}
+    </summary>
+  );
+}
+
 export function CommentableLi({
   children,
   node,

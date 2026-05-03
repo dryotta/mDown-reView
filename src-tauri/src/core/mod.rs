@@ -1,5 +1,6 @@
 pub mod anchors;
 pub mod atomic;
+pub mod block_strip;
 pub mod comments;
 pub mod fold_regions;
 pub mod fuzzy;

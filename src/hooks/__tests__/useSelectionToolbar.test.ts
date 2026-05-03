@@ -547,4 +547,44 @@ describe("useSelectionToolbar — same-block selection uses data-source-end-line
     expect(result.current.selectionToolbar?.lineNumber).toBe(10);
     expect(result.current.selectionToolbar?.endLine).toBe(10);
   });
+
+  it("resolves the wrapper when range.startContainer is an element node (not a text node)", () => {
+    // Triple-click and Shift+click can produce a Range whose
+    // startContainer is an Element (e.g. the `<li>` itself with
+    // offset 0), not a text node. The previous implementation used
+    // `parentElement?.closest(...)` which walked PAST the element
+    // and would return the wrong ancestor. The fix should use
+    // `closest` on the element directly when nodeType === ELEMENT.
+    //
+    // Build: a parent block with `data-source-line=2` containing a
+    // child `<li>` with `data-source-line=5`. Selection startContainer
+    // is the `<li>` itself with offset 0.
+    const parent = document.createElement("div");
+    parent.setAttribute("data-source-line", "2");
+    document.body.appendChild(parent);
+    const li = document.createElement("li");
+    li.setAttribute("data-source-line", "5");
+    li.appendChild(document.createTextNode("list item text"));
+    parent.appendChild(li);
+
+    const range = document.createRange();
+    range.setStart(li, 0); // <-- startContainer is the LI element
+    range.setEnd(li.firstChild!, 9);
+    mockSelectionWithRange(range, "list item");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() =>
+      useSelectionToolbar("data-source-line", 0)
+    );
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar).not.toBeNull();
+    // Without the element-node fix, lineNumber would be 2 (the parent
+    // div). With the fix, it correctly resolves to 5 (the LI itself).
+    expect(result.current.selectionToolbar?.lineNumber).toBe(5);
+  });
 });

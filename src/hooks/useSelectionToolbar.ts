@@ -47,8 +47,24 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
       return;
     }
 
-    const startEl = range.startContainer.parentElement?.closest(`[${lineAttribute}]`);
-    const endEl = range.endContainer.parentElement?.closest(`[${lineAttribute}]`);
+    // Resolve the start/end ELEMENT for the selection. When the
+    // selection's start/end container IS an Element (selection that
+    // begins at offset 0 of an element node — common after triple-click
+    // or programmatic Range expansion), `parentElement` walks past
+    // that element. Use `closest` directly on the element so the node
+    // itself is considered (closest matches self + ancestors).
+    const startNode = range.startContainer;
+    const endNode = range.endContainer;
+    const startEl =
+      (startNode.nodeType === Node.ELEMENT_NODE
+        ? (startNode as Element)
+        : startNode.parentElement
+      )?.closest(`[${lineAttribute}]`) ?? null;
+    const endEl =
+      (endNode.nodeType === Node.ELEMENT_NODE
+        ? (endNode as Element)
+        : endNode.parentElement
+      )?.closest(`[${lineAttribute}]`) ?? null;
     if (!startEl || !endEl) {
       setSelectionToolbar(null);
       return;
