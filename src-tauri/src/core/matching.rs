@@ -1,5 +1,7 @@
 use crate::core::fuzzy::fuzzy_score;
 use crate::core::md_strip::strip_md_inline;
+use crate::core::multiline_match::{find_match, MultilineMatch};
+use crate::core::projection::RenderedProjection;
 use crate::core::types::{MatchedComment, MrsfComment};
 use sha2::{Digest, Sha256};
 
@@ -14,6 +16,12 @@ const FUZZY_THRESHOLD: f64 = 0.6;
 ///    that span inline-formatting markers (`**bold**`, `[link](url)`, etc.)
 ///    where the rendered text the user selected is not literally present in
 ///    the source line. Same closest-to-original-line tiebreaker as 1.
+/// 1c. Multi-line projection match — recovers cross-block / soft-wrap /
+///    inline-HTML / smart-quote selections whose rendered text spans more
+///    than one source line. Falls back to **best-prefix** retry (trim
+///    trailing words from the selection until a prefix matches), so a
+///    selection whose tail no longer exists still anchors at the line
+///    where the surviving prefix begins. See `core::multiline_match`.
 /// 2. Line fallback with plausibility check (MRSF §7.4 step 2b)
 /// 3. Fuzzy match via Levenshtein similarity
 /// 4. Orphan at clamped line or 1
@@ -30,6 +38,20 @@ pub fn match_comments(
 ) -> Vec<MatchedComment> {
     let line_count = file_lines.len() as u32;
     let file_hash = sha8(file_path);
+
+    // Lazy projection: only build when at least one comment carries
+    // `selected_text` AND the file actually has lines. Cost is one
+    // strip + normalize per source line, amortized across all
+    // selection-bearing comments for this file.
+    let needs_projection = line_count > 0
+        && comments
+            .iter()
+            .any(|c| c.selected_text.as_deref().is_some_and(|s| !s.is_empty()));
+    let projection: Option<RenderedProjection> = if needs_projection {
+        Some(RenderedProjection::build(file_lines))
+    } else {
+        None
+    };
 
     comments
         .iter()
@@ -204,7 +226,55 @@ pub fn match_comments(
                         original_line: orig_line,
                     };
                 }
-                // No normalized matches either — fall through to step 2
+                // No normalized matches either — fall through to step 1c
+            }
+
+            // Step 1c: Multi-line projection match (full + best-prefix).
+            //
+            // Recovers selections that the per-line passes above can't
+            // see: cross-block selections where `selected_text` carries
+            // an internal `\n`, single rendered blocks whose source
+            // soft-wraps over multiple lines, inline-HTML rendered text
+            // (`<kbd>Ctrl</kbd>` → "Ctrl"), and Unicode/whitespace noise
+            // (NBSP, smart quotes, en/em dashes).
+            //
+            // When the full `selected_text` no longer matches verbatim
+            // (e.g. a trailing word was edited away), the best-prefix
+            // tier inside `find_match` trims trailing words and retries
+            // until a long-enough prefix matches; the comment anchors
+            // at the source line where that prefix begins. See
+            // `core::multiline_match` and the user-facing requirement:
+            // "match the selection as completely as possible; when not
+            // possible, reduce from the end."
+            if let (Some(sel), Some(proj)) = (selected_text, projection.as_ref()) {
+                if let Some(MultilineMatch {
+                    line: matched_line,
+                    is_prefix,
+                    matched_text,
+                }) = find_match(sel, proj, orig_line, orig_end)
+                {
+                    let outcome = if is_prefix {
+                        "multiline-prefix"
+                    } else if Some(matched_line) == orig_line {
+                        "multiline-orig"
+                    } else {
+                        "multiline-relocated"
+                    };
+                    let re_derived = Some(matched_line) != orig_line;
+                    emit_match_event(
+                        cmd, &comment.id, &file_hash, outcome,
+                        orig_line, orig_end, matched_line, orig_end, re_derived,
+                    );
+                    let mut c = comment.clone();
+                    c.line = Some(matched_line);
+                    return MatchedComment {
+                        comment: c,
+                        matched_line_number: matched_line,
+                        is_orphaned: false,
+                        anchored_text: Some(matched_text),
+                        original_line: orig_line,
+                    };
+                }
             }
 
             // Step 2: Line/column fallback with plausibility check (MRSF §7.4 step 2)
@@ -319,6 +389,12 @@ fn emit_match_event(
     matched_end: Option<u32>,
     re_derived: bool,
 ) {
+    // `multiline-prefix` is intentionally NOT in the warn list: it's
+    // the **expected** outcome after a normal edit removes the trailing
+    // word(s) of a selection. Spamming WARN there would drown out the
+    // genuine regressions (`exact-ambiguous`, `orphan`, `fuzzy`) the
+    // log is meant to surface. It remains visible at INFO under the
+    // `--trace` / `MDR_IPC_TRACE` gate (see observability schema).
     let warn_outcome = matches!(
         outcome,
         "exact-ambiguous" | "orphan" | "fuzzy" | "normalized-ambiguous"
@@ -736,6 +812,211 @@ mod tests {
         // is just a sanity check that the new step is non-disruptive.
         let comments = vec![make_comment("c1", Some(2), Some("plain text"))];
         let lines = vec!["first line", "plain text here", "third line"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 2);
+        assert!(!result[0].is_orphaned);
+    }
+
+    // ── Step 1c: multi-line projection match + best-prefix fallback ──
+    //
+    // These tests cover the user-facing scenarios that motivated the
+    // step 1c addition: cross-block selections, soft-wrapped paragraph
+    // selections, inline-HTML selections, smart-quote normalization,
+    // and best-prefix recovery when the selection's tail is gone.
+
+    #[test]
+    fn cross_block_selection_into_following_paragraph_matches_at_start() {
+        // User selects from a heading INTO the following paragraph.
+        // selected_text contains '\n'. Steps 1 and 1b never match (per
+        // line). Step 1c projection joins the heading + paragraph and
+        // matches; comment anchors at the heading's source line.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("Heading\nThis is the first paragraph"),
+        )];
+        let lines = vec![
+            "# Heading",
+            "",
+            "This is the first paragraph after.",
+        ];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn soft_wrapped_paragraph_selection_anchors_at_start_line() {
+        // Source has a soft-wrapped paragraph; the selection in the
+        // rendered view crosses the source-line boundary.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("paragraph that spans two"),
+        )];
+        let lines = vec!["This is a long paragraph that", "spans two lines here."];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn inline_html_kbd_selection_matches_via_projection() {
+        // Source uses <kbd>; rendered selection is "Press Ctrl+K now".
+        // Step 1b doesn't help because <kbd> isn't markdown markers it
+        // strips, but step 1c uses the extended HTML stripper.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("Press Ctrl+K now"),
+        )];
+        let lines = vec!["Press <kbd>Ctrl</kbd>+<kbd>K</kbd> now"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn nbsp_in_source_matches_ascii_space_selection() {
+        // Source has NBSP between "alpha" and "beta"; rendered selection
+        // captures ASCII space. Step 1 fails (literal substring), step
+        // 1c normalizes both sides to ASCII space.
+        let comments = vec![make_comment("c1", Some(1), Some("alpha beta charlie"))];
+        let lines = vec!["alpha\u{00A0}beta charlie ends here."];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn smart_quotes_in_source_match_ascii_quote_selection() {
+        // Source has \u{2019} (curly right single quote); rendered
+        // selection has ASCII apostrophe.
+        let comments = vec![make_comment("c1", Some(1), Some("it's a working day"))];
+        let lines = vec!["See: it\u{2019}s a working day, indeed."];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn best_prefix_recovers_when_trailing_word_edited_away() {
+        // Selection was "alpha beta gamma delta epsilon" but the source
+        // no longer contains "epsilon" (last word was edited out).
+        // Step 1c's best-prefix tier trims trailing words and finds
+        // "alpha beta gamma delta" → anchors at line 1.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("alpha beta gamma delta epsilon"),
+        )];
+        let lines = vec![
+            "filler one",
+            "alpha beta gamma delta is here.",
+            "filler two",
+        ];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 2);
+        assert!(!result[0].is_orphaned);
+        // The matched anchored_text is the recovered prefix.
+        let matched = result[0].anchored_text.as_deref().unwrap();
+        assert!(
+            matched.starts_with("alpha beta gamma delta"),
+            "expected prefix recovery, got: {matched:?}"
+        );
+    }
+
+    #[test]
+    fn best_prefix_does_not_match_too_short_a_phrase() {
+        // Selection "the foo bar" → only "the" survives; below the
+        // 12-char / 2-word floor → step 1c gives up and downstream
+        // tiers (fuzzy / orphan) take over.
+        let comments = vec![make_comment("c1", Some(1), Some("the foo bar"))];
+        let lines = vec!["completely unrelated text only"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        // Without a recoverable prefix, this orphans.
+        assert!(result[0].is_orphaned);
+    }
+
+    #[test]
+    fn projection_match_picks_closest_line_among_duplicates() {
+        // Both line 1 and line 5 (after stripping) project to a span
+        // containing "shared phrase". Original line is 4 → line 5
+        // wins (closest-to-original tie-break in multiline_match).
+        let comments = vec![make_comment("c1", Some(4), Some("shared phrase"))];
+        let lines = vec![
+            "**shared** phrase early",
+            "filler",
+            "filler",
+            "filler",
+            "_shared_ phrase late",
+        ];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        // Step 1b's per-line stripped match also fires here (each line
+        // strips to "shared phrase early/late"), so it could resolve
+        // first. Either step 1b or step 1c lands at line 5; assert the
+        // user-visible behaviour, not which step resolved it.
+        assert_eq!(result[0].matched_line_number, 5);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn projection_handles_combined_inline_formats_across_lines() {
+        // Two-source-line paragraph mixing every inline format.
+        // Mirrors `samples/markdown/01-gfm-basics.md:32` style.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("a fast Vec<u8> allocation must not reallocate."),
+        )];
+        let lines = vec![
+            "A line that mixes them: a *fast* `Vec<u8>` allocation",
+            "**must not** ~~reallocate~~.",
+        ];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn projection_match_for_table_cell_with_br() {
+        // Table cell with `<br>` rendering as a space. Selection
+        // captures "line one line two" from the rendered cell.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("line one line two"),
+        )];
+        let lines = vec!["| line one<br>line two | second |"];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn projection_match_for_blockquote_with_inline_link() {
+        // Mirrors `samples/markdown/01-gfm-basics.md:70` style: a
+        // blockquote with bold + inline code + link. Selection picks
+        // the rendered text only.
+        let comments = vec![make_comment(
+            "c1",
+            Some(1),
+            Some("longer blockquote with emphasis, inline code, and a link."),
+        )];
+        let lines =
+            vec!["> A longer blockquote with **emphasis**, `inline code`, and a [link](https://example.com)."];
+        let result = match_comments(&comments, &lines, "/test", "test");
+        assert_eq!(result[0].matched_line_number, 1);
+        assert!(!result[0].is_orphaned);
+    }
+
+    #[test]
+    fn projection_unused_when_no_selection_text_present() {
+        // Optimisation contract: file with comments but none carry
+        // selected_text → projection is not built. Behaviour must be
+        // unchanged from pre-step-1c.
+        let comments = vec![make_comment("c1", Some(2), None)];
+        let lines = vec!["alpha", "beta", "gamma"];
         let result = match_comments(&comments, &lines, "/test", "test");
         assert_eq!(result[0].matched_line_number, 2);
         assert!(!result[0].is_orphaned);

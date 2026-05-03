@@ -22,6 +22,13 @@ export function makeCommentableBlock(Tag: string) {
     ...props
   }: ComponentPropsWithoutRef<"div"> & ExtraProps) {
     const line = node?.position?.start.line ?? 0;
+    // `position.end.line` lets selections that stay inside this single
+    // block but cross multiple source lines (e.g. a soft-wrapped
+    // paragraph) propagate the real end-line into the anchor — without
+    // it, the JS-side capture collapses to `endLine === startLine` and
+    // the Rust matcher's projection-based search loses its span hint
+    // (closest-to-original tie-break degrades to "closest to start").
+    const endLine = node?.position?.end.line ?? line;
     const { commentCountByLine } = useContext(MdCommentContext);
     const count = commentCountByLine.get(line) ?? 0;
 
@@ -29,6 +36,7 @@ export function makeCommentableBlock(Tag: string) {
       <div
         className={`md-commentable-block${count > 0 ? " has-comments" : ""}`}
         data-source-line={line}
+        data-source-end-line={endLine}
         data-comment-count={count > 0 ? formatBadgeCount(count) : undefined}
       >
         {React.createElement(Tag, props, children)}
@@ -52,6 +60,7 @@ export function CommentableWrapper({
   as?: "div" | "span";
 }) {
   const line = node?.position?.start.line ?? 0;
+  const endLine = node?.position?.end.line ?? line;
   const { commentCountByLine } = useContext(MdCommentContext);
   const count = commentCountByLine.get(line) ?? 0;
   return React.createElement(
@@ -59,6 +68,7 @@ export function CommentableWrapper({
     {
       className: `md-commentable-block${count > 0 ? " has-comments" : ""}`,
       "data-source-line": line,
+      "data-source-end-line": endLine,
       "data-comment-count": count > 0 ? formatBadgeCount(count) : undefined,
     },
     children
@@ -77,6 +87,7 @@ export function CommentableTableCell(Tag: "td" | "th") {
     ...props
   }: ComponentPropsWithoutRef<"td"> & ExtraProps) {
     const line = node?.position?.start.line ?? 0;
+    const endLine = node?.position?.end.line ?? line;
     const { commentCountByLine } = useContext(MdCommentContext);
     const count = commentCountByLine.get(line) ?? 0;
     const merged = [className, `md-commentable-cell${count > 0 ? " has-comments" : ""}`]
@@ -88,6 +99,7 @@ export function CommentableTableCell(Tag: "td" | "th") {
         ...props,
         className: merged,
         "data-source-line": line,
+        "data-source-end-line": endLine,
         // C7 (iter 6 Group A) — cell-specific attribute lets the popover
         // target this exact cell (a `<tr>` typically shares one source
         // line across all its `<td>`s, so `[data-source-line]` alone is
@@ -106,6 +118,7 @@ export function CommentableLi({
   ...props
 }: ComponentPropsWithoutRef<"li"> & ExtraProps) {
   const line = node?.position?.start.line ?? 0;
+  const endLine = node?.position?.end.line ?? line;
   const { commentCountByLine } = useContext(MdCommentContext);
   const count = commentCountByLine.get(line) ?? 0;
 
@@ -113,6 +126,7 @@ export function CommentableLi({
     <li
       {...props}
       data-source-line={line}
+      data-source-end-line={endLine}
       data-comment-count={count > 0 ? formatBadgeCount(count) : undefined}
       className={`md-commentable-li${count > 0 ? " has-comments" : ""}`}
     >

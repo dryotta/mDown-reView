@@ -5,11 +5,26 @@
 
 /// Fuzzy similarity score: 1.0 = identical, 0.0 = completely different.
 /// Substring containment returns 0.9.
+///
+/// Empty-vs-non-empty short-circuits to 0.0: without this guard,
+/// `al.contains("")` is true for any `al`, so the substring branch
+/// below would award 0.9 to a blank line versus any query — and the
+/// matcher's whole-file fuzzy scan (`core::matching` step 3) would
+/// then anchor "completely unrelated" comments at the first blank
+/// line in the file. The fuzzy step is supposed to be a similarity
+/// check, not a "blank line accepts anything" trap.
 pub fn fuzzy_score(a: &str, b: &str) -> f64 {
     let al = a.to_lowercase();
     let al = al.trim();
     let bl = b.to_lowercase();
     let bl = bl.trim();
+
+    if al.is_empty() && bl.is_empty() {
+        return 1.0;
+    }
+    if al.is_empty() || bl.is_empty() {
+        return 0.0;
+    }
 
     if al == bl {
         return 1.0;
@@ -110,5 +125,18 @@ mod tests {
     fn fuzzy_score_trims_whitespace() {
         let s = fuzzy_score("  hello  ", "hello");
         assert!((s - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn fuzzy_score_blank_line_against_nonempty_query_is_zero() {
+        // Regression: a blank line (or whitespace-only line) used to
+        // return 0.9 against ANY non-empty query because
+        // `query.contains("")` is true. That made the whole-file fuzzy
+        // step in `core::matching` anchor unrelated selections at the
+        // first blank line. Empty-vs-non-empty must short-circuit to
+        // 0.0 so the orphan tier takes over.
+        assert_eq!(fuzzy_score("hello world", ""), 0.0);
+        assert_eq!(fuzzy_score("", "hello world"), 0.0);
+        assert_eq!(fuzzy_score("hello world", "   \t  "), 0.0);
     }
 }

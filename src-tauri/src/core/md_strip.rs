@@ -64,7 +64,38 @@ pub fn strip_md_inline(line: &str) -> String {
     out = italic_star_re().replace_all(&out, "$1$2$3").into_owned();
     out = italic_under_re().replace_all(&out, "$1$2$3").into_owned();
     out = strike_re().replace_all(&out, "$1").into_owned();
+    // Inline HTML — strip just the tags, keep the text. Runs LAST so a
+    // tag appearing inside a code span (which already had its backticks
+    // peeled) doesn't get accidentally stripped above.
+    out = strip_inline_html(&out);
 
+    out
+}
+
+/// Strip inline HTML element tags (open + close + self-closing) from a
+/// rendered-line string, leaving the inner text intact.
+///
+/// `react-markdown` renders `<kbd>Ctrl</kbd>+<kbd>K</kbd>` to "Ctrl+K";
+/// the matcher's substring search needs the source line to project to
+/// the same form. We deliberately only strip a small whitelist of
+/// inline elements that mdownreview's sanitize schema permits — block
+/// HTML (`<details>`, `<summary>`, raw `<table>`) is NOT touched here
+/// because the matcher already line-splits the source.
+///
+/// The `<br>` element is replaced with a single space so cell content
+/// like `line one<br>line two` projects to "line one line two".
+///
+/// Conservative by design: an unmatched tag (e.g. literal `<` not
+/// followed by an allowed tag name) is left as-is. Over-stripping could
+/// silently merge unrelated text; the fuzzy / best-prefix tiers are
+/// safety nets when this conservative pass leaves a tag in place.
+pub fn strip_inline_html(line: &str) -> String {
+    if !line.contains('<') {
+        return line.to_string();
+    }
+    let mut out = inline_html_open_re().replace_all(line, "").into_owned();
+    out = inline_html_close_re().replace_all(&out, "").into_owned();
+    out = inline_html_void_re().replace_all(&out, " ").into_owned();
     out
 }
 
@@ -149,6 +180,40 @@ fn strike_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     // ~~text~~ — GFM strikethrough.
     RE.get_or_init(|| Regex::new(r"~~([^~\n]+)~~").unwrap())
+}
+
+/// Whitelist of HTML elements considered "inline-safe" for the matcher.
+/// Mirrors the elements `react-markdown`'s sanitize schema renders as
+/// inline content. Anything outside this list is left intact so the
+/// matcher's later fuzzy step can still see it.
+///
+/// Kept in sync (in spirit) with the inline elements allowed by
+/// `src/components/viewers/markdown/sanitizeSchema.ts`. If the
+/// frontend permits a new inline HTML tag, add it here so visual-mode
+/// selections that span its rendered text still match the source.
+const INLINE_HTML_TAGS: &str =
+    r"(?:kbd|abbr|sub|sup|mark|ins|del|span|dfn|small|cite|u|s|em|strong|i|b|code|q|var|samp|time)";
+
+fn inline_html_open_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        // <tag>, <tag attr="…">, <tag attr='…'>, <tag class=foo>
+        // attributes section is non-greedy and stops at first `>`.
+        Regex::new(&format!(r"(?i)<{}(?:\s+[^>]*)?>", INLINE_HTML_TAGS)).unwrap()
+    })
+}
+
+fn inline_html_close_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(&format!(r"(?i)</{}\s*>", INLINE_HTML_TAGS)).unwrap())
+}
+
+fn inline_html_void_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // Void / self-closing inline tags. <br> + <wbr> render as breaks /
+    // word-break opportunities — replace with a single space so cells
+    // and lines containing them project to space-separated text.
+    RE.get_or_init(|| Regex::new(r"(?i)<(?:br|wbr)\s*/?>").unwrap())
 }
 
 #[cfg(test)]
@@ -290,6 +355,95 @@ mod tests {
         assert_eq!(
             strip_md_inline("[one](u1) and [two](u2) and [three](u3)"),
             "one and two and three"
+        );
+    }
+
+    // ── Inline HTML stripping (visual-mode selection across rendered HTML) ──
+
+    #[test]
+    fn strips_kbd_tags() {
+        assert_eq!(strip_md_inline("Press <kbd>Ctrl</kbd>+<kbd>K</kbd>"), "Press Ctrl+K");
+    }
+
+    #[test]
+    fn strips_abbr_tags_with_title_attribute() {
+        assert_eq!(
+            strip_md_inline(r#"An <abbr title="Inter-Process Communication">IPC</abbr> abbreviation"#),
+            "An IPC abbreviation"
+        );
+    }
+
+    #[test]
+    fn strips_sub_and_sup_tags() {
+        assert_eq!(strip_md_inline("H<sub>2</sub>O"), "H2O");
+        assert_eq!(strip_md_inline("x<sup>2</sup>"), "x2");
+    }
+
+    #[test]
+    fn strips_mark_ins_del_tags() {
+        assert_eq!(strip_md_inline("<mark>highlighted</mark>"), "highlighted");
+        assert_eq!(strip_md_inline("<ins>added</ins>"), "added");
+        assert_eq!(strip_md_inline("<del>removed</del>"), "removed");
+    }
+
+    #[test]
+    fn br_tag_becomes_space() {
+        assert_eq!(strip_md_inline("line one<br>line two"), "line one line two");
+        assert_eq!(strip_md_inline("line one<br/>line two"), "line one line two");
+        assert_eq!(strip_md_inline("line one<br />line two"), "line one line two");
+    }
+
+    #[test]
+    fn strips_inline_html_inside_table_cell_with_pipes() {
+        // Cell content like `line one<br>line two` — the pipe at the
+        // outer table boundary is left alone because it's NOT an HTML
+        // tag.
+        assert_eq!(
+            strip_md_inline("| line one<br>line two | second |"),
+            "| line one line two | second |"
+        );
+    }
+
+    #[test]
+    fn strips_inline_html_combined_with_markdown_markers() {
+        // Mirrors line 30-31 of samples/markdown/11-kitchen-sink.md.
+        let input =
+            r#"an <abbr title="Inter-Process Communication">IPC</abbr> abbreviation, a keyboard hint <kbd>Ctrl</kbd>+<kbd>K</kbd>"#;
+        let stripped = strip_md_inline(input);
+        assert!(
+            stripped.contains("an IPC abbreviation"),
+            "abbr should strip: {stripped:?}"
+        );
+        assert!(
+            stripped.contains("Ctrl+K"),
+            "kbd should strip without dropping the +: {stripped:?}"
+        );
+    }
+
+    #[test]
+    fn does_not_strip_unknown_html_tag() {
+        // Unknown / block tag is left as-is so the matcher's fuzzy /
+        // best-prefix tiers can still see structure.
+        assert_eq!(strip_md_inline("<details>X</details>"), "<details>X</details>");
+        assert_eq!(strip_md_inline("<custom-elem>X</custom-elem>"), "<custom-elem>X</custom-elem>");
+    }
+
+    #[test]
+    fn does_not_strip_lonely_lt() {
+        // Just a `<` shouldn't trigger HTML stripping.
+        assert_eq!(strip_md_inline("a < b"), "a < b");
+    }
+
+    #[test]
+    fn strip_inline_html_directly_returns_unchanged_without_lt() {
+        assert_eq!(strip_inline_html("plain text"), "plain text");
+    }
+
+    #[test]
+    fn strip_inline_html_handles_attribute_with_equals() {
+        assert_eq!(
+            strip_inline_html(r#"<span class="hl">text</span>"#),
+            "text"
         );
     }
 }

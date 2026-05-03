@@ -385,3 +385,166 @@ describe("useSelectionToolbar with custom lineAttribute and lineOffset", () => {
     });
   });
 });
+
+// ── data-source-end-line capture for same-block multi-line selections ────
+
+describe("useSelectionToolbar — same-block selection uses data-source-end-line", () => {
+  // Helper: stub jsdom range rect API so positioning code path works.
+  function stubRangeRects() {
+    const rect = {
+      top: 100, left: 50, bottom: 115, right: 200,
+      width: 150, height: 15, x: 50, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectList = {
+      length: 1,
+      item: (i: number) => (i === 0 ? rect : null),
+      0: rect,
+    } as unknown as DOMRectList;
+    const proto = Range.prototype as unknown as Record<string, unknown>;
+    const originals = {
+      getClientRects: proto.getClientRects,
+      getBoundingClientRect: proto.getBoundingClientRect,
+    };
+    proto.getClientRects = (() => rectList) as unknown;
+    proto.getBoundingClientRect = (() => rect) as unknown;
+    return () => {
+      proto.getClientRects = originals.getClientRects;
+      proto.getBoundingClientRect = originals.getBoundingClientRect;
+    };
+  }
+
+  function makeBlock(startLine: number, endLine: number, text: string): HTMLElement {
+    const el = document.createElement("div");
+    el.setAttribute("data-source-line", String(startLine));
+    el.setAttribute("data-source-end-line", String(endLine));
+    el.appendChild(document.createTextNode(text));
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function mockSelectionWithRange(range: Range, text: string) {
+    const sel = {
+      isCollapsed: false,
+      toString: () => text,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, "getSelection").mockReturnValue(sel);
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    Object.defineProperty(window, "innerWidth", { value: 800, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 600, configurable: true });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses data-source-end-line as endLine when start and end resolve to same block", () => {
+    // Source line 5 starts a paragraph that ends on line 8 (a soft-
+    // wrapped paragraph in the source). The DOM wrapper has
+    // data-source-line=5 and data-source-end-line=8.
+    const block = makeBlock(5, 8, "wrapped paragraph content");
+    const range = document.createRange();
+    range.setStart(block.firstChild!, 0);
+    range.setEnd(block.firstChild!, 17);
+    mockSelectionWithRange(range, "wrapped paragraph");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() =>
+      useSelectionToolbar("data-source-line", 0)
+    );
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar).not.toBeNull();
+    expect(result.current.selectionToolbar?.lineNumber).toBe(5);
+    // endLine should be 8 (from data-source-end-line), not 5.
+    expect(result.current.selectionToolbar?.endLine).toBe(8);
+  });
+
+  it("uses end-block start line when selection spans across two different blocks", () => {
+    // Selection starts in block at line 5 (ends at 8) and ends in
+    // block at line 10 (ends at 12). Cross-block: endLine should be
+    // 10 (start of end block), NOT the end block's end-line (12).
+    const blockA = makeBlock(5, 8, "first block");
+    const blockB = makeBlock(10, 12, "second block");
+    const range = document.createRange();
+    range.setStart(blockA.firstChild!, 0);
+    range.setEnd(blockB.firstChild!, 12);
+    mockSelectionWithRange(range, "first block second block");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() =>
+      useSelectionToolbar("data-source-line", 0)
+    );
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar).not.toBeNull();
+    expect(result.current.selectionToolbar?.lineNumber).toBe(5);
+    expect(result.current.selectionToolbar?.endLine).toBe(10);
+  });
+
+  it("falls back to endIdx when data-source-end-line is missing or invalid", () => {
+    // Block lacks data-source-end-line (legacy shape, source view, etc.).
+    const block = document.createElement("div");
+    block.setAttribute("data-source-line", "3");
+    block.appendChild(document.createTextNode("just one line"));
+    document.body.appendChild(block);
+
+    const range = document.createRange();
+    range.setStart(block.firstChild!, 0);
+    range.setEnd(block.firstChild!, 4);
+    mockSelectionWithRange(range, "just");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() =>
+      useSelectionToolbar("data-source-line", 0)
+    );
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar?.lineNumber).toBe(3);
+    expect(result.current.selectionToolbar?.endLine).toBe(3);
+  });
+
+  it("ignores data-source-end-line when it is BEFORE the start line (defensive)", () => {
+    // Pathological / corrupted markup: end-line < start-line. The
+    // hook should ignore the bad attribute and fall back to endIdx.
+    const block = document.createElement("div");
+    block.setAttribute("data-source-line", "10");
+    block.setAttribute("data-source-end-line", "5"); // bogus
+    block.appendChild(document.createTextNode("paragraph content"));
+    document.body.appendChild(block);
+
+    const range = document.createRange();
+    range.setStart(block.firstChild!, 0);
+    range.setEnd(block.firstChild!, 9);
+    mockSelectionWithRange(range, "paragraph");
+    const restore = stubRangeRects();
+
+    const { result } = renderHook(() =>
+      useSelectionToolbar("data-source-line", 0)
+    );
+    try {
+      act(() => result.current.handleMouseUp());
+    } finally {
+      restore();
+    }
+
+    expect(result.current.selectionToolbar?.lineNumber).toBe(10);
+    expect(result.current.selectionToolbar?.endLine).toBe(10);
+  });
+});

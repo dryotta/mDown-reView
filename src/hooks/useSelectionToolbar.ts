@@ -57,6 +57,26 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
     const startIdx = Number(startEl.getAttribute(lineAttribute));
     const endIdx = Number(endEl.getAttribute(lineAttribute));
 
+    // For SAME-BLOCK selections that cross multiple SOURCE lines (a
+    // soft-wrapped paragraph, a list item with multi-line content), the
+    // start/end DOM nodes resolve to the same wrapper, so `endIdx` ===
+    // `startIdx` and the matcher loses the real source span. The
+    // markdown viewer stamps `data-source-end-line` (when available)
+    // with `node.position.end.line`, which gives us the block's true
+    // end line. We use it ONLY when start and end resolve to the same
+    // block — cross-block selections still use the end block's start
+    // line (so `[lineNumber, endLine]` brackets the match).
+    let resolvedEndIdx = endIdx;
+    if (startEl === endEl) {
+      const endLineAttr = startEl.getAttribute("data-source-end-line");
+      if (endLineAttr) {
+        const parsed = Number(endLineAttr);
+        if (!Number.isNaN(parsed) && parsed >= endIdx) {
+          resolvedEndIdx = parsed;
+        }
+      }
+    }
+
     // Use last client rect for positioning near selection end. When
     // `getClientRects()` returns nothing (Range collapsed-at-boundary,
     // selection spanning hidden nodes, or some odd shadow-DOM cases),
@@ -108,7 +128,7 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
       lineNumber: startIdx + lineOffset,
       selectedText,
       startOffset: range.startOffset,
-      endLine: endIdx + lineOffset,
+      endLine: resolvedEndIdx + lineOffset,
       endOffset: range.endOffset,
     });
   };
