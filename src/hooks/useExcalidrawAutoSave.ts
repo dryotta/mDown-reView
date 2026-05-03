@@ -59,6 +59,34 @@ import { useStore } from "@/store";
 export interface AutoSaveState {
   notifyChange: (live: ExcalidrawScene) => void;
   /**
+   * Excalidraw separates scene state (elements / appState / files via
+   * `onChange`) from library state (via `onLibraryChange`). The previous
+   * design read `appState.libraryItems` inside `onChange` — but that key
+   * does not exist on the scene-tick appState payload, so library items
+   * were always `null` at save time. For `.excalidrawlib` files the
+   * downstream `serializeLibraryAsJSON` then wrote an empty array,
+   * silently destroying the user's curated library on every save
+   * (#352 bug-expert P0-1). The fix wires `onLibraryChange` through this
+   * dedicated callback so library items reach the IPC verbatim.
+   *
+   * For `.excalidrawlib` files this also marks dirty + restarts the
+   * debounce timer (the library IS the file content). For non-library
+   * files (canonical `.excalidraw` / PNG / SVG) the live items are
+   * tracked but not persisted — Excalidraw's library is a per-user
+   * palette, not a per-scene asset.
+   */
+  notifyLibraryChange: (items: ReadonlyArray<unknown>) => void;
+  /**
+   * Bootstrap the in-memory library baseline from the loaded scene
+   * BEFORE the first `notifyLibraryChange` arrives. Excalidraw is not
+   * guaranteed to fire `onLibraryChange` on mount, so without this seed
+   * the FIRST user library mutation would be silently treated as the
+   * baseline (the existing pipeline auto-baselines on the first
+   * snapshot — `lastSavedHashRef.current === null`). Calling this from
+   * the scene loader fixes the asymmetry.
+   */
+  setBaselineLibrary: (items: ReadonlyArray<unknown>) => void;
+  /**
    * Synchronously trigger `performSave(true)`. The optional opts.userInitiated
    * flag (Cmd+S only) controls whether a successful write surfaces the
    * transient "Saved" pill — pill must NOT appear when the save was paused,
@@ -99,6 +127,12 @@ export function useExcalidrawAutoSave(
   const [savedPillVisible, setSavedPillVisible] = useState(false);
 
   const liveSceneRef = useRef<ExcalidrawScene | null>(null);
+  // Iter-21 (#352 bug-expert P0-1): library items live on a separate
+  // ref because Excalidraw fires them via `onLibraryChange`, NOT
+  // through the scene `onChange` callback. Keeping them out of
+  // `liveSceneRef` would still be correct, but co-locating them as
+  // a peer ref keeps the save payload assembly in one place.
+  const liveLibraryItemsRef = useRef<ReadonlyArray<unknown> | null>(null);
   const lastSavedHashRef = useRef<string | null>(null);
   const saveInFlightRef = useRef(false);
   const pendingSaveRef = useRef(false);
@@ -203,7 +237,14 @@ export function useExcalidrawAutoSave(
       elements: live.elements,
       appState: live.appState,
       files: live.files,
-      libraryItems: live.libraryItems ?? null,
+      // Iter-21 (#352 P0-1): library items are sourced from the
+      // dedicated `liveLibraryItemsRef` (populated by
+      // `onLibraryChange` / `setBaselineLibrary`), NOT from the
+      // scene snapshot. Excalidraw's `onChange` payload does not
+      // carry library state; reading `live.libraryItems` (whose
+      // upstream was `appState.libraryItems`) silently wrote an
+      // empty array on every `.excalidrawlib` save.
+      libraryItems: liveLibraryItemsRef.current,
     })
       .then(() => {
         // If `resetBaseline()` was called during the in-flight IPC (the
@@ -286,7 +327,10 @@ export function useExcalidrawAutoSave(
           elements: live2.elements,
           appState: live2.appState,
           files: live2.files,
-          libraryItems: live2.libraryItems ?? null,
+          // Iter-21 (#352 P0-1): post-unmount drain reads library
+          // from the dedicated ref. See the matching comment in the
+          // primary save payload above.
+          libraryItems: liveLibraryItemsRef.current,
         })
           .then(() => {
             useStore.getState().recordSave(filePath);
@@ -376,7 +420,17 @@ export function useExcalidrawAutoSave(
   }, [filePath, mode]);
 
   const notifyChange = useCallback((live: ExcalidrawScene): void => {
-    liveSceneRef.current = live;
+    // Iter-21 (#352 P0-1): always source `libraryItems` from the
+    // dedicated ref. Excalidraw's `onChange` payload does NOT carry
+    // library state — those flow through `onLibraryChange` and are
+    // captured into `liveLibraryItemsRef` separately. Without this
+    // merge the live snapshot's `libraryItems` would always be `null`
+    // (the previous `appState.libraryItems` read was a phantom).
+    const merged: ExcalidrawScene = {
+      ...live,
+      libraryItems: liveLibraryItemsRef.current,
+    };
+    liveSceneRef.current = merged;
     if (modeRef.current !== "editor") return;
 
     // Cheap pre-filter (review finding performance-expert HIGH#1):
@@ -395,7 +449,7 @@ export function useExcalidrawAutoSave(
       if (k in a) persistedNow[k] = a[k];
     }
     const sameElements = prevElementsArrayRef.current === live.elements;
-    const sameLib = prevLibraryItemsRef.current === (live.libraryItems ?? null);
+    const sameLib = prevLibraryItemsRef.current === merged.libraryItems;
     const prevPersisted = prevPersistedAppStateRef.current;
     const samePersisted =
       prevPersisted !== null &&
@@ -407,7 +461,7 @@ export function useExcalidrawAutoSave(
       return;
     }
     prevElementsArrayRef.current = live.elements;
-    prevLibraryItemsRef.current = live.libraryItems ?? null;
+    prevLibraryItemsRef.current = merged.libraryItems;
     prevPersistedAppStateRef.current = persistedNow;
 
     if (lastSavedHashRef.current === null) {
@@ -415,7 +469,7 @@ export function useExcalidrawAutoSave(
       // time normalisation onChanges (font load, library merge) all
       // produce the same persisted form because `computeSceneSnapshot`
       // strips the volatile `versionNonce`.
-      lastSavedHashRef.current = computeSceneSnapshot(filePath, live);
+      lastSavedHashRef.current = computeSceneSnapshot(filePath, merged);
       return;
     }
     // Hash-compare BEFORE latching dirty=true. Viewport pan / tool
@@ -424,7 +478,7 @@ export function useExcalidrawAutoSave(
     // arriving during the 2 s debounce window would raise the conflict
     // banner even though the live scene matches disk byte-for-byte
     // (bug-expert MEDIUM finding).
-    const liveHash = computeSceneSnapshot(filePath, live);
+    const liveHash = computeSceneSnapshot(filePath, merged);
     if (liveHash === lastSavedHashRef.current) {
       // No persistent drift — clear any stale dirty flag so the
       // conflict-banner gate stays accurate.
@@ -475,6 +529,52 @@ export function useExcalidrawAutoSave(
 
   const clearSaveError = useCallback((): void => setSaveError(null), []);
 
+  /**
+   * Iter-21 (#352 P0-1) — wire-through for Excalidraw's
+   * `onLibraryChange` event. Updates `liveLibraryItemsRef` (sole source
+   * of truth for save payload + hash) and, for `.excalidrawlib` files,
+   * re-runs the dirty/debounce pipeline by re-invoking `notifyChange`
+   * with the previous scene shape. The new library items are merged
+   * into the next `notifyChange` snapshot via `liveLibraryItemsRef`.
+   *
+   * For non-library files (canonical `.excalidraw` / PNG / SVG)
+   * library state is per-user palette, not file content — the ref is
+   * updated for consistency but no dirty flag is raised.
+   */
+  const notifyLibraryChange = useCallback(
+    (items: ReadonlyArray<unknown>): void => {
+      liveLibraryItemsRef.current = items;
+      if (!filePath.toLowerCase().endsWith(".excalidrawlib")) return;
+      const prev = liveSceneRef.current;
+      // Synthesize a `notifyChange` call carrying the previous scene's
+      // elements/appState/files. `notifyChange` will re-merge
+      // `liveLibraryItemsRef.current` (now the new items) and run the
+      // dirty/debounce pipeline.
+      notifyChange({
+        elements: prev?.elements ?? [],
+        appState: prev?.appState ?? {},
+        files: prev?.files ?? {},
+      });
+    },
+    [filePath, notifyChange],
+  );
+
+  /**
+   * Iter-21 (#352 P0-1) — bootstrap the in-memory library baseline
+   * from the loaded scene BEFORE Excalidraw fires its first
+   * `onLibraryChange`. Without this seed the FIRST user library
+   * mutation would auto-baseline the post-mutation state (via
+   * `lastSavedHashRef.current === null` in `notifyChange`), silently
+   * losing the user's change. Called by `ExcalidrawView` once per
+   * scene-load.
+   */
+  const setBaselineLibrary = useCallback(
+    (items: ReadonlyArray<unknown>): void => {
+      liveLibraryItemsRef.current = items;
+    },
+    [],
+  );
+
   const retryAfterFailure = useCallback((): void => {
     failureCountRef.current = 0;
     autoSavePausedRef.current = false;
@@ -516,6 +616,8 @@ export function useExcalidrawAutoSave(
 
   return {
     notifyChange,
+    notifyLibraryChange,
+    setBaselineLibrary,
     flush,
     resetBaseline,
     saveError,

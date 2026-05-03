@@ -140,6 +140,8 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
 
   const {
     notifyChange,
+    notifyLibraryChange,
+    setBaselineLibrary,
     flush,
     resetBaseline,
     saveError,
@@ -148,6 +150,20 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     retryAfterFailure,
     savedPillVisible,
   } = useExcalidrawAutoSave(filePath, mode, externalChangePending);
+
+  // Iter-21 (#352 P0-1) — seed the autosave hook's library baseline
+  // from the just-loaded scene BEFORE Excalidraw fires its first
+  // `onLibraryChange`. For canonical `.excalidrawlib` files, scene
+  // load populates `scene.libraryItems`; without this seed, the
+  // first user library mutation would be auto-baselined (via the
+  // `lastSavedHashRef.current === null` branch in `notifyChange`)
+  // and silently lost. For non-library files, items default to `[]`
+  // so the ref is always non-null at save time. Effect re-runs on
+  // `reloadKey` so the conflict-banner Reload path also re-seeds.
+  useEffect(() => {
+    if (!scene) return;
+    setBaselineLibrary(scene.libraryItems ?? []);
+  }, [scene, setBaselineLibrary, reloadKey]);
 
   // Iter-18 (user-reported regression) — toolbar zoom buttons used
   // to no-op for Excalidraw because the React `zoomByFiletype` value
@@ -379,14 +395,27 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
             }
           }}
           onChange={(elements, appState, files) => {
+            // Iter-21 (#352 P0-1) — DO NOT read `appState.libraryItems`
+            // here. Excalidraw's `onChange` payload does not carry
+            // library state; that flows through `onLibraryChange` and
+            // is captured into the autosave hook's
+            // `liveLibraryItemsRef` separately. The previous reading
+            // here always resolved to `null` and silently wrote
+            // empty libraries on every `.excalidrawlib` save.
             notifyChange({
               elements: elements as ReadonlyArray<unknown>,
               appState: appState as unknown as Record<string, unknown>,
               files: files as unknown as Record<string, unknown>,
-              libraryItems:
-                ((appState as unknown as { libraryItems?: ReadonlyArray<unknown> })
-                  .libraryItems ?? null),
             });
+          }}
+          onLibraryChange={(libraryItems) => {
+            // Iter-21 (#352 P0-1) — single source of truth for
+            // library state. Excalidraw fires this synchronously
+            // when the user adds / removes / publishes / unpublishes
+            // a library item, and on `<Excalidraw initialData>`
+            // bootstrap. The autosave hook merges these into the
+            // save payload + the dirty-tracking hash.
+            notifyLibraryChange(libraryItems as ReadonlyArray<unknown>);
           }}
         />
       </div>

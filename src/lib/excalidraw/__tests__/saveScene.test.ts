@@ -98,6 +98,50 @@ describe("saveExcalidrawFile — extension routing (#352 / AC5)", () => {
     expect(mocks.writeWorkspaceBinary).not.toHaveBeenCalled();
   });
 
+  it(".excalidrawlib → serializeLibraryAsJSON receives caller-supplied libraryItems verbatim (#352 P0-1 regression)", async () => {
+    // Bug-expert P0-1: useExcalidrawAutoSave previously read
+    // `live.libraryItems ?? null` from the Excalidraw onChange snapshot
+    // (which never carries libraryItems — they live on the separate
+    // library API). The fall-through `data.libraryItems ?? [] ` then
+    // wrote an empty array, silently wiping any existing user library.
+    // After the fix, `data.libraryItems` is the single source of truth
+    // sourced from `onLibraryChange`, and `serializeLibraryAsJSON` MUST
+    // receive that value verbatim — no `appState.libraryItems` fallback,
+    // no empty-array default behind the user's back.
+    const items = [
+      { id: "lib1", status: "published", elements: [{ id: "e1", type: "rect" }] },
+      { id: "lib2", status: "unpublished", elements: [{ id: "e2", type: "ellipse" }] },
+    ] as ReadonlyArray<unknown>;
+    await saveExcalidrawFile("/ws/icons.excalidrawlib", {
+      ...FAKE_DATA,
+      libraryItems: items,
+    });
+    expect(mocks.serializeLibraryAsJSON).toHaveBeenCalledTimes(1);
+    expect(mocks.serializeLibraryAsJSON).toHaveBeenCalledWith(items);
+  });
+
+  it(".excalidrawlib → does NOT fall back to appState.libraryItems (#352 P0-1 regression)", async () => {
+    // The pre-fix fallback chain was `data.libraryItems ?? appState.libraryItems ?? []`.
+    // That fallback is wrong: Excalidraw's appState does NOT carry
+    // libraryItems on scene change — they live on the separate library
+    // API and surface via onLibraryChange. Reading them from appState
+    // produced silent destruction of the user's library on every save
+    // (the value was always undefined → fell through to []). Lock the
+    // single-source contract: when libraryItems is undefined on the
+    // payload, the saved library is empty regardless of any
+    // appState shenanigans the caller leaks in.
+    await saveExcalidrawFile("/ws/icons.excalidrawlib", {
+      ...FAKE_DATA,
+      // Deliberately leak a libraryItems shape into appState — the
+      // pre-fix code would have read it; the post-fix code MUST NOT.
+      appState: { theme: "dark", libraryItems: [{ id: "leaked", status: "published" }] },
+      // libraryItems explicitly omitted to exercise the undefined branch.
+    });
+    expect(mocks.serializeLibraryAsJSON).toHaveBeenCalledTimes(1);
+    // Empty array (the new explicit default) — NOT the leaked appState value.
+    expect(mocks.serializeLibraryAsJSON).toHaveBeenCalledWith([]);
+  });
+
   it(".excalidraw.png → exportToBlob(image/png) WITH appState.exportEmbedScene=true + writeWorkspaceBinary", async () => {
     // Iter-18 (user-reported regression): the embed-scene flag MUST be
     // set on `appState`, NOT as a top-level option. Excalidraw's

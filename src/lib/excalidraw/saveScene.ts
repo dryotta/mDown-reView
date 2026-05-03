@@ -48,9 +48,12 @@ export interface ExcalidrawSaveData {
   appState: Record<string, unknown>;
   files: Record<string, unknown>;
   /**
-   * `.excalidrawlib` library items. `null`/`undefined` for non-library
-   * files. Excalidraw passes library items through `appState.libraryItems`
-   * during normal editing; we read either source.
+   * `.excalidrawlib` library items, sourced from Excalidraw's
+   * `onLibraryChange` callback (NOT from `appState` — Excalidraw
+   * separates scene and library state, and `appState` never carries
+   * `libraryItems` on a scene change). For non-library files this
+   * is unused. `null` / `undefined` → empty library on save (#352
+   * bug-expert P0-1).
    */
   libraryItems?: ReadonlyArray<unknown> | null;
 }
@@ -150,9 +153,19 @@ export async function saveExcalidrawFile(
   if (lower.endsWith(".excalidrawlib")) {
     // Library files use a separate serializer that emits the
     // `excalidrawlib` JSON shape (`type: "excalidrawlib"`).
-    const items = (data.libraryItems ??
-      (data.appState as Record<string, unknown>).libraryItems ??
-      []) as ReadonlyArray<unknown>;
+    //
+    // Source library items ONLY from `data.libraryItems`. Excalidraw
+    // separates scene state (elements/appState/files via `onChange`)
+    // from library state (via the `onLibraryChange` callback / the
+    // imperative `api.library.getLatestLibrary()`). The previous
+    // `(data.appState as Record<string, unknown>).libraryItems ?? []`
+    // fallback was a footgun: `appState` never carries `libraryItems`,
+    // so `live.libraryItems` from `onChange` was always undefined and
+    // the fallback wrote an empty array — silently destroying the
+    // user's curated library on every save (#352 bug-expert P0-1).
+    // The single-source contract is now the caller's `libraryItems`
+    // (populated from `onLibraryChange` in `useExcalidrawAutoSave`).
+    const items = (data.libraryItems ?? []) as ReadonlyArray<unknown>;
     const text = serializeLibraryAsJSON(items as never);
     await writeWorkspaceText(filePath, text);
     return;
