@@ -26,12 +26,18 @@ vi.mock("@excalidraw/excalidraw", () => {
         | { canvasActions?: Record<string, unknown> }
         | undefined;
       const canvasActions = (ui?.canvasActions ?? {}) as Record<string, unknown>;
-      // Surface the shared API instance so tests can verify
-      // toolbar→canvas zoom wiring.
+      // Mirror real Excalidraw's contract: `excalidrawAPI` callback
+      // fires ONCE per mount inside an internal effect (post-commit),
+      // not on every render. Using `useEffect` with empty deps so
+      // tests reflect the same mount-only cardinality real users see
+      // (bug-expert iter-18 LOW finding).
       const apiCallback = props.excalidrawAPI as
         | ((api: { updateScene: (data: unknown) => void }) => void)
         | undefined;
-      apiCallback?.({ updateScene: sharedUpdateSceneSpy });
+      React.useEffect(() => {
+        apiCallback?.({ updateScene: sharedUpdateSceneSpy });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
       return (
         <div
           data-testid="excalidraw-stub"

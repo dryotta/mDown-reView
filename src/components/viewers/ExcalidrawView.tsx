@@ -1,4 +1,5 @@
 import { Excalidraw } from "@excalidraw/excalidraw";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useEffect, useRef, useState } from "react";
 
 import { SkeletonLoader } from "./SkeletonLoader";
@@ -14,6 +15,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { useExcalidrawAutoSave } from "@/hooks/useExcalidrawAutoSave";
 import { useExcalidrawScene } from "@/hooks/useExcalidrawScene";
 import { seenFlag } from "@/lib/excalidraw/seen-flag";
+import { getFiletypeKey } from "@/lib/file-types";
+import { warn as logWarn } from "@/logger";
 import { useStore } from "@/store";
 import { ZOOM_DEFAULT } from "@/store/viewerPrefs";
 
@@ -144,21 +147,42 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // to no-op for Excalidraw because the React `zoomByFiletype` value
   // was never plumbed into the canvas. Subscribe here and push it
   // into Excalidraw via the imperative `excalidrawAPI.updateScene`
-  // whenever the value changes. Filetype key matches what
-  // `EnhancedViewer` derives via `getFiletypeKey(path, viewMode)`
-  // for excalidraw paths in Visual or Editor mode (`.excalidraw`).
-  // The `excalidrawAPIRef` captures the API on first render of the
-  // canvas so the effect can fire as soon as the API is ready.
+  // whenever the value changes. Filetype key derived via
+  // `getFiletypeKey(filePath, mode)` so it stays in lock-step with
+  // `EnhancedViewer` and Ctrl+= / Ctrl+- / Ctrl+0 shortcuts.
+  // (react-tauri-expert MEDIUM — eliminates hardcoded literal drift.)
+  //
+  // Bottom-up commit: by the time this parent effect fires after
+  // first commit, the child's `excalidrawAPI` callback has already
+  // populated `excalidrawAPIRef`. We do NOT push from inside the
+  // `excalidrawAPI` callback synchronously — it triggers a
+  // setState-on-unmounted-component warning inside Excalidraw's
+  // internal state machine (caught in iter-18 release-gate Linux/
+  // macOS browser e2e). The effect is the sole pusher.
+  const filetypeKey = getFiletypeKey(filePath, mode);
   const toolbarZoom = useStore(
-    (s) => s.zoomByFiletype[".excalidraw"] ?? ZOOM_DEFAULT,
+    (s) => s.zoomByFiletype[filetypeKey] ?? ZOOM_DEFAULT,
   );
-  const excalidrawAPIRef = useRef<{
-    updateScene: (data: { appState?: { zoom?: { value: number } } }) => void;
-  } | null>(null);
+  const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   useEffect(() => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
-    api.updateScene({ appState: { zoom: { value: toolbarZoom } } });
+    try {
+      api.updateScene({
+        appState: { zoom: { value: toolbarZoom } } as never,
+      });
+    } catch (err: unknown) {
+      // Defensive: if Excalidraw bumps the updateScene contract in a
+      // future version, log and degrade rather than throw an
+      // unhandled error through React's error boundary path. Users
+      // see "zoom button does nothing" with a logged trace instead
+      // of a crashed canvas. (react-tauri-expert HIGH.)
+      void logWarn(
+        `[excalidraw] zoom updateScene failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }, [toolbarZoom, reloadKey]);
 
   // Banner dismissal state. Initialised lazily so remounts don't
@@ -318,22 +342,16 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           langCode="en"
           excalidrawAPI={(api) => {
             // Iter-18 — capture the imperative API so the
-            // toolbar-zoom effect (above) can push zoom updates into
-            // the canvas. The API instance is the same across re-
-            // renders for a given mount; once stored, the ref is
-            // re-read on each effect tick.
-            excalidrawAPIRef.current = api as typeof excalidrawAPIRef.current;
-            // Push the current toolbar zoom into the canvas on mount
-            // so a remount lands at the user's chosen zoom (not the
-            // canvas default 1.0).
-            try {
-              api?.updateScene?.({
-                appState: { zoom: { value: toolbarZoom } } as never,
-              });
-            } catch {
-              // Defensive — updateScene is the canonical API but
-              // first-mount timing varies across Excalidraw versions.
-            }
+            // toolbar-zoom effect (above) can push zoom updates
+            // into the canvas. Excalidraw invokes this callback
+            // once per mount from inside its own effect (post-
+            // commit), so by the time the parent effect runs the
+            // ref is populated. We do NOT issue an inline
+            // updateScene here: synchronous mutation during the
+            // first-mount callback triggers Excalidraw's internal
+            // setState-on-unmounted-component warning (caught in
+            // iter-18 release-gate browser e2e on Linux + macOS).
+            excalidrawAPIRef.current = api;
             // In Vite dev builds we stash the imperative API on
             // `window` so browser-E2E specs can drive deterministic
             // scene mutations (e.g. inject a rectangle) without
