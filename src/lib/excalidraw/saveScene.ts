@@ -116,12 +116,18 @@ export async function saveExcalidrawFile(
   if (lower.endsWith(".excalidraw.png")) {
     const blob = await exportToBlob({
       elements: data.elements as never,
-      appState: data.appState as never,
+      // Iter-18 (user-reported regression): Excalidraw reads the
+      // embed-scene flag from `appState.exportEmbedScene`, NOT from a
+      // top-level `exportEmbedScene` option (verified in
+      // `chunk-K2UTITRG.js` — `e.appState?.exportEmbedScene && (a = await
+      // _p({blob:a, metadata:to(...)}))`). Pre-iter-18 we passed it at
+      // the top level, which Excalidraw silently ignored — the saved
+      // PNG had NO `tEXt` chunk and could not be re-loaded. Merge into
+      // a fresh appState clone so the user's authored scene appState
+      // is not mutated.
+      appState: { ...data.appState, exportEmbedScene: true } as never,
       files: data.files as never,
       mimeType: "image/png",
-      // Round-trips: PNG bytes carry the scene in a `tEXt` chunk so the
-      // file re-opens losslessly (matches the read path in extractScene).
-      exportEmbedScene: true,
     });
     const base64 = await blobToBase64(blob);
     await writeWorkspaceBinary(filePath, base64);
@@ -131,10 +137,10 @@ export async function saveExcalidrawFile(
   if (lower.endsWith(".excalidraw.svg")) {
     const svg = await exportToSvg({
       elements: data.elements as never,
-      appState: data.appState as never,
+      // Same iter-18 fix as PNG above: `exportToSvg` destructures
+      // `exportEmbedScene` from the appState arg.
+      appState: { ...data.appState, exportEmbedScene: true } as never,
       files: data.files as never,
-      // Same round-trip semantics as PNG — embed scene in `<metadata>`.
-      exportEmbedScene: true,
     });
     const base64 = svgToBase64(svg);
     await writeWorkspaceBinary(filePath, base64);

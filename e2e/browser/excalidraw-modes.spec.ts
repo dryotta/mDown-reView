@@ -101,4 +101,99 @@ test.describe("Excalidraw viewer — tri-state mode switching", () => {
     const externalRequests = (page as Page & { __externalRequests?: string[] }).__externalRequests ?? [];
     expect(externalRequests).toEqual([]);
   });
+
+  // Iter-18 (user-reported regression): toolbar zoom buttons used to
+  // no-op for Excalidraw because the React `zoomByFiletype` value was
+  // never plumbed into the canvas. After iter-18, +/- toolbar clicks
+  // call `excalidrawAPI.updateScene({ appState: { zoom: { value }}})`
+  // and the canvas's appState.zoom.value reflects the change.
+  test("toolbar +/- zoom buttons drive Excalidraw canvas zoom", async ({ page }) => {
+    await setupExcalidrawMocks(page);
+    await page.goto("/");
+
+    await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
+    // Default = Visual; canvas mounts and exposes the imperative API
+    // via the DEV-only `__EXCALIDRAW_API__` global (set in
+    // ExcalidrawView.tsx).
+    await expect(page.getByTestId("excalidraw-shell")).toBeVisible();
+
+    // Wait for Excalidraw to surface its imperative API on window.
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(() => {
+            const w = window as unknown as {
+              __EXCALIDRAW_API__?: {
+                getAppState?: () => { zoom?: { value: number } };
+              };
+            };
+            return typeof w.__EXCALIDRAW_API__?.getAppState === "function";
+          }),
+        { timeout: 10_000, intervals: [100, 250, 500] },
+      )
+      .toBe(true);
+
+    // Read initial zoom (default 1.0).
+    const initialZoom = await page.evaluate(() => {
+      const w = window as unknown as {
+        __EXCALIDRAW_API__?: { getAppState: () => { zoom: { value: number } } };
+      };
+      return w.__EXCALIDRAW_API__!.getAppState().zoom.value;
+    });
+    expect(initialZoom).toBeCloseTo(1.0, 2);
+
+    // Click the toolbar's "+" button. The button's accessible name in
+    // the existing `ZoomControl` component is "Zoom in".
+    await page.locator(".viewer-toolbar").getByRole("button", { name: /zoom in/i }).click();
+
+    // Canvas zoom should now be > 1.0 (the bumpZoom step is 0.1).
+    await expect
+      .poll(async () =>
+        await page.evaluate(() => {
+          const w = window as unknown as {
+            __EXCALIDRAW_API__?: { getAppState: () => { zoom: { value: number } } };
+          };
+          return w.__EXCALIDRAW_API__!.getAppState().zoom.value;
+        }),
+      { timeout: 5_000 },
+      )
+      .toBeGreaterThan(1.0);
+
+    // Click "-" to decrease.
+    const beforeOut = await page.evaluate(() => {
+      const w = window as unknown as {
+        __EXCALIDRAW_API__?: { getAppState: () => { zoom: { value: number } } };
+      };
+      return w.__EXCALIDRAW_API__!.getAppState().zoom.value;
+    });
+    await page.locator(".viewer-toolbar").getByRole("button", { name: /zoom out/i }).click();
+    await expect
+      .poll(async () =>
+        await page.evaluate(() => {
+          const w = window as unknown as {
+            __EXCALIDRAW_API__?: { getAppState: () => { zoom: { value: number } } };
+          };
+          return w.__EXCALIDRAW_API__!.getAppState().zoom.value;
+        }),
+      { timeout: 5_000 },
+      )
+      .toBeLessThan(beforeOut);
+  });
+
+  // Iter-18 — Excalidraw's built-in zoom widget (the bottom-left +/-/%
+  // chrome) is hidden by CSS so the user has exactly one set of zoom
+  // controls (the viewer-toolbar). Locate by the `.zoom-button` class
+  // that Excalidraw stamps on its own buttons; expect 0 visible.
+  test("Excalidraw built-in zoom widget is hidden", async ({ page }) => {
+    await setupExcalidrawMocks(page);
+    await page.goto("/");
+    await page.locator(".folder-tree").getByText("diagram.excalidraw").click();
+    await expect(page.getByTestId("excalidraw-shell")).toBeVisible();
+    // The built-in zoom buttons are inside the host slot. CSS in
+    // `excalidraw-host.css` sets `display: none !important` on
+    // `.zoom-button` etc. — Playwright's locator excludes
+    // display:none from matches.
+    const builtInZoom = page.locator(".excalidraw-host__slot .zoom-button");
+    await expect(builtInZoom).toHaveCount(0);
+  });
 });

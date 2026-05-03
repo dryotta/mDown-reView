@@ -54,3 +54,24 @@
 .excalidraw-host__slot[data-active="true"] {
   display: block;
 }
+
+/*
+ * Iter-18 — hide Excalidraw's built-in zoom widget (the bottom-left
+ * +/-/% trio in the canvas chrome). Per the user product decision,
+ * zoom is owned exclusively by the viewer-toolbar; surfacing two
+ * sets of controls is confusing and the viewer-toolbar is keyboard-
+ * shortcutted (Ctrl+= / Ctrl+- / Ctrl+0). The button class names
+ * are stable across Excalidraw 0.18: `.zoom-button`, `.zoom-in-button`,
+ * `.zoom-out-button` (verified in `node_modules/@excalidraw/excalidraw/dist/prod/index.js`),
+ * and they sit inside the `.zoom-actions` wrapper.
+ *
+ * `.reset-zoom-button` is the percentage label between the +/-
+ * buttons; hiding the entire `.zoom-actions` parent covers all three.
+ */
+.excalidraw-host__slot .zoom-actions,
+.excalidraw-host__slot .zoom-button,
+.excalidraw-host__slot .zoom-in-button,
+.excalidraw-host__slot .zoom-out-button,
+.excalidraw-host__slot .reset-zoom-button {
+  display: none !important;
+}

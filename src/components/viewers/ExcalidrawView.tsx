@@ -1,5 +1,5 @@
 import { Excalidraw } from "@excalidraw/excalidraw";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SkeletonLoader } from "./SkeletonLoader";
 import {
@@ -15,6 +15,7 @@ import { useExcalidrawAutoSave } from "@/hooks/useExcalidrawAutoSave";
 import { useExcalidrawScene } from "@/hooks/useExcalidrawScene";
 import { seenFlag } from "@/lib/excalidraw/seen-flag";
 import { useStore } from "@/store";
+import { ZOOM_DEFAULT } from "@/store/viewerPrefs";
 
 import "@excalidraw/excalidraw/index.css";
 import "@/styles/viewer-banner.css";
@@ -138,6 +139,27 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     savedPillVisible,
     triggerSavedPill,
   } = useExcalidrawAutoSave(filePath, mode, externalChangePending);
+
+  // Iter-18 (user-reported regression) — toolbar zoom buttons used
+  // to no-op for Excalidraw because the React `zoomByFiletype` value
+  // was never plumbed into the canvas. Subscribe here and push it
+  // into Excalidraw via the imperative `excalidrawAPI.updateScene`
+  // whenever the value changes. Filetype key matches what
+  // `EnhancedViewer` derives via `getFiletypeKey(path, viewMode)`
+  // for excalidraw paths in Visual or Editor mode (`.excalidraw`).
+  // The `excalidrawAPIRef` captures the API on first render of the
+  // canvas so the effect can fire as soon as the API is ready.
+  const toolbarZoom = useStore(
+    (s) => s.zoomByFiletype[".excalidraw"] ?? ZOOM_DEFAULT,
+  );
+  const excalidrawAPIRef = useRef<{
+    updateScene: (data: { appState?: { zoom?: { value: number } } }) => void;
+  } | null>(null);
+  useEffect(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    api.updateScene({ appState: { zoom: { value: toolbarZoom } } });
+  }, [toolbarZoom, reloadKey]);
 
   // Banner dismissal state. Initialised lazily so remounts don't
   // resurrect a banner the user already dismissed (the seen-flag
@@ -295,6 +317,23 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           UIOptions={UI_OPTIONS}
           langCode="en"
           excalidrawAPI={(api) => {
+            // Iter-18 — capture the imperative API so the
+            // toolbar-zoom effect (above) can push zoom updates into
+            // the canvas. The API instance is the same across re-
+            // renders for a given mount; once stored, the ref is
+            // re-read on each effect tick.
+            excalidrawAPIRef.current = api as typeof excalidrawAPIRef.current;
+            // Push the current toolbar zoom into the canvas on mount
+            // so a remount lands at the user's chosen zoom (not the
+            // canvas default 1.0).
+            try {
+              api?.updateScene?.({
+                appState: { zoom: { value: toolbarZoom } } as never,
+              });
+            } catch {
+              // Defensive — updateScene is the canonical API but
+              // first-mount timing varies across Excalidraw versions.
+            }
             // In Vite dev builds we stash the imperative API on
             // `window` so browser-E2E specs can drive deterministic
             // scene mutations (e.g. inject a rectangle) without

@@ -98,15 +98,30 @@ describe("saveExcalidrawFile — extension routing (#352 / AC5)", () => {
     expect(mocks.writeWorkspaceBinary).not.toHaveBeenCalled();
   });
 
-  it(".excalidraw.png → exportToBlob(image/png, embedScene) + writeWorkspaceBinary", async () => {
+  it(".excalidraw.png → exportToBlob(image/png) WITH appState.exportEmbedScene=true + writeWorkspaceBinary", async () => {
+    // Iter-18 (user-reported regression): the embed-scene flag MUST be
+    // set on `appState`, NOT as a top-level option. Excalidraw's
+    // `exportToBlob` reads the flag from `e.appState?.exportEmbedScene`
+    // (verified in chunk-K2UTITRG.js); a top-level
+    // `exportEmbedScene: true` is silently ignored, producing a PNG
+    // with NO `tEXt` chunk. `loadFromBlob` then sees no embedded
+    // scene and the file is non-roundtrippable. The fix merges the
+    // flag into a fresh appState clone so the user's authored
+    // appState.exportEmbedScene (whatever value) is preserved when
+    // loaded but always set to true for our save path.
     await saveExcalidrawFile("/ws/diagram.excalidraw.png", FAKE_DATA);
     expect(mocks.exportToBlob).toHaveBeenCalledTimes(1);
     const args = mocks.exportToBlob.mock.calls[0][0] as Record<string, unknown>;
     expect(args.mimeType).toBe("image/png");
-    expect(args.exportEmbedScene).toBe(true);
     expect(args.elements).toBe(FAKE_DATA.elements);
-    expect(args.appState).toBe(FAKE_DATA.appState);
     expect(args.files).toBe(FAKE_DATA.files);
+    // The headline iter-18 assertion: appState carries the flag.
+    const passedAppState = args.appState as Record<string, unknown>;
+    expect(passedAppState.exportEmbedScene).toBe(true);
+    // Original appState fields preserved.
+    expect(passedAppState.theme).toBe("dark");
+    // The user's authored appState must NOT be mutated.
+    expect(FAKE_DATA.appState.exportEmbedScene).toBeUndefined();
 
     expect(mocks.writeWorkspaceBinary).toHaveBeenCalledTimes(1);
     const [path, base64] = mocks.writeWorkspaceBinary.mock.calls[0];
@@ -116,14 +131,19 @@ describe("saveExcalidrawFile — extension routing (#352 / AC5)", () => {
     expect(mocks.writeWorkspaceText).not.toHaveBeenCalled();
   });
 
-  it(".excalidraw.svg → exportToSvg(embedScene) + writeWorkspaceBinary", async () => {
+  it(".excalidraw.svg → exportToSvg WITH appState.exportEmbedScene=true + writeWorkspaceBinary", async () => {
+    // Iter-18: same root cause as the PNG path — `exportToSvg`
+    // destructures `exportEmbedScene` from the appState arg, NOT a
+    // top-level option (verified in chunk-K2UTITRG.js).
     await saveExcalidrawFile("/ws/diagram.excalidraw.svg", FAKE_DATA);
     expect(mocks.exportToSvg).toHaveBeenCalledTimes(1);
     const args = mocks.exportToSvg.mock.calls[0][0] as Record<string, unknown>;
-    expect(args.exportEmbedScene).toBe(true);
     expect(args.elements).toBe(FAKE_DATA.elements);
-    expect(args.appState).toBe(FAKE_DATA.appState);
     expect(args.files).toBe(FAKE_DATA.files);
+    const passedAppState = args.appState as Record<string, unknown>;
+    expect(passedAppState.exportEmbedScene).toBe(true);
+    expect(passedAppState.theme).toBe("dark");
+    expect(FAKE_DATA.appState.exportEmbedScene).toBeUndefined();
 
     expect(mocks.writeWorkspaceBinary).toHaveBeenCalledTimes(1);
     const [path, base64] = mocks.writeWorkspaceBinary.mock.calls[0];

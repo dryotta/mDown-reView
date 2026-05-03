@@ -11,12 +11,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // content-hash comparison (iter-7) sees actual content drift.
 vi.mock("@excalidraw/excalidraw", () => {
   let editCounter = 0;
+  // Iter-18: keep ONE shared updateScene spy across all <Excalidraw>
+  // re-renders so tests can assert call counts even when the
+  // component re-renders (which happens on every zoom state change).
+  const sharedUpdateSceneSpy = vi.fn((_data: unknown) => {});
+  (
+    globalThis as unknown as {
+      __EXCALIDRAW_TEST_LAST_API__?: { updateScene: ReturnType<typeof vi.fn> };
+    }
+  ).__EXCALIDRAW_TEST_LAST_API__ = { updateScene: sharedUpdateSceneSpy };
   return {
     Excalidraw: vi.fn((props: Record<string, unknown>) => {
       const ui = props.UIOptions as
         | { canvasActions?: Record<string, unknown> }
         | undefined;
       const canvasActions = (ui?.canvasActions ?? {}) as Record<string, unknown>;
+      // Surface the shared API instance so tests can verify
+      // toolbar→canvas zoom wiring.
+      const apiCallback = props.excalidrawAPI as
+        | ((api: { updateScene: (data: unknown) => void }) => void)
+        | undefined;
+      apiCallback?.({ updateScene: sharedUpdateSceneSpy });
       return (
         <div
           data-testid="excalidraw-stub"
@@ -783,6 +798,103 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
       useStore.getState().excalidrawDirtyByTab["/ws/iter14-pan.excalidraw"],
     ).toBeFalsy();
     // No save fires either (no debounce was scheduled).
+    expect(saveSceneMock).not.toHaveBeenCalled();
+  });
+});
+
+// Iter-18 — toolbar zoom must drive Excalidraw's internal zoom.
+//
+// Pre-iter-18 the viewer-toolbar zoom buttons updated a Zustand store
+// (`zoomByFiletype[".excalidraw"]`) but the value was never plumbed
+// into the Excalidraw canvas. Users saw the toolbar +/- buttons as
+// no-ops while the canvas had its own (now hidden) +/- widget. The
+// fix: ExcalidrawView subscribes to the zoom value and pushes it
+// into the canvas via `excalidrawAPI.updateScene({ appState: { zoom:
+// { value }}})` whenever the value changes (and on initial mount).
+describe("ExcalidrawView — toolbar zoom wiring (#352 iter-18)", () => {
+  function lastApi(): { updateScene: ReturnType<typeof vi.fn> } | undefined {
+    return (globalThis as unknown as {
+      __EXCALIDRAW_TEST_LAST_API__?: { updateScene: ReturnType<typeof vi.fn> };
+    }).__EXCALIDRAW_TEST_LAST_API__;
+  }
+
+  it("pushes zoomByFiletype changes into the canvas via excalidrawAPI.updateScene", async () => {
+    // Reset zoom to the default so the test is hermetic.
+    useStore.setState({ zoomByFiletype: { ".excalidraw": 1.0 } });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter18-zoom.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    // Initial-mount push: Excalidraw is at 1.0, the toolbar is at 1.0
+    // — the wiring should still call updateScene at least once with
+    // the canonical zoom payload so a remount lands on the right
+    // value. (Allow zero or one initial calls; the assertion below
+    // is on the post-bump count.)
+    const initialCallCount = api!.updateScene.mock.calls.length;
+
+    // Bump zoom in — store now has 1.1 (default step).
+    await act(async () => {
+      useStore.getState().bumpZoom(".excalidraw", "in");
+    });
+    // The effect should have pushed the new zoom into the canvas.
+    await waitFor(() => {
+      expect(api!.updateScene.mock.calls.length).toBeGreaterThan(initialCallCount);
+    });
+    const lastCall = api!.updateScene.mock.calls[
+      api!.updateScene.mock.calls.length - 1
+    ][0] as { appState?: { zoom?: { value?: number } } };
+    expect(lastCall?.appState?.zoom?.value).toBeGreaterThan(1.0);
+
+    // Bump zoom out — value decreases.
+    const beforeOut = useStore.getState().zoomByFiletype[".excalidraw"] ?? 1.0;
+    await act(async () => {
+      useStore.getState().bumpZoom(".excalidraw", "out");
+    });
+    await waitFor(() => {
+      const calls = api!.updateScene.mock.calls;
+      const last = calls[calls.length - 1][0] as { appState?: { zoom?: { value?: number } } };
+      expect(last?.appState?.zoom?.value).toBeLessThan(beforeOut);
+    });
+
+    // Reset returns to 1.0.
+    await act(async () => {
+      useStore.getState().bumpZoom(".excalidraw", "reset");
+    });
+    await waitFor(() => {
+      const calls = api!.updateScene.mock.calls;
+      const last = calls[calls.length - 1][0] as { appState?: { zoom?: { value?: number } } };
+      expect(last?.appState?.zoom?.value).toBe(1.0);
+    });
+  });
+
+  it("Visual-mode ExcalidrawView ALSO honours toolbar zoom (no save side effect)", async () => {
+    useStore.setState({ zoomByFiletype: { ".excalidraw": 1.0 } });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter18-zoom-visual.excalidraw"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const before = api!.updateScene.mock.calls.length;
+    await act(async () => {
+      useStore.getState().bumpZoom(".excalidraw", "in");
+    });
+    await waitFor(() => {
+      expect(api!.updateScene.mock.calls.length).toBeGreaterThan(before);
+    });
+    // Saving must not have been triggered by zoom alone.
     expect(saveSceneMock).not.toHaveBeenCalled();
   });
 });
