@@ -204,6 +204,66 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           ? "unsaved"
           : "saved";
 
+  // Iter-22 (user feedback) — indicator is HIDDEN until the user has
+  // made at least one edit. A freshly-opened file has nothing
+  // meaningful to say + visually overlaps Excalidraw's library
+  // sidebar. Reset on `filePath` change so opening another tab/file
+  // re-arms the silence-on-mount behaviour.
+  //
+  // Pure-useState "derive state from props" pattern: track previous
+  // values in their own useState slots and adjust dependent state
+  // synchronously during render. This is the React 19 canonical
+  // pattern (react.dev "you might not need an effect"); avoids both
+  // setState-in-effect (lint: react-hooks/no-direct-set-state-in-use-effect)
+  // AND ref-reads during render (lint: react-hooks/refs-in-render).
+  const [hasEverBeenDirty, setHasEverBeenDirty] = useState(false);
+  const [trackedFilePath, setTrackedFilePath] = useState(filePath);
+  if (trackedFilePath !== filePath) {
+    setTrackedFilePath(filePath);
+    if (hasEverBeenDirty) setHasEverBeenDirty(false);
+  }
+  if (isDirty && !hasEverBeenDirty) {
+    setHasEverBeenDirty(true);
+  }
+
+  // Iter-22 (user feedback) — auto-fade 2 s after entering the saved
+  // state. The indicator collapses to opacity 0 (`data-hidden="true"`)
+  // and stays hidden until the next edit re-arms it. Failed and
+  // paused states do NOT fade — they signal the user must act, so
+  // silently hiding them would be a regression of the iter-21 P0-3
+  // affordance gap. The "saving" state also does not fade; it
+  // transitions to "saved" naturally when the IPC resolves.
+  //
+  // Reset path uses the derive-state-from-props pattern; the 2 s
+  // timer is the only setState call inside an effect, and it is
+  // ASYNCHRONOUS (inside the setTimeout callback) — which the lint
+  // rule allows.
+  const [savedHideTimerExpired, setSavedHideTimerExpired] = useState(false);
+  const [trackedSaveStatus, setTrackedSaveStatus] = useState(saveStatus);
+  if (trackedSaveStatus !== saveStatus) {
+    setTrackedSaveStatus(saveStatus);
+    if (savedHideTimerExpired) setSavedHideTimerExpired(false);
+  }
+  useEffect(() => {
+    if (saveStatus !== "saved") return;
+    const timer = window.setTimeout(() => {
+      setSavedHideTimerExpired(true);
+    }, 2000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [saveStatus]);
+
+  // Indicator is hidden when:
+  //   - the user has not edited yet (just opened the file), OR
+  //   - we are in the saved state and 2 s have elapsed.
+  // The DOM element stays mounted (so screen-reader `aria-live`
+  // announcements still fire on state changes); CSS opacity drops to
+  // 0 via `data-hidden="true"`.
+  const indicatorHidden =
+    !hasEverBeenDirty ||
+    (saveStatus === "saved" && savedHideTimerExpired);
+
   // Iter-21 (#352 P0-1) — seed the autosave hook's library baseline
   // from the just-loaded scene BEFORE Excalidraw fires its first
   // `onLibraryChange`. For canonical `.excalidrawlib` files, scene
@@ -413,7 +473,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     >
       {savedPillVisible && <SavedPill />}
       {mode === "editor" && !savedPillVisible && (
-        <SaveStatusIndicator status={saveStatus} />
+        <SaveStatusIndicator status={saveStatus} hidden={indicatorHidden} />
       )}
       {mode === "editor" && firstEntryBannerVisible && (
         <FirstEntryBanner

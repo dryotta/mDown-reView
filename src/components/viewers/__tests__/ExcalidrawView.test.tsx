@@ -1308,13 +1308,13 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     ).toBeInTheDocument();
   });
 
-  // P0-4 regression — pre-iter-21 there was no persistent save-state
-  // indicator. With autosave-only + Save button hidden + transient
-  // SavedPill gated to Cmd+S, the user could not tell if their last
-  // edit had landed on disk after a 2 s pause. Post-fix, an
-  // always-visible status pill at the canvas top-right shows
-  // saved / unsaved / saving / failed.
-  it("[P0-4] save-status indicator renders 'Saved' on mount in editor mode", async () => {
+  // Iter-22 redesign (user feedback) — pre-iter-22 the indicator
+  // showed "Saved" on mount in editor mode. That was noise + visually
+  // overlapped Excalidraw's library sidebar. Post-iter-22 the
+  // indicator is HIDDEN (data-hidden="true") until the user makes at
+  // least one edit; the DOM element stays mounted so the screen-
+  // reader aria-live announcements still fire on later state changes.
+  it("[iter-22] save-status indicator is hidden on mount when no edits have been made", async () => {
     render(
       <ExcalidrawView
         content={VALID_JSON}
@@ -1326,10 +1326,12 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     await screen.findByTestId("excalidraw-stub");
     const indicator = await screen.findByTestId("excalidraw-save-status");
     expect(indicator.getAttribute("data-status")).toBe("saved");
-    expect(indicator.textContent).toMatch(/Saved/i);
+    // Hidden via opacity:0 (data-hidden) — the DOM element is in
+    // place for aria-live continuity, but visually invisible.
+    expect(indicator.getAttribute("data-hidden")).toBe("true");
   });
 
-  it("[P0-4] save-status indicator flips to 'Unsaved' on edit, then 'Saving…' during the save IPC", async () => {
+  it("[iter-22] save-status indicator says 'Saving the changes' on edit (replaces 'Unsaved')", async () => {
     let resolveSave: () => void = () => {};
     saveSceneMock.mockImplementation(
       () =>
@@ -1340,7 +1342,7 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/p04-status-edit.excalidraw"
+        filePath="/ws/iter22-edit-copy.excalidraw"
         mode="editor"
         needsExtract={false}
       />,
@@ -1354,46 +1356,106 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
       await act(async () => {
         onChange([{ id: "rect-baseline" }], {}, {});
       });
-      // First real edit — dirty=true.
+      // First real edit — dirty=true → "unsaved" state.
       await act(async () => {
         onChange([{ id: "rect-1" }], {}, {});
       });
-      // Status should be 'unsaved' (debounce pending; no save in flight yet).
-      // Use sync getByTestId — fake timers prevent findByTestId polling.
       let indicator = screen.getByTestId("excalidraw-save-status");
       expect(indicator.getAttribute("data-status")).toBe("unsaved");
+      // The user-visible label is the new "Saving the changes" copy
+      // (NOT "Unsaved" — pre-iter-22 lie that the user found
+      // unhelpful; the system IS in fact about to save the changes).
+      expect(indicator.textContent).toMatch(/Saving the changes/i);
+      expect(indicator.textContent).not.toMatch(/^Unsaved$/i);
+      // Hidden flag is now off because the user has edited.
+      expect(indicator.getAttribute("data-hidden")).toBe("false");
 
       // Advance into the save IPC start.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2100);
       });
       indicator = screen.getByTestId("excalidraw-save-status");
-      // Status flipped to 'saving' because the IPC is mid-flight
-      // (the mock's promise hasn't resolved yet).
       expect(indicator.getAttribute("data-status")).toBe("saving");
+      // Same user-visible copy in saving state; only the pulsing dot
+      // distinguishes "debouncing" from "actively writing" — an
+      // implementation detail the user does not need to track.
+      expect(indicator.textContent).toMatch(/Saving the changes/i);
     } finally {
       vi.useRealTimers();
     }
-
     // Resolve the save and let the .finally bookkeeping commit.
     await act(async () => {
       resolveSave();
       await Promise.resolve();
       await Promise.resolve();
     });
-    // Status returns to 'saved'.
-    await waitFor(() => {
-      const indicator = screen.getByTestId("excalidraw-save-status");
-      expect(indicator.getAttribute("data-status")).toBe("saved");
-    });
   });
 
-  it("[P0-4] save-status indicator flips to 'failed' when the IPC rejects", async () => {
+  it("[iter-22] save-status indicator auto-hides 2 s after entering the saved state", async () => {
+    saveSceneMock.mockResolvedValue(undefined);
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter22-fade.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Bootstrap baseline + first edit so hasEverBeenDirty=true and
+      // the indicator becomes visible.
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      await act(async () => {
+        onChange([{ id: "edit-1" }], {}, {});
+      });
+      // Drive the debounce + save .then bookkeeping → status="saved".
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      let indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("saved");
+      // Immediately after entering saved: still visible.
+      expect(indicator.getAttribute("data-hidden")).toBe("false");
+
+      // Advance just under the 2 s grace timer — still visible.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1900);
+      });
+      indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-hidden")).toBe("false");
+
+      // Cross the 2 s threshold → indicator hides (opacity 0, but
+      // remains in the DOM for aria-live continuity).
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-hidden")).toBe("true");
+      expect(indicator.getAttribute("data-status")).toBe("saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("[iter-22] save-status indicator does NOT auto-hide in failed state", async () => {
+    // Locks the error-state visibility invariant: failed/paused must
+    // STAY visible because they signal the user must act. Auto-hiding
+    // them would re-open the iter-21 P0-3 affordance gap.
     saveSceneMock.mockRejectedValue(new Error("disk full"));
     render(
       <ExcalidrawView
         content={VALID_JSON}
-        filePath="/ws/p04-status-failed.excalidraw"
+        filePath="/ws/iter22-failed-no-fade.excalidraw"
         mode="editor"
         needsExtract={false}
       />,
@@ -1416,14 +1478,69 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
         await Promise.resolve();
         await Promise.resolve();
       });
+      let indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("failed");
+      expect(indicator.getAttribute("data-hidden")).toBe("false");
+
+      // Advance well past 2 s — failed state must remain visible.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("failed");
+      expect(indicator.getAttribute("data-hidden")).toBe("false");
     } finally {
       vi.useRealTimers();
     }
-    // Real timers restored — sync assertion or waitFor both fine.
-    await waitFor(() => {
-      const indicator = screen.getByTestId("excalidraw-save-status");
-      expect(indicator.getAttribute("data-status")).toBe("failed");
-    });
+  });
+
+  it("[iter-22] save-status indicator re-appears on next edit after auto-hiding", async () => {
+    saveSceneMock.mockResolvedValue(undefined);
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter22-rearm.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Edit → save → wait for fade.
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      await act(async () => {
+        onChange([{ id: "edit-1" }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      let indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-hidden")).toBe("true");
+
+      // Next edit: indicator must re-arm immediately — pre-fix this
+      // would have stayed hidden because hasEverBeenDirty stays true
+      // but savedHideAfterDelay was sticky.
+      await act(async () => {
+        onChange([{ id: "edit-2" }], {}, {});
+      });
+      indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("unsaved");
+      expect(indicator.getAttribute("data-hidden")).toBe("false");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("[P0-4] save-status indicator is HIDDEN in visual mode (read-only)", async () => {

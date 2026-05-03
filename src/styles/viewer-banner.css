@@ -161,10 +161,17 @@
    the same corner as the transient SavedPill but is always present in
    editor mode (the pill takes z-priority on Cmd+S so it visually replaces
    the indicator for ~1.5s).  */
+/* ── Iter-22 (#352 redesign per user feedback) ─ persistent save-
+   status indicator. Pinned to the bottom-middle of the canvas
+   (was top-right pre-iter-22 — collided with Excalidraw's library
+   sidebar). Auto-fades 2 s after entering the saved state; reappears
+   on the next edit. Failed and paused states are styled with their
+   own colors and do NOT fade. */
 .excalidraw-save-status {
   position: absolute;
-  top: 8px;
-  right: 12px;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 9;
   display: inline-flex;
   align-items: center;
@@ -177,6 +184,13 @@
   background: var(--color-bg, #ffffff);
   border: 1px solid var(--color-border, #e5e7eb);
   color: var(--color-fg-muted, #6b7280);
+  /* Smooth fade for the auto-hide-after-saved behaviour and for the
+     no-edits-yet hidden initial state. */
+  opacity: 1;
+  transition: opacity 400ms ease-out;
+}
+.excalidraw-save-status[data-hidden="true"] {
+  opacity: 0;
 }
 .excalidraw-save-status__dot {
   width: 6px;

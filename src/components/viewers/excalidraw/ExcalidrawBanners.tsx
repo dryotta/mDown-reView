@@ -238,43 +238,58 @@ export function SavedPill() {
 
 /**
  * Iter-21 (#352 product-expert P0-2) — persistent save-status
- * indicator pinned to the top-right of the canvas. Replaces the
- * affordance gap left by the autosave-only design: the user has no
- * Save button, no document-edited indicator, and the transient
- * SavedPill flashes only on Cmd+S successes. Without this indicator
- * a user who pauses for a beat after editing could not tell whether
- * their changes had landed on disk.
+ * indicator. Iter-22 redesign (user feedback):
+ *
+ *   1. **Hidden on mount** until the user has made at least one edit.
+ *      A freshly-opened file has nothing meaningful to say — showing
+ *      "Saved" out of the gate is noise + visually overlaps Excalidraw's
+ *      library panel.
+ *   2. **Edit copy**: "Saving the changes" (replaces "Unsaved" — a
+ *      forward-looking promise instead of a backward-looking
+ *      negation). Same copy for the active-IPC state; only the
+ *      pulsing dot distinguishes them.
+ *   3. **Auto-fade** 2 s after entering the saved state — the
+ *      indicator drops to opacity 0 (`data-hidden="true"`) and stays
+ *      hidden until the next edit re-arms it. Failed and paused
+ *      states do NOT fade — they stay pinned because they signal the
+ *      user must act.
+ *   4. **Position**: bottom-middle of the canvas (post-iter-22). The
+ *      previous top-right placement collided with Excalidraw's
+ *      library / sidebar panel; bottom-middle is below the canvas
+ *      content, off the toolbar, and visually consistent with
+ *      "status sits at the bottom of the workspace."
  *
  * States (priority order — first matching wins):
- *   - **paused**: 3-strike failure-pause is active. Iter-22 (#352
- *     bug-expert iter-21 P1-3): pre-iter-22 the indicator showed
- *     "Unsaved" while paused (`saveError && !autoSavePaused` excluded
- *     the paused state from "failed"), actively lying — "Unsaved" is
- *     a forward-looking promise that the autosave loop will catch up
- *     in 2 s, but autosave is HALTED until the user clicks Resume.
- *     The dedicated "paused" state agrees with the SaveErrorBanner's
- *     "Auto-save paused after repeated failures" copy.
- *   - **failed**: a fresh save IPC rejected and we are NOT yet
- *     paused — the failure counter is still below threshold and the
- *     debounce will retry. SaveErrorBanner shows the error reason +
- *     Retry/Dismiss; the indicator confirms.
- *   - **saving**: `saveInFlight === true` — IPC is in flight.
- *   - **unsaved**: `dirty === true` — pending edit waiting to debounce
- *     or coalesce with an in-flight save.
- *   - **saved**: otherwise — last persisted state matches the live
- *     scene + library.
+ *   - **paused**: 3-strike failure-pause. Stays visible.
+ *   - **failed**: fresh save IPC rejected. Stays visible.
+ *   - **saving**: IPC in flight. Pulse-dot.
+ *   - **unsaved**: dirty, debounce pending or coalesced. Same copy
+ *     as `saving`, no pulse.
+ *   - **saved**: last persisted state matches the live scene. Auto-
+ *     fades 2 s after entry.
  */
 export type SaveStatus = "saved" | "unsaved" | "saving" | "failed" | "paused";
 
 interface SaveStatusIndicatorProps {
   status: SaveStatus;
+  /**
+   * Iter-22 — when true, the indicator stays in the DOM (so screen
+   * readers still announce state changes via `aria-live`) but
+   * collapses to opacity 0 via the `--hidden` CSS modifier. Toggled
+   * by the parent's auto-fade timer 2 s after entering the saved
+   * state, OR forced true while no edits have ever been made.
+   */
+  hidden: boolean;
 }
 
-export function SaveStatusIndicator({ status }: SaveStatusIndicatorProps) {
+export function SaveStatusIndicator({
+  status,
+  hidden,
+}: SaveStatusIndicatorProps) {
   const copy: Record<SaveStatus, string> = {
     saved: "Saved",
-    unsaved: "Unsaved",
-    saving: "Saving…",
+    unsaved: "Saving the changes",
+    saving: "Saving the changes",
     failed: "Save failed",
     paused: "Auto-save paused",
   };
@@ -285,6 +300,7 @@ export function SaveStatusIndicator({ status }: SaveStatusIndicatorProps) {
       aria-live="polite"
       data-testid="excalidraw-save-status"
       data-status={status}
+      data-hidden={hidden ? "true" : "false"}
     >
       <span className="excalidraw-save-status__dot" aria-hidden="true" />
       <span className="excalidraw-save-status__copy">{copy[status]}</span>
