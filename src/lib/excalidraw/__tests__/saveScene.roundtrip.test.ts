@@ -253,7 +253,7 @@ describe("Excalidraw production save-pipeline round-trip (#352 retro §6.1)", ()
     // duplicate the upstream — solely a vehicle to observe the
     // payload `saveScene` builds. The tighter version (real
     // serializer) is gated by jsdom + canvas; tracked as a follow-up.
-    const writeTextSpy = vi.fn(async () => {});
+    const writeTextSpy = vi.fn(async (_path: string, _text: string): Promise<void> => {});
     vi.doMock("@/lib/tauri-commands", () => ({
       writeWorkspaceText: writeTextSpy,
       writeWorkspaceBinary: vi.fn(async () => {}),
@@ -337,7 +337,7 @@ describe("Excalidraw production save-pipeline round-trip (#352 retro §6.1)", ()
     // production never reaches saveScene with a null/undefined
     // libraryItems for an .excalidrawlib path. This test locks the
     // saveScene fallback's shape for forensics.
-    const writeTextSpy = vi.fn(async () => {});
+    const writeTextSpy = vi.fn(async (_path: string, _text: string): Promise<void> => {});
     vi.doMock("@/lib/tauri-commands", () => ({
       writeWorkspaceText: writeTextSpy,
       writeWorkspaceBinary: vi.fn(async () => {}),
@@ -398,7 +398,7 @@ describe("Excalidraw production save-pipeline round-trip (#352 retro §6.1)", ()
   });
 
   it("saveExcalidrawFile(.excalidraw) round-trips elements byte-equivalent", async () => {
-    const writeTextSpy = vi.fn(async () => {});
+    const writeTextSpy = vi.fn(async (_path: string, _text: string): Promise<void> => {});
     vi.doMock("@/lib/tauri-commands", () => ({
       writeWorkspaceText: writeTextSpy,
       writeWorkspaceBinary: vi.fn(async () => {}),
