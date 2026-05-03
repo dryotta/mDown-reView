@@ -185,6 +185,49 @@ async excalidrawCloseFlushComplete(label: string) : Promise<Result<null, string>
 }
 },
 /**
+ * Renderer-side `openFile` action awaits this before adding a tab.
+ * Returns `Claimed` for unowned paths or same-window re-claims.
+ * Returns `OwnedElsewhere` when another live window owns the path,
+ * in which case Rust ALSO focuses the owner window and emits
+ * `focus-tab` to it — the renderer just needs to bail.
+ */
+async claimOpenFile(path: string) : Promise<Result<ClaimResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("claim_open_file", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer fires this from `closeTab` / single-tab eviction. Only
+ * the owner releases. Idempotent — non-owners and missing entries
+ * are no-ops. If the file has been deleted between tab-close and
+ * the IPC, canonicalisation fails; we still attempt a path-string
+ * match against stored keys, and the destroy-window sweep is the
+ * final safety net.
+ */
+async releaseOpenFile(path: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("release_open_file", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Bulk release for `closeAllTabs` / multi-tab eviction. Same
+ * semantics as `release_open_file` per path.
+ */
+async releaseOpenFiles(paths: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("release_open_files", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Combined hot-path: load sidecar → match to file lines → build threads.
  * Single IPC call for the GUI's most common operation.
  * 
@@ -848,6 +891,24 @@ export type WorkspaceWriteError =
  * text so a renderer can surface a developer-debuggable string.
  */
 { kind: "io"; message: string }
+
+/**
+ * Wire-shape for the claim result. Kebab-case discriminator, same
+ * pattern as `WorkspaceWriteError` in `commands/fs_write.rs`.
+ */
+export type ClaimResult = 
+/**
+ * Caller now owns the path (or already did — idempotent).
+ */
+{ kind: "claimed" } | 
+/**
+ * Another live window owns the path. Renderer should NOT add a
+ * tab; the Rust handler has already raised the owner window and
+ * emitted `focus-tab` to it. The label is exposed so the
+ * renderer can log / surface diagnostics; callers don't need it
+ * for the main flow.
+ */
+{ kind: "owned-elsewhere"; window_label: string }
 
 /** tauri-specta globals **/
 

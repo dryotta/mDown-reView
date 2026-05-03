@@ -15,6 +15,7 @@ pub mod fs_write;
 pub mod html;
 pub mod launch;
 pub mod onboarding;
+pub mod open_file_registry;
 pub mod path_classify;
 pub mod remote_asset;
 pub mod search;
@@ -55,6 +56,9 @@ pub use launch::set_root_via_test;
 pub use launch::{
     get_launch_args, get_log_path, parse_launch_args, parse_trace_flag,
     scan_review_files,
+};
+pub use open_file_registry::{
+    claim_open_file, release_open_file, release_open_files, ClaimResult, OpenFileRegistry,
 };
 pub use path_classify::{path_classify, path_classify_inner, workspace_root_for_window};
 pub use remote_asset::fetch_remote_asset;

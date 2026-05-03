@@ -51,6 +51,12 @@ vi.mock("@/lib/tauri-commands", () => ({
   // Stub returns void; the real implementation logs to the rotating
   // file via Rust's StartupRecorder.
   recordStartupPhase: vi.fn().mockResolvedValue(undefined),
+  // Issue #352 / iter-15 — file singleton claim on every openFile;
+  // release on every close. Default to "Claimed" so the unrelated
+  // App.test scenarios don't trigger the revert path.
+  claimOpenFile: vi.fn().mockResolvedValue({ kind: "claimed" }),
+  releaseOpenFile: vi.fn().mockResolvedValue(undefined),
+  releaseOpenFiles: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({

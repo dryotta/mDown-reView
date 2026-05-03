@@ -151,8 +151,26 @@ What this does NOT cross:
 ## Known limitations
 
 - **MRSF re-anchor fragility** (documented above). Saving an Excalidraw scene may degrade Tier-1 line-anchored comments to file-level. The first-Editor-entry warning banner alerts the user once.
-- **Multi-window same-file race**: two windows open on the same `.excalidraw` and the user edits in window A → window A auto-saves → window B's watcher fires → window B reloads → window B's user-edits-in-flight in `liveSceneRef` are lost when window B's onChange writes them out (post-watcher) and clobbers window A's edit. Single-instance-per-file dispatch (mirroring `cli-file-open.md`) is the canonical fix and is tracked as a follow-up. See [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md) for the cross-window event + state-sharing patterns this fix would build on.
 - **No native E2E save round-trip yet** — issue #352 spec mandates `e2e/native/excalidraw-real-write.spec.ts`. Browser e2e + the Rust unit tests for `fs_write.rs` cover the IPC contract; native end-to-end (real disk write + read-back inside a Tauri binary) is tracked as a follow-up.
+
+## Multi-window same-file singleton (iter-15)
+
+A canonical file path is open in **at most one window at a time**. When window B tries to open a file already in window A:
+
+- Rust's `claim_open_file` IPC returns `OwnedElsewhere { window_label: <A> }`.
+- Rust ALSO raises window A via `focus_window` (un-minimize → show → set-focus — handles minimized + macOS-hidden windows) and emits the `focus-tab` event to A with the path payload.
+- A's renderer (`useFocusTab` hook) selects the corresponding tab.
+- B's renderer reverts the synchronously-added tab in `claimOrRevert` (`src/store/tabs.ts`) so the user sees no duplicate.
+
+The synchronous tab-add followed by async claim with revert-on-conflict was chosen over making `openFile` itself async to keep the ~80 existing test call sites compatible — the visible "flash and vanish" for a true duplicate is invisible at 60 Hz given sub-millisecond local IPC.
+
+Lifecycle:
+
+- `closeTab` / `closeAllTabs` / LRU eviction fire `release_open_file(s)` so the next opener can re-claim.
+- `WindowEvent::Destroyed` purges every entry owned by the dying window's label (safety net for force-killed renderers).
+- Stale-owner reap: at every claim, if the existing owner's label is no longer in `app.webview_windows()`, drop the stale entry inline.
+
+Source: `src-tauri/src/commands/open_file_registry.rs`. The primitive is generic — future per-file singletons (Mermaid editor, etc.) reuse the same module.
 
 ## Related rules
 

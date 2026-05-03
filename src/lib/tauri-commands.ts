@@ -58,6 +58,7 @@ function unwrap<T, E>(p: Promise<Result<T, E>>): Promise<T> {
 export type {
   CliShimError,
   CliShimStatus,
+  ClaimResult,
   CommentAnchor,
   CommentPatch,
   CommentThread,
@@ -93,6 +94,7 @@ export type {
   UpdateInfo,
   WordRangePayload,
   WordSpan,
+  WorkspaceWriteError,
 } from "@/lib/bindings";
 
 // In-memory tagged anchor + sidecar/comment shapes + helpers. These come
@@ -330,6 +332,24 @@ export const writeWorkspaceBinary = (path: string, base64: string): Promise<void
 // `src/hooks/useExcalidrawCloseFlush.ts`.
 export const excalidrawCloseFlushComplete = (label: string): Promise<void> =>
   unwrap(bindings.excalidrawCloseFlushComplete(label)).then(() => {});
+
+// Issue #352 / iter-15 — multi-window file singleton ──────────────────────
+// `claimOpenFile` MUST be awaited by the renderer's `openFile` action
+// BEFORE adding a tab. On `OwnedElsewhere` the Rust handler has already
+// raised the owning window and emitted `focus-tab` to it; the renderer
+// just needs to bail. See `src-tauri/src/commands/open_file_registry.rs`.
+//
+// Wire shape: `ClaimResult` = `{ kind: "claimed" } | { kind:
+// "owned-elsewhere"; window_label: string }` — keep the discriminator
+// branching at the call site so the typed payload survives.
+export const claimOpenFile = (path: string): Promise<ClaimResult> =>
+  unwrap(bindings.claimOpenFile(path));
+
+export const releaseOpenFile = (path: string): Promise<void> =>
+  unwrap(bindings.releaseOpenFile(path)).then(() => {});
+
+export const releaseOpenFiles = (paths: string[]): Promise<void> =>
+  unwrap(bindings.releaseOpenFiles(paths)).then(() => {});
 
 // Window registry sync ────────────────────────────────────────────────────
 

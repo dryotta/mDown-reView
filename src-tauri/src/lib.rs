@@ -452,6 +452,9 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::fs_write::write_workspace_text,
                 commands::fs_write::write_workspace_binary,
                 commands::excalidraw_close::excalidraw_close_flush_complete,
+                commands::open_file_registry::claim_open_file,
+                commands::open_file_registry::release_open_file,
+                commands::open_file_registry::release_open_files,
                 commands::comments::get::get_file_comments,
                 commands::comments::add_comment::<tauri::Wry>,
                 commands::comments::add_reply::<tauri::Wry>,
@@ -607,6 +610,7 @@ pub fn run() {
         .manage(registry::WindowRegistry::default())
         .manage(commands::comments::BadgeCache::new())
         .manage(commands::excalidraw_close::ExcalidrawCloseFlushState::new())
+        .manage(commands::open_file_registry::OpenFileRegistry::new())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
@@ -873,6 +877,14 @@ pub fn run() {
                 if let Some(ws) = window.try_state::<watcher::WatcherState>() {
                     ws.remove_window(&label);
                     log::info!("[window] Destroyed: {label} — removed from WatcherState");
+                }
+                // Issue #352 / iter-15 — purge open-file claims owned
+                // by the dying window so a force-killed renderer
+                // (no clean release) doesn't leak entries that block
+                // future opens of the same path in other windows.
+                if let Some(ofr) = window.try_state::<commands::open_file_registry::OpenFileRegistry>() {
+                    ofr.purge_window(&label);
+                    log::info!("[window] Destroyed: {label} — purged OpenFileRegistry");
                 }
             }
         });

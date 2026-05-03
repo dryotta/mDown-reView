@@ -107,6 +107,17 @@ export interface EventPayloads {
    * `src/hooks/useExcalidrawCloseFlush.ts`.
    */
   "excalidraw-flush-before-close": string;
+  /**
+   * Issue #352 / iter-15 — multi-window file singleton (focus-existing).
+   * Emitted by Rust's `claim_open_file` to the OWNING window when a
+   * different window tries to open a file already claimed there.
+   * Payload is the path string. Renderer hook
+   * `useFocusTab` listens and calls `setActiveTab(path)`. Rust ALSO
+   * focuses the owner window via `focus_window`
+   * (un-minimize → show → set-focus) before emitting, so the owner's
+   * window comes to the front even when minimized / hidden.
+   */
+  "focus-tab": string;
 }
 
 export type EventName = keyof EventPayloads;

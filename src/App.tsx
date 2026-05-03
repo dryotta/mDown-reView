@@ -9,6 +9,7 @@ import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
 import { useOpenFileTab } from "@/hooks/useOpenFileTab";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useExcalidrawCloseFlush } from "@/hooks/useExcalidrawCloseFlush";
+import { useFocusTab } from "@/hooks/useFocusTab";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
@@ -161,6 +162,11 @@ export default function App() {
   // are silently lost on Alt-F4 / Cmd-Q. Renderer-side counterpart of
   // `src-tauri/src/commands/excalidraw_close.rs`.
   useExcalidrawCloseFlush();
+  // Issue #352 / iter-15 — multi-window file singleton (focus-existing).
+  // When another window tries to open a file we already have open
+  // here, Rust raises this window via `focus_window` and emits
+  // `focus-tab` with the path; the hook selects the matching tab.
+  useFocusTab();
 
   // Apply theme class to <html> and listen for OS theme changes
   useApplyTheme(theme);

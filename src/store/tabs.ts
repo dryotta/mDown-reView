@@ -21,12 +21,107 @@ import type { StoreApi } from "zustand";
 
 import { commands } from "@/lib/bindings";
 import type { ViewMode } from "@/lib/file-types";
+import { claimOpenFile, releaseOpenFile, releaseOpenFiles } from "@/lib/tauri-commands";
+import { warn as logWarn, debug as logDebug } from "@/logger";
 
 import type { Store } from "./index";
 
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
 export const MAX_TABS = 5;
+
+/**
+ * Issue #352 / iter-15 — multi-window file singleton (focus-existing).
+ *
+ * Design choice: synchronous tab-add + async ownership claim with
+ * revert-on-conflict. Rationale (rubber-duck refined):
+ *
+ *   - The synchronous `openFile` contract is consumed by ~5 production
+ *     call sites (`launchArgs.ts`, `useOpenFileTab.ts`, `CommentsPanel.tsx`,
+ *     `useLinkRouter.ts`, `workspace.ts`) and ~80+ test sites. Making it
+ *     async would invade every caller; the test suite already calls
+ *     `openFile` and immediately asserts post-add state — `await` would
+ *     have to thread through every test.
+ *   - Local Rust IPC is sub-millisecond; the visible "flash and vanish"
+ *     for a true duplicate-open is invisible at 60 Hz frame rate.
+ *   - Race against concurrent opens is mitigated by re-reading the
+ *     latest store state inside the revert closure and only removing the
+ *     tab if it's still present AND the claim's path matches.
+ *
+ * The renderer awaits the claim after the synchronous tab-add. On
+ * `OwnedElsewhere`, Rust has already focused the owner window and
+ * emitted `focus-tab` to it; this hook then removes the just-added
+ * tab in window B.
+ *
+ * Audit: `closeTab` / `closeAllTabs` / LRU eviction all fire-and-
+ * forget the appropriate `release_open_file(s)` IPC. The destroy-
+ * window sweep in `lib.rs` is the safety net for force-killed
+ * renderers that can't release cleanly.
+ */
+async function claimOrRevert(
+  path: string,
+  set: SliceSet,
+  get: SliceGet,
+): Promise<void> {
+  let result;
+  try {
+    result = await claimOpenFile(path);
+  } catch (err: unknown) {
+    // IPC failure (registry state missing, canonicalize threw): degrade
+    // to pre-iter-15 behaviour — leave the tab open in this window.
+    // The Rust-side destroy sweep is the last line of defence.
+    void logWarn(
+      `[claim] IPC failed for ${path}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return;
+  }
+  if (result.kind === "claimed") {
+    void logDebug(`[claim] Claimed ${path}`);
+    return;
+  }
+  // owned-elsewhere — Rust already focused the owner window and
+  // emitted `focus-tab`. Revert our local tab-add IF the path is
+  // still in our tab list (defends against a concurrent close /
+  // re-open that already mutated the state).
+  void logDebug(
+    `[claim] ${path} owned by window=${result.window_label}; reverting local tab`,
+  );
+  const stillOpen = get().tabs.some((t) => t.path === path);
+  if (!stillOpen) return;
+  // Re-derive the tab-removal in a single set() call so subscribers
+  // never observe an intermediate state. Mirrors the cleanup
+  // structure of `closeTab` (rule 16 in `docs/architecture.md`).
+  const tabs = get().tabs;
+  const newTabs = tabs.filter((t) => t.path !== path);
+  let newActive = get().activeTabPath;
+  if (newActive === path) {
+    // Pick the most-recently-accessed remaining tab; fall back to
+    // null if this was the only tab. Mirrors closeTab's neighbour
+    // policy.
+    const fallback = [...newTabs].sort(
+      (a, b) => (b.lastAccessedAt ?? 0) - (a.lastAccessedAt ?? 0),
+    )[0];
+    newActive = fallback?.path ?? null;
+  }
+  const { [path]: _v, ...restView } = get().viewModeByTab;
+  const { [path]: _s, ...restSave } = get().lastSaveByPath;
+  const { [path]: _m, ...restMeta } = get().fileMetaByPath;
+  const { [path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
+  const { [path]: _p, ...restPending } = get().externalChangePendingByTab;
+  const restMounts = get().excalidrawEditorMounts.filter((p) => p !== path);
+  set({
+    tabs: newTabs,
+    activeTabPath: newActive,
+    viewModeByTab: restView,
+    lastSaveByPath: restSave,
+    fileMetaByPath: restMeta,
+    excalidrawDirtyByTab: restDirty,
+    externalChangePendingByTab: restPending,
+    excalidrawEditorMounts: restMounts,
+  });
+}
 
 export interface Tab {
   path: string;
@@ -268,6 +363,10 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
         }));
         if (recordHistory) get().pushHistory(path);
+        // Same-window re-claim is a no-op success in Rust; firing
+        // here keeps the registry warm in case the prior owner's
+        // entry was reaped (e.g. window force-killed before this).
+        void claimOrRevert(path, set, get);
         return;
       }
       // Evict LRU non-active tab if at capacity.
@@ -314,6 +413,22 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         });
         if (recordHistory) get().pushHistory(path);
         void classifyAndMarkReadOnly(path, set);
+        // Iter-15 — release the LRU victim's claim so the next opener
+        // (any window) can re-claim it. Fire-and-forget; the destroy
+        // sweep is the safety net for IPC failures.
+        void releaseOpenFile(victim.path).catch((err: unknown) => {
+          void logWarn(
+            `[release] LRU victim ${victim.path} release failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+        // Iter-15 — claim the new path. On owned-elsewhere, the
+        // helper reverts our just-added tab; rest of the LRU
+        // bookkeeping above is preserved (the victim eviction stays
+        // in place even if this open is rejected — a subsequent
+        // open of the victim path would need to re-add it).
+        void claimOrRevert(path, set, get);
         return;
       }
       set({
@@ -328,6 +443,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       // CommentError will self-heal the flag — see comments slice in the
       // Wave-2 migration scope).
       void classifyAndMarkReadOnly(path, set);
+      // Iter-15 — claim ownership; revert on conflict.
+      void claimOrRevert(path, set, get);
     },
 
     closeTab: (path) => {
@@ -366,12 +483,23 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         externalChangePendingByTab: restPending,
         excalidrawEditorMounts: restMounts,
       });
+      // Iter-15 — release the singleton claim so the next opener
+      // (any window) can re-claim. Fire-and-forget; the destroy
+      // sweep is the safety net for IPC failures.
+      void releaseOpenFile(path).catch((err: unknown) => {
+        void logWarn(
+          `[release] closeTab(${path}) release failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     },
 
     closeAllTabs: () => {
       // Issue #352 / iter-10 redesign — see closeTab; auto-save
       // means there is no longer a discardable "unsaved" state.
       get().closeMermaidPopout(); // issue #276 — close popout on close-all
+      const closingPaths = get().tabs.map((t) => t.path);
       set({
         tabs: [],
         activeTabPath: null,
@@ -384,6 +512,17 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         // <Excalidraw> instance.
         excalidrawEditorMounts: [],
       });
+      // Iter-15 — bulk-release every singleton claim. Fire-and-forget;
+      // the destroy sweep handles IPC failures.
+      if (closingPaths.length > 0) {
+        void releaseOpenFiles(closingPaths).catch((err: unknown) => {
+          void logWarn(
+            `[release] closeAllTabs bulk release failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+      }
     },
 
     setActiveTab: (path, opts) => {
