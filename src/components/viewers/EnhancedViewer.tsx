@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState, useRef, type ReactNode } from "react";
 import { useStore } from "@/store";
-import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey, type ViewMode } from "@/lib/file-types";
+import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey, isExcalidrawLibrary, type ViewMode } from "@/lib/file-types";
 import { useZoom } from "@/hooks/useZoom";
 import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
 import { MARKDOWN_VISUAL_CAP_BYTES } from "@/lib/viewer-budgets";
@@ -99,16 +99,27 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
     setViewMode(filePath, mode);
   };
 
+  // Iter-22 redesign (user feedback) — `.excalidrawlib` files are
+  // view-only. Libraries are reusable shape collections, not documents
+  // authored line-by-line; the Editor segmented-control button and any
+  // stored `editor` mode are demoted to Visual for these paths. The
+  // library sidebar stays open in Visual mode (driven by
+  // `appState.openSidebar` in `useExcalidrawScene`) so the user can
+  // browse the curated shapes without entering the editor.
+  const isLibrary = isExcalidraw && isExcalidrawLibrary(filePath);
+
   // Effective view mode after visualisability gating: a non-visualisable
   // category (or a viewer whose Visual/Editor pane is disabled) always
   // falls back to source. The 3-way switch below routes off this resolved
   // value so future categories don't have to repeat the gate. Read-only
   // excalidraw tabs are demoted from editor → visual since saving is
-  // impossible; user can still inspect the canvas read-only.
+  // impossible; user can still inspect the canvas read-only. Library
+  // tabs are demoted unconditionally — editor mode is unreachable
+  // (post-iter-22 redesign).
   const effectiveView: ViewMode = visualDisabled
     ? "source"
     : canVisualize
-      ? viewMode === "editor" && isReadOnly
+      ? viewMode === "editor" && (isReadOnly || isLibrary)
         ? "visual"
         : viewMode
       : "source";
@@ -187,7 +198,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
       <ViewerToolbar
         activeView={effectiveView}
         onViewChange={handleViewChange}
-        canEdit={isExcalidraw && !isReadOnly}
+        canEdit={isExcalidraw && !isReadOnly && !isLibrary}
         hidden={!canVisualize}
         showWrapToggle={showSource}
         wordWrap={wordWrap}

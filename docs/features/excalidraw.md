@@ -11,10 +11,10 @@ This is the first feature that **edits user file content** — historically an e
 ### Modes
 
 - **Source** — `SourceView` renders the scene JSON via Shiki syntax highlighting. Tier 1 commenting (line + selection) for canonical `.excalidraw` and `.excalidrawlib`; Tier 2 (file-level only) for `.excalidraw.png` and `.excalidraw.svg` because the embedded scene is derived from the rendered image, not authored as JSON.
-- **Visual** — `<Excalidraw viewModeEnabled={true}>` mounts a read-only canvas. Pan + zoom only; no edit chrome. Tier 2 commenting (file-level only).
-- **Editor** — `<Excalidraw>` mounts the full editor. Built-in Open / Save / Export buttons are hidden via `UIOptions.canvasActions`. Tier 2 commenting (file-level only).
+- **Visual** — `<Excalidraw viewModeEnabled={true}>` mounts a read-only canvas. Pan + zoom only; no edit chrome. Tier 2 commenting (file-level only). For `.excalidrawlib`, Visual mode also pre-opens the library sidebar so the curated shapes are immediately browsable as a grid.
+- **Editor** — `<Excalidraw>` mounts the full editor. Built-in Open / Save / Export buttons are hidden via `UIOptions.canvasActions`. Tier 2 commenting (file-level only). **Available for `.excalidraw` / `.excalidraw.png` / `.excalidraw.svg` only**; iter-22 redesign removed Editor mode for `.excalidrawlib` (libraries are reusable shape collections, not documents the user authors line-by-line; see "Library files" below).
 
-The default mode for all four extensions is **Visual** — uniform with every other visualizable file type and minimizes first-paint cost. Editor is one explicit click away via the toolbar.
+The default mode for all extensions is **Visual** — uniform with every other visualizable file type and minimizes first-paint cost. Editor is one explicit click away via the toolbar.
 
 ### Routing
 
@@ -26,7 +26,9 @@ Excalidraw fetches its custom fonts from `https://esm.run/...` by default. mdown
 
 ### Library files
 
-`.excalidrawlib` opens in Visual mode with the palette grid preview (Excalidraw's built-in library renderer). Editor mode allows editing the library; saving routes through the same workspace-write chokepoint as scenes.
+`.excalidrawlib` opens in Visual mode with the library sidebar pre-opened, showing the curated shape palette as a grid (`appState.openSidebar = { name: "default", tab: "library" }` set in `useExcalidrawScene`). The user can browse the shapes inside the library throughout the session.
+
+**Editor mode is unavailable for `.excalidrawlib`** (iter-22 redesign — user feedback). Libraries are reusable shape collections, not documents the user authors line-by-line; the toolbar's Editor segmented-control button is hidden via `EnhancedViewer.canEdit=false` for these paths, and any session-persisted `editor` mode is demoted to `visual` on render. Source mode shows the raw library JSON (Tier 1 commenting). The autosave hook is still mounted (it's a generic primitive) but its registry effect bails on `mode !== "editor"`, so no save path can fire.
 
 ### Save semantics
 

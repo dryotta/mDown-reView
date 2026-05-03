@@ -59,21 +59,23 @@ import { useStore } from "@/store";
 export interface AutoSaveState {
   notifyChange: (live: ExcalidrawScene) => void;
   /**
-   * Excalidraw separates scene state (elements / appState / files via
-   * `onChange`) from library state (via `onLibraryChange`). The previous
-   * design read `appState.libraryItems` inside `onChange` — but that key
-   * does not exist on the scene-tick appState payload, so library items
-   * were always `null` at save time. For `.excalidrawlib` files the
-   * downstream `serializeLibraryAsJSON` then wrote an empty array,
-   * silently destroying the user's curated library on every save
-   * (#352 bug-expert P0-1). The fix wires `onLibraryChange` through this
-   * dedicated callback so library items reach the IPC verbatim.
+   * Iter-21 (#352 P0-1) — wire-through for Excalidraw's
+   * `onLibraryChange` event. The library payload (curated shape
+   * palette) is exposed only via this callback, NOT through the
+   * scene-tick `appState.libraryItems` field which is always null
+   * in `<Excalidraw onChange>` (the iter-21 P0-1 wipe root cause).
    *
-   * For `.excalidrawlib` files this also marks dirty + restarts the
-   * debounce timer (the library IS the file content). For non-library
-   * files (canonical `.excalidraw` / PNG / SVG) the live items are
-   * tracked but not persisted — Excalidraw's library is a per-user
-   * palette, not a per-scene asset.
+   * Iter-22 redesign (user feedback): `.excalidrawlib` files are
+   * view-only — the Editor segmented-control button is hidden by
+   * `EnhancedViewer` and any stored `editor` mode is demoted to
+   * `visual`. So the autosave registry effect below bails on
+   * `mode !== "editor"` for libraries, and a debounce-arming
+   * special case for `.excalidrawlib` here would be dead code.
+   *
+   * For canonical `.excalidraw` / PNG / SVG files, library state is
+   * a per-user palette (NOT part of the file content); the ref
+   * is updated for save-payload consistency but no dirty flag is
+   * raised.
    */
   notifyLibraryChange: (items: ReadonlyArray<unknown>) => void;
   /**
@@ -578,32 +580,30 @@ export function useExcalidrawAutoSave(
 
   /**
    * Iter-21 (#352 P0-1) — wire-through for Excalidraw's
-   * `onLibraryChange` event. Updates `liveLibraryItemsRef` (sole source
-   * of truth for save payload + hash) and, for `.excalidrawlib` files,
-   * re-runs the dirty/debounce pipeline by re-invoking `notifyChange`
-   * with the previous scene shape. The new library items are merged
-   * into the next `notifyChange` snapshot via `liveLibraryItemsRef`.
+   * `onLibraryChange` event. Updates `liveLibraryItemsRef`, the sole
+   * source of truth for the save-payload's `libraryItems` field
+   * (Excalidraw's `onChange` payload does NOT carry library state).
    *
-   * For non-library files (canonical `.excalidraw` / PNG / SVG)
-   * library state is per-user palette, not file content — the ref is
-   * updated for consistency but no dirty flag is raised.
+   * Iter-22 redesign (user feedback): `.excalidrawlib` files are
+   * view-only. EnhancedViewer hides the Editor segmented-control
+   * button and demotes a stored `editor` mode to `visual` for
+   * libraries; the autosave registry effect bails on
+   * `mode !== "editor"`, so no save can fire. The previous
+   * `.excalidrawlib`-specific dirty/debounce trigger here was
+   * removed because it became dead code post-redesign — keeping it
+   * would be drift from the canonical pattern (Never Increase
+   * Engineering Debt).
+   *
+   * For canonical `.excalidraw` / PNG / SVG files, library items are
+   * a per-user palette (NOT part of the file content); the ref is
+   * updated so a future save's payload includes the latest items,
+   * but no dirty flag is raised.
    */
   const notifyLibraryChange = useCallback(
     (items: ReadonlyArray<unknown>): void => {
       liveLibraryItemsRef.current = items;
-      if (!filePath.toLowerCase().endsWith(".excalidrawlib")) return;
-      const prev = liveSceneRef.current;
-      // Synthesize a `notifyChange` call carrying the previous scene's
-      // elements/appState/files. `notifyChange` will re-merge
-      // `liveLibraryItemsRef.current` (now the new items) and run the
-      // dirty/debounce pipeline.
-      notifyChange({
-        elements: prev?.elements ?? [],
-        appState: prev?.appState ?? {},
-        files: prev?.files ?? {},
-      });
     },
-    [filePath, notifyChange],
+    [],
   );
 
   /**

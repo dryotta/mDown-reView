@@ -102,6 +102,24 @@ export function isSidecarFile(path: string): boolean {
 }
 
 /**
+ * True for Excalidraw library files (`.excalidrawlib`). Iter-22 redesign
+ * (user feedback) — libraries are reusable shape collections, not
+ * documents the user authors line-by-line. Editor mode for `.excalidrawlib`
+ * was removed in this iter; only Source (raw JSON) and Visual (read-only
+ * canvas + library sidebar grid) are reachable. The library sidebar
+ * stays open in Visual mode so the user can browse the curated shapes.
+ *
+ * Used by `EnhancedViewer` to hide the Editor segmented-control button
+ * and demote a stored `editor` mode to `visual` for these paths,
+ * mirroring the read-only-tab handling. The autosave hook
+ * (`useExcalidrawAutoSave`) is still mounted but its registry effect
+ * bails on `mode !== "editor"`, so no save path can fire.
+ */
+export function isExcalidrawLibrary(path: string): boolean {
+  return path.toLowerCase().endsWith(".excalidrawlib");
+}
+
+/**
  * Canonical filetype key used by the per-filetype zoom store
  * (`zoomByFiletype`). Several extensions collapse to one key (`.md` covers
  * both md/mdx; `.image` covers all bitmap/vector image extensions); the

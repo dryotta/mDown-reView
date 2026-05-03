@@ -279,6 +279,57 @@ describe("EnhancedViewer", () => {
       const stub = screen.getByTestId("excalidraw-view-stub");
       expect(stub).toHaveAttribute("data-mode", "visual");
     });
+
+    // Iter-22 redesign (user feedback) — `.excalidrawlib` files are
+    // view-only. Libraries are reusable shape collections, not
+    // documents authored line-by-line; the Editor segmented-control
+    // button is hidden and any stored `editor` mode is demoted to
+    // `visual`. The library sidebar stays open in Visual mode (driven
+    // by `appState.openSidebar` in `useExcalidrawScene`) so the user
+    // can browse the curated shapes without entering the editor.
+    it("[iter-22] HIDES Editor segmented-control button for .excalidrawlib (libraries are view-only)", () => {
+      useStore.setState({
+        tabs: [{ path: "/ws/icons.excalidrawlib", scrollTop: 0 }],
+        activeTabPath: "/ws/icons.excalidrawlib",
+        viewModeByTab: { "/ws/icons.excalidrawlib": "visual" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidrawlib","libraryItems":[]}'
+          path="/ws/icons.excalidrawlib"
+          filePath="/ws/icons.excalidrawlib"
+        />,
+      );
+      // Source + Visual remain; Editor is hidden.
+      expect(
+        screen.getByRole("button", { name: /^source$/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /^visual$/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /^editor$/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("[iter-22] DEMOTES stored editor mode to visual for .excalidrawlib", () => {
+      useStore.setState({
+        tabs: [{ path: "/ws/icons.excalidrawlib", scrollTop: 0 }],
+        activeTabPath: "/ws/icons.excalidrawlib",
+        // Pre-iter-22 a session may have persisted "editor" mode for a
+        // library tab. The view-only redesign demotes this on render.
+        viewModeByTab: { "/ws/icons.excalidrawlib": "editor" },
+      });
+      render(
+        <EnhancedViewer
+          content='{"type":"excalidrawlib","libraryItems":[]}'
+          path="/ws/icons.excalidrawlib"
+          filePath="/ws/icons.excalidrawlib"
+        />,
+      );
+      const stub = screen.getByTestId("excalidraw-view-stub");
+      expect(stub).toHaveAttribute("data-mode", "visual");
+    });
   });
 
   // Issue #352 / iter-5 BLOCKER (test-expert) — Source-mode routing
