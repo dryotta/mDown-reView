@@ -547,7 +547,16 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     expect(saveSceneMock).toHaveBeenCalledTimes(2);
   });
 
-  it("Auto-save banner renders in editor mode and dismisses on click", async () => {
+  it("First-entry banner renders in editor mode and dismisses on click", async () => {
+    // Storage seen-flags persist across tests; clear so this test starts
+    // from "fresh install" state regardless of prior tests.
+    window.localStorage.removeItem("mdownreview:excalidraw-first-entry-seen");
+    window.localStorage.removeItem(
+      "mdownreview:excalidraw-autosave-banner-seen",
+    );
+    window.localStorage.removeItem(
+      "mdownreview:excalidraw-first-save-warning-seen",
+    );
     render(
       <ExcalidrawView
         content={VALID_JSON}
@@ -557,12 +566,16 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
       />,
     );
     await screen.findByTestId("excalidraw-stub");
-    expect(screen.getByTestId("excalidraw-autosave-banner")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("excalidraw-first-entry-banner"),
+    ).toBeInTheDocument();
 
     await act(async () => {
-      screen.getByTestId("excalidraw-autosave-banner-dismiss").click();
+      screen.getByTestId("excalidraw-first-entry-banner-dismiss").click();
     });
-    expect(screen.queryByTestId("excalidraw-autosave-banner")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("excalidraw-first-entry-banner"),
+    ).not.toBeInTheDocument();
   });
 
   it("Conflict banner renders in editor mode when externalChangePending is true", async () => {
@@ -579,9 +592,9 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     );
     await screen.findByTestId("excalidraw-stub");
     expect(screen.getByTestId("excalidraw-conflict-banner")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Reload/i })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Keep editing — your changes will overwrite the version on disk" }),
+      screen.getByRole("button", { name: /Keep my edits/i }),
     ).toBeInTheDocument();
   });
 
@@ -601,7 +614,7 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     );
     await screen.findByTestId("excalidraw-stub");
     await act(async () => {
-      screen.getByRole("button", { name: "Reload" }).click();
+      screen.getByRole("button", { name: /Reload/i }).click();
     });
 
     expect(
@@ -663,7 +676,7 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     }
     // Click Reload — should cancel the pending timer.
     await act(async () => {
-      screen.getByRole("button", { name: "Reload" }).click();
+      screen.getByRole("button", { name: /Reload/i }).click();
     });
     // Now advance past the full debounce; if Reload cancelled the
     // timer, no save fires.
@@ -682,7 +695,297 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     expect(saveSceneMock).not.toHaveBeenCalled();
   });
 
-  // Iter-14 regression: bug-expert HIGH + react-tauri-expert HIGH.
+  // ── B1+B2+B3 regression tests (#352 ship-readiness review) ─────────────
+  //
+  // Three confirmed P1 bugs caught by the 9-expert ship-readiness review
+  // of PR #353. Each test pins the fix so a future contributor cannot
+  // silently regress (review findings: bug-expert P1#1, P1#2, P2#3).
+
+  it("[B1] Cmd+S 'Saved' pill does NOT flash when auto-save is paused", async () => {
+    // Bug-expert P1#1: pre-fix the Cmd+S handler unconditionally called
+    // triggerSavedPill() after flush(). performSave has six bail-out
+    // branches; in the most damaging one (3-strike pause) the user
+    // would press Ctrl+S, see "Saved", and believe data was on disk
+    // when nothing was written. Damages the Reliable pillar.
+    saveSceneMock.mockRejectedValue({ kind: "io", message: "ENOSPC" });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/b1-cmds-pause.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // Drive 3 failed saves to force autoSavePaused=true.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      for (let i = 1; i <= 3; i++) {
+        await act(async () => {
+          onChange([{ id: `e${i}`, type: "rectangle", x: i }], {}, {});
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2001);
+        });
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => {
+      const banner = screen.getByTestId("excalidraw-save-error-banner");
+      expect(banner.textContent).toMatch(/paused/i);
+    });
+
+    saveSceneMock.mockClear();
+
+    // Press Cmd+S. The pill must NOT appear (paused → no write fired).
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-flush-save", {
+          detail: { path: "/ws/b1-cmds-pause.excalidraw" },
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // No new save was attempted (paused short-circuits before IPC).
+    expect(saveSceneMock).not.toHaveBeenCalled();
+    // No pill — saved-pill testid is absent.
+    expect(screen.queryByTestId("excalidraw-saved-pill")).not.toBeInTheDocument();
+  });
+
+  it("[B1] Cmd+S 'Saved' pill DOES flash on a successful user-initiated save", async () => {
+    saveSceneMock.mockResolvedValue(undefined);
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/b1-cmds-success.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // Bootstrap + edit (so a write would fire).
+    await act(async () => {
+      onChange([{ id: "baseline" }], {}, {});
+    });
+    await act(async () => {
+      onChange([{ id: "edit-1", type: "rectangle" }], {}, {});
+    });
+
+    // Cmd+S user-initiated flush.
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-flush-save", {
+          detail: { path: "/ws/b1-cmds-success.excalidraw" },
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(saveSceneMock).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("excalidraw-saved-pill")).toBeInTheDocument();
+    });
+  });
+
+  it("[B1] Cmd+S 'Saved' pill does NOT flash when there is no diff vs baseline", async () => {
+    // Pre-fix: the pill flashed on every Cmd+S regardless. After fix:
+    // pill only flashes when a real write fired. No-diff short-circuit
+    // returns before saveExcalidrawFile is invoked.
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/b1-cmds-nodiff.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // Bootstrap baseline only — no subsequent edit, so live === baseline.
+    await act(async () => {
+      onChange([{ id: "baseline" }], {}, {});
+    });
+    saveSceneMock.mockClear();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("mdownreview:excalidraw-flush-save", {
+          detail: { path: "/ws/b1-cmds-nodiff.excalidraw" },
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // No save fired (no diff).
+    expect(saveSceneMock).not.toHaveBeenCalled();
+    // No pill.
+    expect(screen.queryByTestId("excalidraw-saved-pill")).not.toBeInTheDocument();
+  });
+
+  it("[B2] Reload during in-flight save voids the racing save's post-success bookkeeping", async () => {
+    // Bug-expert P1#2: pre-fix the in-flight save's .then continuation
+    // unconditionally updated lastSavedHashRef + recordSave +
+    // setExcalidrawDirty(false), then armed the watcher self-write
+    // suppression. After Reload, the user's pre-Reload draft was
+    // already on disk via the racing save AND the watcher echo was
+    // suppressed, silently overwriting the external version.
+    //
+    // After the fix: resetBaseline() flips voidInFlightSaveRef. The
+    // .then sees the flag and skips bookkeeping. The user's draft was
+    // already written (cannot be unwritten) but the post-save state
+    // does not pretend that draft is canonical.
+    let resolveSave: (() => void) | null = null;
+    const savePromise = new Promise<void>((r) => {
+      resolveSave = r;
+    });
+    saveSceneMock.mockReturnValueOnce(savePromise);
+
+    const recordSaveSpy = vi.spyOn(useStore.getState(), "recordSave");
+
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/b2-reload-race.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // Bootstrap baseline + edit; debounce out → save IPC begins.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      await act(async () => {
+        onChange([{ id: "user-draft", type: "rectangle", x: 99 }], {}, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2001);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(saveSceneMock).toHaveBeenCalledTimes(1);
+
+    // External change arrives mid-IPC → conflict banner appears.
+    await act(async () => {
+      useStore
+        .getState()
+        .setExternalChangePending("/ws/b2-reload-race.excalidraw", true);
+    });
+    await screen.findByTestId("excalidraw-conflict-banner");
+
+    // User clicks Reload while the save is still in flight.
+    await act(async () => {
+      screen.getByRole("button", { name: /Reload/i }).click();
+    });
+
+    // Now the in-flight save resolves AFTER Reload.
+    await act(async () => {
+      resolveSave?.();
+      await savePromise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // recordSave MUST NOT have been called for the voided save —
+    // otherwise the watcher would suppress the external version's
+    // file-changed event for the next 1500 ms and the user's draft
+    // becomes "canonical" on disk under our suppression token.
+    expect(recordSaveSpy).not.toHaveBeenCalled();
+  });
+
+  it("[B3] Keep editing flushes immediately so the user's intent persists at click time", async () => {
+    // Bug-expert P2#3: pre-fix onKeepEditing only cleared
+    // externalChangePending. With no further onChange, no save fired.
+    // On power loss / OOM, the divergent in-memory version was lost.
+    //
+    // After the fix: onKeepEditing calls flush() so the user's
+    // "overwrite the version on disk" intent is honored at click time.
+    saveSceneMock.mockResolvedValue(undefined);
+    useStore.setState({
+      externalChangePendingByTab: { "/ws/b3-keep-editing.excalidraw": true },
+    });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/b3-keep-editing.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // Bootstrap baseline. Then bypass the conflict gate to record an
+    // edit (so flush has something to write).
+    await act(async () => {
+      onChange([{ id: "baseline" }], {}, {});
+    });
+    await act(async () => {
+      useStore.setState({
+        externalChangePendingByTab: { "/ws/b3-keep-editing.excalidraw": false },
+      });
+    });
+    await act(async () => {
+      onChange(
+        [{ id: "draft", type: "rectangle", x: 1, y: 2 }],
+        {},
+        {},
+      );
+    });
+    await act(async () => {
+      useStore.setState({
+        externalChangePendingByTab: { "/ws/b3-keep-editing.excalidraw": true },
+      });
+    });
+
+    saveSceneMock.mockClear();
+    const banner = await screen.findByTestId("excalidraw-conflict-banner");
+    const keepEditingBtn = banner.querySelector("button:nth-of-type(2)");
+    expect(keepEditingBtn).toBeTruthy();
+
+    await act(async () => {
+      (keepEditingBtn as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Save MUST have fired immediately, not deferred to next onChange.
+    expect(saveSceneMock).toHaveBeenCalledTimes(1);
+    // Pending cleared.
+    expect(
+      useStore.getState().externalChangePendingByTab[
+        "/ws/b3-keep-editing.excalidraw"
+      ],
+    ).toBeFalsy();
+  });
   // After 3 consecutive failures the hook calls
   // setAutoSavePaused(true). Pre-iter-14 `performSave` read
   // `autoSavePaused` directly from the React-state closure: when the
@@ -904,3 +1207,4 @@ describe("ExcalidrawView — toolbar zoom wiring (#352 iter-18)", () => {
     expect(saveSceneMock).not.toHaveBeenCalled();
   });
 });
+

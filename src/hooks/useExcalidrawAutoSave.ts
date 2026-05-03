@@ -4,7 +4,7 @@ import { friendlySaveError } from "@/lib/excalidraw/error-mapping";
 import type { ExcalidrawScene } from "@/lib/excalidraw/extractScene";
 import { registerExcalidrawFlush } from "@/lib/excalidraw/flush-registry";
 import { saveExcalidrawFile } from "@/lib/excalidraw/saveScene";
-import { computeSceneSnapshot } from "@/lib/excalidraw/stable-hash";
+import { computeSceneSnapshot, PERSISTED_APPSTATE_KEYS } from "@/lib/excalidraw/stable-hash";
 import {
   EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS,
   EXCALIDRAW_AUTOSAVE_MAX_CONSECUTIVE_FAILURES,
@@ -58,20 +58,41 @@ import { useStore } from "@/store";
  */
 export interface AutoSaveState {
   notifyChange: (live: ExcalidrawScene) => void;
-  flush: () => void;
+  /**
+   * Synchronously trigger `performSave(true)`. The optional opts.userInitiated
+   * flag (Cmd+S only) controls whether a successful write surfaces the
+   * transient "Saved" pill — pill must NOT appear when the save was paused,
+   * skipped (no diff vs baseline), or otherwise short-circuited (review
+   * finding bug-expert P1#1).
+   */
+  flush: (opts?: { userInitiated?: boolean }) => void;
+  /**
+   * Drop the on-disk baseline + cancel pending debounce. If a save is
+   * currently in flight, it is **voided**: its `.then` continuation skips
+   * baseline / dirty / recordSave updates so the conflict-banner Reload path
+   * cannot leave the user's pre-Reload draft on disk under our self-write
+   * suppression token (review finding bug-expert P1#2).
+   */
   resetBaseline: () => void;
   saveError: string | null;
   clearSaveError: () => void;
   autoSavePaused: boolean;
   retryAfterFailure: () => void;
   savedPillVisible: boolean;
-  triggerSavedPill: () => void;
 }
 
 export function useExcalidrawAutoSave(
   filePath: string,
   mode: "visual" | "editor",
-  externalChangePending: boolean,
+  // Reactive prop kept for caller ergonomics + render re-trigger
+  // semantics (the parent passes the live value so React re-runs the
+  // hook when the conflict-banner gate flips). The hook itself reads
+  // the canonical value from `useStore.getState()` inside `performSave`
+  // to avoid the ref-mirror race against the same-tick "Keep editing"
+  // click handler. The argument is intentionally unused inside the
+  // body — it is retained for parameter parity and future-proofing.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _externalChangePending: boolean,
 ): AutoSaveState {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [autoSavePaused, setAutoSavePaused] = useState(false);
@@ -81,14 +102,34 @@ export function useExcalidrawAutoSave(
   const lastSavedHashRef = useRef<string | null>(null);
   const saveInFlightRef = useRef(false);
   const pendingSaveRef = useRef(false);
+  // Set true by `resetBaseline()` while a save is in flight; the in-flight
+  // `.then` checks it and SKIPS lastSavedHashRef/recordSave/setExcalidrawDirty
+  // so the Reload path's freshly-loaded scene is not silently overwritten by
+  // the racing save (review finding bug-expert P1#2).
+  const voidInFlightSaveRef = useRef(false);
   const autoSaveTimerRef = useRef<number | null>(null);
   const failureCountRef = useRef(0);
   const lastSavePromiseRef = useRef<Promise<void> | null>(null);
   const savedPillTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+  // Cheap pre-filter ref for `notifyChange`: if Excalidraw passes the same
+  // immutable elements array reference AND the persisted appState slice is
+  // shallow-equal to the previous tick, no persistent-content change is
+  // possible and we skip the heavy `computeSceneSnapshot` (review finding
+  // performance-expert HIGH#1 — iter-14 regression).
+  const prevElementsArrayRef = useRef<unknown>(null);
+  const prevPersistedAppStateRef = useRef<Record<string, unknown> | null>(null);
+  const prevLibraryItemsRef = useRef<unknown>(null);
 
   const setExcalidrawDirty = useStore((s) => s.setExcalidrawDirty);
   const recordSave = useStore((s) => s.recordSave);
+
+  // Single-source-of-truth read for the conflict gate — eliminates the
+  // ref-mirror race that previously let a same-tick click handler
+  // (Keep editing) flip pending=false and immediately call flush()
+  // while the ref still read true.
+  const externalChangePending = (path: string): boolean =>
+    useStore.getState().externalChangePendingByTab[path] === true;
 
   // Mirror reactive props/state into refs so callbacks invoked outside
   // the current render's closure (timer fires, .finally continuations,
@@ -97,20 +138,27 @@ export function useExcalidrawAutoSave(
   // which broke the Retry button (state setter queues the unpause for
   // next render; the same-render `performSave` then bailed at the
   // pause check) — bug-expert HIGH and react-tauri-expert HIGH.
+  //
+  // `externalChangePending` is now read directly from `useStore.getState()`
+  // inside `performSave` (single source of truth, no ref-mirror race).
+  // The ref was vulnerable to the same-tick window between Zustand's
+  // synchronous state mutation and React's post-commit ref update —
+  // a click handler that flipped pending=false then called flush()
+  // would see the stale ref=true and bail. Surfaced by the [B3]
+  // regression test (review finding bug-expert suspected #4).
   const modeRef = useRef(mode);
-  const externalChangePendingRef = useRef(externalChangePending);
   const autoSavePausedRef = useRef(autoSavePaused);
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
   useEffect(() => {
-    externalChangePendingRef.current = externalChangePending;
-  }, [externalChangePending]);
-  useEffect(() => {
     autoSavePausedRef.current = autoSavePaused;
   }, [autoSavePaused]);
 
-  const performSave = (bypassModeCheck: boolean): void => {
+  const performSave = (
+    bypassModeCheck: boolean,
+    userInitiated: boolean = false,
+  ): void => {
     if (!mountedRef.current) return;
     if (!bypassModeCheck && modeRef.current !== "editor") return;
     if (autoSavePausedRef.current) {
@@ -120,9 +168,11 @@ export function useExcalidrawAutoSave(
       // calling performSave).
       return;
     }
-    if (externalChangePendingRef.current) {
+    if (externalChangePending(filePath)) {
       // Conflict banner is up — do not clobber the on-disk version.
       // The user must explicitly resolve via Reload or Keep editing.
+      // Read directly from the store (no ref-mirror race — see the
+      // ref-declaration comment block above for rationale).
       return;
     }
     if (saveInFlightRef.current) {
@@ -145,6 +195,9 @@ export function useExcalidrawAutoSave(
       return;
     }
     saveInFlightRef.current = true;
+    // Reset the void flag for THIS save (each save tracks its own race
+    // against `resetBaseline`).
+    voidInFlightSaveRef.current = false;
     const savedHash = liveHash;
     const savePromise = saveExcalidrawFile(filePath, {
       elements: live.elements,
@@ -153,6 +206,17 @@ export function useExcalidrawAutoSave(
       libraryItems: live.libraryItems ?? null,
     })
       .then(() => {
+        // If `resetBaseline()` was called during the in-flight IPC (the
+        // user clicked Reload on the conflict banner), the on-disk
+        // version may now be the EXTERNAL one — overwriting our
+        // baseline / dirty / self-write-suppression with the racing
+        // save's outcome would silently lose that external version
+        // (review finding bug-expert P1#2). Skip the post-success
+        // bookkeeping; the Reload path handles re-reading disk.
+        if (voidInFlightSaveRef.current) {
+          voidInFlightSaveRef.current = false;
+          return;
+        }
         // Update the on-disk baseline so the next divergence check
         // sees the just-saved scene as canonical.
         lastSavedHashRef.current = savedHash;
@@ -163,6 +227,13 @@ export function useExcalidrawAutoSave(
         // which meant a tab-switch mid-save left the watcher echo
         // unsuppressed (iter-12 bug-expert finding HIGH#5).
         recordSave(filePath);
+        // Pill is gated on userInitiated because the only externally-
+        // visible save signal is Cmd+S — debounced auto-saves are
+        // intentionally silent (review finding bug-expert P1#1: pill
+        // must NOT flash when paused / skipped / no-diff).
+        if (userInitiated && mountedRef.current) {
+          showSavedPill();
+        }
         if (!mountedRef.current) return;
         setSaveError(null);
         setExcalidrawDirty(filePath, false);
@@ -180,6 +251,9 @@ export function useExcalidrawAutoSave(
               : String(err);
         void logError(`excalidraw auto-save failed for ${filePath}: ${logMsg}`);
         failureCountRef.current += 1;
+        // Clear any racing void flag — a failed save did not write to
+        // disk so there's no stale baseline to worry about.
+        voidInFlightSaveRef.current = false;
         if (!mountedRef.current) return;
         setSaveError(friendlySaveError(err));
         if (failureCountRef.current >= EXCALIDRAW_AUTOSAVE_MAX_CONSECUTIVE_FAILURES) {
@@ -202,7 +276,7 @@ export function useExcalidrawAutoSave(
         if (mountedRef.current) {
           autoSaveTimerRef.current = window.setTimeout(() => {
             autoSaveTimerRef.current = null;
-            performSave(false);
+            performSave(false, false);
           }, 0);
           return;
         }
@@ -230,12 +304,12 @@ export function useExcalidrawAutoSave(
     lastSavePromiseRef.current = savePromise;
   };
 
-  const flush = useCallback((): void => {
+  const flush = useCallback((opts?: { userInitiated?: boolean }): void => {
     if (autoSaveTimerRef.current !== null) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    performSave(true);
+    performSave(true, opts?.userInitiated === true);
     // performSave is a stable hook-body closure that reads via refs; deps
     // intentionally empty so the returned function identity is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,6 +378,38 @@ export function useExcalidrawAutoSave(
   const notifyChange = useCallback((live: ExcalidrawScene): void => {
     liveSceneRef.current = live;
     if (modeRef.current !== "editor") return;
+
+    // Cheap pre-filter (review finding performance-expert HIGH#1):
+    // Excalidraw's onChange fires at 60 Hz during freehand drag. The
+    // full `computeSceneSnapshot` (O(elements + libraryItems × inner)
+    // with JSON.stringify) is too expensive for the hot path. If the
+    // elements ARRAY reference, libraryItems ARRAY reference, AND the
+    // shallow-equal projection of persisted appState are all identical
+    // to the previous tick, no persistent-content change is possible
+    // (Excalidraw treats elements as immutable on persistent change —
+    // a new array is allocated whenever any element is added /
+    // removed / mutated). Bail out without hashing.
+    const persistedNow: Record<string, unknown> = {};
+    const a = (live.appState ?? {}) as Record<string, unknown>;
+    for (const k of PERSISTED_APPSTATE_KEYS) {
+      if (k in a) persistedNow[k] = a[k];
+    }
+    const sameElements = prevElementsArrayRef.current === live.elements;
+    const sameLib = prevLibraryItemsRef.current === (live.libraryItems ?? null);
+    const prevPersisted = prevPersistedAppStateRef.current;
+    const samePersisted =
+      prevPersisted !== null &&
+      Object.keys(persistedNow).length === Object.keys(prevPersisted).length &&
+      Object.entries(persistedNow).every(([k, v]) => prevPersisted[k] === v);
+    if (lastSavedHashRef.current !== null && sameElements && sameLib && samePersisted) {
+      // Pure cursor / pointer / viewport-pan / tool-select onChange.
+      // No hash, no re-baseline, no dirty flip. Hot-path exit.
+      return;
+    }
+    prevElementsArrayRef.current = live.elements;
+    prevLibraryItemsRef.current = live.libraryItems ?? null;
+    prevPersistedAppStateRef.current = persistedNow;
+
     if (lastSavedHashRef.current === null) {
       // First onChange after a load — establish the baseline. Mount-
       // time normalisation onChanges (font load, library merge) all
@@ -335,7 +441,7 @@ export function useExcalidrawAutoSave(
     }
     autoSaveTimerRef.current = window.setTimeout(() => {
       autoSaveTimerRef.current = null;
-      performSave(false);
+      performSave(false, false);
     }, EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS);
     // performSave is hook-body and reads via refs; the only reactive
     // captures here (filePath, setExcalidrawDirty) are listed.
@@ -349,6 +455,22 @@ export function useExcalidrawAutoSave(
     }
     pendingSaveRef.current = false;
     lastSavedHashRef.current = null;
+    // Reset the cheap pre-filter refs so the next onChange after Reload
+    // re-baselines correctly (Excalidraw will mount a fresh scene with
+    // a fresh elements array reference; this also covers the case
+    // where the same canvas is re-keyed to load disk bytes).
+    prevElementsArrayRef.current = null;
+    prevPersistedAppStateRef.current = null;
+    prevLibraryItemsRef.current = null;
+    // If a save is currently in flight, MARK it void so its `.then`
+    // skips baseline / dirty / recordSave updates. Without this, the
+    // racing save's success handler would write the user's pre-Reload
+    // draft as the new baseline AND register a self-write suppression
+    // token — silently overwriting the external version the user
+    // meant to load (review finding bug-expert P1#2).
+    if (saveInFlightRef.current) {
+      voidInFlightSaveRef.current = true;
+    }
   }, []);
 
   const clearSaveError = useCallback((): void => setSaveError(null), []);
@@ -358,12 +480,20 @@ export function useExcalidrawAutoSave(
     autoSavePausedRef.current = false;
     setAutoSavePaused(false);
     setSaveError(null);
-    performSave(false);
+    performSave(false, false);
     // performSave reads via refs; deps intentionally empty.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const triggerSavedPill = useCallback((): void => {
+  /**
+   * Internal: surface the transient "Saved" pill. Called only from the
+   * save success `.then` when the save was user-initiated (Cmd+S) AND a
+   * write actually fired. The previously-public `triggerSavedPill` was
+   * removed so callers cannot bypass the success gate (review finding
+   * bug-expert P1#1: pill must NOT flash when paused / skipped /
+   * no-diff).
+   */
+  function showSavedPill(): void {
     if (savedPillTimerRef.current !== null) {
       clearTimeout(savedPillTimerRef.current);
     }
@@ -372,7 +502,7 @@ export function useExcalidrawAutoSave(
       savedPillTimerRef.current = null;
       if (mountedRef.current) setSavedPillVisible(false);
     }, EXCALIDRAW_SAVED_PILL_MS);
-  }, []);
+  }
 
   // Cleanup any pill timer on unmount.
   useEffect(() => {
@@ -393,6 +523,5 @@ export function useExcalidrawAutoSave(
     autoSavePaused,
     retryAfterFailure,
     savedPillVisible,
-    triggerSavedPill,
   };
 }

@@ -55,7 +55,7 @@ import type { ExcalidrawScene } from "./extractScene";
  * test in `stable-hash.test.ts` locks the key set; an upgrade that adds
  * a persisted key fails that test loudly.
  */
-const PERSISTED_APPSTATE_KEYS = [
+export const PERSISTED_APPSTATE_KEYS = [
   "viewBackgroundColor",
   "gridModeEnabled",
   "gridSize",

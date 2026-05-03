@@ -1,3 +1,21 @@
+## Unreleased
+
+### Features
+- **Excalidraw integration** — 3-mode viewer (Source / Visual / Editor) for `.excalidraw`, `.excalidrawlib`, `.excalidraw.png`, `.excalidraw.svg`. Editor mode autosaves edits on a 2-second debounce through a single Rust workspace-write chokepoint (`commands/fs_write.rs::write_workspace_text` / `write_workspace_binary`) gated by extension allowlist, payload size cap, NTFS-ADS reject, parent canonicalisation, and atomic commit. The first round-trip-edit feature in the app — historically a Non-Goal, now scoped via principles.md carve-out (#352). New IPC: `write_workspace_text`, `write_workspace_binary`, `claim_open_file`, `release_open_file`, `release_open_files`, `focus_window`, close-flush handshake. New `<PersistentExcalidrawHost>` keeps Excalidraw instances alive across tab switches (preserves undo, library, viewport pan/zoom). Multi-window same-file singleton: a canonical path is open in at most one window at a time; opening it elsewhere raises the existing window. (#353)
+
+### Fixes
+- Cmd+S "Saved" pill no longer flashes when auto-save was paused, skipped, or otherwise short-circuited — gated on a real successful write. (#352 ship-readiness review B1)
+- Conflict-banner Reload no longer leaves the user's pre-Reload draft on disk under self-write suppression: in-flight saves are voided (post-success bookkeeping skipped) so the freshly-loaded external version is not silently absorbed. (#352 ship-readiness review B2)
+- "Keep my edits (overwrite disk)" flushes immediately so the user's intent persists at click time, not deferred until the next onChange. (#352 ship-readiness review B3)
+- Auto-save snapshot hash is gated by a cheap reference-identity pre-filter so `JSON.stringify` no longer runs on every Excalidraw `onChange` tick (was 60 Hz during freehand drag). (#352 ship-readiness review B4 — perf regression introduced in iter-14)
+
+### UX
+- Combined first-Editor-entry banner replaces the previous two-banner stack (autosave-info + MRSF warning); dejargonized copy ("comments pinned to specific lines may move to the whole file"). (#352 ship-readiness review P0-2 + P0-3)
+- Conflict-banner buttons now styled asymmetrically: Reload primary-filled, "Keep my edits (overwrite disk)" outlined-destructive — destructive choice cannot be mistaken for the safer one via wordier label. (#352 ship-readiness review P0-4)
+
+### Security
+- Vendored Excalidraw `data/` no longer copies orphaned ES module shims with broken imports — filtered to non-JS assets only. (#352 ship-readiness review S1)
+
 ## v0.4.2 — 2026-05-01
 
 ### Features

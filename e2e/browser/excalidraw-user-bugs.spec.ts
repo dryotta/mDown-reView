@@ -223,6 +223,11 @@ async function setupMocks(
         if (cmd === "get_file_badges") return {};
         if (cmd === "write_workspace_text") return null;
         if (cmd === "write_workspace_binary") return null;
+        // Canonical bootstrap-IPC commands (per docs/test-strategy.md
+        // rule 9 — eleven-command init contract). Specs missing these
+        // stall on folder-open (review finding test-expert T1).
+        if (cmd === "scan_review_files") return [];
+        if (cmd === "update_watched_files") return null;
         return null;
       };
     },
@@ -251,9 +256,9 @@ test.describe("Excalidraw auto-save (#352 iter-10)", () => {
       .getByRole("button", { name: /^editor$/i })
       .click();
 
-    const banner = page.getByTestId("excalidraw-autosave-banner");
+    const banner = page.getByTestId("excalidraw-first-entry-banner");
     await expect(banner).toBeVisible();
-    await page.getByTestId("excalidraw-autosave-banner-dismiss").click();
+    await page.getByTestId("excalidraw-first-entry-banner-dismiss").click();
     await expect(banner).not.toBeVisible();
 
     // Persistence test (T3): switch to Visual then back to Editor —

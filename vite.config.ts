@@ -88,7 +88,27 @@ const excalidrawAssetCopy = (): Plugin => ({
           );
         }
       } else {
-        cpSync(subSrc, subDst, { recursive: true });
+        // Iter-20 (security review S1): the upstream `data/` directory
+        // contains an orphaned ES module shim (`image-*.js`) that
+        // imports relative `../chunk-*.js` files we deliberately do
+        // NOT copy. Under CSP `script-src 'self'`, the file is
+        // same-origin loadable but its imports are broken — leaving
+        // it on disk creates a future-maintainer footgun ("the file
+        // is broken, let me fix it" → restoring the 12 MB chunk
+        // payload we trimmed). Filter to data assets only — JSON
+        // metadata, fonts, BDF font files. No JavaScript.
+        cpSync(subSrc, subDst, {
+          recursive: true,
+          filter: (src) => {
+            // Always allow directories so `cpSync` can recurse.
+            if (!src.includes(".")) return true;
+            const lower = src.toLowerCase();
+            if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+              return false;
+            }
+            return true;
+          },
+        });
       }
     }
   },

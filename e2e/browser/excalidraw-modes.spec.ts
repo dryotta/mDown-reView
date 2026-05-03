@@ -39,6 +39,12 @@ async function setupExcalidrawMocks(page: Page) {
         if (cmd === "get_log_path") return "/mock/log.log";
         if (cmd === "compute_anchor_hash") return "deadbeef";
         if (cmd === "get_file_badges") return {};
+        // Canonical bootstrap-IPC commands (per docs/test-strategy.md
+        // rule 9 — eleven-command init contract). Any spec missing
+        // these stalls if the renderer awaits them during folder open
+        // (review finding test-expert T1).
+        if (cmd === "scan_review_files") return [];
+        if (cmd === "update_watched_files") return null;
         return null;
       };
     },

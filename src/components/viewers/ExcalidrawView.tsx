@@ -4,9 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { SkeletonLoader } from "./SkeletonLoader";
 import {
-  AutoSaveInfoBanner,
   ConflictBanner,
-  MrsfWarningBanner,
+  FirstEntryBanner,
   SavedPill,
   SaveErrorBanner,
 } from "./excalidraw/ExcalidrawBanners";
@@ -23,13 +22,21 @@ import { ZOOM_DEFAULT } from "@/store/viewerPrefs";
 import "@excalidraw/excalidraw/index.css";
 import "@/styles/viewer-banner.css";
 
-// Iter-17 (lean-expert MEDIUM) — inlined the previously-separate
-// `first-save-warning.ts` + `autosave-banner.ts` shims. Both were
-// 1-line aliases over `seenFlag()` with a single consumer (this file);
-// keeping the shim layer was AGENTS.md "engineering debt by misnamed
-// dead code" per lean review.
-const MRSF_WARNING = seenFlag("mdownreview:excalidraw-first-save-warning-seen");
-const AUTOSAVE_BANNER = seenFlag("mdownreview:excalidraw-autosave-banner-seen");
+// First-Editor-entry one-shot disclosure (combined autosave-info +
+// MRSF warning). Pre-merge there were two separate flags
+// (`mdownreview:excalidraw-autosave-banner-seen` and
+// `mdownreview:excalidraw-first-save-warning-seen`); both are still
+// consulted on read so users who dismissed EITHER previous banner
+// don't get re-shown the merged version. New "first-entry-seen" flag
+// is the authoritative writer going forward (review finding
+// product-expert P0-2: stacking two banners ate canvas height).
+const FIRST_ENTRY = seenFlag("mdownreview:excalidraw-first-entry-seen");
+const LEGACY_AUTOSAVE_BANNER = seenFlag(
+  "mdownreview:excalidraw-autosave-banner-seen",
+);
+const LEGACY_MRSF_WARNING = seenFlag(
+  "mdownreview:excalidraw-first-save-warning-seen",
+);
 
 /**
  * Excalidraw asset path — fonts vendored into `public/excalidraw-assets/`
@@ -140,7 +147,6 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     autoSavePaused,
     retryAfterFailure,
     savedPillVisible,
-    triggerSavedPill,
   } = useExcalidrawAutoSave(filePath, mode, externalChangePending);
 
   // Iter-18 (user-reported regression) — toolbar zoom buttons used
@@ -185,24 +191,28 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     }
   }, [toolbarZoom, reloadKey]);
 
-  // Banner dismissal state. Initialised lazily so remounts don't
+  // Banner dismissal state. Single combined first-Editor-entry
+  // disclosure replaces the iter-12 two-banner stack (review finding
+  // product-expert P0-2 + P0-3). Initialised lazily so remounts don't
   // resurrect a banner the user already dismissed (the seen-flag
-  // helpers persist across page reloads, so re-reading is correct).
-  const [autoSaveBannerVisible, setAutoSaveBannerVisible] = useState(
-    () => !AUTOSAVE_BANNER.has(),
+  // helpers persist across page reloads). Honour any of the three
+  // flags so users who already dismissed either of the previous two
+  // banners are not re-shown the merged version.
+  const [firstEntryBannerVisible, setFirstEntryBannerVisible] = useState(
+    () =>
+      !FIRST_ENTRY.has() &&
+      !LEGACY_AUTOSAVE_BANNER.has() &&
+      !LEGACY_MRSF_WARNING.has(),
   );
-  const [showFirstSaveWarning, setShowFirstSaveWarning] = useState(false);
 
-  // First-Editor-entry MRSF warning — fires AT MOST ONCE per browser
+  // First-Editor-entry banner — fires AT MOST ONCE per browser
   // profile across the entire app lifetime. Surfaces proactively
-  // (under autosave the user has no explicit save action; the warning
-  // must precede the first edit-becomes-save).
+  // (under autosave the user has no explicit save action; the
+  // disclosure must precede the first edit-becomes-save).
   useEffect(() => {
     if (mode !== "editor") return;
-    if (MRSF_WARNING.has()) return;
-    MRSF_WARNING.mark();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShowFirstSaveWarning(true);
+    if (FIRST_ENTRY.has()) return;
+    FIRST_ENTRY.mark();
   }, [mode]);
 
   // Cmd+S flush event — the renderer-side hook
@@ -211,22 +221,23 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // the view whose `filePath` matches the event detail responds; other
   // editor instances ignore.
   //
-  // `flush` and `triggerSavedPill` are now `useCallback`-stable
-  // (iter-14 — useExcalidrawAutoSave wraps every exposed function).
-  // Listing them in deps is correct and lint-clean; the listener
-  // re-binds only when filePath changes (rare).
+  // Pass `{ userInitiated: true }` so the autosave hook gates the
+  // transient "Saved" pill on a real successful write — without this
+  // the pill would flash even when the save was paused (3-strike
+  // failure-pause), skipped (no diff vs baseline), short-circuited by
+  // the conflict banner, or otherwise short-circuited (review finding
+  // bug-expert P1#1).
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string } | undefined;
       if (!detail || detail.path !== filePath) return;
-      flush();
-      triggerSavedPill();
+      flush({ userInitiated: true });
     };
     window.addEventListener("mdownreview:excalidraw-flush-save", handler);
     return () => {
       window.removeEventListener("mdownreview:excalidraw-flush-save", handler);
     };
-  }, [filePath, flush, triggerSavedPill]);
+  }, [filePath, flush]);
 
   if (loadError) {
     return (
@@ -265,16 +276,13 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}
     >
       {savedPillVisible && <SavedPill />}
-      {mode === "editor" && autoSaveBannerVisible && (
-        <AutoSaveInfoBanner
+      {mode === "editor" && firstEntryBannerVisible && (
+        <FirstEntryBanner
           onDismiss={() => {
-            AUTOSAVE_BANNER.mark();
-            setAutoSaveBannerVisible(false);
+            FIRST_ENTRY.mark();
+            setFirstEntryBannerVisible(false);
           }}
         />
-      )}
-      {showFirstSaveWarning && (
-        <MrsfWarningBanner onDismiss={() => setShowFirstSaveWarning(false)} />
       )}
       {mode === "editor" && saveError && (
         <SaveErrorBanner
@@ -315,9 +323,16 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           }}
           onKeepEditing={() => {
             // Keep editing — clear pending so the auto-save loop
-            // resumes; the next save will overwrite the on-disk
-            // version.
+            // resumes, then FLUSH immediately (review finding
+            // bug-expert P2#3). The "Keep editing — overwrite" copy
+            // implies the overwrite happens at click time. Without
+            // an immediate flush, the user's divergent in-memory
+            // version persists only to RAM until the next onChange,
+            // so a power loss / OOM kill before then would silently
+            // drop the user's changes (close-flush handshake is
+            // best-effort over CloseRequested only).
             useStore.getState().setExternalChangePending(filePath, false);
+            flush();
           }}
         />
       )}
