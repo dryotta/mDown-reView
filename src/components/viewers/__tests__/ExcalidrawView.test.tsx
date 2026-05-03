@@ -1868,3 +1868,135 @@ describe("ExcalidrawView — toolbar zoom wiring (#352 iter-18)", () => {
   });
 });
 
+// Iter-22 (user feedback) — `.excalidrawlib` library sidebar pin.
+// Excalidraw closes the library sidebar automatically when the user
+// clicks a library item (treated as "drop on canvas" intent even in
+// viewModeEnabled). Per the view-only redesign, libraries must keep
+// the sidebar visible throughout the session so the user can browse
+// the curated shapes. ExcalidrawView's onChange handler detects the
+// divergence and re-pins the sidebar via the imperative API on a
+// microtask defer.
+describe("ExcalidrawView — .excalidrawlib library sidebar pin (#352 iter-22)", () => {
+  function lastApi(): { updateScene: ReturnType<typeof vi.fn> } | undefined {
+    return (globalThis as unknown as {
+      __EXCALIDRAW_TEST_LAST_API__?: { updateScene: ReturnType<typeof vi.fn> };
+    }).__EXCALIDRAW_TEST_LAST_API__;
+  }
+
+  function lastOnChange(): (els: unknown, app: unknown, files: unknown) => void {
+    const mod = ExcalidrawModule as unknown as {
+      Excalidraw: ReturnType<typeof vi.fn>;
+    };
+    const calls = mod.Excalidraw.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    return lastCall?.[0].onChange as (
+      els: unknown,
+      app: unknown,
+      files: unknown,
+    ) => void;
+  }
+
+  it("re-pins the library sidebar on onChange when Excalidraw closes it", async () => {
+    render(
+      <ExcalidrawView
+        content='{"type":"excalidrawlib","libraryItems":[]}'
+        filePath="/ws/iter22-pin.excalidrawlib"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const before = api!.updateScene.mock.calls.length;
+    const onChange = lastOnChange();
+
+    // Simulate Excalidraw firing onChange with the sidebar CLOSED
+    // (openSidebar=null) — what happens after a user clicks a library
+    // item in production.
+    await act(async () => {
+      onChange([], { openSidebar: null }, {});
+      // Drain the microtask queue so the queued updateScene fires.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The pin mechanism MUST have called updateScene with the
+    // canonical library-tab payload.
+    expect(api!.updateScene.mock.calls.length).toBeGreaterThan(before);
+    const lastCall = api!.updateScene.mock.calls[
+      api!.updateScene.mock.calls.length - 1
+    ][0] as { appState?: { openSidebar?: { name?: string; tab?: string } } };
+    expect(lastCall.appState?.openSidebar?.name).toBe("default");
+    expect(lastCall.appState?.openSidebar?.tab).toBe("library");
+  });
+
+  it("does NOT re-pin when the sidebar is ALREADY on the library tab", async () => {
+    render(
+      <ExcalidrawView
+        content='{"type":"excalidrawlib","libraryItems":[]}'
+        filePath="/ws/iter22-already-pinned.excalidrawlib"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const before = api!.updateScene.mock.calls.length;
+    const onChange = lastOnChange();
+
+    // onChange with the sidebar already open on the library tab —
+    // the pin must NOT trigger another updateScene (no recursion).
+    await act(async () => {
+      onChange(
+        [],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Either zero new calls (no recursion) OR a single call from
+    // unrelated state churn — assert no library-pin call was issued.
+    const newCalls = api!.updateScene.mock.calls.slice(before);
+    const pinCalls = newCalls.filter((call) => {
+      const arg = call[0] as { appState?: { openSidebar?: unknown } };
+      return arg?.appState && "openSidebar" in arg.appState;
+    });
+    expect(pinCalls).toHaveLength(0);
+  });
+
+  it("does NOT re-pin for canonical .excalidraw files (only for libraries)", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter22-not-lib.excalidraw"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const before = api!.updateScene.mock.calls.length;
+    const onChange = lastOnChange();
+
+    // Even with sidebar closed, no pin fires for a canonical
+    // `.excalidraw` — the pin behavior is library-specific.
+    await act(async () => {
+      onChange([], { openSidebar: null }, {});
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const newCalls = api!.updateScene.mock.calls.slice(before);
+    const pinCalls = newCalls.filter((call) => {
+      const arg = call[0] as { appState?: { openSidebar?: unknown } };
+      return arg?.appState && "openSidebar" in arg.appState;
+    });
+    expect(pinCalls).toHaveLength(0);
+  });
+});
+

@@ -17,7 +17,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useExcalidrawAutoSave } from "@/hooks/useExcalidrawAutoSave";
 import { useExcalidrawScene } from "@/hooks/useExcalidrawScene";
 import { seenFlag } from "@/lib/excalidraw/seen-flag";
-import { getFiletypeKey } from "@/lib/file-types";
+import { getFiletypeKey, isExcalidrawLibrary } from "@/lib/file-types";
 import { getFileBadges } from "@/lib/tauri-commands";
 import { warn as logWarn } from "@/logger";
 import { useStore } from "@/store";
@@ -617,6 +617,41 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
               appState: appState as unknown as Record<string, unknown>,
               files: files as unknown as Record<string, unknown>,
             });
+
+            // Iter-22 (user feedback) — `.excalidrawlib` files are
+            // view-only AND must keep the library sidebar visible
+            // throughout the session so the user can browse the
+            // curated shapes. Excalidraw closes the sidebar
+            // automatically when the user clicks a library item
+            // (the click is treated as "drop onto canvas" intent
+            // even in viewModeEnabled). Re-pin the sidebar via the
+            // imperative API whenever its state diverges from the
+            // library tab. Defer to a microtask so we don't recurse
+            // synchronously inside Excalidraw's onChange dispatch.
+            if (isExcalidrawLibrary(filePath)) {
+              const sidebar = (appState as unknown as {
+                openSidebar?: { name?: string; tab?: string } | null;
+              }).openSidebar;
+              const isLibraryOpen =
+                sidebar?.name === "default" && sidebar?.tab === "library";
+              if (!isLibraryOpen && excalidrawAPIRef.current) {
+                const api = excalidrawAPIRef.current;
+                queueMicrotask(() => {
+                  try {
+                    api.updateScene({
+                      appState: {
+                        openSidebar: { name: "default", tab: "library" },
+                      } as never,
+                    });
+                  } catch {
+                    // Defensive — Excalidraw may have unmounted between
+                    // the onChange and the microtask (tab switch within
+                    // 1 tick). Swallow the noise; the next mount of
+                    // this path's view re-pins on first render.
+                  }
+                });
+              }
+            }
           }}
           onLibraryChange={(libraryItems) => {
             // Iter-21 (#352 P0-1) — single source of truth for

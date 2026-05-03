@@ -1,7 +1,7 @@
 {
   "type": "excalidrawlib",
   "version": 2,
-  "source": "https://excalidraw.com",
+  "source": "http://tauri.localhost",
   "libraryItems": [
     {
       "id": "lib-item-01",
@@ -11,8 +11,8 @@
       "elements": [
         {
           "id": "el-00000101",
-          "version": 1,
-          "versionNonce": 1001717,
+          "version": 2,
+          "versionNonce": 1324132450,
           "isDeleted": false,
           "fillStyle": "solid",
           "strokeWidth": 2,
@@ -32,16 +32,17 @@
           "roundness": {
             "type": 3
           },
-          "boundElements": null,
-          "updated": 1700000000000,
+          "boundElements": [],
+          "updated": 1777846095336,
           "link": null,
           "locked": false,
-          "type": "rectangle"
+          "type": "rectangle",
+          "index": "a0"
         },
         {
           "id": "el-00000102",
-          "version": 1,
-          "versionNonce": 1001734,
+          "version": 2,
+          "versionNonce": 1641678526,
           "isDeleted": false,
           "fillStyle": "solid",
           "strokeWidth": 2,
@@ -59,8 +60,8 @@
           "groupIds": [],
           "frameId": null,
           "roundness": null,
-          "boundElements": null,
-          "updated": 1700000000000,
+          "boundElements": [],
+          "updated": 1777846095336,
           "link": null,
           "locked": false,
           "type": "text",
@@ -72,7 +73,9 @@
           "verticalAlign": "middle",
           "baseline": 18,
           "containerId": null,
-          "lineHeight": 1.25
+          "lineHeight": 1.25,
+          "index": "a1",
+          "autoResize": true
         }
       ]
     },
@@ -84,8 +87,8 @@
       "elements": [
         {
           "id": "el-00000201",
-          "version": 1,
-          "versionNonce": 1003417,
+          "version": 2,
+          "versionNonce": 1170033698,
           "isDeleted": false,
           "fillStyle": "solid",
           "strokeWidth": 2,
@@ -105,16 +108,17 @@
           "roundness": {
             "type": 3
           },
-          "boundElements": null,
-          "updated": 1700000000000,
+          "boundElements": [],
+          "updated": 1777846095336,
           "link": null,
           "locked": false,
-          "type": "rectangle"
+          "type": "rectangle",
+          "index": "a0"
         },
         {
           "id": "el-00000202",
-          "version": 1,
-          "versionNonce": 1003434,
+          "version": 2,
+          "versionNonce": 2024177406,
           "isDeleted": false,
           "fillStyle": "solid",
           "strokeWidth": 2,
@@ -132,8 +136,8 @@
           "groupIds": [],
           "frameId": null,
           "roundness": null,
-          "boundElements": null,
-          "updated": 1700000000000,
+          "boundElements": [],
+          "updated": 1777846095336,
           "link": null,
           "locked": false,
           "type": "text",
@@ -145,7 +149,9 @@
           "verticalAlign": "middle",
           "baseline": 18,
           "containerId": null,
-          "lineHeight": 1.25
+          "lineHeight": 1.25,
+          "index": "a1",
+          "autoResize": true
         }
       ]
     },
@@ -157,8 +163,8 @@
       "elements": [
         {
           "id": "el-00000301",
-          "version": 1,
-          "versionNonce": 1005117,
+          "version": 2,
+          "versionNonce": 709064674,
           "isDeleted": false,
           "fillStyle": "solid",
           "strokeWidth": 2,
@@ -178,16 +184,17 @@
           "roundness": {
             "type": 3
           },
-          "boundElements": null,
-          "updated": 1700000000000,
+          "boundElements": [],
+          "updated": 1777846095336,
           "link": null,
           "locked": false,
-          "type": "diamond"
+          "type": "diamond",
+          "index": "a0"
         },
         {
           "id": "el-00000302",
-          "version": 1,
-          "versionNonce": 1005134,
+          "version": 2,
+          "versionNonce": 666496830,
           "isDeleted": false,
           "fillStyle": "solid",
           "strokeWidth": 2,
@@ -205,8 +212,8 @@
           "groupIds": [],
           "frameId": null,
           "roundness": null,
-          "boundElements": null,
-          "updated": 1700000000000,
+          "boundElements": [],
+          "updated": 1777846095336,
           "link": null,
           "locked": false,
           "type": "text",
@@ -218,7 +225,9 @@
           "verticalAlign": "middle",
           "baseline": 18,
           "containerId": null,
-          "lineHeight": 1.25
+          "lineHeight": 1.25,
+          "index": "a1",
+          "autoResize": true
         }
       ]
     }
