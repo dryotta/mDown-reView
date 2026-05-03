@@ -24,11 +24,22 @@ vi.mock("@excalidraw/excalidraw", () => {
   // re-renders so tests can assert call counts even when the
   // component re-renders (which happens on every zoom state change).
   const sharedUpdateSceneSpy = vi.fn((_data: unknown) => {});
+  // Iter-22: scrollToContent is called by the library preview-on-click
+  // mechanism so the new shape is centered on the canvas.
+  const sharedScrollToContentSpy = vi.fn(
+    (_elements: unknown, _opts?: unknown) => {},
+  );
   (
     globalThis as unknown as {
-      __EXCALIDRAW_TEST_LAST_API__?: { updateScene: ReturnType<typeof vi.fn> };
+      __EXCALIDRAW_TEST_LAST_API__?: {
+        updateScene: ReturnType<typeof vi.fn>;
+        scrollToContent: ReturnType<typeof vi.fn>;
+      };
     }
-  ).__EXCALIDRAW_TEST_LAST_API__ = { updateScene: sharedUpdateSceneSpy };
+  ).__EXCALIDRAW_TEST_LAST_API__ = {
+    updateScene: sharedUpdateSceneSpy,
+    scrollToContent: sharedScrollToContentSpy,
+  };
   return {
     Excalidraw: vi.fn((props: Record<string, unknown>) => {
       const ui = props.UIOptions as
@@ -41,10 +52,16 @@ vi.mock("@excalidraw/excalidraw", () => {
       // tests reflect the same mount-only cardinality real users see
       // (bug-expert iter-18 LOW finding).
       const apiCallback = props.excalidrawAPI as
-        | ((api: { updateScene: (data: unknown) => void }) => void)
+        | ((api: {
+            updateScene: (data: unknown) => void;
+            scrollToContent: (elements: unknown, opts?: unknown) => void;
+          }) => void)
         | undefined;
       React.useEffect(() => {
-        apiCallback?.({ updateScene: sharedUpdateSceneSpy });
+        apiCallback?.({
+          updateScene: sharedUpdateSceneSpy,
+          scrollToContent: sharedScrollToContentSpy,
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
       return (
@@ -1997,6 +2014,248 @@ describe("ExcalidrawView — .excalidrawlib library sidebar pin (#352 iter-22)",
       return arg?.appState && "openSidebar" in arg.appState;
     });
     expect(pinCalls).toHaveLength(0);
+  });
+});
+
+// Iter-22 (user feedback) — `.excalidrawlib` library "preview-on-click"
+// behavior. Each library-item click drops elements onto the canvas
+// (Excalidraw appends, even in viewModeEnabled). The user wants
+// each click to REPLACE the canvas with only the latest shape — a
+// preview pane, not an accumulating gallery.
+describe("ExcalidrawView — .excalidrawlib library preview-on-click (#352 iter-22)", () => {
+  function lastApi(): {
+    updateScene: ReturnType<typeof vi.fn>;
+    scrollToContent: ReturnType<typeof vi.fn>;
+  } | undefined {
+    return (globalThis as unknown as {
+      __EXCALIDRAW_TEST_LAST_API__?: {
+        updateScene: ReturnType<typeof vi.fn>;
+        scrollToContent: ReturnType<typeof vi.fn>;
+      };
+    }).__EXCALIDRAW_TEST_LAST_API__;
+  }
+
+  function lastOnChange(): (els: unknown, app: unknown, files: unknown) => void {
+    const mod = ExcalidrawModule as unknown as {
+      Excalidraw: ReturnType<typeof vi.fn>;
+    };
+    const calls = mod.Excalidraw.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    return lastCall?.[0].onChange as (
+      els: unknown,
+      app: unknown,
+      files: unknown,
+    ) => void;
+  }
+
+  it("first library click — replaces canvas with the just-clicked shape", async () => {
+    render(
+      <ExcalidrawView
+        content='{"type":"excalidrawlib","libraryItems":[]}'
+        filePath="/ws/iter22-preview-1.excalidrawlib"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const onChange = lastOnChange();
+
+    // Initial mount: empty canvas.
+    await act(async () => {
+      onChange(
+        [],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+    });
+    const beforeFirstClick = api!.updateScene.mock.calls.length;
+
+    // User clicks library item A — Excalidraw fires onChange with
+    // [a1, a2] (the shape's two elements appended to the canvas).
+    await act(async () => {
+      onChange(
+        [{ id: "a1" }, { id: "a2" }],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Pin mechanism should call updateScene with the new drop's
+    // elements (preview-replace semantic). Find it among the calls.
+    const newCalls = api!.updateScene.mock.calls.slice(beforeFirstClick);
+    const elementsCalls = newCalls.filter((call) => {
+      const arg = call[0] as { elements?: unknown };
+      return Array.isArray(arg?.elements);
+    });
+    expect(elementsCalls.length).toBeGreaterThan(0);
+    const lastElements = (
+      elementsCalls[elementsCalls.length - 1][0] as { elements: unknown[] }
+    ).elements;
+    expect(lastElements).toEqual([{ id: "a1" }, { id: "a2" }]);
+
+    // scrollToContent must have been called too so the new shape is
+    // centered.
+    expect(api!.scrollToContent).toHaveBeenCalled();
+  });
+
+  it("second library click — REPLACES the previous shape (not overlay)", async () => {
+    render(
+      <ExcalidrawView
+        content='{"type":"excalidrawlib","libraryItems":[]}'
+        filePath="/ws/iter22-preview-replace.excalidrawlib"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const onChange = lastOnChange();
+
+    // Initial empty canvas.
+    await act(async () => {
+      onChange(
+        [],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+    });
+
+    // Click A (1 element).
+    await act(async () => {
+      onChange(
+        [{ id: "a1" }],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Now Excalidraw appends B's elements to the canvas. Without our
+    // fix, the canvas would have [a1, b1, b2]. With the fix, our
+    // updateScene replaces with just [b1, b2].
+    const beforeSecondClick = api!.updateScene.mock.calls.length;
+    await act(async () => {
+      onChange(
+        [{ id: "a1" }, { id: "b1" }, { id: "b2" }],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const newCalls = api!.updateScene.mock.calls.slice(beforeSecondClick);
+    const elementsCalls = newCalls.filter((call) => {
+      const arg = call[0] as { elements?: unknown };
+      return Array.isArray(arg?.elements);
+    });
+    expect(elementsCalls.length).toBeGreaterThan(0);
+    const lastElements = (
+      elementsCalls[elementsCalls.length - 1][0] as { elements: unknown[] }
+    ).elements;
+    // The replace MUST contain only the new drop (b1, b2), NOT the
+    // previous shape's a1.
+    expect(lastElements).toEqual([{ id: "b1" }, { id: "b2" }]);
+    expect(lastElements).not.toContainEqual({ id: "a1" });
+  });
+
+  it("does NOT trigger a replace when elements stay the same length (anti-recursion)", async () => {
+    render(
+      <ExcalidrawView
+        content='{"type":"excalidrawlib","libraryItems":[]}'
+        filePath="/ws/iter22-preview-stable.excalidrawlib"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const onChange = lastOnChange();
+
+    // Drop 1 shape.
+    await act(async () => {
+      onChange(
+        [],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      onChange(
+        [{ id: "a1" }],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const beforeStable = api!.updateScene.mock.calls.length;
+
+    // Spurious onChange with the same elements (Excalidraw fires
+    // these for cursor moves, viewport pan, etc.) — must NOT trigger
+    // another updateScene replace, otherwise we'd loop forever.
+    await act(async () => {
+      onChange(
+        [{ id: "a1" }],
+        { openSidebar: { name: "default", tab: "library" } },
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const newCalls = api!.updateScene.mock.calls.slice(beforeStable);
+    const elementsCalls = newCalls.filter((call) => {
+      const arg = call[0] as { elements?: unknown };
+      return Array.isArray(arg?.elements);
+    });
+    expect(elementsCalls).toHaveLength(0);
+  });
+
+  it("does NOT activate preview-replace for canonical .excalidraw files", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter22-preview-not-lib.excalidraw"
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const api = lastApi();
+    expect(api).toBeDefined();
+    const onChange = lastOnChange();
+
+    await act(async () => {
+      onChange([], {}, {});
+    });
+    const before = api!.updateScene.mock.calls.length;
+
+    // Append elements — for canonical .excalidraw this is a real
+    // edit, not a library-preview click. Must NOT replace.
+    await act(async () => {
+      onChange(
+        [{ id: "real-edit-1" }, { id: "real-edit-2" }],
+        {},
+        {},
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const newCalls = api!.updateScene.mock.calls.slice(before);
+    const elementsCalls = newCalls.filter((call) => {
+      const arg = call[0] as { elements?: unknown };
+      return Array.isArray(arg?.elements);
+    });
+    expect(elementsCalls).toHaveLength(0);
   });
 });
 

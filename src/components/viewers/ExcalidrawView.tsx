@@ -299,6 +299,18 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     (s) => s.zoomByFiletype[filetypeKey] ?? ZOOM_DEFAULT,
   );
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
+
+  // Iter-22 (user feedback) — `.excalidrawlib` library "preview-on-
+  // click" tracker. Excalidraw drops library-item elements onto the
+  // canvas (appending to the elements array) when the user clicks a
+  // library item, even with `viewModeEnabled=true`. The user wants
+  // each click to *replace* the canvas with only the newly-clicked
+  // shape — a preview pane, not an accumulating gallery. We detect a
+  // drop by `elements.length > previousLength` in onChange, slice the
+  // tail (the new drop), and call `updateScene({ elements: newDrop })`
+  // on a microtask defer to swap the canvas. A microtask defer
+  // avoids re-entering Excalidraw's onChange dispatch synchronously.
+  const libraryDropPrevLengthRef = useRef(0);
   useEffect(() => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
@@ -650,6 +662,50 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
                     // this path's view re-pins on first render.
                   }
                 });
+              }
+
+              // Iter-22 (user feedback) — preview-on-click: replace
+              // the canvas with ONLY the newly-clicked shape. Excalidraw
+              // appends library-item elements when the user clicks an
+              // item (visible even in viewModeEnabled). Without this
+              // logic the canvas accumulates every clicked shape on
+              // top of the previous ones — a gallery, not a preview.
+              //
+              // Convergence: after we updateScene with the new drop,
+              // the next onChange sees `elements.length === prevRef`
+              // and skips. Re-mount via `loadVersion` resets the
+              // Excalidraw instance so prevRef naturally re-syncs to
+              // 0 on the next initial onChange.
+              const arr = elements as ReadonlyArray<unknown>;
+              const cur = arr.length;
+              const prev = libraryDropPrevLengthRef.current;
+              if (cur > prev) {
+                const newDrop = arr.slice(prev);
+                libraryDropPrevLengthRef.current = newDrop.length;
+                if (excalidrawAPIRef.current) {
+                  const api = excalidrawAPIRef.current;
+                  queueMicrotask(() => {
+                    try {
+                      api.updateScene({
+                        elements: newDrop as never,
+                      });
+                      // Center the new shape in the viewport so the
+                      // user sees it immediately at a comfortable
+                      // zoom — Excalidraw's `scrollToContent` accepts
+                      // an `elements` arg + `fitToContent: true`.
+                      api.scrollToContent?.(newDrop as never, {
+                        fitToContent: true,
+                        animate: false,
+                      });
+                    } catch {
+                      // Defensive — see sidebar-pin block above.
+                    }
+                  });
+                }
+              } else if (cur < prev) {
+                // Shouldn't happen in viewMode (no deletes), but stay
+                // self-consistent if it does.
+                libraryDropPrevLengthRef.current = cur;
               }
             }
           }}
