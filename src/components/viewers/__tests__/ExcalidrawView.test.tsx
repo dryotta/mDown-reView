@@ -624,6 +624,125 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     window.removeEventListener("mdownreview:file-changed", fileChangedSpy);
   });
 
+  // P0-2 regression — pre-iter-21 the Reload click synchronously
+  // bumped a local reloadKey, which (a) for canonical files
+  // re-fired useExcalidrawScene's effect with the OLD `content`
+  // and (b) keyed `<Excalidraw key={reloadKey}>` directly. The
+  // result was Excalidraw remounting WITH STALE INITIALDATA
+  // before the async re-read committed; the next user edit
+  // autosaved the stale draft over the external version.
+  it("Reload on a canonical .excalidraw does NOT remount Excalidraw before new content commits (P0-2)", async () => {
+    useStore.setState({
+      externalChangePendingByTab: { "/ws/p02-canonical.excalidraw": true },
+    });
+    const oldContent = JSON.stringify({
+      type: "excalidraw",
+      version: 2,
+      source: "test",
+      elements: [{ id: "old-element" }],
+      appState: {},
+      files: {},
+    });
+    const newContent = JSON.stringify({
+      type: "excalidraw",
+      version: 2,
+      source: "test",
+      elements: [{ id: "external-update" }],
+      appState: {},
+      files: {},
+    });
+    const { rerender } = render(
+      <ExcalidrawView
+        content={oldContent}
+        filePath="/ws/p02-canonical.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    const initialStub = await screen.findByTestId("excalidraw-stub");
+    expect(screen.getByTestId("excalidraw-conflict-banner")).toBeInTheDocument();
+
+    // Click Reload — synchronous click. The pre-iter-21 design
+    // would remount Excalidraw HERE, with the still-OLD content,
+    // because the local reloadKey bump re-fired useExcalidrawScene
+    // synchronously. Post-fix: for canonical files the Reload
+    // click does NOT bump a local key; the remount is gated on
+    // the async content prop change committing through
+    // useFileContent.
+    await act(async () => {
+      screen.getByRole("button", { name: /Reload/i }).click();
+    });
+    // Same DOM node — no premature remount with stale content.
+    const afterClickStub = screen.getByTestId("excalidraw-stub");
+    expect(afterClickStub).toBe(initialStub);
+
+    // Now simulate the async re-read committing new content.
+    await act(async () => {
+      rerender(
+        <ExcalidrawView
+          content={newContent}
+          filePath="/ws/p02-canonical.excalidraw"
+          mode="editor"
+          needsExtract={false}
+        />,
+      );
+    });
+    // Excalidraw must now remount with the FRESH initialData
+    // (loadVersion bumped because useExcalidrawScene re-parsed
+    // the new content via the content-dep change).
+    await waitFor(() => {
+      const remountedStub = screen.getByTestId("excalidraw-stub");
+      expect(remountedStub).not.toBe(initialStub);
+    });
+  });
+
+  // P0-2 regression for binary variants — the local reloadKey is
+  // still required because `content` is sentinel-empty and never
+  // changes; bumping it is the only way to re-fire extractScene.
+  // We verify that the binary path DOES remount (eventually) on
+  // Reload + that loadVersion is the gate.
+  it("Reload on a binary .excalidraw.png triggers extractScene + remounts via loadVersion (P0-2)", async () => {
+    useStore.setState({
+      externalChangePendingByTab: { "/ws/p02-binary.excalidraw.png": true },
+    });
+    extractSceneMock
+      .mockResolvedValueOnce({
+        elements: [{ id: "first" }],
+        appState: {},
+        files: {},
+      })
+      .mockResolvedValueOnce({
+        elements: [{ id: "after-reload" }],
+        appState: {},
+        files: {},
+      });
+    render(
+      <ExcalidrawView
+        content=""
+        filePath="/ws/p02-binary.excalidraw.png"
+        mode="editor"
+        needsExtract={true}
+      />,
+    );
+    const initialStub = await screen.findByTestId("excalidraw-stub");
+    expect(extractSceneMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Reload/i }).click();
+    });
+    // extractScene re-runs because reloadKey is bumped on Reload
+    // for binary variants (content is sentinel-empty).
+    await waitFor(() => {
+      expect(extractSceneMock).toHaveBeenCalledTimes(2);
+    });
+    // After the second extractScene resolves + setScene +
+    // setLoadVersion bump, Excalidraw remounts.
+    await waitFor(() => {
+      const remountedStub = screen.getByTestId("excalidraw-stub");
+      expect(remountedStub).not.toBe(initialStub);
+    });
+  });
+
   // T5 — Reload button cancels any pending auto-save timer. Without
   // this, a save scheduled before Reload would fire AFTER the reload
   // and clobber the freshly-loaded scene (rubber-duck #15).

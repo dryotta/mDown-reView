@@ -29,6 +29,22 @@ import { warn as logWarn } from "@/logger";
 export interface SceneState {
   scene: ExcalidrawScene | null;
   loadError: string | null;
+  /**
+   * Iter-21 (#352 P0-2) — monotonic counter that increments ONLY
+   * when a scene load successfully commits (canonical JSON parse OR
+   * `extractScene` for binary variants). Used by `ExcalidrawView`
+   * as the React key on `<Excalidraw>` so the canvas remounts
+   * exactly when the new initialData is ready.
+   *
+   * The previous design keyed Excalidraw on a synchronous reloadKey
+   * bumped at conflict-banner Reload click time. That mounted a
+   * fresh Excalidraw instance with the OLD scene (because content
+   * had not yet been re-read), Excalidraw cached the stale
+   * initialData, and the next user edit autosaved the stale draft
+   * over the external version — silent data loss
+   * (bug-expert P0-2).
+   */
+  loadVersion: number;
 }
 
 export function useExcalidrawScene(
@@ -39,6 +55,7 @@ export function useExcalidrawScene(
 ): SceneState {
   const [scene, setScene] = useState<ExcalidrawScene | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadVersion, setLoadVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +70,12 @@ export function useExcalidrawScene(
           startTransition(() => {
             setScene(extracted);
             setLoadError(null);
+            // Iter-21 (#352 P0-2) — bump version EXACTLY when the
+            // new scene commits. ExcalidrawView keys the canvas on
+            // this counter so the remount aligns with the new
+            // initialData being available, not with the user's
+            // Reload click (which is synchronous + async-disjoint).
+            setLoadVersion((v) => v + 1);
           });
         })
         .catch((err: unknown) => {
@@ -98,6 +121,8 @@ export function useExcalidrawScene(
         startTransition(() => {
           setScene(next);
           setLoadError(null);
+          // Iter-21 (#352 P0-2) — see PNG/SVG branch above.
+          setLoadVersion((v) => v + 1);
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -114,5 +139,5 @@ export function useExcalidrawScene(
     };
   }, [filePath, content, needsExtract, reloadKey]);
 
-  return { scene, loadError };
+  return { scene, loadError, loadVersion };
 }

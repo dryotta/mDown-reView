@@ -121,13 +121,18 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   const theme = useTheme();
   const excalidrawTheme: "light" | "dark" = theme === "dark" ? "dark" : "light";
 
-  // Reload-key forces a remount of `<Excalidraw>` + re-runs the load
-  // effect when the user clicks Reload on the conflict banner.
-  // Excalidraw consumes `initialData` only at mount; without bumping
-  // this key the banner click would do nothing for canonical files.
+  // Iter-21 (#352 P0-2) — canonical reload uses the content-prop
+  // change driven by `useFileContent`'s re-fetch as the trigger;
+  // bumping a local key for canonical files synchronously re-fires
+  // `useExcalidrawScene`'s effect with the OLD `content` and
+  // remounts Excalidraw with stale data before the async re-read
+  // commits. For binary `.excalidraw.png` / `.excalidraw.svg`
+  // variants `content` is sentinel-empty, so a local `reloadKey`
+  // bump is the only way to re-trigger `extractScene`. We keep
+  // the local key for the binary path only.
   const [reloadKey, setReloadKey] = useState(0);
 
-  const { scene, loadError } = useExcalidrawScene(
+  const { scene, loadError, loadVersion } = useExcalidrawScene(
     filePath,
     content,
     needsExtract,
@@ -311,26 +316,40 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       {mode === "editor" && externalChangePending && (
         <ConflictBanner
           onReload={() => {
-            // Reload must FORCE a remount of <Excalidraw> + re-run of
-            // the load effect (which calls extractScene for binary
-            // variants OR re-parses content for canonical files).
-            // Bumping reloadKey does both: (a) the load effect dep
-            // includes reloadKey so it fires; (b) the Excalidraw child
-            // gets a fresh `key={reloadKey}` so React mounts a new
-            // instance with the freshly-parsed initialData.
+            // Iter-21 (#352 P0-2) — split reload trigger by file
+            // class to eliminate the stale-content remount race.
             //
-            // Crucially (iter-12 bug #3 — Reload no-op for canonical
-            // files): clear `excalidrawDirty` BEFORE dispatching, so
-            // the `useFileContent` listener takes the non-conflict
-            // branch and re-reads disk. Without this the listener
-            // sees `isEditor && isDirty` and re-arms
-            // externalChangePending instead of reloading. Reset the
-            // autosave baseline too so the post-reload first onChange
-            // re-baselines.
+            //   - Canonical `.excalidraw` / `.excalidrawlib`: the
+            //     reload chain is dirty-clear → synthetic
+            //     `mdownreview:file-changed` → `useFileContent`
+            //     re-fetches → `content` prop changes →
+            //     `useExcalidrawScene` re-parses → `loadVersion`
+            //     increments → `<Excalidraw key={loadVersion}>`
+            //     remounts with new initialData. Bumping a local
+            //     `reloadKey` here would re-fire
+            //     `useExcalidrawScene`'s effect SYNCHRONOUSLY with
+            //     the OLD `content`, remounting Excalidraw with
+            //     stale data BEFORE the async re-read commits.
+            //     The next user edit then autosaves the stale
+            //     draft over the external version (silent data
+            //     loss — bug-expert P0-2). DO NOT bump.
+            //   - Binary `.excalidraw.png` / `.excalidraw.svg`:
+            //     `content` is sentinel-empty so it never changes;
+            //     the reloadKey bump is the only way to re-fire
+            //     `extractScene`. The async extract then commits a
+            //     fresh scene + bumps `loadVersion` → remount.
+            //
+            // Iter-12 bug #3 — Reload no-op for canonical files —
+            // still applies: clear `excalidrawDirty` BEFORE the
+            // dispatch so the listener takes the non-conflict
+            // branch. Reset the autosave baseline too so the
+            // post-reload first onChange re-baselines.
             useStore.getState().setExcalidrawDirty(filePath, false);
             resetBaseline();
             useStore.getState().setExternalChangePending(filePath, false);
-            setReloadKey((k) => k + 1);
+            if (needsExtract) {
+              setReloadKey((k) => k + 1);
+            }
             window.dispatchEvent(
               new CustomEvent("mdownreview:file-changed", {
                 detail: { path: filePath, kind: "content" },
@@ -354,7 +373,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
         <Excalidraw
-          key={reloadKey}
+          key={loadVersion}
           initialData={{
             elements: scene.elements as never,
             appState: scene.appState as never,
