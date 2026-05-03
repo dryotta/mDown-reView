@@ -87,8 +87,11 @@ test.describe("Excalidraw viewer — tri-state mode switching", () => {
     await expect(shell).toHaveAttribute("data-mode", "editor");
 
     // → Source: ExcalidrawView unmounts; SourceView takes over.
+    // (Iter-13: the persistent host keeps the slot mounted to preserve
+    // the canvas state, but hides it via display:none when the active
+    // tab is in Source mode. Assert visibility, not count.)
     await page.locator(".viewer-toolbar").getByRole("button", { name: /^source$/i }).click();
-    await expect(shell).toHaveCount(0);
+    await expect(shell).not.toBeVisible();
 
     // → Visual again
     await page.locator(".viewer-toolbar").getByRole("button", { name: /^visual$/i }).click();

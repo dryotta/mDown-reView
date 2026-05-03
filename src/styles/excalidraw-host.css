@@ -34,7 +34,18 @@
 
 .excalidraw-host__slot {
   position: absolute;
-  inset: 0;
+  /* Iter-17 (Test (linux) regression fix): start the slot BELOW the
+     sticky `.viewer-toolbar` (z-index: 10, ~36px tall) so clicks on
+     the slot's banners (autosave / MRSF / save-error / conflict)
+     don't get intercepted by the toolbar geometrically. The slot
+     used to be `inset: 0` which placed its banners on top of the
+     toolbar's bounds — toolbar's z-index won click routing.
+     Toolbar height is consistent across viewers (4px padding +
+     28px button content ≈ 36px). */
+  top: 36px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   /* Default: hidden. data-active="true" reveals one at a time. */
   display: none;
   pointer-events: auto;

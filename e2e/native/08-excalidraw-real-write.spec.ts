@@ -156,7 +156,9 @@ test.describe("Native Excalidraw autosave round-trip", () => {
             .then(() => ({ ok: true as const }))
             .catch((err: unknown) => ({
               ok: false as const,
-              error: String(err),
+              // Iter-12 made WorkspaceWriteError a typed enum with a
+              // `kind` discriminator; JSON-serialise so kind survives.
+              error: JSON.stringify(err),
             }));
         },
         { p: target },
@@ -164,7 +166,8 @@ test.describe("Native Excalidraw autosave round-trip", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toContain("not in workspace-write allowlist");
+        // Typed wire shape: { kind: "ext-not-allowed", filename: "secret.txt" }
+        expect(result.error).toContain("ext-not-allowed");
       }
       expect(fs.existsSync(target)).toBe(false);
     } finally {
@@ -193,7 +196,7 @@ test.describe("Native Excalidraw autosave round-trip", () => {
             .then(() => ({ ok: true as const }))
             .catch((err: unknown) => ({
               ok: false as const,
-              error: String(err),
+              error: JSON.stringify(err),
             }));
         },
         { p: target },
@@ -201,7 +204,8 @@ test.describe("Native Excalidraw autosave round-trip", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toMatch(/outside an open workspace|escapes workspace/);
+        // Typed wire shape: { kind: "outside-workspace", path: "..." }
+        expect(result.error).toContain("outside-workspace");
       }
       expect(fs.existsSync(target)).toBe(false);
     } finally {

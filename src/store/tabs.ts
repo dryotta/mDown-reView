@@ -19,109 +19,16 @@
  */
 import type { StoreApi } from "zustand";
 
-import { commands } from "@/lib/bindings";
 import type { ViewMode } from "@/lib/file-types";
-import { claimOpenFile, releaseOpenFile, releaseOpenFiles } from "@/lib/tauri-commands";
-import { warn as logWarn, debug as logDebug } from "@/logger";
+import { releaseOpenFile, releaseOpenFiles } from "@/lib/tauri-commands";
+import { warn as logWarn } from "@/logger";
 
 import type { Store } from "./index";
+import { claimOrRevert, classifyAndMarkReadOnly } from "./tabsHelpers";
 
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
 export const MAX_TABS = 5;
-
-/**
- * Issue #352 / iter-15 — multi-window file singleton (focus-existing).
- *
- * Design choice: synchronous tab-add + async ownership claim with
- * revert-on-conflict. Rationale (rubber-duck refined):
- *
- *   - The synchronous `openFile` contract is consumed by ~5 production
- *     call sites (`launchArgs.ts`, `useOpenFileTab.ts`, `CommentsPanel.tsx`,
- *     `useLinkRouter.ts`, `workspace.ts`) and ~80+ test sites. Making it
- *     async would invade every caller; the test suite already calls
- *     `openFile` and immediately asserts post-add state — `await` would
- *     have to thread through every test.
- *   - Local Rust IPC is sub-millisecond; the visible "flash and vanish"
- *     for a true duplicate-open is invisible at 60 Hz frame rate.
- *   - Race against concurrent opens is mitigated by re-reading the
- *     latest store state inside the revert closure and only removing the
- *     tab if it's still present AND the claim's path matches.
- *
- * The renderer awaits the claim after the synchronous tab-add. On
- * `OwnedElsewhere`, Rust has already focused the owner window and
- * emitted `focus-tab` to it; this hook then removes the just-added
- * tab in window B.
- *
- * Audit: `closeTab` / `closeAllTabs` / LRU eviction all fire-and-
- * forget the appropriate `release_open_file(s)` IPC. The destroy-
- * window sweep in `lib.rs` is the safety net for force-killed
- * renderers that can't release cleanly.
- */
-async function claimOrRevert(
-  path: string,
-  set: SliceSet,
-  get: SliceGet,
-): Promise<void> {
-  let result;
-  try {
-    result = await claimOpenFile(path);
-  } catch (err: unknown) {
-    // IPC failure (registry state missing, canonicalize threw): degrade
-    // to pre-iter-15 behaviour — leave the tab open in this window.
-    // The Rust-side destroy sweep is the last line of defence.
-    void logWarn(
-      `[claim] IPC failed for ${path}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-    return;
-  }
-  if (result.kind === "claimed") {
-    void logDebug(`[claim] Claimed ${path}`);
-    return;
-  }
-  // owned-elsewhere — Rust already focused the owner window and
-  // emitted `focus-tab`. Revert our local tab-add IF the path is
-  // still in our tab list (defends against a concurrent close /
-  // re-open that already mutated the state).
-  void logDebug(
-    `[claim] ${path} owned by window=${result.window_label}; reverting local tab`,
-  );
-  const stillOpen = get().tabs.some((t) => t.path === path);
-  if (!stillOpen) return;
-  // Re-derive the tab-removal in a single set() call so subscribers
-  // never observe an intermediate state. Mirrors the cleanup
-  // structure of `closeTab` (rule 16 in `docs/architecture.md`).
-  const tabs = get().tabs;
-  const newTabs = tabs.filter((t) => t.path !== path);
-  let newActive = get().activeTabPath;
-  if (newActive === path) {
-    // Pick the most-recently-accessed remaining tab; fall back to
-    // null if this was the only tab. Mirrors closeTab's neighbour
-    // policy.
-    const fallback = [...newTabs].sort(
-      (a, b) => (b.lastAccessedAt ?? 0) - (a.lastAccessedAt ?? 0),
-    )[0];
-    newActive = fallback?.path ?? null;
-  }
-  const { [path]: _v, ...restView } = get().viewModeByTab;
-  const { [path]: _s, ...restSave } = get().lastSaveByPath;
-  const { [path]: _m, ...restMeta } = get().fileMetaByPath;
-  const { [path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
-  const { [path]: _p, ...restPending } = get().externalChangePendingByTab;
-  const restMounts = get().excalidrawEditorMounts.filter((p) => p !== path);
-  set({
-    tabs: newTabs,
-    activeTabPath: newActive,
-    viewModeByTab: restView,
-    lastSaveByPath: restSave,
-    fileMetaByPath: restMeta,
-    excalidrawDirtyByTab: restDirty,
-    externalChangePendingByTab: restPending,
-    excalidrawEditorMounts: restMounts,
-  });
-}
 
 export interface Tab {
   path: string;
@@ -190,65 +97,28 @@ export interface TabsSlice {
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
   /**
-   * Issue #352 / iter-12 — per-tab dirty flag for in-Editor-mode
-   * Excalidraw drawings under autosave-only semantics. The flag flips
-   * to `true` on every Excalidraw `onChange` while in editor mode and
-   * back to `false` when the debounced `performSave` either persists
-   * the live scene or determines no divergence vs the on-disk
-   * baseline. The dirty-window is therefore at most one autosave
-   * debounce (`EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS`).
-   *
-   * **Sole consumer:** `useFileContent` (`src/hooks/useFileContent.ts`)
-   * reads it on `mdownreview:file-changed` to surface the conflict
-   * banner instead of silently clobbering the user's mid-edit state.
-   * No tab-title indicator is rendered — under autosave the file is
-   * always almost-saved and a flickering dot would be more noise than
-   * signal (AC6 deliberately dropped in iter-10/iter-12; see
-   * `docs/features/excalidraw.md` § "Save semantics").
-   *
-   * Session-only — never persisted. Closing the app drains pending
-   * saves via the Rust `WindowEvent::CloseRequested` handshake (see
-   * `src-tauri/src/commands/close_flush.rs`) before tear-down.
+   * Iter-12 — per-tab dirty flag for Excalidraw editor under autosave.
+   * Sole consumer: `useFileContent` (gates the conflict banner via
+   * `mdownreview:file-changed`). Session-only. Full design in
+   * `docs/features/excalidraw.md` § "Save semantics".
    */
   excalidrawDirtyByTab: Record<string, boolean>;
   /**
-   * Issue #352 / iter-13 — paths whose user has entered Editor mode at
-   * least once. The `<PersistentExcalidrawHost>` component (rendered
-   * once at App-root level inside `.viewer-area`) keeps the underlying
-   * `<Excalidraw>` instance mounted for every path in this set, even
-   * across tab switches. Tab-switching to a non-Excalidraw tab (or
-   * even another Excalidraw tab) hides the inactive instance via CSS
-   * but does NOT unmount it — so Excalidraw's native undo/redo
-   * history, library panel, and tool selection survive.
-   *
-   * Visual ↔ Editor toggling on the SAME instance is achieved via
-   * the runtime `viewModeEnabled` prop on `<Excalidraw>` (verified in
-   * `node_modules/@excalidraw/excalidraw/dist/types/excalidraw/types.d.ts`
-   * line 436). One instance per file path covers both modes.
-   *
-   * Cleanup contract (rule 18 in `docs/architecture.md` — state
-   * stratification):
-   *   - `closeTab(path)` removes `path` from this set.
-   *   - `closeAllTabs()` clears it entirely.
-   *   - LRU eviction of a tab also drops the corresponding entry.
-   *   - File-rename is NOT handled (the path key is canonical and we
-   *     don't observe rename events from the watcher today).
-   *
-   * Stored as a string[] (sorted, no duplicates) for trivial
-   * serialisation and stable `useShallow` selector identity. Set
-   * semantics is enforced by the `markExcalidrawEditorMounted` /
-   * cleanup branches in this slice. Session-only — never persisted.
+   * Iter-13 — paths the user has entered Editor mode for at least once.
+   * `<PersistentExcalidrawHost>` keeps `<Excalidraw>` instances mounted
+   * across tab switches for these paths so undo history + library panel
+   * survive. Cleanup contract (rule 18, atomic single-set per rule 16):
+   * cleared by `closeTab` / `closeAllTabs` / LRU eviction. Stored as
+   * sorted no-dup `string[]` for `useShallow` identity stability.
+   * Full design in `docs/features/excalidraw.md` § "Persistent editor
+   * across tab switches".
    */
   excalidrawEditorMounts: string[];
   /**
-   * Issue #352 / AC7 — per-tab pending external-change flag. The watcher
-   * fired `file-content-changed` on this Excalidraw tab while it was open
-   * in Editor mode AND `excalidrawDirtyByTab[path] === true`, so we held
-   * off on auto-reload and asked the user. The conflict banner above the
-   * canvas reads this flag; clicking [Reload] / [Keep editing] clears it.
-   *
-   * Session-only — never persisted (same rationale as
-   * `excalidrawDirtyByTab`).
+   * AC7 — per-tab conflict-pending flag. Watcher fired `file-changed`
+   * while tab was dirty in Editor mode; conflict banner shows
+   * [Reload] / [Keep editing]. Clicking either clears the flag.
+   * Session-only.
    */
   externalChangePendingByTab: Record<string, boolean>;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
@@ -645,25 +515,4 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         };
       }),
   };
-}
-
-/**
- * Eagerly classify the just-opened tab via the `path_classify` IPC and
- * patch `readOnly` on the matching tab entry (issue #338 / AC9).
- *
- * Fail-closed: any IPC failure leaves `readOnly` undefined. The next
- * comment-write attempt's typed CommentError self-heals the flag from
- * the canonical Rust answer (see comments slice — Wave-2 migration).
- */
-async function classifyAndMarkReadOnly(path: string, set: SliceSet): Promise<void> {
-  try {
-    const result = await commands.pathClassify(path, null);
-    if (result.status !== "ok") return;
-    const isReadOnly = result.data.tier !== "inside";
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly: isReadOnly } : t)),
-    }));
-  } catch {
-    // Defense-in-depth — already covered by the Result branch above.
-  }
 }

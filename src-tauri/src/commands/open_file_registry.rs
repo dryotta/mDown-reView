@@ -240,7 +240,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn alive_set(labels: &[&str]) -> impl Fn(&str) -> bool + '_ {
+    fn alive_set<'a>(labels: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
         move |lbl: &str| labels.iter().any(|l| *l == lbl)
     }
 
@@ -248,18 +248,18 @@ mod tests {
     fn claim_unowned_returns_claimed_and_records_owner() {
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/a.excalidraw");
-        let result = reg.try_claim(canonical.clone(), "main", alive_set(&["main"]));
+        let result = reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a"]));
         assert!(matches!(result, ClaimResult::Claimed));
         let snap = reg.snapshot();
-        assert_eq!(snap.get(&canonical), Some(&"main".to_string()));
+        assert_eq!(snap.get(&canonical), Some(&"win-a".to_string()));
     }
 
     #[test]
     fn claim_same_window_is_idempotent_no_op_success() {
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/a.excalidraw");
-        reg.try_claim(canonical.clone(), "main", alive_set(&["main"]));
-        let result = reg.try_claim(canonical.clone(), "main", alive_set(&["main"]));
+        reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a"]));
+        let result = reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a"]));
         assert!(matches!(result, ClaimResult::Claimed));
         assert_eq!(reg.snapshot().len(), 1);
     }
@@ -268,11 +268,11 @@ mod tests {
     fn claim_other_live_window_returns_owned_elsewhere() {
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/a.excalidraw");
-        reg.try_claim(canonical.clone(), "main", alive_set(&["main", "win-1"]));
-        let result = reg.try_claim(canonical, "win-1", alive_set(&["main", "win-1"]));
+        reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a", "win-1"]));
+        let result = reg.try_claim(canonical, "win-1", alive_set(&["win-a", "win-1"]));
         match result {
             ClaimResult::OwnedElsewhere { window_label } => {
-                assert_eq!(window_label, "main");
+                assert_eq!(window_label, "win-a");
             }
             other => panic!("expected OwnedElsewhere, got {other:?}"),
         }
@@ -280,12 +280,12 @@ mod tests {
 
     #[test]
     fn claim_reaps_stale_owner_when_window_no_longer_alive() {
-        // Window "main" claimed, then died without a clean release.
+        // Window "win-a" claimed, then died without a clean release.
         // A subsequent claim from "win-1" should reap and succeed.
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/a.excalidraw");
-        reg.try_claim(canonical.clone(), "main", alive_set(&["main", "win-1"]));
-        // Now "main" is gone (force-killed, no clean Destroyed).
+        reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a", "win-1"]));
+        // Now "win-a" is gone (force-killed, no clean Destroyed).
         let result = reg.try_claim(canonical.clone(), "win-1", alive_set(&["win-1"]));
         assert!(
             matches!(result, ClaimResult::Claimed),
@@ -302,8 +302,8 @@ mod tests {
     fn release_by_owner_removes_entry() {
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/a.excalidraw");
-        reg.try_claim(canonical.clone(), "main", alive_set(&["main"]));
-        reg.try_release(&canonical, "main");
+        reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a"]));
+        reg.try_release(&canonical, "win-a");
         assert!(reg.snapshot().is_empty());
     }
 
@@ -311,11 +311,11 @@ mod tests {
     fn release_by_non_owner_is_no_op() {
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/a.excalidraw");
-        reg.try_claim(canonical.clone(), "main", alive_set(&["main"]));
+        reg.try_claim(canonical.clone(), "win-a", alive_set(&["win-a"]));
         reg.try_release(&canonical, "win-1");
         assert_eq!(
             reg.snapshot().get(&canonical),
-            Some(&"main".to_string()),
+            Some(&"win-a".to_string()),
             "non-owner release must NOT remove entry",
         );
     }
@@ -324,7 +324,7 @@ mod tests {
     fn release_unknown_path_is_no_op() {
         let reg = OpenFileRegistry::new();
         let canonical = PathBuf::from("/ws/never-claimed.excalidraw");
-        reg.try_release(&canonical, "main");
+        reg.try_release(&canonical, "win-a");
         assert!(reg.snapshot().is_empty());
     }
 
@@ -333,20 +333,20 @@ mod tests {
         let reg = OpenFileRegistry::new();
         reg.try_claim(
             PathBuf::from("/ws/a.excalidraw"),
-            "main",
-            alive_set(&["main", "win-1"]),
+            "win-a",
+            alive_set(&["win-a", "win-1"]),
         );
         reg.try_claim(
             PathBuf::from("/ws/b.excalidraw"),
-            "main",
-            alive_set(&["main", "win-1"]),
+            "win-a",
+            alive_set(&["win-a", "win-1"]),
         );
         reg.try_claim(
             PathBuf::from("/ws/c.excalidraw"),
             "win-1",
-            alive_set(&["main", "win-1"]),
+            alive_set(&["win-a", "win-1"]),
         );
-        reg.purge_window("main");
+        reg.purge_window("win-a");
         let snap = reg.snapshot();
         assert_eq!(snap.len(), 1);
         assert_eq!(
@@ -355,3 +355,4 @@ mod tests {
         );
     }
 }
+

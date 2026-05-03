@@ -112,8 +112,11 @@ export const convertAssetUrl = (absolute: string): string => convertFileSrc(abso
 // ── Typed command wrappers (delegated to bindings) ─────────────────────────
 
 import type {
+  CliShimStatus,
+  ClaimResult,
   CommentAnchor,
   CommentPatch,
+  DefaultHandlerStatus,
   FileBadge,
   FileStat,
   FileViewerPref,
@@ -133,8 +136,6 @@ import type {
   TextFileResult,
   UpdateInfo,
   WordSpan,
-  CliShimStatus,
-  DefaultHandlerStatus,
 } from "@/lib/bindings";
 import type { Anchor } from "@/lib/anchor-derive";
 

@@ -588,6 +588,23 @@ async setRootViaTest(path: string) : Promise<Result<null, string>> {
  */
 export type AnchorWire = { anchor_kind: string; anchor_data: JsonValue }
 /**
+ * Wire-shape for the claim result. Kebab-case discriminator, same
+ * pattern as `WorkspaceWriteError` in `commands/fs_write.rs`.
+ */
+export type ClaimResult = 
+/**
+ * Caller now owns the path (or already did — idempotent).
+ */
+{ kind: "claimed" } | 
+/**
+ * Another live window owns the path. Renderer should NOT add a
+ * tab; the Rust handler has already raised the owner window and
+ * emitted `focus-tab` to it. The label is exposed so the
+ * renderer can log / surface diagnostics; callers don't need it
+ * for the main flow.
+ */
+{ kind: "owned-elsewhere"; window_label: string }
+/**
  * Structured error for CLI-shim install/remove. Serializes to a tagged
  * payload (`{"kind":"...", ...}`) so the FE can branch on `kind` without
  * string matching. Manual `Display` impl avoids pulling in `thiserror`.
@@ -905,24 +922,6 @@ export type WorkspaceWriteError =
  * text so a renderer can surface a developer-debuggable string.
  */
 { kind: "io"; message: string }
-
-/**
- * Wire-shape for the claim result. Kebab-case discriminator, same
- * pattern as `WorkspaceWriteError` in `commands/fs_write.rs`.
- */
-export type ClaimResult = 
-/**
- * Caller now owns the path (or already did — idempotent).
- */
-{ kind: "claimed" } | 
-/**
- * Another live window owns the path. Renderer should NOT add a
- * tab; the Rust handler has already raised the owner window and
- * emitted `focus-tab` to it. The label is exposed so the
- * renderer can log / surface diagnostics; callers don't need it
- * for the main flow.
- */
-{ kind: "owned-elsewhere"; window_label: string }
 
 /** tauri-specta globals **/
 

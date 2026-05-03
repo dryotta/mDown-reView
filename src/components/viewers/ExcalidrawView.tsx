@@ -13,18 +13,19 @@ import {
 import { useTheme } from "@/hooks/useTheme";
 import { useExcalidrawAutoSave } from "@/hooks/useExcalidrawAutoSave";
 import { useExcalidrawScene } from "@/hooks/useExcalidrawScene";
-import {
-  hasSeenMrsfWarning,
-  markMrsfWarningSeen,
-} from "@/lib/excalidraw/first-save-warning";
-import {
-  hasSeenAutoSaveBanner,
-  markAutoSaveBannerSeen,
-} from "@/lib/excalidraw/autosave-banner";
+import { seenFlag } from "@/lib/excalidraw/seen-flag";
 import { useStore } from "@/store";
 
 import "@excalidraw/excalidraw/index.css";
 import "@/styles/viewer-banner.css";
+
+// Iter-17 (lean-expert MEDIUM) — inlined the previously-separate
+// `first-save-warning.ts` + `autosave-banner.ts` shims. Both were
+// 1-line aliases over `seenFlag()` with a single consumer (this file);
+// keeping the shim layer was AGENTS.md "engineering debt by misnamed
+// dead code" per lean review.
+const MRSF_WARNING = seenFlag("mdownreview:excalidraw-first-save-warning-seen");
+const AUTOSAVE_BANNER = seenFlag("mdownreview:excalidraw-autosave-banner-seen");
 
 /**
  * Excalidraw asset path — fonts vendored into `public/excalidraw-assets/`
@@ -142,7 +143,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // resurrect a banner the user already dismissed (the seen-flag
   // helpers persist across page reloads, so re-reading is correct).
   const [autoSaveBannerVisible, setAutoSaveBannerVisible] = useState(
-    () => !hasSeenAutoSaveBanner(),
+    () => !AUTOSAVE_BANNER.has(),
   );
   const [showFirstSaveWarning, setShowFirstSaveWarning] = useState(false);
 
@@ -152,8 +153,8 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // must precede the first edit-becomes-save).
   useEffect(() => {
     if (mode !== "editor") return;
-    if (hasSeenMrsfWarning()) return;
-    markMrsfWarningSeen();
+    if (MRSF_WARNING.has()) return;
+    MRSF_WARNING.mark();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowFirstSaveWarning(true);
   }, [mode]);
@@ -221,7 +222,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
       {mode === "editor" && autoSaveBannerVisible && (
         <AutoSaveInfoBanner
           onDismiss={() => {
-            markAutoSaveBannerSeen();
+            AUTOSAVE_BANNER.mark();
             setAutoSaveBannerVisible(false);
           }}
         />
