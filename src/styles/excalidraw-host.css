@@ -1,0 +1,45 @@
+/*
+ * Issue #352 / iter-13 — persistent Excalidraw mount host.
+ *
+ * The host is rendered once at App-root level inside `.viewer-area`
+ * (see `App.tsx`). Its slots overlay the viewer area absolutely; only
+ * the slot whose `data-active="true"` is visible. Hidden slots stay
+ * mounted in the React tree (display:none keeps DOM + state alive)
+ * so the underlying `<Excalidraw>` instance retains its native
+ * undo/redo history, library panel, tool selection, and viewport
+ * pan/zoom across tab switches.
+ *
+ * The `.viewer-area` container in `app.css` is `position: relative`
+ * by default (flex layout with relative children); we re-assert that
+ * here as a load-bearing invariant for `.excalidraw-host__slot`'s
+ * absolute positioning to anchor correctly. The pointer-events
+ * passthrough on `.excalidraw-host` itself (none) lets clicks fall
+ * through to siblings (e.g. SourceView) when no slot is active.
+ */
+
+.viewer-area {
+  position: relative;
+}
+
+.excalidraw-host {
+  position: absolute;
+  inset: 0;
+  /* Behind any foreground viewer (SourceView, toolbar). When a slot
+     is active, the active slot's pointer-events: auto reclaims input
+     for the canvas. Inactive slots are display:none so they don't
+     intercept clicks on top of an active SourceView (when the active
+     tab is in Source mode for a registered Excalidraw path). */
+  pointer-events: none;
+}
+
+.excalidraw-host__slot {
+  position: absolute;
+  inset: 0;
+  /* Default: hidden. data-active="true" reveals one at a time. */
+  display: none;
+  pointer-events: auto;
+}
+
+.excalidraw-host__slot[data-active="true"] {
+  display: block;
+}

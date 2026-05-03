@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useRef, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useState, useRef, type ReactNode } from "react";
 import { useStore } from "@/store";
 import { getFileCategory, hasVisualization, getDefaultView, getFiletypeKey, type ViewMode } from "@/lib/file-types";
 import { useZoom } from "@/hooks/useZoom";
@@ -66,6 +66,16 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
 
   const viewMode = useStore((s) => s.viewModeByTab[filePath]) ?? defaultView;
   const setViewMode = useStore((s) => s.setViewMode);
+  const markExcalidrawEditorMounted = useStore((s) => s.markExcalidrawEditorMounted);
+  // Issue #352 / iter-13 — when this path is registered for persistent
+  // mounting, the `<PersistentExcalidrawHost>` (rendered in App.tsx as
+  // a sibling of ViewerRouter) owns the `<ExcalidrawView>` instance.
+  // We MUST NOT also mount it locally, or the user would see two
+  // overlapping canvases (and Excalidraw would create two
+  // `excalidrawAPI` instances racing for the same path).
+  const isPersistentlyMounted = useStore((s) =>
+    s.excalidrawEditorMounts.includes(filePath),
+  );
   // Issue #352 / iter-5 BLOCKER (product B2) — read-only tabs (outside
   // the workspace) cannot route through the workspace-write IPC. Hide
   // the Editor segmented-control button + demote stored editor mode
@@ -103,6 +113,21 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
         : viewMode
       : "source";
   const showSource = effectiveView === "source";
+
+  // Issue #352 / iter-13 — register the path for persistent mounting
+  // whenever an Excalidraw editor renders in Editor mode. Driven by an
+  // effect (not the click handler) so that:
+  //   - a tab restored at Editor mode via session-persisted state, OR
+  //   - back/forward navigation that lands in Editor mode without a
+  //     mode-toggle click,
+  // both still register. Idempotent — the store setter short-circuits
+  // on duplicate marks, so re-renders cost nothing.
+  useEffect(() => {
+    if (!isExcalidraw) return;
+    if (effectiveView !== "editor") return;
+    markExcalidrawEditorMounted(filePath);
+  }, [filePath, isExcalidraw, effectiveView, markExcalidrawEditorMounted]);
+
   // Zoom key tracks the active sub-view so source-mode zoom is independent of
   // visual-mode zoom for the same document (#65 D1/D2/D3). Visual and Editor
   // share the same zoom key for excalidraw — both are canvas surfaces.
@@ -184,7 +209,16 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
       ) : (
         <div className="enhanced-viewer-content">
           <Suspense fallback={<SkeletonLoader />}>
-            {renderVisualView(category, content, path, filePath, fileSize, zoom, effectiveView)}
+            {renderVisualView(
+              category,
+              content,
+              path,
+              filePath,
+              fileSize,
+              zoom,
+              effectiveView,
+              isPersistentlyMounted,
+            )}
             {/* renderVisualView keys excalidraw on filePath to satisfy AC10 (key={path}) */}
           </Suspense>
         </div>
@@ -201,6 +235,16 @@ function renderVisualView(
   fileSize: number | undefined,
   zoom: number,
   viewMode: ViewMode,
+  /**
+   * Issue #352 / iter-13 — when an Excalidraw editor is persistently
+   * mounted (path in `excalidrawEditorMounts`), the
+   * `<PersistentExcalidrawHost>` (rendered in `App.tsx`) owns the
+   * `<ExcalidrawView>` instance. EnhancedViewer renders an empty
+   * placeholder div in its content area; the host's slot overlays it.
+   * This avoids two parallel `<Excalidraw>` instances racing for the
+   * same path's scene state.
+   */
+  excalidrawHostOwns: boolean,
 ) {
   switch (category) {
     case "markdown":
@@ -216,13 +260,29 @@ function renderVisualView(
     case "kql":
       return <KqlPlanView content={content} />;
     case "excalidraw": {
-      // Iter 2 Group B (issue #352) — lazy <ExcalidrawView/> mounts here.
-      // PNG / SVG variants need scene extraction from binary file bytes;
-      // canonical `.excalidraw` / `.excalidrawlib` ship the scene as JSON
-      // text in `content`. `needsExtract` flips between those paths.
-      // `viewMode` is "source" | "visual" | "editor", but Source is
-      // rendered above by <SourceView/> — we only see "visual" or "editor"
-      // here.
+      // Iter-13: when the host owns this path, return a transparent
+      // placeholder. The host's absolutely-positioned slot occupies
+      // the same viewer area; the local content area stays empty and
+      // gives the host its layout context (parent
+      // `.enhanced-viewer-content` flex sizing).
+      if (excalidrawHostOwns) {
+        return (
+          <div
+            className="excalidraw-host-placeholder"
+            data-testid="excalidraw-host-placeholder"
+            data-path={filePath}
+            style={{ width: "100%", height: "100%" }}
+          />
+        );
+      }
+      // Iter-2 (issue #352) — lazy `<ExcalidrawView/>` mounts here for
+      // ephemeral (non-persistent) usage: a tab the user has only ever
+      // viewed in Visual mode. PNG / SVG variants need scene extraction
+      // from binary file bytes; canonical `.excalidraw` / `.excalidrawlib`
+      // ship the scene as JSON text in `content`. `needsExtract` flips
+      // between those paths. `viewMode` is "source" | "visual" |
+      // "editor", but Source is rendered above by `<SourceView/>` — we
+      // only see "visual" or "editor" here.
       const lower = path.toLowerCase();
       const needsExtract =
         lower.endsWith(".excalidraw.png") || lower.endsWith(".excalidraw.svg");

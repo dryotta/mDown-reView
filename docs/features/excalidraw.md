@@ -105,6 +105,30 @@ The first time a user enters **Editor mode** for any Excalidraw file (per browse
 
 This is a one-shot pedagogical hint — Excalidraw re-serialises the JSON on every save, so line numbers shift and Tier-1 line-anchored comments may degrade to file-level via the standard 4-step MRSF re-anchor → orphan flow. The carve-out at [`docs/principles.md`](../principles.md) only stays load-bearing if the user is informed; this banner is the informant. Pre-iter-11 the warning fired on first successful save; under auto-save the user has no explicit save action, so the trigger shifted to first Editor-mode entry — proactive disclosure with a clear cause.
 
+## Persistent editor across tab switches (iter-13)
+
+Excalidraw's native undo/redo, library panel, tool selection, and viewport pan/zoom all live on the `<Excalidraw>` component instance. Unmounting the instance (which previously happened on every tab switch) lost that state — closing then reopening the same tab even within the same session reset the canvas to a fresh render.
+
+Iter-13 introduces a **persistent mount host** that keeps `<Excalidraw>` instances alive across tab switches:
+
+- `src/store/tabs.ts:excalidrawEditorMounts` — `string[]` of file paths whose user has entered Editor mode at least once. Idempotent setter `markExcalidrawEditorMounted(path)`. Cleared by `closeTab`, `closeAllTabs`, and LRU eviction in a single `set()` call (rule 16).
+- `src/components/viewers/excalidraw/PersistentExcalidrawHost.tsx` — rendered once at App-root level inside `.viewer-area` as a sibling of `<ViewerRouter>`. Renders one `<ExcalidrawView>` slot per registered path; absolutely positioned over the viewer area. Only the active path's slot is `data-active="true"` (visible); all other slots stay mounted but are `display: none` so React preserves the underlying canvas state.
+- **Visual ↔ Editor share one instance.** The `viewModeEnabled` prop on `<Excalidraw>` is dynamic (verified in `node_modules/@excalidraw/excalidraw/dist/types/excalidraw/types.d.ts` line 436) — toggling between Visual and Editor mode flips the prop without a remount. One persistent instance per path covers both modes.
+- **Source mode coexistence.** When the active tab is in Source mode the host's slot for that path stays mounted but hidden; `<SourceView>` rendered by `EnhancedViewer` appears on top in the same viewer area.
+- **Why deferred to first Editor entry.** A user who only previews a drawing in Visual mode shouldn't pay the memory cost of a persistent Excalidraw instance (~5–20 MB). Registration is gated on entering Editor mode — a clear intent-to-edit signal. Pre-registration Visual viewing still flows through `EnhancedViewer.renderVisualView` for an ephemeral one-shot mount.
+- **Cleanup contract.** Closing the tab unmounts the instance. The store's single-`set()` cleanup makes the multi-slice mutation atomic, so no subscriber observes an intermediate state where the tab is gone but the mount entry lingers.
+
+What this preserves across tab switches:
+
+- Excalidraw's native Cmd+Z / Cmd+Shift+Z history (the public API exposes only `history.clear()`; the stack is private and unreachable, so mount preservation is the only way to keep it alive).
+- Open library panel + active tool + currently-selected elements.
+- Viewport pan/zoom (`scrollX` / `scrollY` / `zoom` are non-persisted appState fields).
+- The user's in-flight scene state (`liveSceneRef`).
+
+What this does NOT cross:
+
+- App close / reopen sessions. The persistent host is session-scoped — instances unmount on app exit (after the close-flush handshake drains pending saves). Cross-session undo would require a custom undo stack persisted to disk; tracked as a follow-up if user-tested demand emerges.
+
 ## Key source
 
 - `src/components/viewers/ExcalidrawView.tsx` — lazy shell mounting `<Excalidraw>`, with theme integration via `useTheme()`, `data-testid="excalidraw-shell"` for E2E, the `onChange` → debounced auto-save wiring, the "Changes save automatically." banner, the save-error banner (with failure-pause + Resume), the conflict banner, the MRSF warning banner, the transient "Saved" pill (Cmd+S flush feedback), and the listener for `mdownreview:excalidraw-flush-save`. Owns `reloadKey` for explicit canvas remount on conflict-banner Reload.
@@ -115,8 +139,9 @@ This is a one-shot pedagogical hint — Excalidraw re-serialises the JSON on eve
 - `src/lib/excalidraw/autosave-banner.ts` — `localStorage` chokepoint for the auto-save info banner seen flag.
 - `src/lib/file-types.ts` — `excalidraw` category, `DOUBLE_EXT_MAP`, `ViewMode = "source" | "visual" | "editor"`, `getDefaultView`, `getFiletypeKey`.
 - `src/components/viewers/ViewerToolbar.tsx` — tri-state segmented control gated on `canEdit` (false when the active tab is read-only).
-- `src/components/viewers/EnhancedViewer.tsx` — 3-way switch over `viewMode`. Routes Source mode for binary excalidraw paths to `<ExcalidrawSourceMode/>`.
-- `src/store/tabs.ts` — `excalidrawDirtyByTab` (gates the conflict banner) and `externalChangePendingByTab` (renders the conflict banner) maps; `setExcalidrawDirty`, `setExternalChangePending` actions.
+- `src/components/viewers/EnhancedViewer.tsx` — 3-way switch over `viewMode`. Routes Source mode for binary excalidraw paths to `<ExcalidrawSourceMode/>`. For paths in `excalidrawEditorMounts`, renders an empty placeholder for Visual/Editor (the `<PersistentExcalidrawHost>` overlays).
+- `src/components/viewers/excalidraw/PersistentExcalidrawHost.tsx` — module-scope mount host (iter-13) that keeps `<ExcalidrawView>` instances alive across tab switches. Reads `excalidrawEditorMounts` + `activeTabPath` + `viewModeByTab` to decide which slot is `data-active`. CSS in `src/styles/excalidraw-host.css`.
+- `src/store/tabs.ts` — `excalidrawDirtyByTab` (gates the conflict banner), `externalChangePendingByTab` (renders the conflict banner), `excalidrawEditorMounts` (tracks paths with persistent `<Excalidraw>` instances). Setters `setExcalidrawDirty`, `setExternalChangePending`, `markExcalidrawEditorMounted`. All three maps cleared atomically on `closeTab` / `closeAllTabs` / LRU eviction.
 - `src/hooks/useFileContent.ts` — gates `mdownreview:file-changed` reload on the dirty flag to surface the conflict banner instead of silently reloading mid-edit.
 - `src/hooks/useGlobalShortcuts.ts` — `Ctrl/Cmd+S` shortcut dispatches `mdownreview:excalidraw-flush-save` for active Excalidraw editor tabs.
 - `src-tauri/src/commands/fs_write.rs` — workspace-write chokepoint (`write_workspace_text` / `write_workspace_binary`); see architecture rule 32.

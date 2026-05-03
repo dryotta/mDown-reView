@@ -117,6 +117,35 @@ export interface TabsSlice {
    */
   excalidrawDirtyByTab: Record<string, boolean>;
   /**
+   * Issue #352 / iter-13 — paths whose user has entered Editor mode at
+   * least once. The `<PersistentExcalidrawHost>` component (rendered
+   * once at App-root level inside `.viewer-area`) keeps the underlying
+   * `<Excalidraw>` instance mounted for every path in this set, even
+   * across tab switches. Tab-switching to a non-Excalidraw tab (or
+   * even another Excalidraw tab) hides the inactive instance via CSS
+   * but does NOT unmount it — so Excalidraw's native undo/redo
+   * history, library panel, and tool selection survive.
+   *
+   * Visual ↔ Editor toggling on the SAME instance is achieved via
+   * the runtime `viewModeEnabled` prop on `<Excalidraw>` (verified in
+   * `node_modules/@excalidraw/excalidraw/dist/types/excalidraw/types.d.ts`
+   * line 436). One instance per file path covers both modes.
+   *
+   * Cleanup contract (rule 18 in `docs/architecture.md` — state
+   * stratification):
+   *   - `closeTab(path)` removes `path` from this set.
+   *   - `closeAllTabs()` clears it entirely.
+   *   - LRU eviction of a tab also drops the corresponding entry.
+   *   - File-rename is NOT handled (the path key is canonical and we
+   *     don't observe rename events from the watcher today).
+   *
+   * Stored as a string[] (sorted, no duplicates) for trivial
+   * serialisation and stable `useShallow` selector identity. Set
+   * semantics is enforced by the `markExcalidrawEditorMounted` /
+   * cleanup branches in this slice. Session-only — never persisted.
+   */
+  excalidrawEditorMounts: string[];
+  /**
    * Issue #352 / AC7 — per-tab pending external-change flag. The watcher
    * fired `file-content-changed` on this Excalidraw tab while it was open
    * in Editor mode AND `excalidrawDirtyByTab[path] === true`, so we held
@@ -167,6 +196,17 @@ export interface TabsSlice {
    * Subscribed by `ExcalidrawView` to gate the conflict banner.
    */
   setExternalChangePending: (path: string, pending: boolean) => void;
+  /**
+   * Issue #352 / iter-13 — register a path for persistent Excalidraw
+   * mounting. Idempotent: marking an already-registered path is a
+   * no-op (no observable state change, no re-render).
+   *
+   * Caller contract: invoke when the user enters Editor mode for an
+   * Excalidraw file. The `<PersistentExcalidrawHost>` then keeps the
+   * underlying `<Excalidraw>` instance mounted across tab switches
+   * until `closeTab` / `closeAllTabs` / LRU eviction unregisters.
+   */
+  markExcalidrawEditorMounted: (path: string) => void;
 }
 
 export function filterStaleTabs(
@@ -215,6 +255,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     fileMetaByPath: {},
     excalidrawDirtyByTab: {},
     externalChangePendingByTab: {},
+    excalidrawEditorMounts: [],
 
     openFile: (path, opts) => {
       get().closeMermaidPopout(); // issue #276 — close popout on file open
@@ -255,6 +296,12 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
         const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
         const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
+        // Issue #352 / iter-13 — drop the LRU victim from the
+        // persistent-mount registry so the host unmounts its
+        // <Excalidraw> instance and frees the associated memory.
+        const restMounts = get().excalidrawEditorMounts.filter(
+          (p) => p !== victim.path,
+        );
         set({
           tabs: [...filteredTabs, { path, scrollTop: 0, lastAccessedAt: now }],
           activeTabPath: path,
@@ -263,6 +310,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           fileMetaByPath: restMeta,
           excalidrawDirtyByTab: restDirty,
           externalChangePendingByTab: restPending,
+          excalidrawEditorMounts: restMounts,
         });
         if (recordHistory) get().pushHistory(path);
         void classifyAndMarkReadOnly(path, set);
@@ -302,6 +350,12 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const { [path]: _unusedMeta, ...restMeta } = get().fileMetaByPath;
       const { [path]: _unusedDirty, ...restDirty } = get().excalidrawDirtyByTab;
       const { [path]: _unusedPending, ...restPending } = get().externalChangePendingByTab;
+      // Issue #352 / iter-13 — closing the tab unmounts its persistent
+      // <Excalidraw> instance via the host. Filter the registry in the
+      // same set() call as the rest of the cleanup (rule 16 — atomic
+      // multi-slice mutation; subscribers never observe an
+      // intermediate state).
+      const restMounts = get().excalidrawEditorMounts.filter((p) => p !== path);
       set({
         tabs: newTabs,
         activeTabPath: newActive,
@@ -310,6 +364,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         fileMetaByPath: restMeta,
         excalidrawDirtyByTab: restDirty,
         externalChangePendingByTab: restPending,
+        excalidrawEditorMounts: restMounts,
       });
     },
 
@@ -325,6 +380,9 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         fileMetaByPath: {},
         excalidrawDirtyByTab: {},
         externalChangePendingByTab: {},
+        // Issue #352 / iter-13 — unmount every persistent
+        // <Excalidraw> instance.
+        excalidrawEditorMounts: [],
       });
     },
 
@@ -434,6 +492,17 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
         }
         return {
           externalChangePendingByTab: { ...s.externalChangePendingByTab, [path]: true },
+        };
+      }),
+
+    markExcalidrawEditorMounted: (path) =>
+      set((s) => {
+        // Idempotent: short-circuit when already registered so subscribers
+        // don't fire on duplicate marks (every entry into Editor mode
+        // calls this, including return-visits via tab switch).
+        if (s.excalidrawEditorMounts.includes(path)) return s;
+        return {
+          excalidrawEditorMounts: [...s.excalidrawEditorMounts, path],
         };
       }),
   };

@@ -17,6 +17,7 @@ import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
+import { PersistentExcalidrawHost } from "@/components/viewers/excalidraw/PersistentExcalidrawHost";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { MermaidPopout } from "@/components/viewers/mermaid/MermaidPopout";
 import { AboutDialog } from "@/components/AboutDialog";
@@ -235,6 +236,18 @@ export default function App() {
                 onOpenFolder={handleOpenFolder}
               />
             )}
+          </ErrorBoundary>
+          {/*
+            Issue #352 / iter-13 — persistent Excalidraw mount host.
+            Rendered as a sibling of the viewer router (NOT a child)
+            so it survives `activeTabPath` changes — keeping each
+            registered editor's `<Excalidraw>` instance mounted across
+            tab switches, preserving native undo/redo history. Only
+            the active path's slot is visible; the others are
+            display:none. See `src/components/viewers/excalidraw/PersistentExcalidrawHost.tsx`.
+          */}
+          <ErrorBoundary>
+            <PersistentExcalidrawHost />
           </ErrorBoundary>
         </div>
 
