@@ -87,13 +87,23 @@ export interface AutoSaveState {
    */
   setBaselineLibrary: (items: ReadonlyArray<unknown>) => void;
   /**
-   * Synchronously trigger `performSave(true)`. The optional opts.userInitiated
-   * flag (Cmd+S only) controls whether a successful write surfaces the
-   * transient "Saved" pill — pill must NOT appear when the save was paused,
-   * skipped (no diff vs baseline), or otherwise short-circuited (review
-   * finding bug-expert P1#1).
+   * Synchronously trigger `performSave(true)`. Optional `opts.userInitiated`
+   * (Cmd+S only) controls whether a successful write surfaces the transient
+   * "Saved" pill — pill must NOT appear when the save was paused, skipped
+   * (no diff vs baseline), or otherwise short-circuited (review finding
+   * bug-expert P1#1).
+   *
+   * Optional `opts.bypassPause` (close-flush only) overrides the 3-strike
+   * `autoSavePausedRef` early-return so the user-final close-drain gets
+   * one last best-effort write attempt. Iter-22 (#352 bug-expert iter-21
+   * P0-1): without this, a user who hit any 3-strike pause (transient
+   * disk error / network drive disconnect / AV quarantine) could keep
+   * editing for minutes, then close — and `drainPendingSavesAsync` would
+   * silently no-op at the pause guard, dropping every post-pause edit.
+   * The pause is meant to back off automatic retries, not to gate the
+   * user's final save attempt.
    */
-  flush: (opts?: { userInitiated?: boolean }) => void;
+  flush: (opts?: { userInitiated?: boolean; bypassPause?: boolean }) => void;
   /**
    * Drop the on-disk baseline + cancel pending debounce. If a save is
    * currently in flight, it is **voided**: its `.then` continuation skips
@@ -207,14 +217,22 @@ export function useExcalidrawAutoSave(
   const performSave = (
     bypassModeCheck: boolean,
     userInitiated: boolean = false,
+    bypassPause: boolean = false,
   ): void => {
     if (!mountedRef.current) return;
     if (!bypassModeCheck && modeRef.current !== "editor") return;
-    if (autoSavePausedRef.current) {
+    if (!bypassPause && autoSavePausedRef.current) {
       // User must explicitly Resume after the failure-pause kicks in.
       // Read via ref so a same-render Retry click that flips state
       // sees the new value (`retryAfterFailure` clears the ref before
       // calling performSave).
+      //
+      // Iter-22 (#352 bug-expert iter-21 P0-1): close-flush bypasses
+      // this guard via `bypassPause = true` (threaded from
+      // `drainPendingSavesAsync` → `flush({bypassPause:true})`) so
+      // the user's final close-drain gets one last best-effort write
+      // attempt regardless of pause state. Pause is meant to back off
+      // automatic retries; it must not gate the user-final save.
       return;
     }
     if (externalChangePending(filePath)) {
@@ -365,16 +383,23 @@ export function useExcalidrawAutoSave(
     lastSavePromiseRef.current = savePromise;
   };
 
-  const flush = useCallback((opts?: { userInitiated?: boolean }): void => {
-    if (autoSaveTimerRef.current !== null) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
-    performSave(true, opts?.userInitiated === true);
-    // performSave is a stable hook-body closure that reads via refs; deps
-    // intentionally empty so the returned function identity is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const flush = useCallback(
+    (opts?: { userInitiated?: boolean; bypassPause?: boolean }): void => {
+      if (autoSaveTimerRef.current !== null) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      performSave(
+        true,
+        opts?.userInitiated === true,
+        opts?.bypassPause === true,
+      );
+      // performSave is a stable hook-body closure that reads via refs; deps
+      // intentionally empty so the returned function identity is stable.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [],
+  );
 
   // Mirror flush into a ref so unmount/mode-leave effects can call it
   // without re-firing on every render.
@@ -386,8 +411,13 @@ export function useExcalidrawAutoSave(
   // Awaitable drain for the close-flush handshake. Resolves only once
   // the dispatched IPC has settled. Capped at 5 iterations to defend
   // against a runaway pendingSave chain in a buggy state.
+  //
+  // Iter-22 (#352 bug-expert iter-21 P0-1): pass `{bypassPause: true}`
+  // so the user-final close-drain gets one last best-effort write
+  // attempt even after a 3-strike autosave pause. Without this, a
+  // paused session silently dropped every post-pause edit at close.
   const drainPendingSavesAsync = async (): Promise<void> => {
-    flushRef.current();
+    flushRef.current({ bypassPause: true });
     for (let i = 0; i < 5; i++) {
       if (!saveInFlightRef.current && !pendingSaveRef.current) break;
       const inflight = lastSavePromiseRef.current;

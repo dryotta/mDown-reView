@@ -160,7 +160,22 @@ fn ensure_writable(
             message: format!("parent dir does not canonicalise: {e}"),
         }
     })?;
-    let canonical = canonical_parent.join(file_name);
+    // Iter-22 (#352 bug-expert iter-21 P1-2 / arch P1-7) — when the
+    // file already exists on disk, derive the leaf from a FULL-target
+    // canonicalisation so the path returned to the caller matches the
+    // OS-canonical casing the watcher will see. NTFS / APFS resolve
+    // case-insensitive paths to a stable on-disk casing that may
+    // differ from the user-supplied string. For not-yet-existing
+    // targets the caller (`write_workspace_text_inner` /
+    // `write_workspace_binary_inner`) re-canonicalises post-write
+    // before registering self-write suppression — see those
+    // call sites.
+    let canonical = if target.exists() {
+        canonicalize_no_verbatim(target)
+            .unwrap_or_else(|_| canonical_parent.join(file_name))
+    } else {
+        canonical_parent.join(file_name)
+    };
 
     let lowered_name = file_name.to_ascii_lowercase();
     let allowlisted = WORKSPACE_WRITE_ALLOWLIST
@@ -231,7 +246,17 @@ pub(crate) fn write_workspace_text_inner(
         tracing::error!("[rust] write_workspace_text error: {e}");
         WorkspaceWriteError::io(e.to_string())
     })?;
-    state.register_self_write(canonical, SELF_WRITE_SUPPRESSION_TTL);
+    // Iter-22 (#352 bug-expert iter-21 P1-2 / arch P1-7) —
+    // re-canonicalise the now-existing file for the suppression
+    // registry key. For first saves the file did not exist when
+    // `ensure_writable` ran, so the key would otherwise carry the
+    // user-supplied filename casing. NTFS / APFS resolve to the
+    // on-disk canonical case, which the watcher event reports —
+    // a key mismatch leaks the watcher echo as a spurious external
+    // change, and the Reload click silently destroys live edits.
+    let suppression_key =
+        canonicalize_no_verbatim(&canonical).unwrap_or(canonical);
+    state.register_self_write(suppression_key, SELF_WRITE_SUPPRESSION_TTL);
     Ok(())
 }
 
@@ -274,7 +299,11 @@ pub(crate) fn write_workspace_binary_inner(
         tracing::error!("[rust] write_workspace_binary error: {e}");
         WorkspaceWriteError::io(e.to_string())
     })?;
-    state.register_self_write(canonical, SELF_WRITE_SUPPRESSION_TTL);
+    // Iter-22 (#352 bug-expert iter-21 P1-2) — re-canonicalise
+    // post-write for the suppression key. See sibling text writer.
+    let suppression_key =
+        canonicalize_no_verbatim(&canonical).unwrap_or(canonical);
+    state.register_self_write(suppression_key, SELF_WRITE_SUPPRESSION_TTL);
     Ok(())
 }
 
@@ -511,6 +540,74 @@ mod tests {
         assert!(
             state.is_self_write_suppressed(&canonical),
             "expected self-write suppression entry for {}",
+            canonical.display()
+        );
+    }
+
+    /// Iter-22 (#352 bug-expert iter-21 P1-2 / arch P1-7) — the
+    /// self-write suppression registry key MUST use the on-disk
+    /// canonical casing so the watcher event lookup hits, regardless
+    /// of what casing the caller passed (a CLI shim invoking the IPC
+    /// with the user's typed `My Drawing.excalidraw` for a file saved
+    /// as `my drawing.excalidraw`, etc.).
+    ///
+    /// Pre-iter-22: the registry key was the user-supplied filename
+    /// case verbatim joined to the canonical parent. Watchers report
+    /// canonical-cased paths, so on case-insensitive filesystems
+    /// (NTFS, APFS) the lookup missed → the watcher echoed
+    /// `file-changed` to the same window that just wrote the bytes →
+    /// spurious conflict banner → user clicks Reload → live edits
+    /// silently destroyed. (This test would PASS pre-fix on Linux
+    /// because ext4 is case-sensitive and `target.exists()` only
+    /// returns true for an exact-case match; the regression surface
+    /// is platform-specific by construction.)
+    ///
+    /// On Linux/ext4 a same-case write trivially canonicalises to the
+    /// same key — the regression we exercise is the post-write
+    /// canonicalisation step itself: even when the path is
+    /// case-sensitive, an existing target's canonical resolution is
+    /// the OS-canonical form (resolving symlinks/junctions), which
+    /// must match what the watcher reports.
+    #[test]
+    fn write_registers_suppression_under_canonical_post_write_casing() {
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("CaseTest.excalidraw");
+        write_workspace_text_inner(&state, &target.to_string_lossy(), r#"{"v":1}"#)
+            .unwrap();
+        // The on-disk canonical form (what the watcher reports) MUST
+        // be a registered suppression key.
+        let canonical = canonicalize_no_verbatim(&target).unwrap();
+        assert!(
+            state.is_self_write_suppressed(&canonical),
+            "watcher event would arrive with canonical path; suppression must hit. \
+             expected entry for {}",
+            canonical.display()
+        );
+        // Cross-OS smoke: on case-insensitive FS, an alternate-case
+        // string for the same on-disk file canonicalises to the same
+        // key. We can't assume that here on Linux/ext4, so we only
+        // assert via the canonical lookup above. The Windows native
+        // E2E spec exercises the cross-case lookup end-to-end.
+    }
+
+    /// Iter-22 (#352 bug-expert iter-21 P1-2) — the suppression key
+    /// for an OVERWRITE (file already exists pre-call) MUST also be
+    /// the canonical post-write form. Locks the symmetry across the
+    /// `target.exists()` branch in `ensure_writable`.
+    #[test]
+    fn overwrite_registers_suppression_under_canonical_casing() {
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("Existing.excalidraw");
+        // Pre-create so ensure_writable takes the existing-target branch.
+        std::fs::write(&target, r#"{"v":0}"#).unwrap();
+        write_workspace_text_inner(&state, &target.to_string_lossy(), r#"{"v":1}"#)
+            .unwrap();
+        let canonical = canonicalize_no_verbatim(&target).unwrap();
+        assert!(
+            state.is_self_write_suppressed(&canonical),
+            "expected suppression entry for canonical {} (overwrite path)",
             canonical.display()
         );
     }

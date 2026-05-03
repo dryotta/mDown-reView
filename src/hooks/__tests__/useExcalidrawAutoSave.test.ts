@@ -33,6 +33,10 @@ const mocks = vi.hoisted(() => ({
   recordSaveMock: vi.fn(),
   setExcalidrawDirtyMock: vi.fn(),
   externalChangePendingState: {} as Record<string, boolean>,
+  // Iter-22 (#352 bug-expert iter-21 P0-1): capture registered drain
+  // callbacks per file-path so tests can invoke the close-flush
+  // handshake directly without spinning up the real registry module.
+  registeredFlushes: new Map<string, () => Promise<void>>(),
 }));
 
 vi.mock("@/lib/excalidraw/saveScene", () => ({
@@ -41,7 +45,16 @@ vi.mock("@/lib/excalidraw/saveScene", () => ({
 }));
 
 vi.mock("@/lib/excalidraw/flush-registry", () => ({
-  registerExcalidrawFlush: vi.fn(() => () => {}),
+  registerExcalidrawFlush: vi.fn(
+    (filePath: string, flush: () => Promise<void>) => {
+      mocks.registeredFlushes.set(filePath, flush);
+      return () => {
+        if (mocks.registeredFlushes.get(filePath) === flush) {
+          mocks.registeredFlushes.delete(filePath);
+        }
+      };
+    },
+  ),
 }));
 
 vi.mock("@/store", () => {
@@ -70,6 +83,7 @@ beforeEach(() => {
   for (const k of Object.keys(mocks.externalChangePendingState)) {
     delete mocks.externalChangePendingState[k];
   }
+  mocks.registeredFlushes.clear();
   vi.useFakeTimers();
 });
 
@@ -252,6 +266,176 @@ describe("useExcalidrawAutoSave — library state plumbing (#352 P0-1)", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await act(async () => {
+      unmount();
+    });
+  });
+});
+
+/**
+ * Iter-22 (#352 bug-expert iter-21 P0-1) — close-flush bypasses the
+ * 3-strike autosave-pause guard for the user-final write attempt.
+ *
+ * Pre-fix: a paused `useExcalidrawAutoSave` short-circuited at
+ * `if (autoSavePausedRef.current) return;` in `performSave`. The
+ * close-flush handshake's `drainPendingSavesAsync` called
+ * `flush()` → `performSave(true, false)` and silently no-op'd, dropping
+ * every edit made after the pause kicked in. The user could draw for
+ * minutes after a transient save error (read-only mount, AV quarantine,
+ * ENOSPC) and lose every byte on tab/window close.
+ *
+ * Post-fix: `drainPendingSavesAsync` calls `flush({bypassPause: true})`,
+ * which threads a 3rd `bypassPause` parameter through `performSave`
+ * that overrides the pause guard. One last best-effort write attempt
+ * fires regardless of pause state; pause is meant to back off
+ * automatic retries, not to gate the user-final save.
+ */
+describe("useExcalidrawAutoSave — close-flush bypasses paused guard (#352 P0-1 iter-22)", () => {
+  it("close-flush drain attempts a save even after autosave pause kicks in", async () => {
+    const PATH = "/ws/paused.excalidraw";
+    // Reject every save → 3 consecutive failures → autosave pauses.
+    mocks.saveExcalidrawFileMock.mockReset();
+    mocks.saveExcalidrawFileMock.mockRejectedValue(new Error("disk full"));
+
+    const { result, unmount } = renderHook(() =>
+      useExcalidrawAutoSave(PATH, "editor", false),
+    );
+
+    // Establish baseline.
+    act(() =>
+      result.current.notifyChange({
+        elements: [],
+        appState: {},
+        files: {},
+      }),
+    );
+
+    // Three consecutive failures via Cmd+S flush.
+    for (let i = 1; i <= 3; i++) {
+      act(() =>
+        result.current.notifyChange({
+          elements: [{ id: `edit-${i}` }],
+          appState: {},
+          files: {},
+        }),
+      );
+      await act(async () => {
+        result.current.flush({ userInitiated: true });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    }
+    // Autosave is now paused. Confirm via the public state machine.
+    expect(result.current.autoSavePaused).toBe(true);
+
+    // User makes one more edit (the failure may or may not have been
+    // the user's fault; UI does not gate input). Pre-fix this edit
+    // lives in RAM only — `flush()` in close-flush drains will
+    // silently no-op at the pause guard.
+    act(() =>
+      result.current.notifyChange({
+        elements: [{ id: "post-pause-edit" }],
+        appState: {},
+        files: {},
+      }),
+    );
+
+    // The disk error is now resolved (caller may have freed disk,
+    // re-mounted, etc.). The save mock returns success.
+    mocks.saveExcalidrawFileMock.mockReset();
+    mocks.saveExcalidrawFileMock.mockResolvedValue(undefined);
+
+    // Switch to real timers — `drainPendingSavesAsync` awaits
+    // `setTimeout(r, 0)` between iterations, which never fires under
+    // fake timers and would hang the test forever.
+    vi.useRealTimers();
+
+    // Trigger the close-flush drain — the path the close-flush
+    // handshake takes when the user closes the tab/window/app.
+    const drain = mocks.registeredFlushes.get(PATH);
+    expect(drain, "drain callback was registered").toBeTruthy();
+    await act(async () => {
+      await drain!();
+    });
+
+    // Post-fix invariant: the close-flush drain MUST fire one save
+    // attempt even though autoSavePaused is still true. Without
+    // bypassPause threading, this assertion fails — the IPC mock is
+    // never called, and the post-pause edit is lost forever.
+    expect(mocks.saveExcalidrawFileMock).toHaveBeenCalledTimes(1);
+    const [path, payload] = mocks.saveExcalidrawFileMock.mock.calls[0] as [
+      string,
+      { elements: ReadonlyArray<{ id: string }> },
+    ];
+    expect(path).toBe(PATH);
+    expect(payload.elements[0]?.id).toBe("post-pause-edit");
+
+    await act(async () => {
+      unmount();
+    });
+  });
+
+  it("regular debounced autosave still respects the pause guard (no close-flush bypass)", async () => {
+    // Counter-test: the bypass MUST be scoped to the close-flush drain
+    // only. A regular notifyChange + 2 s debounce while paused must NOT
+    // attempt a save (otherwise we'd loop on the same error every 2 s
+    // until the user clicks Resume — UI spam was the very reason the
+    // pause exists). Locks the surface area of the bypass.
+    const PATH = "/ws/regular-debounce.excalidraw";
+    mocks.saveExcalidrawFileMock.mockReset();
+    mocks.saveExcalidrawFileMock.mockRejectedValue(new Error("disk full"));
+
+    const { result, unmount } = renderHook(() =>
+      useExcalidrawAutoSave(PATH, "editor", false),
+    );
+
+    act(() =>
+      result.current.notifyChange({
+        elements: [],
+        appState: {},
+        files: {},
+      }),
+    );
+
+    // Three failures → paused.
+    for (let i = 1; i <= 3; i++) {
+      act(() =>
+        result.current.notifyChange({
+          elements: [{ id: `edit-${i}` }],
+          appState: {},
+          files: {},
+        }),
+      );
+      await act(async () => {
+        result.current.flush({ userInitiated: true });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    }
+    expect(result.current.autoSavePaused).toBe(true);
+
+    // Reset the mock counter — only post-pause attempts matter for
+    // this assertion.
+    mocks.saveExcalidrawFileMock.mockClear();
+
+    // Edit + advance past debounce.
+    act(() =>
+      result.current.notifyChange({
+        elements: [{ id: "edit-while-paused" }],
+        appState: {},
+        files: {},
+      }),
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(2100);
+      await Promise.resolve();
+    });
+
+    // Pause still active; debounced save must NOT fire.
+    expect(mocks.saveExcalidrawFileMock).not.toHaveBeenCalled();
+
     await act(async () => {
       unmount();
     });

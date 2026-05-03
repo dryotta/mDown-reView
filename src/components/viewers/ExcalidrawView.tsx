@@ -6,6 +6,7 @@ import { SkeletonLoader } from "./SkeletonLoader";
 import {
   ConflictBanner,
   FirstEntryBanner,
+  LineAnchoredCommentsBanner,
   SavedPill,
   SaveErrorBanner,
   SaveStatusIndicator,
@@ -17,6 +18,7 @@ import { useExcalidrawAutoSave } from "@/hooks/useExcalidrawAutoSave";
 import { useExcalidrawScene } from "@/hooks/useExcalidrawScene";
 import { seenFlag } from "@/lib/excalidraw/seen-flag";
 import { getFiletypeKey } from "@/lib/file-types";
+import { getFileBadges } from "@/lib/tauri-commands";
 import { warn as logWarn } from "@/logger";
 import { useStore } from "@/store";
 import { ZOOM_DEFAULT } from "@/store/viewerPrefs";
@@ -39,6 +41,24 @@ const LEGACY_AUTOSAVE_BANNER = seenFlag(
 const LEGACY_MRSF_WARNING = seenFlag(
   "mdownreview:excalidraw-first-save-warning-seen",
 );
+
+/**
+ * Iter-22 (#352 product-expert iter-21 P0 — MRSF re-anchor "once per
+ * profile" gap) — session-scoped per-file dismissal of the line-
+ * anchored-comments warning banner. Rendered when a user enters
+ * Editor mode for an `.excalidraw[lib]` whose MRSF sidecar carries
+ * unresolved comments pinned to specific lines. Module-scope `Set`
+ * survives across Editor↔Visual mode toggles within the same window
+ * lifetime; cleared by closing/reloading the app. New session →
+ * re-warn (the cost is one click; the cost of silently degrading
+ * another reviewer's comment thread is irreversible).
+ *
+ * Cleared by `__TEST_ONLY_clearLineAnchoredDismissals` for unit tests.
+ */
+const lineAnchoredDismissedThisSession = new Set<string>();
+export function __TEST_ONLY_clearLineAnchoredDismissals(): void {
+  lineAnchoredDismissedThisSession.clear();
+}
 
 /**
  * Excalidraw asset path — fonts vendored into `public/excalidraw-assets/`
@@ -166,8 +186,17 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   const isDirty = useStore(
     (s) => s.excalidrawDirtyByTab[filePath] === true,
   );
-  const saveStatus: SaveStatus =
-    saveError && !autoSavePaused
+  // Iter-22 (#352 bug-expert iter-21 P1-3): paused has highest
+  // priority. Pre-iter-22 a paused state with `isDirty=true` fell
+  // through to "Unsaved" — a forward-looking promise that the
+  // autosave loop cannot keep until the user clicks Resume. The
+  // SaveErrorBanner already shows "Auto-save paused after repeated
+  // failures" with [Resume] (Dismiss is hidden in the paused state
+  // per iter-21 P0-3); the indicator now agrees instead of
+  // contradicting.
+  const saveStatus: SaveStatus = autoSavePaused
+    ? "paused"
+    : saveError
       ? "failed"
       : saveInFlight
         ? "saving"
@@ -255,6 +284,73 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     FIRST_ENTRY.mark();
   }, [mode]);
 
+  // Iter-22 (#352 product-expert iter-21 P0) — line-anchored
+  // comments warning. Query the MRSF sidecar for the file's
+  // unresolved line-anchored count whenever the user enters Editor
+  // mode. If > 0 AND the user has not already dismissed for this
+  // path in this session, show the warning banner above the canvas.
+  // The FirstEntryBanner shows ONCE per profile and does not warn
+  // about the file the user is actually about to edit; this banner
+  // closes that gap with a count + per-file dismissal.
+  //
+  // Uses the existing `getFileBadges` IPC: `count - file_level_count`
+  // = unresolved threads anchored to specific lines. No new IPC.
+  //
+  // The reset-to-zero on non-editor mode flows through the IPC
+  // promise resolution (which sees mode change) rather than a
+  // synchronous setState inside the effect body — react-hooks
+  // `set-state-in-effect` lint rejects synchronous setState in
+  // effects. Instead the effect short-circuits without setting; a
+  // separate state reset follows the user-driven `setLineAnchored`
+  // when the IPC's cancelled flag flips.
+  const [lineAnchoredCount, setLineAnchoredCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    if (mode !== "editor") {
+      // Defer the reset to the next microtask so we are not setting
+      // state synchronously inside the effect body.
+      Promise.resolve().then(() => {
+        if (!cancelled) setLineAnchoredCount(0);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    void getFileBadges([filePath])
+      .then((badges) => {
+        if (cancelled) return;
+        const badge = badges[filePath];
+        if (!badge) {
+          setLineAnchoredCount(0);
+          return;
+        }
+        const lineAnchored = Math.max(
+          0,
+          (badge.count ?? 0) - (badge.file_level_count ?? 0),
+        );
+        setLineAnchoredCount(lineAnchored);
+      })
+      .catch((err: unknown) => {
+        // Best-effort: if badge query fails the banner stays hidden.
+        // The user is informed once per profile via FirstEntryBanner;
+        // a missed per-file warning is acceptable, an erroneous one
+        // is not.
+        void logWarn(
+          `[excalidraw] line-anchored badge query failed for ${filePath}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, filePath]);
+
+  const lineAnchoredBannerVisible =
+    mode === "editor" &&
+    lineAnchoredCount > 0 &&
+    !lineAnchoredDismissedThisSession.has(filePath);
+
   // Cmd+S flush event — the renderer-side hook
   // `useGlobalShortcuts` dispatches `mdownreview:excalidraw-flush-save`
   // when the user presses Cmd/Ctrl+S in an Excalidraw editor tab. Only
@@ -324,6 +420,19 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
           onDismiss={() => {
             FIRST_ENTRY.mark();
             setFirstEntryBannerVisible(false);
+          }}
+        />
+      )}
+      {lineAnchoredBannerVisible && (
+        <LineAnchoredCommentsBanner
+          count={lineAnchoredCount}
+          onDismiss={() => {
+            lineAnchoredDismissedThisSession.add(filePath);
+            // Force re-render so the visibility flag flips. Setting
+            // count to 0 doubles as the flag's source-of-truth; the
+            // dismissed-set is checked anyway, but the flag flip
+            // makes the synchronous re-render obvious.
+            setLineAnchoredCount(0);
           }}
         />
       )}

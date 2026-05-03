@@ -66,6 +66,62 @@ export function FirstEntryBanner({ onDismiss }: FirstEntryBannerProps) {
   );
 }
 
+/**
+ * Iter-22 (#352 product-expert iter-21 P0 — MRSF re-anchor "once per
+ * profile" gap) — per-file warning shown when the user enters Editor
+ * mode for an `.excalidraw[lib]` file that has line-anchored review
+ * comments at risk of degrading to file-level on the next save.
+ *
+ * The `FirstEntryBanner` is shown ONCE per browser profile. A user who
+ * dismissed it months ago and today reopens an old `.excalidraw` with
+ * carefully-line-anchored comments their colleague wrote would lose
+ * those anchors on the next stroke without any UI signal — a direct
+ * Reliable-pillar violation ("comments are indestructible"). This
+ * banner re-surfaces the risk **with a count** every time the user
+ * enters Editor mode on a file that genuinely has line-anchored
+ * comments. Session-scoped dismissal: clicking "Got it, keep editing"
+ * suppresses the banner for this path for the remainder of the
+ * session, so the user is not nagged every mode-toggle. New sessions
+ * (app restart) re-warn — the cost of the alert is one click; the
+ * cost of silently degrading another reviewer's comment thread is
+ * irreversible (the original line anchor cannot be recovered post-
+ * promotion).
+ */
+interface LineAnchoredCommentsBannerProps {
+  count: number;
+  onDismiss: () => void;
+}
+
+export function LineAnchoredCommentsBanner({
+  count,
+  onDismiss,
+}: LineAnchoredCommentsBannerProps) {
+  // Singular / plural copy without an external i18n dep.
+  const noun = count === 1 ? "comment" : "comments";
+  return (
+    <div
+      className="excalidraw-line-anchored-banner"
+      role="alert"
+      data-testid="excalidraw-line-anchored-banner"
+      data-count={String(count)}
+    >
+      <span className="excalidraw-line-anchored-banner__copy">
+        This file has {count} review {noun} pinned to specific lines.
+        Editing rewrites the underlying JSON — some may move to the
+        whole file on save.
+      </span>
+      <button
+        type="button"
+        className="excalidraw-conflict-banner__action"
+        onClick={onDismiss}
+        data-testid="excalidraw-line-anchored-banner-dismiss"
+      >
+        Got it, keep editing
+      </button>
+    </div>
+  );
+}
+
 interface SaveErrorBannerProps {
   message: string;
   paused: boolean;
@@ -190,20 +246,25 @@ export function SavedPill() {
  * their changes had landed on disk.
  *
  * States (priority order — first matching wins):
- *   - **failed**: `saveError && !paused` — surfaces alongside the
- *     SaveErrorBanner; the banner explains, the indicator confirms.
+ *   - **paused**: 3-strike failure-pause is active. Iter-22 (#352
+ *     bug-expert iter-21 P1-3): pre-iter-22 the indicator showed
+ *     "Unsaved" while paused (`saveError && !autoSavePaused` excluded
+ *     the paused state from "failed"), actively lying — "Unsaved" is
+ *     a forward-looking promise that the autosave loop will catch up
+ *     in 2 s, but autosave is HALTED until the user clicks Resume.
+ *     The dedicated "paused" state agrees with the SaveErrorBanner's
+ *     "Auto-save paused after repeated failures" copy.
+ *   - **failed**: a fresh save IPC rejected and we are NOT yet
+ *     paused — the failure counter is still below threshold and the
+ *     debounce will retry. SaveErrorBanner shows the error reason +
+ *     Retry/Dismiss; the indicator confirms.
  *   - **saving**: `saveInFlight === true` — IPC is in flight.
  *   - **unsaved**: `dirty === true` — pending edit waiting to debounce
  *     or coalesce with an in-flight save.
  *   - **saved**: otherwise — last persisted state matches the live
  *     scene + library.
- *
- * The paused state is intentionally NOT surfaced here — the
- * SaveErrorBanner already pins itself to the canvas top with full
- * copy + Resume button (and post-iter-21 cannot be dismissed). A
- * second indicator would just stack a redundant signal.
  */
-export type SaveStatus = "saved" | "unsaved" | "saving" | "failed";
+export type SaveStatus = "saved" | "unsaved" | "saving" | "failed" | "paused";
 
 interface SaveStatusIndicatorProps {
   status: SaveStatus;
@@ -215,6 +276,7 @@ export function SaveStatusIndicator({ status }: SaveStatusIndicatorProps) {
     unsaved: "Unsaved",
     saving: "Saving…",
     failed: "Save failed",
+    paused: "Auto-save paused",
   };
   return (
     <div

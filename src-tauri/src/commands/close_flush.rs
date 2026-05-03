@@ -46,7 +46,7 @@ use crate::mdr_command;
 /// Long enough that a single in-flight workspace-write IPC (worst case
 /// ~10 MB binary write to spinning disk) completes; short enough that a
 /// crashed JS thread doesn't deadlock the close path.
-const CLOSE_FLUSH_TIMEOUT_MS: u64 = 2500;
+pub const CLOSE_FLUSH_TIMEOUT_MS: u64 = 2500;
 
 /// Per-window pending close-flush waiters + ready set. Keyed by window
 /// label. Pending entries are inserted by `flush_pending_writes_before_close`,
@@ -213,6 +213,60 @@ pub fn flush_pending_writes_before_close(app: &AppHandle, label: String) {
             let _ = window.destroy();
         }
     });
+}
+
+/// Iter-22 (#352 bug-expert iter-21 P2-4) — drain every supplied window's
+/// renderer flush registry, returning when ALL windows have acked or
+/// dropped their channels. Used by the `RunEvent::ExitRequested` arm in
+/// `lib.rs` to recover the data-loss-on-Cmd+Q path on macOS (and any
+/// other termination event that fires `ExitRequested` rather than
+/// per-window `CloseRequested`).
+///
+/// Distinct from `flush_pending_writes_before_close` because:
+///   - Multiple windows are drained in parallel.
+///   - We do NOT call `window.destroy()` — `app_handle.exit(0)` does
+///     the OS-level teardown after this future resolves.
+///   - Per-window timeouts are NOT enforced here; the caller imposes a
+///     single global timeout via `tokio::time::timeout` so a single
+///     stuck window does not exceed `CLOSE_FLUSH_TIMEOUT_MS`.
+pub async fn flush_all_for_exit(app: AppHandle, labels: Vec<String>) {
+    let Some(state) = app.try_state::<CloseFlushState>() else {
+        return;
+    };
+    // Register a oneshot per label; emit `flush-before-close`; await all.
+    let mut waiters: Vec<oneshot::Receiver<()>> = Vec::with_capacity(labels.len());
+    for label in &labels {
+        let (tx, rx) = oneshot::channel::<()>();
+        match state.pending.lock() {
+            Ok(mut map) => {
+                map.insert(label.clone(), tx);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "exit-flush",
+                    "[exit-flush] state lock poisoned: {e}; skipping {label}"
+                );
+                continue;
+            }
+        }
+        let _ = app.emit_to(label.as_str(), "flush-before-close", label);
+        waiters.push(rx);
+    }
+
+    // Best-effort: ignore individual rx errors (channel dropped =
+    // window died = nothing to drain).
+    for rx in waiters {
+        let _ = rx.await;
+    }
+
+    // Cleanup: drop any leftover pending entries (oneshots already
+    // fired and were removed by close_flush_complete; but guard
+    // against panics / dropped channels by clearing all of ours).
+    if let Ok(mut map) = state.pending.lock() {
+        for label in &labels {
+            map.remove(label);
+        }
+    };
 }
 
 #[cfg(test)]

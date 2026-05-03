@@ -206,6 +206,38 @@
   border-color: var(--color-error-border, #fca5a5);
   background: var(--color-error-bg, #fee2e2);
 }
+/* Iter-22 (#352 bug-expert iter-21 P1-3): paused state has its own
+   visual so it does not silently render as "Unsaved" (which lies — the
+   autosave loop is HALTED until the user clicks Resume). Same colour
+   family as failed, slightly darker to visually agree with the
+   SaveErrorBanner pinned above the canvas. */
+.excalidraw-save-status--paused {
+  color: var(--color-error-text, #991b1b);
+  border-color: var(--color-error-border, #f87171);
+  background: var(--color-error-bg, #fee2e2);
+}
+/* Iter-22 (#352 product-expert iter-21 P0) — MRSF re-anchor warning
+   banner. Same layout family as the first-entry banner; styled as
+   role="alert" yellow-warn so it visually agrees with the "comments
+   at risk" copy. */
+.excalidraw-line-anchored-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin: 0 0 8px 0;
+  background: var(--color-warning-bg, #fffbeb);
+  color: var(--color-warning-text, #92400e);
+  border: 1px solid var(--color-warning-border, #fbbf24);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.excalidraw-line-anchored-banner__copy {
+  flex: 1;
+}
 @keyframes excalidraw-save-status-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }

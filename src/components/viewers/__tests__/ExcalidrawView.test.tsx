@@ -1,6 +1,15 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { MockedFunction } from "vitest";
+
+// Iter-22 — auto-load the project-wide IPC mock from
+// `src/__mocks__/@tauri-apps/api/core.ts` so tests can override
+// individual command stubs via `invokeMock.mockImplementationOnce`.
+vi.mock("@tauri-apps/api/core");
+
+import { invoke } from "@tauri-apps/api/core";
+const invokeMock = invoke as MockedFunction<typeof invoke>;
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 // Stub `@excalidraw/excalidraw`'s heavy default export with a tiny
@@ -95,7 +104,7 @@ vi.mock("@/lib/excalidraw/saveScene", () => ({
   saveExcalidrawFile: (...args: unknown[]) => saveSceneMock(...args),
 }));
 
-import { ExcalidrawView } from "../ExcalidrawView";
+import { ExcalidrawView, __TEST_ONLY_clearLineAnchoredDismissals } from "../ExcalidrawView";
 import { useStore } from "@/store";
 import * as ExcalidrawModule from "@excalidraw/excalidraw";
 
@@ -113,6 +122,9 @@ beforeEach(() => {
   extractSceneMock.mockReset();
   saveSceneMock.mockReset();
   saveSceneMock.mockResolvedValue(undefined);
+  // Iter-22 — clear cross-test pollution of the per-file warning
+  // dismiss-set (module-scope).
+  __TEST_ONLY_clearLineAnchoredDismissals();
   useStore.setState({
     excalidrawDirtyByTab: {},
     externalChangePendingByTab: {},
@@ -1426,6 +1438,174 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     await screen.findByTestId("excalidraw-stub");
     expect(
       screen.queryByTestId("excalidraw-save-status"),
+    ).not.toBeInTheDocument();
+  });
+
+  // Iter-22 (#352 bug-expert iter-21 P1-3) — save-status indicator
+  // shows a dedicated 'paused' state when 3-strike failure-pause is
+  // active. Pre-iter-22 the indicator showed 'Unsaved' while paused
+  // (the formula `saveError && !autoSavePaused` excluded the paused
+  // state from 'failed'); 'Unsaved' is a forward-looking promise the
+  // autosave loop cannot keep until the user clicks Resume — actively
+  // misleading the exact user about to lose data via the close-flush
+  // bypass bug (P0-1). Locks the post-fix invariant: paused ≠ unsaved.
+  it("[iter-22] save-status indicator flips to 'paused' after 3 consecutive save failures", async () => {
+    saveSceneMock.mockRejectedValue(new Error("disk full"));
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/p13-status-paused.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    vi.useFakeTimers();
+    try {
+      // Bootstrap baseline.
+      await act(async () => {
+        onChange([{ id: "baseline" }], {}, {});
+      });
+      // 3 distinct edits; each debounce window resolves to a rejected
+      // save. After the third failure the autosave hook flips
+      // autoSavePaused = true.
+      for (let i = 1; i <= 3; i++) {
+        await act(async () => {
+          onChange([{ id: `edit-${i}` }], {}, {});
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2100);
+        });
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => {
+      const indicator = screen.getByTestId("excalidraw-save-status");
+      expect(indicator.getAttribute("data-status")).toBe("paused");
+      expect(indicator.textContent).toMatch(/paused/i);
+      // Inverse assertion: must NOT show "unsaved" — that was the
+      // exact pre-iter-22 lie.
+      expect(indicator.textContent).not.toMatch(/^Unsaved$/i);
+    });
+  });
+
+  // Iter-22 (#352 product-expert iter-21 P0 — MRSF re-anchor "once
+  // per profile" gap) — when the user enters Editor mode for an
+  // `.excalidraw[lib]` whose MRSF sidecar carries unresolved
+  // line-anchored comments, a per-file warning banner surfaces
+  // BEFORE the first stroke. The FirstEntryBanner is once-per-
+  // profile and does NOT name the file or the count; this banner
+  // closes that affordance gap.
+  it("[iter-22] line-anchored-comments banner shows when get_file_badges reports lineAnchored > 0", async () => {
+    // Override get_file_badges to report 3 line-anchored comments
+    // (count=5, file_level=2 → line-anchored = 3).
+    const PATH = "/ws/iter22-mrsf-warn.excalidraw";
+    invokeMock.mockImplementationOnce(async (cmd, args) => {
+      if (cmd !== "get_file_badges") return undefined as never;
+      const paths = (args as { filePaths: string[] }).filePaths;
+      if (paths.includes(PATH)) {
+        return {
+          [PATH]: { count: 5, max_severity: "info", file_level_count: 2 },
+        } as never;
+      }
+      return {} as never;
+    });
+
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath={PATH}
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+
+    // Banner appears with the count.
+    const banner = await screen.findByTestId("excalidraw-line-anchored-banner");
+    expect(banner.getAttribute("data-count")).toBe("3");
+    expect(banner.textContent).toMatch(/3 review comments? pinned/i);
+    expect(banner.textContent).toMatch(/may move to the whole file/i);
+
+    // Dismissal is per-file per-session: clicking "Got it, keep
+    // editing" hides the banner.
+    const dismiss = screen.getByTestId(
+      "excalidraw-line-anchored-banner-dismiss",
+    );
+    act(() => {
+      dismiss.click();
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("excalidraw-line-anchored-banner"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("[iter-22] line-anchored-comments banner does NOT show when only file-level comments exist", async () => {
+    // Override get_file_badges so the path has comments but ALL are
+    // file-level (count = file_level_count → lineAnchored = 0). The
+    // FirstEntryBanner already covers the once-per-profile MRSF
+    // disclosure; we don't want to nag on every Editor entry when no
+    // line-anchored comments are actually at risk.
+    const PATH = "/ws/iter22-no-line-anchored.excalidraw";
+    invokeMock.mockImplementationOnce(async (cmd, args) => {
+      if (cmd !== "get_file_badges") return undefined as never;
+      const paths = (args as { filePaths: string[] }).filePaths;
+      if (paths.includes(PATH)) {
+        return {
+          [PATH]: { count: 2, max_severity: "info", file_level_count: 2 },
+        } as never;
+      }
+      return {} as never;
+    });
+
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath={PATH}
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    // Allow the badge IPC promise to resolve.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      screen.queryByTestId("excalidraw-line-anchored-banner"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("[iter-22] line-anchored-comments banner is HIDDEN in visual mode", async () => {
+    const PATH = "/ws/iter22-visual-no-banner.excalidraw";
+    invokeMock.mockImplementationOnce(async (cmd) => {
+      if (cmd !== "get_file_badges") return undefined as never;
+      return {
+        [PATH]: { count: 5, max_severity: "info", file_level_count: 0 },
+      } as never;
+    });
+
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath={PATH}
+        mode="visual"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    expect(
+      screen.queryByTestId("excalidraw-line-anchored-banner"),
     ).not.toBeInTheDocument();
   });
 

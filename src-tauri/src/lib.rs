@@ -1015,6 +1015,75 @@ pub fn run() {
             }
         }
 
+        // Iter-22 (#352 bug-expert iter-21 P2-4 / arch P0 on macOS) —
+        // `RunEvent::ExitRequested` flush handshake.
+        //
+        // macOS Cmd+Q (and any other path that fires `ExitRequested`
+        // BEFORE per-window `WindowEvent::CloseRequested`) silently
+        // dropped up to `EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS` of edits
+        // pre-iter-22 because the close-flush handshake (in
+        // `commands/close_flush.rs`) is keyed on `CloseRequested` only.
+        // AGENTS.md lists macOS as a Tier-1 platform; shipping a
+        // silent data-loss path on the most common Mac quit gesture
+        // is a *Reliable* + *Professional* pillar regression.
+        //
+        // Strategy: prevent the exit, broadcast `flush-before-close`
+        // to every ready window, wait up to `CLOSE_FLUSH_TIMEOUT_MS`
+        // for the renderer drains to complete, then call
+        // `app_handle.exit(0)`. Best-effort: if a window is not
+        // ready (cold start, crashed JS) we still proceed to exit so
+        // the user is not deadlocked. The wait ceiling matches the
+        // CloseRequested handshake's per-window cap.
+        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+            let cfs = match app_handle.try_state::<commands::close_flush::CloseFlushState>() {
+                Some(s) => s,
+                None => {
+                    // State not registered (cold start before setup);
+                    // nothing to drain. Let the exit proceed.
+                    return;
+                }
+            };
+            let labels: Vec<String> = app_handle
+                .webview_windows()
+                .keys()
+                .filter(|label| cfs.is_ready(label))
+                .cloned()
+                .collect();
+            if labels.is_empty() {
+                // No ready windows — no autosave editor open or all
+                // crashed. Let exit proceed.
+                return;
+            }
+            api.prevent_exit();
+            log::info!(
+                "[exit-flush] ExitRequested — draining {} ready window(s)",
+                labels.len()
+            );
+
+            // Spawn the wait-and-exit task on Tauri's async runtime so
+            // the synchronous RunEvent callback returns immediately.
+            let app_handle_clone = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let drain = commands::close_flush::flush_all_for_exit(
+                    app_handle_clone.clone(),
+                    labels,
+                );
+                let timeout = std::time::Duration::from_millis(
+                    commands::close_flush::CLOSE_FLUSH_TIMEOUT_MS,
+                );
+                match tokio::time::timeout(timeout, drain).await {
+                    Ok(()) => log::info!(
+                        "[exit-flush] all windows drained, exiting"
+                    ),
+                    Err(_) => log::warn!(
+                        "[exit-flush] timeout ({}ms), forcing exit",
+                        commands::close_flush::CLOSE_FLUSH_TIMEOUT_MS
+                    ),
+                }
+                app_handle_clone.exit(0);
+            });
+        }
+
         let _ = (app_handle, event);
     });
 }
