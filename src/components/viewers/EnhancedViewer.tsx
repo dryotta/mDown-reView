@@ -114,6 +114,21 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
       : "source";
   const showSource = effectiveView === "source";
 
+  // Iter-14 (bug-expert LOW — double-mount race fix): the host should own
+  // the slot from the SAME render that decides "this is an Excalidraw
+  // editor". Without this, render N sees `isPersistentlyMounted=false`
+  // (store not yet updated) → mounts a local `<ExcalidrawView>`; the
+  // post-commit effect then fires `markExcalidrawEditorMounted` →
+  // render N+1 the host's slot mounts AND the local one unmounts. For
+  // one paint two `<Excalidraw>` instances co-exist for the same path.
+  // Computing `excalidrawHostOwns` purely from props/store at render
+  // time guarantees the local mount path is never taken once the
+  // current view is Editor; the host's slot will mount after the
+  // effect commits the store entry, but in the interim the local
+  // path renders only the placeholder.
+  const excalidrawHostOwns =
+    isExcalidraw && (isPersistentlyMounted || effectiveView === "editor");
+
   // Issue #352 / iter-13 — register the path for persistent mounting
   // whenever an Excalidraw editor renders in Editor mode. Driven by an
   // effect (not the click handler) so that:
@@ -217,7 +232,7 @@ export function EnhancedViewer({ content, path, filePath, fileSize, centerSlot }
               fileSize,
               zoom,
               effectiveView,
-              isPersistentlyMounted,
+              excalidrawHostOwns,
             )}
             {/* renderVisualView keys excalidraw on filePath to satisfy AC10 (key={path}) */}
           </Suspense>

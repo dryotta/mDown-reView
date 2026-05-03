@@ -660,4 +660,129 @@ describe("ExcalidrawView — auto-save (#352 iter-10)", () => {
     });
     expect(saveSceneMock).not.toHaveBeenCalled();
   });
+
+  // Iter-14 regression: bug-expert HIGH + react-tauri-expert HIGH.
+  // After 3 consecutive failures the hook calls
+  // setAutoSavePaused(true). Pre-iter-14 `performSave` read
+  // `autoSavePaused` directly from the React-state closure: when the
+  // user clicked Retry, the click handler ran in a render where
+  // `autoSavePaused === true`, so the freshly-called
+  // `performSave(false)` hit the pause check and bailed. No IPC fired.
+  // Banner cleared (state did update) but the dirty edit sat unsaved.
+  // The fix mirrors `autoSavePaused` into a ref that
+  // `retryAfterFailure` clears synchronously before invoking
+  // `performSave`, so the pause check passes.
+  it("Retry after autosave-paused (3 consecutive failures) DOES fire a save (iter-14)", async () => {
+    saveSceneMock.mockRejectedValue({
+      kind: "io",
+      message: "ENOSPC",
+    });
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter14-pause.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // Drive 3 separate edits, each through its own debounce → 3
+    // failed save attempts → autoSavePaused = true.
+    vi.useFakeTimers();
+    try {
+      // Bootstrap baseline (no save).
+      await act(async () => {
+        onChange([{ id: "rect-baseline" }], {}, {});
+      });
+      for (let i = 1; i <= 3; i++) {
+        await act(async () => {
+          onChange(
+            [{ id: `rect-${i}`, type: "rectangle", x: i, y: i }],
+            {},
+            {},
+          );
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2001);
+        });
+        // Drain the rejection chain back to user-state.
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(saveSceneMock).toHaveBeenCalledTimes(3);
+    // Banner should now read "Auto-save paused…" with a Resume button.
+    await waitFor(() => {
+      const banner = screen.getByTestId("excalidraw-save-error-banner");
+      expect(banner).toBeInTheDocument();
+      expect(banner.textContent).toMatch(/paused/i);
+    });
+    expect(
+      screen.getByTestId("excalidraw-save-error-retry").textContent,
+    ).toMatch(/Resume/i);
+
+    // The headline iter-14 fix: clicking Resume immediately fires a
+    // save IPC. (Pre-iter-14 this click was a no-op.)
+    saveSceneMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      screen.getByTestId("excalidraw-save-error-retry").click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(saveSceneMock).toHaveBeenCalledTimes(4);
+  });
+
+  // Iter-14 regression: bug-expert MEDIUM. notifyChange used to
+  // unconditionally `setExcalidrawDirty(true)` on every onChange,
+  // including viewport pan / tool-select that produce no
+  // persistent-content drift. During the 2 s debounce window, an
+  // external write would raise the conflict banner even though the
+  // live scene matched disk byte-for-byte. The fix hash-compares
+  // BEFORE latching dirty=true and clears any stale flag when the
+  // hash matches the baseline.
+  it("onChange whose stable hash matches baseline does NOT mark tab dirty (iter-14)", async () => {
+    render(
+      <ExcalidrawView
+        content={VALID_JSON}
+        filePath="/ws/iter14-pan.excalidraw"
+        mode="editor"
+        needsExtract={false}
+      />,
+    );
+    await screen.findByTestId("excalidraw-stub");
+    const onChange = captureOnChange();
+
+    // First onChange establishes the baseline.
+    await act(async () => {
+      onChange([{ id: "stable-rect", type: "rectangle" }], {}, {});
+    });
+    // No edit yet — dirty must be false (or unset).
+    expect(
+      useStore.getState().excalidrawDirtyByTab["/ws/iter14-pan.excalidraw"],
+    ).toBeFalsy();
+
+    // Same elements re-fired (mimics viewport pan / tool select —
+    // Excalidraw onChange fires but persistent content unchanged).
+    await act(async () => {
+      onChange([{ id: "stable-rect", type: "rectangle" }], {}, {});
+    });
+    // Dirty must STILL be false. Without the iter-14 fix this would
+    // be true and an external write within the next 2 s would raise
+    // a spurious conflict banner.
+    expect(
+      useStore.getState().excalidrawDirtyByTab["/ws/iter14-pan.excalidraw"],
+    ).toBeFalsy();
+    // No save fires either (no debounce was scheduled).
+    expect(saveSceneMock).not.toHaveBeenCalled();
+  });
 });

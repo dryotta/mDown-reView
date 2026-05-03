@@ -163,6 +163,11 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
   // when the user presses Cmd/Ctrl+S in an Excalidraw editor tab. Only
   // the view whose `filePath` matches the event detail responds; other
   // editor instances ignore.
+  //
+  // `flush` and `triggerSavedPill` are now `useCallback`-stable
+  // (iter-14 — useExcalidrawAutoSave wraps every exposed function).
+  // Listing them in deps is correct and lint-clean; the listener
+  // re-binds only when filePath changes (rare).
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string } | undefined;
@@ -174,11 +179,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     return () => {
       window.removeEventListener("mdownreview:excalidraw-flush-save", handler);
     };
-    // `flush` and `triggerSavedPill` are stable identities across renders
-    // (returned from `useExcalidrawAutoSave`). Including them would force
-    // re-binding on every render with no behavioural change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath]);
+  }, [filePath, flush, triggerSavedPill]);
 
   if (loadError) {
     return (

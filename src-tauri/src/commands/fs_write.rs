@@ -218,11 +218,21 @@ pub(crate) fn write_workspace_text_inner(
         });
     }
     let canonical = ensure_writable(path, state)?;
-    state.register_self_write(canonical.clone(), SELF_WRITE_SUPPRESSION_TTL);
+    // Issue #352 / iter-14 (security MEDIUM, bug-expert LOW-MEDIUM):
+    // register the self-write suppression entry ONLY after the atomic
+    // commit succeeds. Pre-iter-14 we registered before `write_atomic`,
+    // which meant a failed write left a 1500 ms suppression entry that
+    // silently absorbed legitimate external mutations on the same path.
+    // The narrow remaining race (watcher fires the rename event before
+    // the entry lands, ~µs scale) is bounded by the
+    // notify-debouncer-mini 300 ms debounce + the rename-then-emit
+    // ordering — the entry lands well within that window.
     write_atomic(&canonical, bytes).map_err(|e| {
         tracing::error!("[rust] write_workspace_text error: {e}");
         WorkspaceWriteError::io(e.to_string())
-    })
+    })?;
+    state.register_self_write(canonical, SELF_WRITE_SUPPRESSION_TTL);
+    Ok(())
 }
 
 /// Write a binary payload (base64-encoded on the wire) to a workspace file
@@ -258,11 +268,14 @@ pub(crate) fn write_workspace_binary_inner(
         });
     }
     let canonical = ensure_writable(path, state)?;
-    state.register_self_write(canonical.clone(), SELF_WRITE_SUPPRESSION_TTL);
+    // Iter-14 — register suppression AFTER atomic-commit success.
+    // See `write_workspace_text_inner` for rationale.
     write_atomic(&canonical, &bytes).map_err(|e| {
         tracing::error!("[rust] write_workspace_binary error: {e}");
         WorkspaceWriteError::io(e.to_string())
-    })
+    })?;
+    state.register_self_write(canonical, SELF_WRITE_SUPPRESSION_TTL);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -518,6 +531,64 @@ mod tests {
             state.is_self_write_suppressed(&canonical),
             "expected self-write suppression entry for {}",
             canonical.display()
+        );
+    }
+
+    /// Issue #352 / iter-14 (bug-expert LOW-MEDIUM, security MEDIUM):
+    /// a failed `write_atomic` MUST NOT leak a self-write suppression
+    /// entry. Pre-iter-14 the entry was registered before the atomic
+    /// commit; on failure it persisted for the full 1500 ms TTL,
+    /// silently absorbing legitimate external mutations of the same
+    /// path. Locks the iter-14 invariant: register-only-on-success.
+    ///
+    /// Provoking failure deterministically: pre-create the target as
+    /// a directory. `write_atomic`'s rename(temp_file, target_dir)
+    /// fails on every supported OS (Windows + Unix both reject
+    /// rename-file-onto-non-empty-dir).
+    #[test]
+    fn text_write_failure_does_not_register_self_write_suppression() {
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("scene.excalidraw");
+        std::fs::create_dir(&target).unwrap();
+        // Drop a sentinel file inside so cross-OS the rename fails
+        // cleanly (some filesystems allow rename-onto-empty-dir).
+        std::fs::write(target.join("sentinel"), "x").unwrap();
+
+        let res = write_workspace_text_inner(
+            &state,
+            &target.to_string_lossy(),
+            r#"{"v":1}"#,
+        );
+        assert!(res.is_err(), "rename onto a directory should fail");
+
+        let canonical = canonicalize_no_verbatim(&target).unwrap();
+        assert!(
+            !state.is_self_write_suppressed(&canonical),
+            "failed write must not leak a suppression entry; got entry for {}",
+            canonical.display()
+        );
+    }
+
+    #[test]
+    fn binary_write_failure_does_not_register_self_write_suppression() {
+        let tmp = TempDir::new().unwrap();
+        let state = watcher_with_workspace(tmp.path());
+        let target = tmp.path().join("scene.excalidraw.png");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("sentinel"), "x").unwrap();
+
+        let res = write_workspace_binary_inner(
+            &state,
+            &target.to_string_lossy(),
+            &B64.encode(b"PNG\n"),
+        );
+        assert!(res.is_err(), "rename onto a directory should fail");
+
+        let canonical = canonicalize_no_verbatim(&target).unwrap();
+        assert!(
+            !state.is_self_write_suppressed(&canonical),
+            "failed binary write must not leak a suppression entry"
         );
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { friendlySaveError } from "@/lib/excalidraw/error-mapping";
 import type { ExcalidrawScene } from "@/lib/excalidraw/extractScene";
@@ -90,22 +90,34 @@ export function useExcalidrawAutoSave(
   const setExcalidrawDirty = useStore((s) => s.setExcalidrawDirty);
   const recordSave = useStore((s) => s.recordSave);
 
-  // Mirror reactive props into refs so the timer callback (which fires
-  // outside any effect) can read current values without closure traps.
+  // Mirror reactive props/state into refs so callbacks invoked outside
+  // the current render's closure (timer fires, .finally continuations,
+  // window event listeners) read the latest values. `autoSavePaused`
+  // was previously read directly from React state in `performSave`,
+  // which broke the Retry button (state setter queues the unpause for
+  // next render; the same-render `performSave` then bailed at the
+  // pause check) — bug-expert HIGH and react-tauri-expert HIGH.
   const modeRef = useRef(mode);
   const externalChangePendingRef = useRef(externalChangePending);
+  const autoSavePausedRef = useRef(autoSavePaused);
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
   useEffect(() => {
     externalChangePendingRef.current = externalChangePending;
   }, [externalChangePending]);
+  useEffect(() => {
+    autoSavePausedRef.current = autoSavePaused;
+  }, [autoSavePaused]);
 
   const performSave = (bypassModeCheck: boolean): void => {
     if (!mountedRef.current) return;
     if (!bypassModeCheck && modeRef.current !== "editor") return;
-    if (autoSavePaused) {
+    if (autoSavePausedRef.current) {
       // User must explicitly Resume after the failure-pause kicks in.
+      // Read via ref so a same-render Retry click that flips state
+      // sees the new value (`retryAfterFailure` clears the ref before
+      // calling performSave).
       return;
     }
     if (externalChangePendingRef.current) {
@@ -171,6 +183,9 @@ export function useExcalidrawAutoSave(
         if (!mountedRef.current) return;
         setSaveError(friendlySaveError(err));
         if (failureCountRef.current >= EXCALIDRAW_AUTOSAVE_MAX_CONSECUTIVE_FAILURES) {
+          // Update ref synchronously so a `.finally` drain that fires
+          // before React commits the state setter respects the pause.
+          autoSavePausedRef.current = true;
           setAutoSavePaused(true);
         }
       })
@@ -215,20 +230,23 @@ export function useExcalidrawAutoSave(
     lastSavePromiseRef.current = savePromise;
   };
 
-  const flush = (): void => {
+  const flush = useCallback((): void => {
     if (autoSaveTimerRef.current !== null) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
     performSave(true);
-  };
+    // performSave is a stable hook-body closure that reads via refs; deps
+    // intentionally empty so the returned function identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Mirror flush into a ref so unmount/mode-leave effects can call it
   // without re-firing on every render.
   const flushRef = useRef(flush);
   useEffect(() => {
     flushRef.current = flush;
-  });
+  }, [flush]);
 
   // Awaitable drain for the close-flush handshake. Resolves only once
   // the dispatched IPC has settled. Capped at 5 iterations to defend
@@ -283,7 +301,7 @@ export function useExcalidrawAutoSave(
     lastSavedHashRef.current = null;
   }, [filePath, mode]);
 
-  const notifyChange = (live: ExcalidrawScene): void => {
+  const notifyChange = useCallback((live: ExcalidrawScene): void => {
     liveSceneRef.current = live;
     if (modeRef.current !== "editor") return;
     if (lastSavedHashRef.current === null) {
@@ -294,6 +312,23 @@ export function useExcalidrawAutoSave(
       lastSavedHashRef.current = computeSceneSnapshot(filePath, live);
       return;
     }
+    // Hash-compare BEFORE latching dirty=true. Viewport pan / tool
+    // selection / cursor moves all fire onChange but produce no
+    // persistent-content drift. Without this guard, an external write
+    // arriving during the 2 s debounce window would raise the conflict
+    // banner even though the live scene matches disk byte-for-byte
+    // (bug-expert MEDIUM finding).
+    const liveHash = computeSceneSnapshot(filePath, live);
+    if (liveHash === lastSavedHashRef.current) {
+      // No persistent drift — clear any stale dirty flag so the
+      // conflict-banner gate stays accurate.
+      setExcalidrawDirty(filePath, false);
+      if (autoSaveTimerRef.current !== null) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      return;
+    }
     setExcalidrawDirty(filePath, true);
     if (autoSaveTimerRef.current !== null) {
       clearTimeout(autoSaveTimerRef.current);
@@ -302,27 +337,33 @@ export function useExcalidrawAutoSave(
       autoSaveTimerRef.current = null;
       performSave(false);
     }, EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS);
-  };
+    // performSave is hook-body and reads via refs; the only reactive
+    // captures here (filePath, setExcalidrawDirty) are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filePath, setExcalidrawDirty]);
 
-  const resetBaseline = (): void => {
+  const resetBaseline = useCallback((): void => {
     if (autoSaveTimerRef.current !== null) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
     pendingSaveRef.current = false;
     lastSavedHashRef.current = null;
-  };
+  }, []);
 
-  const clearSaveError = (): void => setSaveError(null);
+  const clearSaveError = useCallback((): void => setSaveError(null), []);
 
-  const retryAfterFailure = (): void => {
+  const retryAfterFailure = useCallback((): void => {
     failureCountRef.current = 0;
+    autoSavePausedRef.current = false;
     setAutoSavePaused(false);
     setSaveError(null);
     performSave(false);
-  };
+    // performSave reads via refs; deps intentionally empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const triggerSavedPill = (): void => {
+  const triggerSavedPill = useCallback((): void => {
     if (savedPillTimerRef.current !== null) {
       clearTimeout(savedPillTimerRef.current);
     }
@@ -331,7 +372,7 @@ export function useExcalidrawAutoSave(
       savedPillTimerRef.current = null;
       if (mountedRef.current) setSavedPillVisible(false);
     }, EXCALIDRAW_SAVED_PILL_MS);
-  };
+  }, []);
 
   // Cleanup any pill timer on unmount.
   useEffect(() => {
