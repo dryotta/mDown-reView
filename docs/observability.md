@@ -80,18 +80,20 @@ The `[log-rotation]` target is intentionally separate from `[startup]` because t
 
 ```
 [matching] cmd=<caller-name> file=<sha8(path)> comment_id=<uuid>
-           outcome=<exact-orig|exact-relocated|exact-ambiguous|line-fallback|
-                    plausibility|fuzzy|orphan>
+           outcome=<exact-orig|exact-relocated|exact-ambiguous|
+                    normalized-orig|normalized-relocated|normalized-ambiguous|
+                    multiline-orig|multiline-relocated|multiline-prefix|
+                    line-fallback|plausibility|fuzzy|orphan>
            orig_line=<n|none> orig_end=<n|none>
            matched_line=<n> matched_end=<n|none>
            re_derived=<bool>
 ```
 
-Emitted by the comment matcher (`src-tauri/src/core/matching.rs::match_comments`) once per Line-anchored comment per call, capturing the matcher's per-comment decision. The current implementation emits `[matching]` for `Anchor::Line` comments only — the matcher's `match_comments` domain. `Anchor::WordRange` and typed-anchor (`Anchor::Unknown`, `Anchor::File`) decisions bypass the matcher and therefore do not emit. Future iterations may extend coverage. The `outcome` field is the string label for which step of the 4-step re-anchoring algorithm was used (see [`docs/architecture.md`](architecture.md) §4-step re-anchoring) plus the `exact-orig` / `exact-relocated` distinction for whether the original line was preserved or shifted. `re_derived` is `true` whenever the matcher rewrote `comment.line`.
+Emitted by the comment matcher (`src-tauri/src/core/matching.rs::match_comments`) once per Line-anchored comment per call, capturing the matcher's per-comment decision. The current implementation emits `[matching]` for `Anchor::Line` comments only — the matcher's `match_comments` domain. `Anchor::WordRange` and typed-anchor (`Anchor::Unknown`, `Anchor::File`) decisions bypass the matcher and therefore do not emit. Future iterations may extend coverage. The `outcome` field is the string label for which step of the re-anchoring algorithm was used (see [`docs/architecture.md`](architecture.md) §re-anchoring) plus the `exact-orig` / `exact-relocated` distinction for whether the original line was preserved or shifted. The `normalized-*` variants signal that the matcher had to strip GFM inline-formatting markers (`**bold**`, `[link](url)`, etc.) from the candidate line before the user's rendered-text selection became substring-searchable — emitted by `core::md_strip` (step 1b in `match_comments`). The `multiline-*` variants signal that the per-line passes failed and the matcher resolved the selection against the **rendered-text projection** of the file (`core::projection::RenderedProjection`): `multiline-orig` / `multiline-relocated` are full-query matches anchored at the start of the matched span; `multiline-prefix` is a **best-prefix** recovery (the trailing words of `selected_text` no longer exist in the source, so the matcher trimmed them at word boundaries until a long-enough prefix matched). `re_derived` is `true` whenever the matcher rewrote `comment.line`.
 
 `cmd` is the caller name (`get_file_comments` or `get_file_badges`). `file` is the lowercase-hex sha256 of the absolute file path, truncated to 8 chars — used for cross-line correlation without leaking the path itself to the log file.
 
-`tracing::warn!` always-on for `outcome ∈ {exact-ambiguous, orphan, fuzzy}` — these signal user-visible regressions (ambiguous reanchor, lost match, low-confidence fuzzy) and are surfaced even in release builds. WARN is suppressed when `cmd == "get_file_badges"` to avoid folder-badge refresh spam (badges aggregate over many files, repeating WARNs add no signal beyond the first call).
+`tracing::warn!` always-on for `outcome ∈ {exact-ambiguous, normalized-ambiguous, orphan, fuzzy}` — these signal user-visible regressions (ambiguous reanchor, lost match, low-confidence fuzzy) and are surfaced even in release builds. WARN is suppressed when `cmd == "get_file_badges"` to avoid folder-badge refresh spam (badges aggregate over many files, repeating WARNs add no signal beyond the first call). `multiline-prefix` is intentionally INFO-only — it is the **expected** outcome whenever a normal edit removes the trailing words of a selection, so warning on it would bury real regressions; the prefix-recovery decision still surfaces under `--trace` / `MDR_IPC_TRACE`.
 
 `tracing::info!` for all outcomes is gated on `--trace` / `MDR_IPC_TRACE` via `startup_recorder::ipc_trace_enabled()` — same gate as `[ipc]` info-level lines (see [Enabling extra trace detail](#enabling-extra-trace-detail) below).
 

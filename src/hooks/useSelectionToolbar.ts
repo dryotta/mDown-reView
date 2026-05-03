@@ -34,14 +34,37 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
       return;
     }
     const range = sel.getRangeAt(0);
-    const selectedText = sel.toString();
-    if (!selectedText.trim()) {
+    const rawText = sel.toString();
+    // Strip leading/trailing whitespace before storing — selections that
+    // extend slightly past a word (a common triple-click overshoot) or
+    // that include a trailing newline from a paragraph boundary would
+    // otherwise persist with that noise into the MRSF sidecar and break
+    // the matcher's per-line substring search (file lines are split on
+    // '\n', so a stored "\n" can never substring-match a single line).
+    const selectedText = rawText.trim();
+    if (!selectedText) {
       setSelectionToolbar(null);
       return;
     }
 
-    const startEl = range.startContainer.parentElement?.closest(`[${lineAttribute}]`);
-    const endEl = range.endContainer.parentElement?.closest(`[${lineAttribute}]`);
+    // Resolve the start/end ELEMENT for the selection. When the
+    // selection's start/end container IS an Element (selection that
+    // begins at offset 0 of an element node — common after triple-click
+    // or programmatic Range expansion), `parentElement` walks past
+    // that element. Use `closest` directly on the element so the node
+    // itself is considered (closest matches self + ancestors).
+    const startNode = range.startContainer;
+    const endNode = range.endContainer;
+    const startEl =
+      (startNode.nodeType === Node.ELEMENT_NODE
+        ? (startNode as Element)
+        : startNode.parentElement
+      )?.closest(`[${lineAttribute}]`) ?? null;
+    const endEl =
+      (endNode.nodeType === Node.ELEMENT_NODE
+        ? (endNode as Element)
+        : endNode.parentElement
+      )?.closest(`[${lineAttribute}]`) ?? null;
     if (!startEl || !endEl) {
       setSelectionToolbar(null);
       return;
@@ -49,6 +72,26 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
 
     const startIdx = Number(startEl.getAttribute(lineAttribute));
     const endIdx = Number(endEl.getAttribute(lineAttribute));
+
+    // For SAME-BLOCK selections that cross multiple SOURCE lines (a
+    // soft-wrapped paragraph, a list item with multi-line content), the
+    // start/end DOM nodes resolve to the same wrapper, so `endIdx` ===
+    // `startIdx` and the matcher loses the real source span. The
+    // markdown viewer stamps `data-source-end-line` (when available)
+    // with `node.position.end.line`, which gives us the block's true
+    // end line. We use it ONLY when start and end resolve to the same
+    // block — cross-block selections still use the end block's start
+    // line (so `[lineNumber, endLine]` brackets the match).
+    let resolvedEndIdx = endIdx;
+    if (startEl === endEl) {
+      const endLineAttr = startEl.getAttribute("data-source-end-line");
+      if (endLineAttr) {
+        const parsed = Number(endLineAttr);
+        if (!Number.isNaN(parsed) && parsed >= endIdx) {
+          resolvedEndIdx = parsed;
+        }
+      }
+    }
 
     // Use last client rect for positioning near selection end. When
     // `getClientRects()` returns nothing (Range collapsed-at-boundary,
@@ -101,7 +144,7 @@ export function useSelectionToolbar(lineAttribute = "data-line-idx", lineOffset 
       lineNumber: startIdx + lineOffset,
       selectedText,
       startOffset: range.startOffset,
-      endLine: endIdx + lineOffset,
+      endLine: resolvedEndIdx + lineOffset,
       endOffset: range.endOffset,
     });
   };

@@ -353,7 +353,7 @@ pub struct MatchedComment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anchored_text: Option<String>,
     /// The line value verbatim from `MrsfComment.line` BEFORE the matcher
-    /// rewrote `comment.line` during 4-step re-anchoring. `None` for
+    /// rewrote `comment.line` during re-anchoring. `None` for
     /// legacy file-level comments, `Anchor::File`, `Anchor::Unknown`, and
     /// `Anchor::WordRange` paths that bypass `match_comments`. Used by the
     /// UI to surface "originally line X → re-anchored to Y" without a

@@ -15,7 +15,9 @@ import { tooltipForRoute } from "@/lib/html-anchor-titles";
 import { useLinkRouter } from "@/hooks/useLinkRouter";
 import { lazyWithSuspense } from "../lazy";
 import {
+  CommentableDetails,
   CommentableLi,
+  CommentableSummary,
   CommentableTableCell,
   CommentableWrapper,
   makeCommentableBlock,
@@ -200,5 +202,11 @@ export function buildMarkdownComponents({
     hr: makeCommentableBlock("hr"),
     td: CommentableTableCell("td"),
     th: CommentableTableCell("th"),
+    // <details>/<summary> need inline-attribute wrappers (not div
+    // wrappers) — the HTML5 disclosure parser requires `<summary>` to
+    // be a direct child of `<details>`, so the makeCommentableBlock
+    // div wrapper would break the toggle behaviour.
+    details: CommentableDetails,
+    summary: CommentableSummary,
   } as unknown as Components;
 }

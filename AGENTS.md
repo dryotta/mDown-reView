@@ -49,7 +49,7 @@ Every rule is numbered and citable as "violates rule N in `docs/X.md`". Each doc
 | Document | Governs |
 |---|---|
 | [`docs/principles.md`](docs/principles.md) | Charter — 5 pillars, 5 meta-principles, Non-Goals |
-| [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC/logger chokepoints, state stratification, file-size budgets, MRSF v1.0 + v1.1 schema, 4-step re-anchoring |
+| [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC/logger chokepoints, state stratification, file-size budgets, MRSF v1.0 + v1.1 schema, re-anchoring algorithm |
 | [`docs/performance.md`](docs/performance.md) | Numeric budgets, debounce windows, scan caps, render rules, Shiki singleton, Rust hot paths |
 | [`docs/security.md`](docs/security.md) | File-read bounds, path canonicalization, sidecar atomicity, CSP (incl. no-inline-style index.html), capability ACL, markdown XSS posture |
 | [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture, cross-hook communication |
@@ -183,7 +183,7 @@ e2e/
 
 - [Viewer](docs/features/viewer.md) — markdown, source, Mermaid, JSON, CSV, HTML, image, binary rendering
 - [Viewer Consistency](docs/features/viewer-consistency.md) — capability tiers, universal requirements, commenting baseline per file type
-- [Comments](docs/features/comments.md) — inline review, selection toolbar, MRSF sidecars, 4-step re-anchoring
+- [Comments](docs/features/comments.md) — inline review, selection toolbar, MRSF sidecars, re-anchoring algorithm
 - [Navigation](docs/features/navigation.md) — folder tree, tabs, workspace search
 - [App chrome](docs/features/app-chrome.md) — top toolbar, sticky viewer toolbar, status bar
 - [Watcher](docs/features/watcher.md) — file-system watcher, hot reload, ghost-entry detection

@@ -53,7 +53,7 @@ flowchart LR
 ### MRSF ownership (Rust is the source of truth)
 7. MRSF sidecar read/write/serde/reparenting lives in Rust (`src-tauri/src/core/sidecar/`, `core/comments.rs`); TypeScript never parses or serializes sidecars. Tests asserting on the on-disk shape produced by these libraries follow rule 28 in [`docs/test-strategy.md`](test-strategy.md).
 8. Sidecar-mutating commands emit `comments-changed` after save. (`commands/comments/mod.rs` `with_sidecar_mut`; atomic write via `core/atomic.rs::write_atomic`.)
-9. Anchor resolution is a two-path Rust pipeline in `get_file_comments`: (a) `Line`/`File` anchors follow the 4-step re-anchoring algorithm in `core/matching.rs`; (b) typed anchors (`ImageRect`, `CsvCell`, `JsonPath`, `HtmlRange`, `HtmlElement`, `WordRange`) dispatch through `resolve_anchor(&Anchor, &LazyParsedDoc)` in `core/anchors/mod.rs` with `OnceCell` lazy parse caching (interior mutability — no `&mut` needed) — one parse per file per `get_file_comments` call regardless of comment count. (`commands/comments/mod.rs`; `core/anchors/mod.rs`.)
+9. Anchor resolution is a two-path Rust pipeline in `get_file_comments`: (a) `Line`/`File` anchors follow the re-anchoring algorithm in `core/matching.rs` (exact → normalized-stripped → multi-line projection + best-prefix → line fallback → fuzzy → orphan); (b) typed anchors (`ImageRect`, `CsvCell`, `JsonPath`, `HtmlRange`, `HtmlElement`, `WordRange`) dispatch through `resolve_anchor(&Anchor, &LazyParsedDoc)` in `core/anchors/mod.rs` with `OnceCell` lazy parse caching (interior mutability — no `&mut` needed) — one parse per file per `get_file_comments` call regardless of comment count. (`commands/comments/mod.rs`; `core/anchors/mod.rs`.)
 10. SHA-256 of `selected_text` is computed in Rust via `compute_anchor_hash`. (`commands/comments/mod.rs`.)
 
 ### Commands vs events
@@ -160,10 +160,12 @@ comments:
 ### Threading
 Flat `reply_to` model — replies are top-level comments with `reply_to` referencing the parent's `id`. No nested `responses[]`.
 
-### 4-step re-anchoring
+### Re-anchoring algorithm
 Canonical implementation: `src-tauri/src/core/matching.rs:12`.
 
 1. **Exact match** — find `selected_text` at the original line, then search the full document.
+1b. **Normalized exact match** — strip GFM inline markers (`**bold**`, `[link](url)`, `` `code` ``, etc.) from each line and re-try substring search; recovers visual-mode selections that span an inline marker. Implementation: `core::md_strip::strip_md_inline`.
+1c. **Multi-line projection match + best-prefix recovery** — when the per-line passes fail, build a single rendered-text projection of the file (`core::projection::RenderedProjection`: each source line passed through `strip_md_inline` + inline-HTML stripping + table-cell flattening + `core::normalize::normalize_lossy`, joined with single spaces) and substring-search the normalized selection against it. Recovers cross-block selections (where `selected_text` carries `\n`), single-block selections that span multiple source lines (soft-wrapped paragraphs), inline-HTML rendered text (`<kbd>Ctrl</kbd>` → "Ctrl"), and Unicode/whitespace noise (NBSP, smart quotes, en/em dashes). When the full selection no longer matches verbatim — e.g. its trailing word was edited away — the **best-prefix** tier in `core::multiline_match` trims trailing words at word boundaries (longest → shortest, capped at 16 attempts, minimum 12 chars / 2 words) and retries; the comment then anchors at the source line where the surviving prefix begins. Tie-break across multiple matches: closest to `[orig_line, end_line]`, then left-most offset.
 2. **Line fallback** — if the original line number is still in bounds, anchor there.
 3. **Fuzzy match** — Levenshtein similarity ≥ 0.6, prefer closest to original line.
 4. **Orphan** — all strategies failed; comment displays with an orphan banner.
@@ -174,7 +176,13 @@ flowchart TD
     S1 -- "yes" --> A1(["anchored — original line"])
     S1 -- "no" --> S1b{"exact match elsewhere<br/>in document?"}
     S1b -- "yes" --> A2(["anchored — closest match"])
-    S1b -- "no" --> S2{"original line still<br/>in document bounds?"}
+    S1b -- "no" --> S1c{"normalized (markdown-stripped)<br/>match anywhere?"}
+    S1c -- "yes" --> A2b(["anchored — closest stripped match"])
+    S1c -- "no" --> S1d{"multi-line projection<br/>match (full)?"}
+    S1d -- "yes" --> A2c(["anchored — projection match"])
+    S1d -- "no" --> S1e{"best-prefix recovery<br/>(trim trailing words)?"}
+    S1e -- "yes" --> A2d(["anchored — recovered prefix"])
+    S1e -- "no" --> S2{"original line still<br/>in document bounds?"}
     S2 -- "yes" --> A3(["line fallback —<br/>anchored at same line"])
     S2 -- "no" --> S3{"Levenshtein<br/>similarity ≥ 0.6?"}
     S3 -- "yes" --> A4(["fuzzy match — nearest<br/>candidate to original line"])
@@ -182,7 +190,7 @@ flowchart TD
 ```
 
 ### Surviving AI refactoring
-Layered defenses: (1) 4-step re-anchoring; (2) sidecars travel alongside source files; (3) ghost entries surface deleted-source sidecars; (4) the Rust watcher auto-reloads content and comments. Debounce/save-loop windows: rules 4-6 in [`docs/performance.md`](performance.md).
+Layered defenses: (1) the re-anchoring algorithm above; (2) sidecars travel alongside source files; (3) ghost entries surface deleted-source sidecars; (4) the Rust watcher auto-reloads content and comments. Debounce/save-loop windows: rules 4-6 in [`docs/performance.md`](performance.md).
 
 ## Gaps
 

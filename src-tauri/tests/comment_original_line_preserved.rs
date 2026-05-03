@@ -1,6 +1,6 @@
 //! Issue #280 AC5 — `MatchedComment.original_line` must be set to the line
 //! the user authored against, even after the matcher relocates the comment
-//! via the 4-step re-anchoring algorithm. Without this field, the panel
+//! via the re-anchoring algorithm. Without this field, the panel
 //! cannot surface "originally line X → re-anchored to Y" and the reanchor
 //! is invisible to the user (the bug AC5 closes).
 

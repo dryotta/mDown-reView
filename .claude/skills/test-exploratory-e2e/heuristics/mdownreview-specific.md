@@ -28,8 +28,8 @@ with anchor of the offending node.
 
 ## MDR-COMMENT-ANCHOR-LOST
 
-Comments lose their anchor after a non-destructive edit if the 4-step
-re-anchoring pipeline fails (see `docs/architecture.md` "MRSF re-anchoring").
+Comments lose their anchor after a non-destructive edit if the
+re-anchoring pipeline fails (see `docs/architecture.md` "Re-anchoring algorithm").
 Detector: probe the add-comment → trivial-edit → save flow, then DOM-scan for
 "orphaned" / "lost anchor" copy.
 
