@@ -4,7 +4,7 @@
  * Active `<ExcalidrawView>` instances register a flush callback while
  * mounted in editor mode. The close-flush hook drains every registered
  * flush before acking the Rust close-handshake (see
- * `src-tauri/src/commands/excalidraw_close.rs`). Without this registry
+ * `src-tauri/src/commands/close_flush.rs`). Without this registry
  * the WebView2 / WKWebView host process tears down before any React
  * `useEffect` cleanup runs, so the per-instance `flushAutoSave` never
  * fires on app close — losing up to one debounce window of edits.

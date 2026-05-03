@@ -322,16 +322,22 @@ export const writeWorkspaceText = (path: string, text: string): Promise<void> =>
 export const writeWorkspaceBinary = (path: string, base64: string): Promise<void> =>
   unwrap(bindings.writeWorkspaceBinary(path, base64)).then(() => {});
 
-// Issue #352 / iter-12 — Excalidraw close-flush handshake ──────────────────
-// Renderer-side ack for `flush_excalidraw_before_close` (Rust). On
-// `WindowEvent::CloseRequested`, Rust prevents close, emits the
-// `excalidraw-flush-before-close` event, and waits up to 2.5 s for this
-// IPC. Renderer hook (`useExcalidrawCloseFlush`) drains all pending
-// Excalidraw flushes, then calls this command — Rust then closes the
-// window. See `src-tauri/src/commands/excalidraw_close.rs` and
-// `src/hooks/useExcalidrawCloseFlush.ts`.
-export const excalidrawCloseFlushComplete = (label: string): Promise<void> =>
-  unwrap(bindings.excalidrawCloseFlushComplete(label)).then(() => {});
+// Issue #352 / iter-12 — pre-close flush handshake (renamed in iter-16
+// from "excalidraw close" to the generic "close flush" — this primitive
+// is now reused by any feature that registers a flush callback in the
+// renderer-side `flush-registry`).
+//
+// Renderer hook (`useExcalidrawCloseFlush`) drains all pending flushes
+// on `flush-before-close`, then calls `closeFlushComplete` — Rust then
+// destroys the window. `markCloseFlushReady` is fired once on mount so
+// Rust knows it can safely intercept CloseRequested events for this
+// window; without it, fast Alt-F4 / Cmd-Q before React commits would
+// hit a 2.5 s timeout (bug-expert iter-14 MEDIUM finding).
+export const closeFlushComplete = (label: string): Promise<void> =>
+  unwrap(bindings.closeFlushComplete(label)).then(() => {});
+
+export const markCloseFlushReady = (): Promise<void> =>
+  unwrap(bindings.markCloseFlushReady()).then(() => {});
 
 // Issue #352 / iter-15 — multi-window file singleton ──────────────────────
 // `claimOpenFile` MUST be awaited by the renderer's `openFile` action

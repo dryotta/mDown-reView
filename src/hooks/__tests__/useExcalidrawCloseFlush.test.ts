@@ -1,8 +1,13 @@
 /**
- * Tests for the Excalidraw close-flush hook. Mounted at App root,
- * listens for `excalidraw-flush-before-close` (emitted by Rust on
- * `WindowEvent::CloseRequested`), drains all pending Excalidraw saves,
- * and acks via the `excalidrawCloseFlushComplete` IPC.
+ * Tests for the close-flush hook. Mounted at App root, listens for
+ * `flush-before-close` (emitted by Rust on
+ * `WindowEvent::CloseRequested` AFTER the renderer has marked itself
+ * ready via `markCloseFlushReady`), drains all pending Excalidraw
+ * saves, and acks via the `closeFlushComplete` IPC.
+ *
+ * Iter-16 added the ready gate (`markCloseFlushReady` IPC) so Rust
+ * can skip the prevent_close round-trip for cold-start closes and
+ * for windows that haven't yet committed the React effect.
  *
  * Pre-iter-14 this entire hook had zero direct tests
  * (test-expert HIGH finding) — a payload-shape regression in the
@@ -18,9 +23,11 @@ vi.mock("@/lib/excalidraw/flush-registry", () => ({
   flushAllPendingExcalidrawSaves: () => flushAllMock(),
 }));
 
-const flushCompleteMock = vi.fn(async (_label: string) => {});
+const closeFlushCompleteMock = vi.fn(async (_label: string) => {});
+const markReadyMock = vi.fn(async () => {});
 vi.mock("@/lib/tauri-commands", () => ({
-  excalidrawCloseFlushComplete: (label: string) => flushCompleteMock(label),
+  closeFlushComplete: (label: string) => closeFlushCompleteMock(label),
+  markCloseFlushReady: () => markReadyMock(),
 }));
 
 // Capture the listener registered via `listenEvent` so tests can
@@ -30,7 +37,7 @@ const unlistenMock = vi.fn();
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn(
     async (name: string, cb: (label: string) => void) => {
-      if (name === "excalidraw-flush-before-close") {
+      if (name === "flush-before-close") {
         capturedHandler = cb;
       }
       return unlistenMock;
@@ -44,8 +51,10 @@ beforeEach(() => {
   capturedHandler = null;
   flushAllMock.mockReset();
   flushAllMock.mockResolvedValue(undefined);
-  flushCompleteMock.mockReset();
-  flushCompleteMock.mockResolvedValue(undefined);
+  closeFlushCompleteMock.mockReset();
+  closeFlushCompleteMock.mockResolvedValue(undefined);
+  markReadyMock.mockReset();
+  markReadyMock.mockResolvedValue(undefined);
   unlistenMock.mockReset();
 });
 
@@ -54,7 +63,15 @@ afterEach(() => {
 });
 
 describe("useExcalidrawCloseFlush", () => {
-  it("registers a listener for excalidraw-flush-before-close on mount", () => {
+  it("calls markCloseFlushReady on mount (iter-16 ready gate)", async () => {
+    renderHook(() => useExcalidrawCloseFlush());
+    // Mount triggers the IPC; await microtasks so the .catch chain settles.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(markReadyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers a listener for flush-before-close on mount", () => {
     renderHook(() => useExcalidrawCloseFlush());
     expect(capturedHandler).toBeTypeOf("function");
   });
@@ -64,15 +81,13 @@ describe("useExcalidrawCloseFlush", () => {
     expect(capturedHandler).toBeTypeOf("function");
 
     capturedHandler!("main");
-    // The handler is async-fire-and-forget. Drain microtasks to let
-    // both awaited steps land.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
     expect(flushAllMock).toHaveBeenCalledTimes(1);
-    expect(flushCompleteMock).toHaveBeenCalledTimes(1);
-    expect(flushCompleteMock.mock.calls[0][0]).toBe("main");
+    expect(closeFlushCompleteMock).toHaveBeenCalledTimes(1);
+    expect(closeFlushCompleteMock.mock.calls[0][0]).toBe("main");
   });
 
   it("drain failure does NOT block ack — best-effort close contract", async () => {
@@ -86,31 +101,33 @@ describe("useExcalidrawCloseFlush", () => {
 
     expect(flushAllMock).toHaveBeenCalledTimes(1);
     // Critical: the ack still fires even though the drain rejected.
-    // Without this, Rust's prevent_close timeout would always fire
-    // (2.5s lag on every close) when any registered editor's flush
-    // throws.
-    expect(flushCompleteMock).toHaveBeenCalledTimes(1);
-    expect(flushCompleteMock.mock.calls[0][0]).toBe("worker-1");
+    expect(closeFlushCompleteMock).toHaveBeenCalledTimes(1);
+    expect(closeFlushCompleteMock.mock.calls[0][0]).toBe("worker-1");
   });
 
   it("ack-IPC failure is swallowed (no throw, no unhandled rejection)", async () => {
-    flushCompleteMock.mockRejectedValueOnce(new Error("IPC closed"));
+    closeFlushCompleteMock.mockRejectedValueOnce(new Error("IPC closed"));
     renderHook(() => useExcalidrawCloseFlush());
 
-    // Must not throw or reject from the handler invocation.
     expect(() => capturedHandler!("main")).not.toThrow();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
     expect(flushAllMock).toHaveBeenCalledTimes(1);
-    expect(flushCompleteMock).toHaveBeenCalledTimes(1);
+    expect(closeFlushCompleteMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("markCloseFlushReady IPC failure is swallowed (logs only)", async () => {
+    markReadyMock.mockRejectedValueOnce(new Error("registry missing"));
+    expect(() => renderHook(() => useExcalidrawCloseFlush())).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(markReadyMock).toHaveBeenCalledTimes(1);
   });
 
   it("invokes unlisten on unmount", async () => {
     const { unmount } = renderHook(() => useExcalidrawCloseFlush());
-    // Allow the listenEvent promise to resolve so the cleanup has the
-    // unlisten function to call.
     await Promise.resolve();
     await Promise.resolve();
     unmount();

@@ -160,7 +160,7 @@ export default function App() {
   // saves on `WindowEvent::CloseRequested` BEFORE Tauri tears down the
   // webview. Without this hook, edits inside the 2 s autosave debounce
   // are silently lost on Alt-F4 / Cmd-Q. Renderer-side counterpart of
-  // `src-tauri/src/commands/excalidraw_close.rs`.
+  // `src-tauri/src/commands/close_flush.rs`.
   useExcalidrawCloseFlush();
   // Issue #352 / iter-15 — multi-window file singleton (focus-existing).
   // When another window tries to open a file we already have open

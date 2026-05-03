@@ -451,7 +451,8 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::fs::canonicalize_path,
                 commands::fs_write::write_workspace_text,
                 commands::fs_write::write_workspace_binary,
-                commands::excalidraw_close::excalidraw_close_flush_complete,
+                commands::close_flush::close_flush_complete,
+                commands::close_flush::mark_close_flush_ready,
                 commands::open_file_registry::claim_open_file,
                 commands::open_file_registry::release_open_file,
                 commands::open_file_registry::release_open_files,
@@ -609,7 +610,7 @@ pub fn run() {
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
         .manage(registry::WindowRegistry::default())
         .manage(commands::comments::BadgeCache::new())
-        .manage(commands::excalidraw_close::ExcalidrawCloseFlushState::new())
+        .manage(commands::close_flush::CloseFlushState::new())
         .manage(commands::open_file_registry::OpenFileRegistry::new())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
@@ -844,24 +845,37 @@ pub fn run() {
             }
 
             // Issue #352 / iter-12 (bug #4 — close-flush handshake).
-            // On Windows / Linux (and macOS non-last-visible-window),
-            // intercept CloseRequested, prevent_close, ask the renderer
-            // to drain any in-flight + debounced Excalidraw saves, then
-            // close after the ack (or the 2.5 s timeout). This eliminates
-            // the data-loss window between an in-progress edit and the
-            // 2-second autosave debounce — without the handshake, a user
-            // who edits and immediately Alt-F4s loses up to 2 s of work.
+            // Iter-16 — gate prevent_close on the renderer's mark-ready
+            // signal AND use `window.destroy()` (not `close()`) on the
+            // happy path so we definitively bypass any CloseRequested
+            // re-entry hazard.
             //
-            // The handshake is unconditional (we always wait for an ack
-            // even when no Excalidraw editor is open). The renderer hook
-            // resolves immediately when the registry is empty, so the
-            // close path adds at most a single round-trip latency for
-            // non-Excalidraw users.
+            // If the renderer hasn't yet marked itself ready (cold
+            // start before React mounts, crashed JS thread, no
+            // Excalidraw editors and the hook hasn't committed),
+            // skip the handshake entirely — Tauri closes immediately.
+            // Eliminates the 2.5 s lag bug-expert flagged for
+            // non-Excalidraw users and fast cold-close.
+            //
+            // If the renderer IS ready, drain its registry via the
+            // ack handshake; on success/timeout, the spawned task
+            // calls `window.destroy()`.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label().to_string();
+                let is_ready = window
+                    .try_state::<commands::close_flush::CloseFlushState>()
+                    .map(|s| s.is_ready(&label))
+                    .unwrap_or(false);
+                if !is_ready {
+                    log::info!(
+                        "[close-flush] {label} not ready — letting Tauri close normally"
+                    );
+                    return;
+                }
                 api.prevent_close();
-                commands::excalidraw_close::flush_excalidraw_before_close(
+                commands::close_flush::flush_pending_writes_before_close(
                     window.app_handle(),
-                    window.label().to_string(),
+                    label,
                 );
                 return;
             }
@@ -877,6 +891,12 @@ pub fn run() {
                 if let Some(ws) = window.try_state::<watcher::WatcherState>() {
                     ws.remove_window(&label);
                     log::info!("[window] Destroyed: {label} — removed from WatcherState");
+                }
+                // Iter-16 — drop close-flush ready/pending entries so
+                // a recycled label doesn't carry stale state.
+                if let Some(cfs) = window.try_state::<commands::close_flush::CloseFlushState>() {
+                    cfs.forget_window(&label);
+                    log::info!("[window] Destroyed: {label} — forgot CloseFlushState");
                 }
                 // Issue #352 / iter-15 — purge open-file claims owned
                 // by the dying window so a force-killed renderer

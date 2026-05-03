@@ -155,6 +155,8 @@ What this does NOT cross:
 
 ## Multi-window same-file singleton (iter-15)
 
+Cross-window event/state patterns this section builds on are documented in [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md) (window-scoped emit/listen, `multiwin-window-scoped-events`).
+
 A canonical file path is open in **at most one window at a time**. When window B tries to open a file already in window A:
 
 - Rust's `claim_open_file` IPC returns `OwnedElsewhere { window_label: <A> }`.

@@ -57,6 +57,9 @@ vi.mock("@/lib/tauri-commands", () => ({
   claimOpenFile: vi.fn().mockResolvedValue({ kind: "claimed" }),
   releaseOpenFile: vi.fn().mockResolvedValue(undefined),
   releaseOpenFiles: vi.fn().mockResolvedValue(undefined),
+  // Iter-16 — close-flush ready gate + ack.
+  closeFlushComplete: vi.fn().mockResolvedValue(undefined),
+  markCloseFlushReady: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({

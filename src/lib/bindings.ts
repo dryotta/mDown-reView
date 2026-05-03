@@ -176,9 +176,23 @@ async writeWorkspaceBinary(path: string, base64: string) : Promise<Result<null, 
  * Renderer-side ack for a close-flush request. Idempotent: a second call
  * (or a call before the request was registered) is a no-op.
  */
-async excalidrawCloseFlushComplete(label: string) : Promise<Result<null, string>> {
+async closeFlushComplete(label: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("excalidraw_close_flush_complete", { label }) };
+    return { status: "ok", data: await TAURI_INVOKE("close_flush_complete", { label }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer marks itself ready to handle `flush-before-close` requests.
+ * Called once from the `useExcalidrawCloseFlush` mount effect. Until
+ * this fires, the close handler skips the prevent_close round-trip
+ * to avoid the 2.5 s timeout lag for cold-start closes.
+ */
+async markCloseFlushReady() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mark_close_flush_ready") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

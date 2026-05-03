@@ -119,8 +119,8 @@ const EXEMPT_COMMANDS: &[&str] = &[
     // an explicit argument (the closing window's own label, echoed
     // back to Rust). No window arg needed: the label IS the scope
     // identity and is already authenticated by the matching emit_to
-    // pair in `flush_excalidraw_before_close`.
-    "excalidraw_close_flush_complete",
+    // pair in `flush_pending_writes_before_close` (iter-16 rename).
+    "close_flush_complete",
 ];
 
 /// Per-window-state-mutating commands that MUST take a `window: tauri::Window`

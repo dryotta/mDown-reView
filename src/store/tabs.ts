@@ -208,7 +208,7 @@ export interface TabsSlice {
    *
    * Session-only — never persisted. Closing the app drains pending
    * saves via the Rust `WindowEvent::CloseRequested` handshake (see
-   * `src-tauri/src/commands/excalidraw_close.rs`) before tear-down.
+   * `src-tauri/src/commands/close_flush.rs`) before tear-down.
    */
   excalidrawDirtyByTab: Record<string, boolean>;
   /**
