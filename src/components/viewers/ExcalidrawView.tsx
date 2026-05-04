@@ -381,7 +381,7 @@ export function ExcalidrawView({ content, filePath, mode, needsExtract }: Props)
     if (mode !== "editor") {
       // Defer the reset to the next microtask so we are not setting
       // state synchronously inside the effect body.
-      Promise.resolve().then(() => {
+      void Promise.resolve().then(() => {
         if (!cancelled) setLineAnchoredCount(0);
       });
       return () => {

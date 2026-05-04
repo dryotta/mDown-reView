@@ -10,8 +10,13 @@
 # Update this file when intentionally regenerating a fixture (and only
 # then). Format: `<sha256>  <filename>` (two-space separator, mirrors
 # the `sha256sum` output convention).
-069b35a2652b6b7b3a99569adecd557db02ca79f2a12a6745a0fea567a0aaf83  1-shapes.excalidraw
-98da99440e0bee19db4a95f5a7447bdfbe7cd314b58886a7f19af6b1d2272906  2-flowchart.excalidraw
-00dc16522e826ef871cdda743997020230433161069928dc1f41f030aaf6ecbc  3-icons.excalidrawlib
-f7a5294c734b70b7a9a86fb9300166462718a06edbfd47f22088f1e58633fb85  4-shapes.excalidraw.svg
+#
+# Line endings: SHAs are computed against the LF-normalized fixtures.
+# `.gitattributes` pins these files to `text eol=lf` so the working
+# tree is LF on every platform; otherwise CRLF on Windows would
+# desynchronise the local hash from the Linux-CI hash.
+0fa99d0c70f1d225ec5dab0faeddf365bc6140fe342e07ca6d7f3ad139e6e777  1-shapes.excalidraw
+4943ee2d569e4877e2be4691aab039418255d63a316913f5496e221089366d37  2-flowchart.excalidraw
+4198fff7b5dda857899c283e3e03b78c408bc581738934870583020529400cee  3-icons.excalidrawlib
+b8189bfacf77a05c68bfb33acff0e4c32ff1a52403345b34fb3093c5cb0075bd  4-shapes.excalidraw.svg
 d3f7ed9d1242fa42d07af8602ec2aa606c6567563eb9047d148db00dccc6fc76  5-shapes.excalidraw.png
