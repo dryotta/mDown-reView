@@ -154,11 +154,22 @@ export function useExcalidrawAutoSave(
   const [saveInFlight, setSaveInFlight] = useState(false);
 
   const liveSceneRef = useRef<ExcalidrawScene | null>(null);
+  // rule 33 (single-source ref, docs/architecture.md): sourced from
+  // <Excalidraw onChange> — the scene-tick callback is the only API
+  // surface that emits canvas state; reading scene state from any other
+  // surface (e.g. excalidrawAPI.getSceneElements()) would race the
+  // onChange dispatch.
+  //
   // Iter-21 (#352 bug-expert P0-1): library items live on a separate
   // ref because Excalidraw fires them via `onLibraryChange`, NOT
   // through the scene `onChange` callback. Keeping them out of
   // `liveSceneRef` would still be correct, but co-locating them as
   // a peer ref keeps the save payload assembly in one place.
+  // rule 33 (single-source ref, docs/architecture.md): sourced from
+  // <Excalidraw onLibraryChange> — `appState.libraryItems` on the
+  // scene-tick is always null in Excalidraw 0.18, so reading it from
+  // there silently emits `[]` on every save (the iter-3 → iter-21
+  // P0-1 `.excalidrawlib` library-wipe regression class).
   const liveLibraryItemsRef = useRef<ReadonlyArray<unknown> | null>(null);
   const lastSavedHashRef = useRef<string | null>(null);
   const saveInFlightRef = useRef(false);
