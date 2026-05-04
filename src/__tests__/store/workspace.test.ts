@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 
 // Capture the initial state shape once so we can reset to it between tests.
 const initialState = useStore.getState();

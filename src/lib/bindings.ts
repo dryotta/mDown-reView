@@ -147,6 +147,101 @@ async canonicalizePath(path: string) : Promise<Result<string, string>> {
 }
 },
 /**
+ * Write a UTF-8 text payload to a workspace file (Excalidraw scene JSON or
+ * `.excalidrawlib`). Bounds: parent inside workspace, extension in
+ * allowlist, no `:` in filename, byte length ≤ `WORKSPACE_WRITE_MAX_BYTES`,
+ * atomic write.
+ */
+async writeWorkspaceText(path: string, text: string) : Promise<Result<null, WorkspaceWriteError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("write_workspace_text", { path, text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Write a binary payload (base64-encoded on the wire) to a workspace file
+ * (`.excalidraw.png` / `.excalidraw.svg` re-rendered with embedded scene).
+ */
+async writeWorkspaceBinary(path: string, base64: string) : Promise<Result<null, WorkspaceWriteError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("write_workspace_binary", { path, base64 }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer-side ack for a close-flush request. Idempotent: a second call
+ * (or a call before the request was registered) is a no-op.
+ */
+async closeFlushComplete(label: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("close_flush_complete", { label }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer marks itself ready to handle `flush-before-close` requests.
+ * Called once from the `useExcalidrawCloseFlush` mount effect. Until
+ * this fires, the close handler skips the prevent_close round-trip
+ * to avoid the 2.5 s timeout lag for cold-start closes.
+ */
+async markCloseFlushReady() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mark_close_flush_ready") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer-side `openFile` action awaits this before adding a tab.
+ * Returns `Claimed` for unowned paths or same-window re-claims.
+ * Returns `OwnedElsewhere` when another live window owns the path,
+ * in which case Rust ALSO focuses the owner window and emits
+ * `focus-tab` to it — the renderer just needs to bail.
+ */
+async claimOpenFile(path: string) : Promise<Result<ClaimResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("claim_open_file", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Renderer fires this from `closeTab` / single-tab eviction. Only
+ * the owner releases. Idempotent — non-owners and missing entries
+ * are no-ops. If the file has been deleted between tab-close and
+ * the IPC, canonicalisation fails; we still attempt a path-string
+ * match against stored keys, and the destroy-window sweep is the
+ * final safety net.
+ */
+async releaseOpenFile(path: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("release_open_file", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Bulk release for `closeAllTabs` / multi-tab eviction. Same
+ * semantics as `release_open_file` per path.
+ */
+async releaseOpenFiles(paths: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("release_open_files", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Combined hot-path: load sidecar → match to file lines → build threads.
  * Single IPC call for the GUI's most common operation.
  * 
@@ -493,6 +588,23 @@ async setRootViaTest(path: string) : Promise<Result<null, string>> {
  */
 export type AnchorWire = { anchor_kind: string; anchor_data: JsonValue }
 /**
+ * Wire-shape for the claim result. Kebab-case discriminator, same
+ * pattern as `WorkspaceWriteError` in `commands/fs_write.rs`.
+ */
+export type ClaimResult = 
+/**
+ * Caller now owns the path (or already did — idempotent).
+ */
+{ kind: "claimed" } | 
+/**
+ * Another live window owns the path. Renderer should NOT add a
+ * tab; the Rust handler has already raised the owner window and
+ * emitted `focus-tab` to it. The label is exposed so the
+ * renderer can log / surface diagnostics; callers don't need it
+ * for the main flow.
+ */
+{ kind: "owned-elsewhere"; window_label: string }
+/**
  * Structured error for CLI-shim install/remove. Serializes to a tagged
  * payload (`{"kind":"...", ...}`) so the FE can branch on `kind` without
  * string matching. Manual `Display` impl avoids pulling in `thiserror`.
@@ -761,6 +873,55 @@ export type WordRangePayload = { start_word: number; end_word: number; line: num
  * rendered glyphs trivially.
  */
 export type WordSpan = { start: number; end: number; text: string }
+/**
+ * Issue #352 / iter-12 (architect HIGH#3 + security MEDIUM#3) — typed
+ * workspace-write error.
+ * 
+ * The previous `Result<(), String>` return surface forced the renderer
+ * to substring-match the Rust prose in `friendlySaveError` — a wire
+ * contract maintained by string sniffing that silently breaks if the
+ * Rust message format ever changes (rule `architecture-rust-first` in
+ * `docs/architecture.md`). The typed enum is round-tripped via
+ * tauri-specta so the renderer branches on `err.kind` directly. See
+ * `src/lib/excalidraw/error-mapping.ts` for the consumer.
+ * 
+ * Discriminator is `kind`, kebab-case on the wire — same shape as
+ * `CommentError` (see `commands/comments/error.rs`).
+ */
+export type WorkspaceWriteError = 
+/**
+ * Canonical path is outside any open workspace folder, OR target
+ * is an existing symlink whose target escapes the workspace.
+ */
+{ kind: "outside-workspace"; path: string } | 
+/**
+ * Lowercased filename suffix is not in `WORKSPACE_WRITE_ALLOWLIST`.
+ * Carries the offending filename so a renderer can hint at the
+ * correct extension family.
+ */
+{ kind: "ext-not-allowed"; filename: string } | 
+/**
+ * Filename contains a forbidden character (currently only `:`,
+ * the NTFS Alternate Data Stream marker).
+ */
+{ kind: "filename-invalid"; reason: string } | 
+/**
+ * Decoded payload exceeds `WORKSPACE_WRITE_MAX_BYTES`. Surfaces
+ * the observed byte count so the renderer can compute an MB
+ * figure for user-facing copy.
+ */
+{ kind: "payload-too-large"; observed_bytes: number } | 
+/**
+ * Base64 string was structurally invalid (only emitted by the
+ * binary IPC).
+ */
+{ kind: "invalid-base-64"; detail: string } | 
+/**
+ * I/O failure during canonicalisation, atomic-rename, or any
+ * underlying syscall. Fallback variant carrying the original error
+ * text so a renderer can surface a developer-debuggable string.
+ */
+{ kind: "io"; message: string }
 
 /** tauri-specta globals **/
 

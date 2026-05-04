@@ -48,6 +48,13 @@ const ALLOWED = new Set<string>([
   // NOT write today, but if a future edit adds a defensive write to
   // dispatch a cross-tab heartbeat the chokepoint stays here.
   join("hooks", "useCrossWindowPrefsSync.ts"),
+  // Issue #352 / iter-12 — Excalidraw banner seen-flag factory. Single
+  // typed module behind which all banner-dismissal write traffic flows
+  // (`autosave-banner.ts` and `first-save-warning.ts` are now thin
+  // wrappers that re-export the factory's `has` / `mark` functions).
+  // Readers call the wrappers directly (read-only is unrestricted by
+  // this gate).
+  join("lib", "excalidraw", "seen-flag.ts"),
 ]);
 
 const FORBIDDEN_WRITE = /localStorage\.(setItem|removeItem|clear)\s*\(/;

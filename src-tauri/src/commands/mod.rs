@@ -5,14 +5,17 @@
 //! can keep using `commands::xxx` paths.
 
 pub mod cli_shim;
+pub mod close_flush;
 pub mod comments;
 pub mod config;
 pub mod default_handler;
 pub mod file_viewer_prefs;
 pub mod fs;
+pub mod fs_write;
 pub mod html;
 pub mod launch;
 pub mod onboarding;
+pub mod open_file_registry;
 pub mod path_classify;
 pub mod remote_asset;
 pub mod search;
@@ -35,6 +38,10 @@ pub use comments::{
     CommentPatch, CommentsChangedEvent, CommentsEmitter, CommentError, FileBadge, GetFileCommentsResult,
     NewCommentAnchor, TaggedNewAnchor,
 };
+pub use close_flush::{
+    close_flush_complete, flush_pending_writes_before_close, mark_close_flush_ready,
+    CloseFlushState,
+};
 pub use config::{set_author, set_author_at, validate_author, ConfigError};
 pub use file_viewer_prefs::{get_file_viewer_pref, set_file_viewer_pref, FileViewerPref};
 pub use fs::{
@@ -42,12 +49,16 @@ pub use fs::{
     read_dir_inner, read_text_file, read_text_file_inner, stat_file, stat_file_inner,
     update_tree_watched_dirs, FileStat, ReadDirResult, TextFileResult,
 };
+pub use fs_write::{write_workspace_binary, write_workspace_text};
 pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
 #[cfg(debug_assertions)]
 pub use launch::set_root_via_test;
 pub use launch::{
     get_launch_args, get_log_path, parse_launch_args, parse_trace_flag,
     scan_review_files,
+};
+pub use open_file_registry::{
+    claim_open_file, release_open_file, release_open_files, ClaimResult, OpenFileRegistry,
 };
 pub use path_classify::{path_classify, path_classify_inner, workspace_root_for_window};
 pub use remote_asset::fetch_remote_asset;

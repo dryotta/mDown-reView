@@ -36,8 +36,14 @@ function makeTempRoot(files) {
   return root;
 }
 
+// Single source of truth for the cap used in this test, mirrors the
+// `MAX_GZIPPED_BYTES = 5 * 1024 * 1024` in `scripts/check-bundle-size.mjs`.
+// Bumping the cap in the script must be matched here in the same diff.
+const LIMIT_BYTES = 5 * 1024 * 1024;
+const LIMIT_KB_LABEL = `${Math.round(LIMIT_BYTES / 1024)}KB`; // "5120KB"
+
 describe("check-bundle-size", () => {
-  it("exits 0 when total gzipped JS is under the 3 MB limit", () => {
+  it("exits 0 when total gzipped JS is under the limit", () => {
     const root = makeTempRoot({
       "index.js": "export const a = 1;\n".repeat(100),
       "vendor.js": "export const b = 2;\n".repeat(100),
@@ -47,16 +53,16 @@ describe("check-bundle-size", () => {
       expect(status).toBe(0);
       expect(stderr).toContain("OK");
       expect(stderr).toContain("2 JS chunks");
-      expect(stderr).toContain("limit 3072KB");
+      expect(stderr).toContain(`limit ${LIMIT_KB_LABEL}`);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("exits 1 when total gzipped JS exceeds the 3 MB limit", () => {
+  it("exits 1 when total gzipped JS exceeds the limit", () => {
     // Random binary bytes are incompressible — gzip output ≈ input size.
-    // 5 MB of random content gzips to ~5 MB, well over the 3 MB ceiling.
-    const incompressible = randomBytes(5_000_000);
+    // 7 MB of random content gzips to ~7 MB, well over the 5 MB ceiling.
+    const incompressible = randomBytes(7_000_000);
     const root = makeTempRoot({
       "huge.js": incompressible,
     });
@@ -64,7 +70,7 @@ describe("check-bundle-size", () => {
       const { status, stderr } = run(root);
       expect(status).toBe(1);
       expect(stderr).toContain("FAIL");
-      expect(stderr).toContain("exceeds 3072KB limit");
+      expect(stderr).toContain(`exceeds ${LIMIT_KB_LABEL} limit`);
       expect(stderr).toContain("huge.js");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -74,11 +80,11 @@ describe("check-bundle-size", () => {
   it("scans every JS file (no silent truncation)", () => {
     // Regression test: a previous version `.slice(0, 200)`-truncated the
     // file list, hiding chunks beyond the 200th from the gzip total. Build
-    // 250 small JS files plus one 4 MB incompressible random file: the
+    // 250 small JS files plus one 6 MB incompressible random file: the
     // script must (a) report 251 chunks and (b) exit 1 because the random
-    // file pushes the total over the 3 MB ceiling. Both conditions must
+    // file pushes the total over the 5 MB ceiling. Both conditions must
     // hold — a re-introduced truncation would either drop chunks from the
-    // count or skip the 4 MB file (which sorts last alphabetically), both
+    // count or skip the 6 MB file (which sorts last alphabetically), both
     // of which this test catches.
     const files = {};
     // Names z000.js … z249.js sort after `huge.js`, so any positional
@@ -86,7 +92,7 @@ describe("check-bundle-size", () => {
     for (let i = 0; i < 250; i++) {
       files[`z${String(i).padStart(3, "0")}.js`] = "a".repeat(1000);
     }
-    files["huge.js"] = randomBytes(4_000_000);
+    files["huge.js"] = randomBytes(6_000_000);
     const root = makeTempRoot(files);
     try {
       const { status, stderr } = run(root);

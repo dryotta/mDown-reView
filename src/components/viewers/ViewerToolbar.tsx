@@ -1,6 +1,7 @@
 import "@/styles/viewer-toolbar.css";
 import { type ReactNode } from "react";
 import { ZoomControl } from "./ZoomControl";
+import type { ViewMode } from "@/lib/file-types";
 
 /**
  * L5 — share the same prop shape as `ZoomControl`. Callers spread it directly
@@ -14,8 +15,15 @@ export interface ZoomProps {
 }
 
 interface Props {
-  activeView: "source" | "visual";
-  onViewChange: (view: "source" | "visual") => void;
+  activeView: ViewMode;
+  onViewChange: (view: ViewMode) => void;
+  /**
+   * When true, render a third "Editor" segmented-control button alongside
+   * Source/Visual. Off for every category except Excalidraw (issue #352);
+   * non-excalidraw viewers don't render the button at all and continue to
+   * receive only `"source" | "visual"` through `onViewChange`.
+   */
+  canEdit?: boolean;
   hidden?: boolean;
   showWrapToggle?: boolean;
   wordWrap?: boolean;
@@ -62,6 +70,7 @@ interface Props {
 export function ViewerToolbar({
   activeView,
   onViewChange,
+  canEdit,
   hidden,
   showWrapToggle,
   wordWrap,
@@ -96,6 +105,15 @@ export function ViewerToolbar({
             >
               Visual
             </button>
+            {canEdit && (
+              <button
+                className={`viewer-toolbar-btn${activeView === "editor" ? " active" : ""}`}
+                onClick={() => onViewChange("editor")}
+                aria-pressed={activeView === "editor"}
+              >
+                Editor
+              </button>
+            )}
           </div>
         )}
         {showWrapToggle && (

@@ -1,0 +1,22 @@
+# Fixture lock — issue #352 / iter-22 (retro §6, §8 P2)
+#
+# SHA-256 manifest of every shipped Excalidraw fixture in this directory.
+# The `samples/excalidraw/__tests__/fixtures.test.ts` test asserts each
+# file's hash matches this manifest. Catches the iter-21 P0-1 regression
+# class structurally: any code path that silently mutates a fixture during
+# CI (e.g. an autosave-loop bug that wipes 226 → 6 lines) would change
+# the SHA and fail the gate at the iter the bug is introduced.
+#
+# Update this file when intentionally regenerating a fixture (and only
+# then). Format: `<sha256>  <filename>` (two-space separator, mirrors
+# the `sha256sum` output convention).
+#
+# Line endings: SHAs are computed against the LF-normalized fixtures.
+# `.gitattributes` pins these files to `text eol=lf` so the working
+# tree is LF on every platform; otherwise CRLF on Windows would
+# desynchronise the local hash from the Linux-CI hash.
+0fa99d0c70f1d225ec5dab0faeddf365bc6140fe342e07ca6d7f3ad139e6e777  1-shapes.excalidraw
+4943ee2d569e4877e2be4691aab039418255d63a316913f5496e221089366d37  2-flowchart.excalidraw
+4198fff7b5dda857899c283e3e03b78c408bc581738934870583020529400cee  3-icons.excalidrawlib
+b8189bfacf77a05c68bfb33acff0e4c32ff1a52403345b34fb3093c5cb0075bd  4-shapes.excalidraw.svg
+d3f7ed9d1242fa42d07af8602ec2aa606c6567563eb9047d148db00dccc6fc76  5-shapes.excalidraw.png

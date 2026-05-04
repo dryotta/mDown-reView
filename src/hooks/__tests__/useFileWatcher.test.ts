@@ -21,6 +21,13 @@ vi.mock("@/lib/tauri-events", () => ({
 vi.mock("@/lib/tauri-commands", () => ({
   updateWatchedFiles: vi.fn().mockResolvedValue(undefined),
   scanReviewFiles: vi.fn().mockResolvedValue([]),
+  // Issue #352 / iter-15 — multi-window file singleton. tabs.ts
+  // openFile/closeTab/closeAllTabs fire these on every mutation.
+  // Default to "Claimed" so existing tests don't trigger the
+  // revert path.
+  claimOpenFile: vi.fn().mockResolvedValue({ kind: "claimed" }),
+  releaseOpenFile: vi.fn().mockResolvedValue(undefined),
+  releaseOpenFiles: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("WatcherSlice", () => {

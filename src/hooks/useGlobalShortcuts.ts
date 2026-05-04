@@ -100,6 +100,29 @@ export function useGlobalShortcuts({
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
 
+      // Issue #352 / iter-11 (product F13) — Ctrl/Cmd+S flushes the
+      // pending auto-save immediately. Auto-save persists changes on
+      // a 2s debounce; pressing Save bypasses the debounce so power
+      // users get explicit-save semantics. Also dispatches a UI event
+      // so ExcalidrawView can show a transient "Saved" pill confirming
+      // the action.
+      if (!e.shiftKey && (e.key === "s" || e.key === "S")) {
+        const state = useStore.getState();
+        const activePath = state.activeTabPath;
+        if (!activePath) return;
+        if (getFileCategory(activePath) !== "excalidraw") return;
+        if (state.viewModeByTab[activePath] !== "editor") return;
+        e.preventDefault();
+        // Flush event — ExcalidrawView listens and runs `runAutoSave`
+        // synchronously, bypassing the 2s debounce.
+        window.dispatchEvent(
+          new CustomEvent("mdownreview:excalidraw-flush-save", {
+            detail: { path: activePath },
+          }),
+        );
+        return;
+      }
+
       if (!e.shiftKey && e.key === "o") {
         e.preventDefault();
         handleOpenFile();

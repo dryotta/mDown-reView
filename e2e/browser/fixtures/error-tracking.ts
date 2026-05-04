@@ -156,6 +156,13 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
                 }
                 if (cmd === "get_file_viewer_pref") return null;
                 if (cmd === "set_file_viewer_pref") return undefined;
+                if (cmd === "write_workspace_text") return undefined;
+                if (cmd === "write_workspace_binary") return undefined;
+                if (cmd === "claim_open_file") return { kind: "claimed" };
+                if (cmd === "release_open_file") return undefined;
+                if (cmd === "release_open_files") return undefined;
+                if (cmd === "close_flush_complete") return undefined;
+                if (cmd === "mark_close_flush_ready") return undefined;
                 if (cmd === "register_window_folder") return undefined;
                 if (cmd === "unregister_window_folder") return undefined;
                 if (cmd === "get_sidecar_config")
@@ -215,6 +222,13 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             }
             if (cmd === "get_file_viewer_pref") return null;
             if (cmd === "set_file_viewer_pref") return undefined;
+            if (cmd === "write_workspace_text") return undefined;
+            if (cmd === "write_workspace_binary") return undefined;
+            if (cmd === "claim_open_file") return { kind: "claimed" };
+            if (cmd === "release_open_file") return undefined;
+            if (cmd === "release_open_files") return undefined;
+            if (cmd === "close_flush_complete") return undefined;
+            if (cmd === "mark_close_flush_ready") return undefined;
             if (cmd === "register_window_folder") return undefined;
             if (cmd === "unregister_window_folder") return undefined;
             if (cmd === "get_sidecar_config")

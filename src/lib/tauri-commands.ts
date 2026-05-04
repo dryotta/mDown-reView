@@ -58,6 +58,7 @@ function unwrap<T, E>(p: Promise<Result<T, E>>): Promise<T> {
 export type {
   CliShimError,
   CliShimStatus,
+  ClaimResult,
   CommentAnchor,
   CommentPatch,
   CommentThread,
@@ -93,6 +94,7 @@ export type {
   UpdateInfo,
   WordRangePayload,
   WordSpan,
+  WorkspaceWriteError,
 } from "@/lib/bindings";
 
 // In-memory tagged anchor + sidecar/comment shapes + helpers. These come
@@ -110,8 +112,11 @@ export const convertAssetUrl = (absolute: string): string => convertFileSrc(abso
 // ── Typed command wrappers (delegated to bindings) ─────────────────────────
 
 import type {
+  CliShimStatus,
+  ClaimResult,
   CommentAnchor,
   CommentPatch,
+  DefaultHandlerStatus,
   FileBadge,
   FileStat,
   FileViewerPref,
@@ -131,8 +136,6 @@ import type {
   TextFileResult,
   UpdateInfo,
   WordSpan,
-  CliShimStatus,
-  DefaultHandlerStatus,
 } from "@/lib/bindings";
 import type { Anchor } from "@/lib/anchor-derive";
 
@@ -306,6 +309,54 @@ export const getFileViewerPref = (path: string): Promise<FileViewerPref | null> 
 
 export const setFileViewerPref = (path: string, allowImages: boolean): Promise<void> =>
   unwrap(bindings.setFileViewerPref(path, allowImages)).then(() => {});
+
+// Workspace-write IPC chokepoint (issue #352 — Excalidraw foundations) ─────
+// Two split commands route every renderer-initiated workspace mutation
+// through the Rust bounds checker (`commands::fs_write::ensure_writable`).
+// Text path: Excalidraw scene JSON, .excalidrawlib. Binary path: re-rendered
+// .excalidraw.png / .excalidraw.svg with embedded scene (base64 on the wire).
+// There is intentionally NO single `writeWorkspaceFile` — see security
+// rule 29 (`docs/security.md`) for the bounds list.
+export const writeWorkspaceText = (path: string, text: string): Promise<void> =>
+  unwrap(bindings.writeWorkspaceText(path, text)).then(() => {});
+
+export const writeWorkspaceBinary = (path: string, base64: string): Promise<void> =>
+  unwrap(bindings.writeWorkspaceBinary(path, base64)).then(() => {});
+
+// Issue #352 / iter-12 — pre-close flush handshake (renamed in iter-16
+// from "excalidraw close" to the generic "close flush" — this primitive
+// is now reused by any feature that registers a flush callback in the
+// renderer-side `flush-registry`).
+//
+// Renderer hook (`useExcalidrawCloseFlush`) drains all pending flushes
+// on `flush-before-close`, then calls `closeFlushComplete` — Rust then
+// destroys the window. `markCloseFlushReady` is fired once on mount so
+// Rust knows it can safely intercept CloseRequested events for this
+// window; without it, fast Alt-F4 / Cmd-Q before React commits would
+// hit a 2.5 s timeout (bug-expert iter-14 MEDIUM finding).
+export const closeFlushComplete = (label: string): Promise<void> =>
+  unwrap(bindings.closeFlushComplete(label)).then(() => {});
+
+export const markCloseFlushReady = (): Promise<void> =>
+  unwrap(bindings.markCloseFlushReady()).then(() => {});
+
+// Issue #352 / iter-15 — multi-window file singleton ──────────────────────
+// `claimOpenFile` MUST be awaited by the renderer's `openFile` action
+// BEFORE adding a tab. On `OwnedElsewhere` the Rust handler has already
+// raised the owning window and emitted `focus-tab` to it; the renderer
+// just needs to bail. See `src-tauri/src/commands/open_file_registry.rs`.
+//
+// Wire shape: `ClaimResult` = `{ kind: "claimed" } | { kind:
+// "owned-elsewhere"; window_label: string }` — keep the discriminator
+// branching at the call site so the typed payload survives.
+export const claimOpenFile = (path: string): Promise<ClaimResult> =>
+  unwrap(bindings.claimOpenFile(path));
+
+export const releaseOpenFile = (path: string): Promise<void> =>
+  unwrap(bindings.releaseOpenFile(path)).then(() => {});
+
+export const releaseOpenFiles = (paths: string[]): Promise<void> =>
+  unwrap(bindings.releaseOpenFiles(paths)).then(() => {});
 
 // Window registry sync ────────────────────────────────────────────────────
 

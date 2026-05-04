@@ -107,6 +107,20 @@ const EXEMPT_COMMANDS: &[&str] = &[
     "edit_comment",
     "update_comment",
     "delete_comment",
+    // Workspace-write IPCs (issue #352 — Excalidraw foundations):
+    // ensure_writable uses the same path-allowlist (window-scoped at
+    // watcher.rs) via `is_path_or_parent_allowed` to prevent
+    // cross-window writes. The `window` arg is not needed because the
+    // path itself is the scope unit and the allowlist already filters.
+    // The extension allowlist + 10 MB cap further bound the surface.
+    "write_workspace_text",
+    "write_workspace_binary",
+    // Issue #352 / iter-12 — close-flush handshake ack. The label is
+    // an explicit argument (the closing window's own label, echoed
+    // back to Rust). No window arg needed: the label IS the scope
+    // identity and is already authenticated by the matching emit_to
+    // pair in `flush_pending_writes_before_close` (iter-16 rename).
+    "close_flush_complete",
 ];
 
 /// Per-window-state-mutating commands that MUST take a `window: tauri::Window`

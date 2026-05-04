@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useStore, openFilesFromArgs } from "@/store/index";
+import { useStore, openFilesFromArgs } from "@/store";
 import { registerWindowFolder } from "@/lib/tauri-commands";
 
 // Mock `registerWindowFolder` so it resolves successfully in jsdom — without

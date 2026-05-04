@@ -19,9 +19,12 @@
  */
 import type { StoreApi } from "zustand";
 
-import { commands } from "@/lib/bindings";
+import type { ViewMode } from "@/lib/file-types";
+import { releaseOpenFile, releaseOpenFiles } from "@/lib/tauri-commands";
+import { warn as logWarn } from "@/logger";
 
 import type { Store } from "./index";
+import { claimOrRevert, classifyAndMarkReadOnly } from "./tabsHelpers";
 
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
@@ -90,9 +93,34 @@ export interface FileMeta {
 export interface TabsSlice {
   tabs: Tab[];
   activeTabPath: string | null;
-  viewModeByTab: Record<string, "source" | "visual">;
+  viewModeByTab: Record<string, ViewMode>;
   /** Cached `read_text_file` metadata per path. Session-only (not persisted). */
   fileMetaByPath: Record<string, FileMeta>;
+  /**
+   * Iter-12 — per-tab dirty flag for Excalidraw editor under autosave.
+   * Sole consumer: `useFileContent` (gates the conflict banner via
+   * `mdownreview:file-changed`). Session-only. Full design in
+   * `docs/features/excalidraw.md` § "Save semantics".
+   */
+  excalidrawDirtyByTab: Record<string, boolean>;
+  /**
+   * Iter-13 — paths the user has entered Editor mode for at least once.
+   * `<PersistentExcalidrawHost>` keeps `<Excalidraw>` instances mounted
+   * across tab switches for these paths so undo history + library panel
+   * survive. Cleanup contract (rule 18, atomic single-set per rule 16):
+   * cleared by `closeTab` / `closeAllTabs` / LRU eviction. Stored as
+   * sorted no-dup `string[]` for `useShallow` identity stability.
+   * Full design in `docs/features/excalidraw.md` § "Persistent editor
+   * across tab switches".
+   */
+  excalidrawEditorMounts: string[];
+  /**
+   * AC7 — per-tab conflict-pending flag. Watcher fired `file-changed`
+   * while tab was dirty in Editor mode; conflict banner shows
+   * [Reload] / [Keep editing]. Clicking either clears the flag.
+   * Session-only.
+   */
+  externalChangePendingByTab: Record<string, boolean>;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
@@ -107,7 +135,7 @@ export interface TabsSlice {
    * point for `SourceView`; ViewerRouter never touches it.
    */
   setSourceScrollTop: (path: string, sourceScrollTop: number) => void;
-  setViewMode: (path: string, mode: "source" | "visual") => void;
+  setViewMode: (path: string, mode: ViewMode) => void;
   /** Merge a partial `FileMeta` patch into the cached entry for `path`. */
   setFileMeta: (path: string, patch: Partial<FileMeta>) => void;
   /**
@@ -118,6 +146,32 @@ export interface TabsSlice {
    * the user retries. No-op when no tab matches `path`.
    */
   setTabReadOnly: (path: string, readOnly: boolean) => void;
+  /**
+   * Issue #352 / iter-12 — set/clear the dirty flag for an Excalidraw
+   * editor tab. Setting to `false` removes the entry entirely so a
+   * closed tab doesn't linger in the map. Sole consumer is
+   * `useFileContent` for the conflict-banner gate (see field doc on
+   * `excalidrawDirtyByTab` above for why no tab-title indicator
+   * exists under autosave).
+   */
+  setExcalidrawDirty: (path: string, dirty: boolean) => void;
+  /**
+   * Issue #352 / AC7 — set/clear the pending-external-change flag for an
+   * Excalidraw editor tab. Setting to `false` removes the entry entirely.
+   * Subscribed by `ExcalidrawView` to gate the conflict banner.
+   */
+  setExternalChangePending: (path: string, pending: boolean) => void;
+  /**
+   * Issue #352 / iter-13 — register a path for persistent Excalidraw
+   * mounting. Idempotent: marking an already-registered path is a
+   * no-op (no observable state change, no re-render).
+   *
+   * Caller contract: invoke when the user enters Editor mode for an
+   * Excalidraw file. The `<PersistentExcalidrawHost>` then keeps the
+   * underlying `<Excalidraw>` instance mounted across tab switches
+   * until `closeTab` / `closeAllTabs` / LRU eviction unregisters.
+   */
+  markExcalidrawEditorMounted: (path: string) => void;
 }
 
 export function filterStaleTabs(
@@ -164,6 +218,9 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     activeTabPath: null,
     viewModeByTab: {},
     fileMetaByPath: {},
+    excalidrawDirtyByTab: {},
+    externalChangePendingByTab: {},
+    excalidrawEditorMounts: [],
 
     openFile: (path, opts) => {
       get().closeMermaidPopout(); // issue #276 — close popout on file open
@@ -176,28 +233,73 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
           tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
         }));
         if (recordHistory) get().pushHistory(path);
+        // Same-window re-claim is a no-op success in Rust; firing
+        // here keeps the registry warm in case the prior owner's
+        // entry was reaped (e.g. window force-killed before this).
+        void claimOrRevert(path, set, get);
         return;
       }
       // Evict LRU non-active tab if at capacity.
-      let baseTabs = get().tabs;
+      const baseTabs = get().tabs;
       if (baseTabs.length >= MAX_TABS) {
         const activePath = get().activeTabPath;
+        // Issue #352 / iter-10 redesign — auto-save means evicted tabs
+        // already have their content on disk. The previous "exempt
+        // dirty editors from eviction" carve-out (iter-5) is no longer
+        // needed: the cap can apply uniformly. Pick the oldest non-active
+        // tab as the victim.
         const candidates = baseTabs.filter((t) => t.path !== activePath);
-        if (candidates.length > 0) {
-          const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
-          const victim = candidates.reduce((oldest, t) =>
-            accessed(t) < accessed(oldest) ? t : oldest
+        const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
+        const victim = candidates.reduce((oldest, t) =>
+          accessed(t) < accessed(oldest) ? t : oldest
+        );
+        // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.
+        // Merge the eviction maps with the new-tab append into a
+        // SINGLE set() call so subscribers never observe an
+        // intermediate state (victim gone, new tab not yet added,
+        // active still pointing at the old active). Per rule 16 in
+        // docs/architecture.md.
+        const filteredTabs = baseTabs.filter((t) => t.path !== victim.path);
+        const { [victim.path]: _v, ...restView } = get().viewModeByTab;
+        const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
+        const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
+        const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
+        const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
+        // Issue #352 / iter-13 — drop the LRU victim from the
+        // persistent-mount registry so the host unmounts its
+        // <Excalidraw> instance and frees the associated memory.
+        const restMounts = get().excalidrawEditorMounts.filter(
+          (p) => p !== victim.path,
+        );
+        set({
+          tabs: [...filteredTabs, { path, scrollTop: 0, lastAccessedAt: now }],
+          activeTabPath: path,
+          viewModeByTab: restView,
+          lastSaveByPath: restSave,
+          fileMetaByPath: restMeta,
+          excalidrawDirtyByTab: restDirty,
+          externalChangePendingByTab: restPending,
+          excalidrawEditorMounts: restMounts,
+        });
+        if (recordHistory) get().pushHistory(path);
+        void classifyAndMarkReadOnly(path, set);
+        // Iter-15 — release the LRU victim's claim so the next opener
+        // (any window) can re-claim it. Fire-and-forget; the destroy
+        // sweep is the safety net for IPC failures.
+        void releaseOpenFile(victim.path).catch((err: unknown) => {
+          void logWarn(
+            `[release] LRU victim ${victim.path} release failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
           );
-          baseTabs = baseTabs.filter((t) => t.path !== victim.path);
-          const { [victim.path]: _v, ...restView } = get().viewModeByTab;
-          const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
-          const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
-          set({
-            viewModeByTab: restView,
-            lastSaveByPath: restSave,
-            fileMetaByPath: restMeta,
-          });
-        }
+        });
+        // Iter-15 — claim the new path. On owned-elsewhere, the
+        // helper reverts our just-added tab; rest of the LRU
+        // bookkeeping above is preserved (the victim eviction stays
+        // in place even if this open is rejected — a subsequent
+        // open of the victim path would need to re-add it).
+        void claimOrRevert(path, set, get);
+        return;
       }
       set({
         tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
@@ -211,9 +313,16 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       // CommentError will self-heal the flag — see comments slice in the
       // Wave-2 migration scope).
       void classifyAndMarkReadOnly(path, set);
+      // Iter-15 — claim ownership; revert on conflict.
+      void claimOrRevert(path, set, get);
     },
 
     closeTab: (path) => {
+      // Issue #352 / iter-10 redesign — auto-save makes the close
+      // confirm obsolete. Edits are flushed to disk on a 2s debounce
+      // so there is no "unsaved" state to discard. The dirty-tab
+      // map is still maintained for back-compat with tests but is
+      // never consulted by close paths.
       get().closeMermaidPopout(); // issue #276 — close popout on tab close
       const tabs = get().tabs;
       const idx = tabs.findIndex((t) => t.path === path);
@@ -226,27 +335,69 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       const { [path]: _unusedView, ...restViewModes } = get().viewModeByTab;
       const { [path]: _unusedSave, ...restSaveByPath } = get().lastSaveByPath;
       const { [path]: _unusedMeta, ...restMeta } = get().fileMetaByPath;
+      const { [path]: _unusedDirty, ...restDirty } = get().excalidrawDirtyByTab;
+      const { [path]: _unusedPending, ...restPending } = get().externalChangePendingByTab;
+      // Issue #352 / iter-13 — closing the tab unmounts its persistent
+      // <Excalidraw> instance via the host. Filter the registry in the
+      // same set() call as the rest of the cleanup (rule 16 — atomic
+      // multi-slice mutation; subscribers never observe an
+      // intermediate state).
+      const restMounts = get().excalidrawEditorMounts.filter((p) => p !== path);
       set({
         tabs: newTabs,
         activeTabPath: newActive,
         viewModeByTab: restViewModes,
         lastSaveByPath: restSaveByPath,
         fileMetaByPath: restMeta,
+        excalidrawDirtyByTab: restDirty,
+        externalChangePendingByTab: restPending,
+        excalidrawEditorMounts: restMounts,
+      });
+      // Iter-15 — release the singleton claim so the next opener
+      // (any window) can re-claim. Fire-and-forget; the destroy
+      // sweep is the safety net for IPC failures.
+      void releaseOpenFile(path).catch((err: unknown) => {
+        void logWarn(
+          `[release] closeTab(${path}) release failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       });
     },
 
     closeAllTabs: () => {
+      // Issue #352 / iter-10 redesign — see closeTab; auto-save
+      // means there is no longer a discardable "unsaved" state.
       get().closeMermaidPopout(); // issue #276 — close popout on close-all
+      const closingPaths = get().tabs.map((t) => t.path);
       set({
         tabs: [],
         activeTabPath: null,
         viewModeByTab: {},
         lastSaveByPath: {},
         fileMetaByPath: {},
+        excalidrawDirtyByTab: {},
+        externalChangePendingByTab: {},
+        // Issue #352 / iter-13 — unmount every persistent
+        // <Excalidraw> instance.
+        excalidrawEditorMounts: [],
       });
+      // Iter-15 — bulk-release every singleton claim. Fire-and-forget;
+      // the destroy sweep handles IPC failures.
+      if (closingPaths.length > 0) {
+        void releaseOpenFiles(closingPaths).catch((err: unknown) => {
+          void logWarn(
+            `[release] closeAllTabs bulk release failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+      }
     },
 
     setActiveTab: (path, opts) => {
+      // Issue #352 / iter-10 redesign — auto-save flushes pending
+      // edits before any tab switch, so the iter-5 prompt is gone.
       get().closeMermaidPopout(); // issue #276 — close popout on tab switch
       const recordHistory = opts?.recordHistory ?? true;
       const now = Date.now();
@@ -275,10 +426,30 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       }));
     },
 
-    setViewMode: (path, mode) =>
-      set((s) => ({
-        viewModeByTab: { ...s.viewModeByTab, [path]: mode },
-      })),
+    setViewMode: (path, mode) => {
+      // Issue #352 / iter-10 redesign — auto-save means there is no
+      // longer a discardable in-flight scene. Mode switches just
+      // change the view; the latest edits are already on disk (or
+      // will be after the in-flight debounce fires). The dirty/pending
+      // maps are cleared on leaving editor mode so a later return to
+      // the tab doesn't see stale flags.
+      const prevMode = get().viewModeByTab[path];
+      const isLeavingEditor = prevMode === "editor" && mode !== "editor";
+      set((s) => {
+        if (isLeavingEditor) {
+          const { [path]: _d, ...restDirty } = s.excalidrawDirtyByTab;
+          const { [path]: _p, ...restPending } = s.externalChangePendingByTab;
+          return {
+            viewModeByTab: { ...s.viewModeByTab, [path]: mode },
+            excalidrawDirtyByTab: restDirty,
+            externalChangePendingByTab: restPending,
+          };
+        }
+        return {
+          viewModeByTab: { ...s.viewModeByTab, [path]: mode },
+        };
+      });
+    },
 
     setFileMeta: (path, patch) =>
       set((s) => {
@@ -306,26 +477,42 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
       set((s) => ({
         tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly } : t)),
       })),
-  };
-}
 
-/**
- * Eagerly classify the just-opened tab via the `path_classify` IPC and
- * patch `readOnly` on the matching tab entry (issue #338 / AC9).
- *
- * Fail-closed: any IPC failure leaves `readOnly` undefined. The next
- * comment-write attempt's typed CommentError self-heals the flag from
- * the canonical Rust answer (see comments slice — Wave-2 migration).
- */
-async function classifyAndMarkReadOnly(path: string, set: SliceSet): Promise<void> {
-  try {
-    const result = await commands.pathClassify(path, null);
-    if (result.status !== "ok") return;
-    const isReadOnly = result.data.tier !== "inside";
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.path === path ? { ...t, readOnly: isReadOnly } : t)),
-    }));
-  } catch {
-    // Defense-in-depth — already covered by the Result branch above.
-  }
+    setExcalidrawDirty: (path, dirty) =>
+      set((s) => {
+        const current = s.excalidrawDirtyByTab[path] === true;
+        if (current === dirty) return s; // no observable change
+        if (!dirty) {
+          const { [path]: _d, ...rest } = s.excalidrawDirtyByTab;
+          return { excalidrawDirtyByTab: rest };
+        }
+        return {
+          excalidrawDirtyByTab: { ...s.excalidrawDirtyByTab, [path]: true },
+        };
+      }),
+
+    setExternalChangePending: (path, pending) =>
+      set((s) => {
+        const current = s.externalChangePendingByTab[path] === true;
+        if (current === pending) return s;
+        if (!pending) {
+          const { [path]: _p, ...rest } = s.externalChangePendingByTab;
+          return { externalChangePendingByTab: rest };
+        }
+        return {
+          externalChangePendingByTab: { ...s.externalChangePendingByTab, [path]: true },
+        };
+      }),
+
+    markExcalidrawEditorMounted: (path) =>
+      set((s) => {
+        // Idempotent: short-circuit when already registered so subscribers
+        // don't fire on duplicate marks (every entry into Editor mode
+        // calls this, including return-visits via tab switch).
+        if (s.excalidrawEditorMounts.includes(path)) return s;
+        return {
+          excalidrawEditorMounts: [...s.excalidrawEditorMounts, path],
+        };
+      }),
+  };
 }

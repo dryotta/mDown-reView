@@ -449,6 +449,13 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::launch::scan_review_files,
                 commands::fs::check_path_exists,
                 commands::fs::canonicalize_path,
+                commands::fs_write::write_workspace_text,
+                commands::fs_write::write_workspace_binary,
+                commands::close_flush::close_flush_complete,
+                commands::close_flush::mark_close_flush_ready,
+                commands::open_file_registry::claim_open_file,
+                commands::open_file_registry::release_open_file,
+                commands::open_file_registry::release_open_files,
                 commands::comments::get::get_file_comments,
                 commands::comments::add_comment::<tauri::Wry>,
                 commands::comments::add_reply::<tauri::Wry>,
@@ -603,6 +610,8 @@ pub fn run() {
         .manage(watcher::SyncRx(std::sync::Mutex::new(Some(sync_rx))))
         .manage(registry::WindowRegistry::default())
         .manage(commands::comments::BadgeCache::new())
+        .manage(commands::close_flush::CloseFlushState::new())
+        .manage(commands::open_file_registry::OpenFileRegistry::new())
         .setup(|app| {
             // Register panic hook to log panics before process terminates
             let prev_hook = std::panic::take_hook();
@@ -831,7 +840,44 @@ pub fn run() {
                         "[window] CloseRequested on {}: hidden (last visible window)",
                         window.label()
                     );
+                    return;
                 }
+            }
+
+            // Issue #352 / iter-12 (bug #4 — close-flush handshake).
+            // Iter-16 — gate prevent_close on the renderer's mark-ready
+            // signal AND use `window.destroy()` (not `close()`) on the
+            // happy path so we definitively bypass any CloseRequested
+            // re-entry hazard.
+            //
+            // If the renderer hasn't yet marked itself ready (cold
+            // start before React mounts, crashed JS thread, no
+            // Excalidraw editors and the hook hasn't committed),
+            // skip the handshake entirely — Tauri closes immediately.
+            // Eliminates the 2.5 s lag bug-expert flagged for
+            // non-Excalidraw users and fast cold-close.
+            //
+            // If the renderer IS ready, drain its registry via the
+            // ack handshake; on success/timeout, the spawned task
+            // calls `window.destroy()`.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label().to_string();
+                let is_ready = window
+                    .try_state::<commands::close_flush::CloseFlushState>()
+                    .map(|s| s.is_ready(&label))
+                    .unwrap_or(false);
+                if !is_ready {
+                    log::info!(
+                        "[close-flush] {label} not ready — letting Tauri close normally"
+                    );
+                    return;
+                }
+                api.prevent_close();
+                commands::close_flush::flush_pending_writes_before_close(
+                    window.app_handle(),
+                    label,
+                );
+                return;
             }
 
             if let tauri::WindowEvent::Destroyed = event {
@@ -845,6 +891,20 @@ pub fn run() {
                 if let Some(ws) = window.try_state::<watcher::WatcherState>() {
                     ws.remove_window(&label);
                     log::info!("[window] Destroyed: {label} — removed from WatcherState");
+                }
+                // Iter-16 — drop close-flush ready/pending entries so
+                // a recycled label doesn't carry stale state.
+                if let Some(cfs) = window.try_state::<commands::close_flush::CloseFlushState>() {
+                    cfs.forget_window(&label);
+                    log::info!("[window] Destroyed: {label} — forgot CloseFlushState");
+                }
+                // Issue #352 / iter-15 — purge open-file claims owned
+                // by the dying window so a force-killed renderer
+                // (no clean release) doesn't leak entries that block
+                // future opens of the same path in other windows.
+                if let Some(ofr) = window.try_state::<commands::open_file_registry::OpenFileRegistry>() {
+                    ofr.purge_window(&label);
+                    log::info!("[window] Destroyed: {label} — purged OpenFileRegistry");
                 }
             }
         });
@@ -953,6 +1013,75 @@ pub fn run() {
                     let _ = win.set_focus();
                 }
             }
+        }
+
+        // Iter-22 (#352 bug-expert iter-21 P2-4 / arch P0 on macOS) —
+        // `RunEvent::ExitRequested` flush handshake.
+        //
+        // macOS Cmd+Q (and any other path that fires `ExitRequested`
+        // BEFORE per-window `WindowEvent::CloseRequested`) silently
+        // dropped up to `EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS` of edits
+        // pre-iter-22 because the close-flush handshake (in
+        // `commands/close_flush.rs`) is keyed on `CloseRequested` only.
+        // AGENTS.md lists macOS as a Tier-1 platform; shipping a
+        // silent data-loss path on the most common Mac quit gesture
+        // is a *Reliable* + *Professional* pillar regression.
+        //
+        // Strategy: prevent the exit, broadcast `flush-before-close`
+        // to every ready window, wait up to `CLOSE_FLUSH_TIMEOUT_MS`
+        // for the renderer drains to complete, then call
+        // `app_handle.exit(0)`. Best-effort: if a window is not
+        // ready (cold start, crashed JS) we still proceed to exit so
+        // the user is not deadlocked. The wait ceiling matches the
+        // CloseRequested handshake's per-window cap.
+        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+            let cfs = match app_handle.try_state::<commands::close_flush::CloseFlushState>() {
+                Some(s) => s,
+                None => {
+                    // State not registered (cold start before setup);
+                    // nothing to drain. Let the exit proceed.
+                    return;
+                }
+            };
+            let labels: Vec<String> = app_handle
+                .webview_windows()
+                .keys()
+                .filter(|label| cfs.is_ready(label))
+                .cloned()
+                .collect();
+            if labels.is_empty() {
+                // No ready windows — no autosave editor open or all
+                // crashed. Let exit proceed.
+                return;
+            }
+            api.prevent_exit();
+            log::info!(
+                "[exit-flush] ExitRequested — draining {} ready window(s)",
+                labels.len()
+            );
+
+            // Spawn the wait-and-exit task on Tauri's async runtime so
+            // the synchronous RunEvent callback returns immediately.
+            let app_handle_clone = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let drain = commands::close_flush::flush_all_for_exit(
+                    app_handle_clone.clone(),
+                    labels,
+                );
+                let timeout = std::time::Duration::from_millis(
+                    commands::close_flush::CLOSE_FLUSH_TIMEOUT_MS,
+                );
+                match tokio::time::timeout(timeout, drain).await {
+                    Ok(()) => log::info!(
+                        "[exit-flush] all windows drained, exiting"
+                    ),
+                    Err(_) => log::warn!(
+                        "[exit-flush] timeout ({}ms), forcing exit",
+                        commands::close_flush::CLOSE_FLUSH_TIMEOUT_MS
+                    ),
+                }
+                app_handle_clone.exit(0);
+            });
         }
 
         let _ = (app_handle, event);

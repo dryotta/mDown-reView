@@ -17,3 +17,242 @@
   margin-left: 8px;
   font-style: italic;
 }
+
+/* ── Excalidraw external-change conflict banner (issue #352 / AC7) ─── */
+
+.excalidraw-conflict-banner {
+  padding: 6px 12px;
+  background: var(--color-warning-bg);
+  border-bottom: 1px solid var(--color-warning-border);
+  color: var(--color-warning-text);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.excalidraw-conflict-banner__copy {
+  font-weight: 500;
+}
+
+.excalidraw-conflict-banner__action {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.excalidraw-conflict-banner__action:hover {
+  background: var(--color-bg-hover, var(--color-bg));
+}
+
+/* Primary action — recommended/safer choice. Filled background, no
+   border outline — visually heavier than the default action.
+   Conflict-banner Reload uses this so the user can pattern-match
+   "filled = recommended" instead of "longer label = safer". Per
+   product-expert P0-4 review finding. */
+.excalidraw-conflict-banner__action--primary {
+  background: var(--color-accent, #2563eb);
+  border-color: var(--color-accent, #2563eb);
+  color: #fff;
+  font-weight: 500;
+}
+
+.excalidraw-conflict-banner__action--primary:hover {
+  background: var(--color-accent-hover, #1d4ed8);
+  border-color: var(--color-accent-hover, #1d4ed8);
+}
+
+/* Destructive action — overwriting disk content, irreversible.
+   Outlined-destructive (red border + red text on a neutral background)
+   so it cannot be mistaken for the safer/recommended choice via more
+   reassuring text. */
+.excalidraw-conflict-banner__action--destructive {
+  border-color: var(--color-error-text, #b91c1c);
+  color: var(--color-error-text, #b91c1c);
+}
+
+.excalidraw-conflict-banner__action--destructive:hover {
+  background: var(--color-error-bg, #fee2e2);
+}
+
+/* Save-error banner — non-modal, dismissible. Distinct from the conflict
+   banner so the two can stack visually without colour-conflicting; uses
+   the danger palette to signal "an action you initiated failed" rather
+   than the warning palette which signals "external state changed". */
+.excalidraw-save-error-banner {
+  padding: 6px 12px;
+  background: var(--color-error-bg, var(--color-warning-bg));
+  border-bottom: 1px solid var(--color-error-border, var(--color-warning-border));
+  color: var(--color-error-text, var(--color-warning-text));
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.excalidraw-save-error-banner__copy {
+  font-weight: 500;
+  flex: 1;
+  word-break: break-word;
+}
+
+/* First-Editor-entry combined disclosure (issue #352 ship-readiness
+   review — product-expert P0-2 + P0-3). Replaces the iter-12 two-
+   banner stack (autosave-info + MRSF warning). Info-toned palette —
+   one-shot pedagogical hint, not an error, not an external-change
+   conflict. Lighter visual weight than the warning/error banners. */
+.excalidraw-first-entry-banner {
+  padding: 6px 12px;
+  background: var(--color-info-bg, #eff6ff);
+  border-bottom: 1px solid var(--color-info-border, #bfdbfe);
+  color: var(--color-info-text, #1e3a8a);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.excalidraw-first-entry-banner__copy {
+  flex: 1;
+}
+
+
+/* Issue #352 / iter-11  transient 'Saved' pill that appears for
+   ~1.5s after a successful Cmd+S flush. Anchored top-right of the
+   Excalidraw view via absolute positioning relative to the viewer
+   shell; doesn't push the canvas down. */
+.excalidraw-view {
+  position: relative;
+}
+
+.excalidraw-saved-pill {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 10;
+  padding: 4px 12px;
+  background: var(--color-success-bg, #ecfdf5);
+  border: 1px solid var(--color-success-border, #6ee7b7);
+  color: var(--color-success-text, #065f46);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  animation: excalidraw-saved-pill-fade 1.5s ease-out forwards;
+}
+
+@keyframes excalidraw-saved-pill-fade {
+  0% { opacity: 0; transform: translateY(-4px); }
+  10% { opacity: 1; transform: translateY(0); }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ── Iter-21 (#352 product-expert P0-2) ─ persistent save-status indicator
+   Pinned to the top-right of the canvas with a colored dot + label so the
+   user always knows whether their last edit has landed on disk. Sits in
+   the same corner as the transient SavedPill but is always present in
+   editor mode (the pill takes z-priority on Cmd+S so it visually replaces
+   the indicator for ~1.5s).  */
+/* ── Iter-22 (#352 redesign per user feedback) ─ persistent save-
+   status indicator. Pinned to the bottom-middle of the canvas
+   (was top-right pre-iter-22 — collided with Excalidraw's library
+   sidebar). Auto-fades 2 s after entering the saved state; reappears
+   on the next edit. Failed and paused states are styled with their
+   own colors and do NOT fade. */
+.excalidraw-save-status {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  pointer-events: none;
+  background: var(--color-bg, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-fg-muted, #6b7280);
+  /* Smooth fade for the auto-hide-after-saved behaviour and for the
+     no-edits-yet hidden initial state. */
+  opacity: 1;
+  transition: opacity 400ms ease-out;
+}
+.excalidraw-save-status[data-hidden="true"] {
+  opacity: 0;
+}
+.excalidraw-save-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.excalidraw-save-status--saved {
+  color: var(--color-success-text, #065f46);
+  border-color: var(--color-success-border, #6ee7b7);
+  background: var(--color-success-bg, #ecfdf5);
+}
+.excalidraw-save-status--unsaved {
+  color: var(--color-warning-text, #92400e);
+  border-color: var(--color-warning-border, #fbbf24);
+  background: var(--color-warning-bg, #fffbeb);
+}
+.excalidraw-save-status--saving {
+  color: var(--color-fg-muted, #6b7280);
+}
+.excalidraw-save-status--saving .excalidraw-save-status__dot {
+  animation: excalidraw-save-status-pulse 1.2s ease-in-out infinite;
+}
+.excalidraw-save-status--failed {
+  color: var(--color-error-text, #b91c1c);
+  border-color: var(--color-error-border, #fca5a5);
+  background: var(--color-error-bg, #fee2e2);
+}
+/* Iter-22 (#352 bug-expert iter-21 P1-3): paused state has its own
+   visual so it does not silently render as "Unsaved" (which lies — the
+   autosave loop is HALTED until the user clicks Resume). Same colour
+   family as failed, slightly darker to visually agree with the
+   SaveErrorBanner pinned above the canvas. */
+.excalidraw-save-status--paused {
+  color: var(--color-error-text, #991b1b);
+  border-color: var(--color-error-border, #f87171);
+  background: var(--color-error-bg, #fee2e2);
+}
+/* Iter-22 (#352 product-expert iter-21 P0) — MRSF re-anchor warning
+   banner. Same layout family as the first-entry banner; styled as
+   role="alert" yellow-warn so it visually agrees with the "comments
+   at risk" copy. */
+.excalidraw-line-anchored-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin: 0 0 8px 0;
+  background: var(--color-warning-bg, #fffbeb);
+  color: var(--color-warning-text, #92400e);
+  border: 1px solid var(--color-warning-border, #fbbf24);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.excalidraw-line-anchored-banner__copy {
+  flex: 1;
+}
+@keyframes excalidraw-save-status-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}

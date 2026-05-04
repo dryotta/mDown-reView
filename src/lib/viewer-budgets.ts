@@ -58,3 +58,30 @@ export const SOURCE_OVERSCAN = 20;
  * scrollbar position before the first paint.
  */
 export const SOURCE_BASE_LINE_PX = 22;
+
+/**
+ * Issue #352 / iter-12 — Excalidraw autosave debounce window. After this many
+ * ms with no further `onChange`, the live scene is persisted to disk via the
+ * workspace-write IPC. 2000 ms balances "snappy persistence" against "every
+ * keystroke triggers an IPC". Should remain ≥ `SAVE_DEBOUNCE_MS` (1500 ms in
+ * `useFileWatcher.ts`) so the watcher echo of our own write always falls
+ * inside the suppression window.
+ */
+export const EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS = 2000;
+
+/**
+ * Issue #352 / iter-12 — pause auto-save after this many consecutive failures.
+ * Repeated rejections from the workspace-write IPC (broken disk, readonly
+ * drive, AV scan) would otherwise surface one save-error banner per
+ * `EXCALIDRAW_AUTOSAVE_DEBOUNCE_MS` of editing, spamming the UI. Pausing
+ * after 3 failures gives the user a single sticky banner; they click Resume
+ * to re-engage the loop.
+ */
+export const EXCALIDRAW_AUTOSAVE_MAX_CONSECUTIVE_FAILURES = 3;
+
+/**
+ * Issue #352 / iter-12 — transient "Saved" pill duration after a Cmd+S flush.
+ * Long enough to register as feedback; short enough to clear before the next
+ * save fires.
+ */
+export const EXCALIDRAW_SAVED_PILL_MS = 1500;

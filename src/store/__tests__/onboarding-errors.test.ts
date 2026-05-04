@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatOnboardingError } from "@/store/index";
+import { formatOnboardingError } from "@/store";
 import type { CliShimError } from "@/lib/tauri-commands";
 
 /**

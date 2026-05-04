@@ -8,6 +8,8 @@ import { useMenuListeners } from "@/hooks/useMenuListeners";
 import { useLaunchArgsBootstrap } from "@/hooks/useLaunchArgsBootstrap";
 import { useOpenFileTab } from "@/hooks/useOpenFileTab";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
+import { useExcalidrawCloseFlush } from "@/hooks/useExcalidrawCloseFlush";
+import { useFocusTab } from "@/hooks/useFocusTab";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
@@ -16,6 +18,7 @@ import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { ViewerRouter } from "@/components/viewers/ViewerRouter";
+import { PersistentExcalidrawHost } from "@/components/viewers/excalidraw/PersistentExcalidrawHost";
 import { CommentsPanel } from "@/components/comments/CommentsPanel";
 import { MermaidPopout } from "@/components/viewers/mermaid/MermaidPopout";
 import { AboutDialog } from "@/components/AboutDialog";
@@ -54,6 +57,11 @@ export default function App() {
   // while a sidecar is the active tab so users cannot create stray
   // comment threads on a comment-storage file.
   const activeIsSidecar = activeTabPath !== null && isSidecarFile(activeTabPath);
+
+  // Issue #352 / iter-10 redesign — Excalidraw uses auto-save on
+  // change (debounced inside ExcalidrawView). The Save button + Ctrl+S
+  // dispatch + dirty-tracking close-confirms have been removed; the
+  // user no longer has an "unsaved changes" state to reason about.
 
   // Update document.title to reflect the active file and root folder
   useEffect(() => {
@@ -148,6 +156,17 @@ export default function App() {
   useGlobalShortcuts(menuCallbacks);
   useLaunchArgsBootstrap();
   useOpenFileTab();
+  // Issue #352 / iter-12 (data-loss bug #4) — drain pending Excalidraw
+  // saves on `WindowEvent::CloseRequested` BEFORE Tauri tears down the
+  // webview. Without this hook, edits inside the 2 s autosave debounce
+  // are silently lost on Alt-F4 / Cmd-Q. Renderer-side counterpart of
+  // `src-tauri/src/commands/close_flush.rs`.
+  useExcalidrawCloseFlush();
+  // Issue #352 / iter-15 — multi-window file singleton (focus-existing).
+  // When another window tries to open a file we already have open
+  // here, Rust raises this window via `focus_window` and emits
+  // `focus-tab` with the path; the hook selects the matching tab.
+  useFocusTab();
 
   // Apply theme class to <html> and listen for OS theme changes
   useApplyTheme(theme);
@@ -223,6 +242,18 @@ export default function App() {
                 onOpenFolder={handleOpenFolder}
               />
             )}
+          </ErrorBoundary>
+          {/*
+            Issue #352 / iter-13 — persistent Excalidraw mount host.
+            Rendered as a sibling of the viewer router (NOT a child)
+            so it survives `activeTabPath` changes — keeping each
+            registered editor's `<Excalidraw>` instance mounted across
+            tab switches, preserving native undo/redo history. Only
+            the active path's slot is visible; the others are
+            display:none. See `src/components/viewers/excalidraw/PersistentExcalidrawHost.tsx`.
+          */}
+          <ErrorBoundary>
+            <PersistentExcalidrawHost />
           </ErrorBoundary>
         </div>
 

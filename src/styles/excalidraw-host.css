@@ -1,0 +1,77 @@
+/*
+ * Issue #352 / iter-13 — persistent Excalidraw mount host.
+ *
+ * The host is rendered once at App-root level inside `.viewer-area`
+ * (see `App.tsx`). Its slots overlay the viewer area absolutely; only
+ * the slot whose `data-active="true"` is visible. Hidden slots stay
+ * mounted in the React tree (display:none keeps DOM + state alive)
+ * so the underlying `<Excalidraw>` instance retains its native
+ * undo/redo history, library panel, tool selection, and viewport
+ * pan/zoom across tab switches.
+ *
+ * The `.viewer-area` container in `app.css` is `position: relative`
+ * by default (flex layout with relative children); we re-assert that
+ * here as a load-bearing invariant for `.excalidraw-host__slot`'s
+ * absolute positioning to anchor correctly. The pointer-events
+ * passthrough on `.excalidraw-host` itself (none) lets clicks fall
+ * through to siblings (e.g. SourceView) when no slot is active.
+ */
+
+.viewer-area {
+  position: relative;
+}
+
+.excalidraw-host {
+  position: absolute;
+  inset: 0;
+  /* Behind any foreground viewer (SourceView, toolbar). When a slot
+     is active, the active slot's pointer-events: auto reclaims input
+     for the canvas. Inactive slots are display:none so they don't
+     intercept clicks on top of an active SourceView (when the active
+     tab is in Source mode for a registered Excalidraw path). */
+  pointer-events: none;
+}
+
+.excalidraw-host__slot {
+  position: absolute;
+  /* Iter-17 (Test (linux) regression fix): start the slot BELOW the
+     sticky `.viewer-toolbar` (z-index: 10, ~36px tall) so clicks on
+     the slot's banners (autosave / MRSF / save-error / conflict)
+     don't get intercepted by the toolbar geometrically. The slot
+     used to be `inset: 0` which placed its banners on top of the
+     toolbar's bounds — toolbar's z-index won click routing.
+     Toolbar height is consistent across viewers (4px padding +
+     28px button content ≈ 36px). */
+  top: 36px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  /* Default: hidden. data-active="true" reveals one at a time. */
+  display: none;
+  pointer-events: auto;
+}
+
+.excalidraw-host__slot[data-active="true"] {
+  display: block;
+}
+
+/*
+ * Iter-18 — hide Excalidraw's built-in zoom widget (the bottom-left
+ * +/-/% trio in the canvas chrome). Per the user product decision,
+ * zoom is owned exclusively by the viewer-toolbar; surfacing two
+ * sets of controls is confusing and the viewer-toolbar is keyboard-
+ * shortcutted (Ctrl+= / Ctrl+- / Ctrl+0). The button class names
+ * are stable across Excalidraw 0.18: `.zoom-button`, `.zoom-in-button`,
+ * `.zoom-out-button` (verified in `node_modules/@excalidraw/excalidraw/dist/prod/index.js`),
+ * and they sit inside the `.zoom-actions` wrapper.
+ *
+ * `.reset-zoom-button` is the percentage label between the +/-
+ * buttons; hiding the entire `.zoom-actions` parent covers all three.
+ */
+.excalidraw-host__slot .zoom-actions,
+.excalidraw-host__slot .zoom-button,
+.excalidraw-host__slot .zoom-in-button,
+.excalidraw-host__slot .zoom-out-button,
+.excalidraw-host__slot .reset-zoom-button {
+  display: none !important;
+}

@@ -17,7 +17,7 @@ const storeState = {
   back: mockBack,
   forward: mockForward,
   zoomByFiletype: {} as Record<string, number>,
-  viewModeByTab: {} as Record<string, "source" | "visual">,
+  viewModeByTab: {} as Record<string, "source" | "visual" | "editor">,
   tabs: [
     { path: "/a.md", title: "a" },
     { path: "/b.md", title: "b" },
@@ -342,6 +342,95 @@ describe("useGlobalShortcuts", () => {
       fire({ key: "p" });
       expect(document.activeElement).toBe(filterInput);
       otherInput.remove();
+    });
+  });
+
+  // Issue #352 / AC5 — Ctrl+S saves the active Excalidraw editor tab.
+  describe("Ctrl/Cmd+S in Excalidraw editor mode (#352 iter-11 — flush event)", () => {
+    it("dispatches mdownreview:excalidraw-flush-save event for active excalidraw editor tab", () => {
+      storeState.activeTabPath = "/ws/scene.excalidraw";
+      storeState.viewModeByTab = { "/ws/scene.excalidraw": "editor" };
+      const flushSpy = vi.fn();
+      const oldSpy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-flush-save", flushSpy);
+      window.addEventListener("mdownreview:excalidraw-save-request", oldSpy);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "s" });
+      expect(flushSpy).toHaveBeenCalledOnce();
+      const detail = (flushSpy.mock.calls[0][0] as CustomEvent).detail;
+      expect(detail).toEqual({ path: "/ws/scene.excalidraw" });
+      // Old iter-10 event is NOT dispatched.
+      expect(oldSpy).not.toHaveBeenCalled();
+      // Browser default (Save Page As) IS prevented.
+      expect(ev.defaultPrevented).toBe(true);
+      window.removeEventListener("mdownreview:excalidraw-flush-save", flushSpy);
+      window.removeEventListener("mdownreview:excalidraw-save-request", oldSpy);
+    });
+
+    it("Cmd+S (metaKey) on macOS works the same way", () => {
+      storeState.activeTabPath = "/ws/scene.excalidraw";
+      storeState.viewModeByTab = { "/ws/scene.excalidraw": "editor" };
+      const spy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-flush-save", spy);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = new KeyboardEvent("keydown", {
+        key: "s",
+        metaKey: true,
+        cancelable: true,
+        bubbles: true,
+      });
+      window.dispatchEvent(ev);
+      expect(spy).toHaveBeenCalledOnce();
+      window.removeEventListener("mdownreview:excalidraw-flush-save", spy);
+    });
+
+    it("is a no-op for non-excalidraw active tab", () => {
+      storeState.activeTabPath = "/a.md";
+      storeState.viewModeByTab = { "/a.md": "source" };
+      const spy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-flush-save", spy);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const ev = fire({ key: "s" });
+      expect(spy).not.toHaveBeenCalled();
+      // Browser default (Save Page As) NOT prevented for unrelated tabs.
+      expect(ev.defaultPrevented).toBe(false);
+      window.removeEventListener("mdownreview:excalidraw-flush-save", spy);
+    });
+
+    it("is a no-op for excalidraw tab in source mode", () => {
+      storeState.activeTabPath = "/ws/scene.excalidraw";
+      storeState.viewModeByTab = { "/ws/scene.excalidraw": "source" };
+      const spy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-flush-save", spy);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "s" });
+      expect(spy).not.toHaveBeenCalled();
+      window.removeEventListener("mdownreview:excalidraw-flush-save", spy);
+    });
+
+    it("is a no-op for excalidraw tab in visual mode", () => {
+      storeState.activeTabPath = "/ws/scene.excalidraw";
+      storeState.viewModeByTab = { "/ws/scene.excalidraw": "visual" };
+      const spy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-flush-save", spy);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      fire({ key: "s" });
+      expect(spy).not.toHaveBeenCalled();
+      window.removeEventListener("mdownreview:excalidraw-flush-save", spy);
+    });
+
+    it("editable-target guard skips Ctrl+S when target is editable", () => {
+      storeState.activeTabPath = "/ws/scene.excalidraw";
+      storeState.viewModeByTab = { "/ws/scene.excalidraw": "editor" };
+      const spy = vi.fn();
+      window.addEventListener("mdownreview:excalidraw-flush-save", spy);
+      renderHook(() => useGlobalShortcuts(callbacks));
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      fire({ key: "s", target: input });
+      expect(spy).not.toHaveBeenCalled();
+      input.remove();
+      window.removeEventListener("mdownreview:excalidraw-flush-save", spy);
     });
   });
 });

@@ -56,6 +56,15 @@ vi.mock("@/lib/tauri-commands", () => ({
   setAuthor: vi.fn().mockResolvedValue("Test User"),
   // Issue #264 — runtime tracing fires from App.tsx's mount effect.
   recordStartupPhase: vi.fn().mockResolvedValue(undefined),
+  // Iter-15 + iter-16 — multi-window file singleton + close-flush
+  // ready gate. Both are awaited from store/App-mount so they must
+  // be present even in test surfaces that don't exercise the
+  // related flows.
+  claimOpenFile: vi.fn().mockResolvedValue({ kind: "claimed" }),
+  releaseOpenFile: vi.fn().mockResolvedValue(undefined),
+  releaseOpenFiles: vi.fn().mockResolvedValue(undefined),
+  closeFlushComplete: vi.fn().mockResolvedValue(undefined),
+  markCloseFlushReady: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/hooks/useFileWatcher", () => ({ useFileWatcher: () => {} }));

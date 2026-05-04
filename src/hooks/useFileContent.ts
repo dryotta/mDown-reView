@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { readTextFile, statFile } from "@/lib/tauri-commands";
 import { getFileCategory } from "@/lib/file-types";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 
 export type FileStatus = "loading" | "ready" | "binary" | "too_large" | "image" | "error";
 
@@ -26,9 +26,24 @@ export function useFileContent(path: string): FileContent {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { path: string; kind: string };
-      if (detail.path === path && (detail.kind === "content" || detail.kind === "deleted")) {
-        setReloadKey((k) => k + 1);
+      if (detail.path !== path) return;
+      if (detail.kind !== "content" && detail.kind !== "deleted") return;
+      // Issue #352 / AC7 — when a content event arrives for a file that's
+      // currently dirty in Excalidraw Editor mode, hold off the reload
+      // and surface a banner instead. Reading the store inside the
+      // handler avoids re-binding the listener every time the dirty
+      // flag flips. Deleted events still propagate (the file is gone;
+      // there's no scene to keep).
+      if (detail.kind === "content") {
+        const state = useStore.getState();
+        const isEditor = state.viewModeByTab[path] === "editor";
+        const isDirty = state.excalidrawDirtyByTab[path] === true;
+        if (isEditor && isDirty) {
+          state.setExternalChangePending(path, true);
+          return;
+        }
       }
+      setReloadKey((k) => k + 1);
     };
     window.addEventListener("mdownreview:file-changed", handler);
     return () => window.removeEventListener("mdownreview:file-changed", handler);
@@ -46,6 +61,50 @@ export function useFileContent(path: string): FileContent {
     if (getFileCategory(path) === "image") {
       setState({ status: "image" }); // eslint-disable-line react-hooks/set-state-in-effect
       return;
+    }
+
+    // Issue #352 / iter-4 AC1+AC2 fix — `.excalidraw.png` / `.excalidraw.svg`
+    // are binary on disk, but the user-visible category is `excalidraw`
+    // (a viewable surface). Routing them through the binary fallthrough
+    // would land on `BinaryViewerShell`, missing the lazy
+    // `<ExcalidrawView/>` mount entirely. Instead, short-circuit here:
+    // mark status="ready" with empty content so `EnhancedViewer` mounts
+    // and `<ExcalidrawView needsExtract>` re-reads the binary via
+    // `extractScene` (which uses `read_binary_file` under the 10 MB
+    // cap). The Source-mode wrapper will run the same extraction and
+    // pretty-print the JSON.
+    const lower = path.toLowerCase();
+    if (lower.endsWith(".excalidraw.png") || lower.endsWith(".excalidraw.svg")) {
+      // Stat the file so the StatusBar still gets size/mtime.
+      let cancelled = false;
+      statFile(path)
+        .then((s) => {
+          if (cancelled) return;
+          setState({
+            status: "ready",
+            content: "",
+            sizeBytes: s.size_bytes,
+            lineCount: 0,
+            mtimeMs: s.mtime_ms ?? null,
+          });
+          useStore.getState().setFileMeta(path, {
+            sizeBytes: s.size_bytes,
+            lineCount: 0,
+            fileMtime: s.mtime_ms ?? undefined,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setState({
+            status: "ready",
+            content: "",
+            sizeBytes: 0,
+            lineCount: 0,
+          });
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
     let cancelled = false;

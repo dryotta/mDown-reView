@@ -1,0 +1,8 @@
+# Excalidraw fixtures: pin LF to make SHA-256 reproducible across platforms.
+# The fixture-pinning gate (samples/excalidraw/.fixtures.lock) hashes raw
+# bytes; CRLF normalization on Windows would otherwise break the gate.
+samples/excalidraw/*.excalidraw      text eol=lf
+samples/excalidraw/*.excalidrawlib   text eol=lf
+samples/excalidraw/*.svg             text eol=lf
+samples/excalidraw/*.png             binary
+samples/excalidraw/.fixtures.lock    text eol=lf

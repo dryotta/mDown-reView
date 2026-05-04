@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useStore, filterStaleTabs, MAX_TABS, type Tab } from "@/store/index";
+import { useStore, filterStaleTabs, MAX_TABS, type Tab } from "@/store";
 
 const initialState = useStore.getState();
 

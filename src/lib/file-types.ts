@@ -8,7 +8,17 @@ export type FileCategory =
   | "mermaid"
   | "kql"
   | "image"
+  | "excalidraw"
   | "text";
+
+/**
+ * View mode for visualizable files. Tier-2 viewers expose a Source ↔ Visual
+ * toggle; the Excalidraw viewer (issue #352) extends Tier 2 with a third
+ * "Editor" sub-mode that is mode-equivalent to Visual for commenting (file-
+ * level only) but enables in-place scene editing through the workspace-write
+ * chokepoint (architecture rule 32). All other viewers ignore "editor".
+ */
+export type ViewMode = "source" | "visual" | "editor";
 
 const CATEGORY_MAP: Record<string, FileCategory> = {
   ".md": "markdown",
@@ -31,7 +41,24 @@ const CATEGORY_MAP: Record<string, FileCategory> = {
   ".webp": "image",
   ".bmp": "image",
   ".ico": "image",
+  ".excalidraw": "excalidraw",
+  ".excalidrawlib": "excalidraw",
 };
+
+/**
+ * Compound-suffix routes checked BEFORE the single-extension `CATEGORY_MAP`
+ * lookup. Excalidraw's PNG/SVG variants are real PNG/SVG bytes with the
+ * scene JSON embedded in a tEXt chunk / `<metadata>` element — they must
+ * route to the Excalidraw category (not "image") so the viewer can offer
+ * Source/Visual/Editor modes instead of a plain `<img>`. Lowercased
+ * suffix-match mirrors the Rust extension allowlist at
+ * `src-tauri/src/commands/fs_write.rs::WORKSPACE_WRITE_ALLOWLIST` (see
+ * architecture rule 32).
+ */
+const DOUBLE_EXT_MAP: ReadonlyArray<readonly [string, FileCategory]> = [
+  [".excalidraw.png", "excalidraw"],
+  [".excalidraw.svg", "excalidraw"],
+];
 
 const VISUALIZABLE: Set<FileCategory> = new Set([
   "markdown",
@@ -40,9 +67,10 @@ const VISUALIZABLE: Set<FileCategory> = new Set([
   "html",
   "mermaid",
   "kql",
+  "excalidraw",
 ]);
 
-const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
+const DEFAULT_VIEW: Record<FileCategory, ViewMode> = {
   markdown: "visual",
   json: "visual",
   csv: "visual",
@@ -50,10 +78,15 @@ const DEFAULT_VIEW: Record<FileCategory, "source" | "visual"> = {
   mermaid: "visual",
   kql: "visual",
   image: "visual",
+  excalidraw: "visual",
   text: "source",
 };
 
 export function getFileCategory(path: string): FileCategory {
+  const lower = path.toLowerCase();
+  for (const [suffix, category] of DOUBLE_EXT_MAP) {
+    if (lower.endsWith(suffix)) return category;
+  }
   const ext = extname(path);
   return CATEGORY_MAP[ext] ?? "text";
 }
@@ -69,16 +102,34 @@ export function isSidecarFile(path: string): boolean {
 }
 
 /**
+ * True for Excalidraw library files (`.excalidrawlib`). Iter-22 redesign
+ * (user feedback) — libraries are reusable shape collections, not
+ * documents the user authors line-by-line. Editor mode for `.excalidrawlib`
+ * was removed in this iter; only Source (raw JSON) and Visual (read-only
+ * canvas + library sidebar grid) are reachable. The library sidebar
+ * stays open in Visual mode so the user can browse the curated shapes.
+ *
+ * Used by `EnhancedViewer` to hide the Editor segmented-control button
+ * and demote a stored `editor` mode to `visual` for these paths,
+ * mirroring the read-only-tab handling. The autosave hook
+ * (`useExcalidrawAutoSave`) is still mounted but its registry effect
+ * bails on `mode !== "editor"`, so no save path can fire.
+ */
+export function isExcalidrawLibrary(path: string): boolean {
+  return path.toLowerCase().endsWith(".excalidrawlib");
+}
+
+/**
  * Canonical filetype key used by the per-filetype zoom store
  * (`zoomByFiletype`). Several extensions collapse to one key (`.md` covers
  * both md/mdx; `.image` covers all bitmap/vector image extensions); the
  * `source` view of a visualizable file uses `.source` so source-mode zoom is
  * independent of visual-mode zoom for the same document.
  */
-export function getFiletypeKey(path: string, viewMode?: "source" | "visual"): string {
+export function getFiletypeKey(path: string, viewMode?: ViewMode): string {
   const cat = getFileCategory(path);
   if (cat === "image") return ".image";
-  const view = viewMode ?? getDefaultView(cat);
+  const view = viewMode ?? getDefaultView(cat, path);
   if (view === "source") return ".source";
   switch (cat) {
     case "markdown": return ".md";
@@ -87,6 +138,7 @@ export function getFiletypeKey(path: string, viewMode?: "source" | "visual"): st
     case "html": return ".html";
     case "mermaid": return ".mmd";
     case "kql": return ".kql";
+    case "excalidraw": return ".excalidraw";
     default: return ".source";
   }
 }
@@ -95,7 +147,14 @@ export function hasVisualization(category: FileCategory): boolean {
   return VISUALIZABLE.has(category);
 }
 
-export function getDefaultView(category: FileCategory): "source" | "visual" {
+/**
+ * Default view mode for a category. The optional `path` parameter lets the
+ * Excalidraw category vary by extension if a future product decision needs
+ * it (currently all four extensions default to "visual" per react-tauri
+ * pre-consult; the param is plumbing for iter-3+ to extend without an API
+ * break). All other categories ignore `path`.
+ */
+export function getDefaultView(category: FileCategory, _path?: string): ViewMode {
   return DEFAULT_VIEW[category];
 }
 

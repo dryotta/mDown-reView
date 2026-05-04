@@ -35,7 +35,7 @@ Full inline commenting at line and selection granularity. These are the primary 
 
 ### Tier 2 — Visual viewers with source toggle
 
-**Viewers:** JsonTreeView, CsvTableView, HtmlPreviewView, MermaidView, KqlPlanView
+**Viewers:** JsonTreeView, CsvTableView, HtmlPreviewView, MermaidView, KqlPlanView, ExcalidrawView (editor=yes)
 
 These render structured content in a non-line-based visual form. In visual mode, only file-level commenting is available. The user can switch to source view (via the Source/Visual toggle) for full Tier-1 commenting through SourceView.
 
@@ -49,6 +49,8 @@ These render structured content in a non-line-based visual form. In visual mode,
 | FileActionsBar | ✅ | ✅ |
 | Zoom (useZoom + ZoomControl) | ✅ | ✅ |
 | Keyed on `path` | ✅ | ✅ |
+
+**ExcalidrawView additionally exposes an Editor sub-mode** that is mode-equivalent to Visual for commenting (file-level only) but enables in-place scene editing routed through the workspace-write chokepoint (rule 32 in [`docs/architecture.md`](../architecture.md)). Editor mode does not change the tier — line/selection commenting still requires switching to Source mode. `.excalidraw` and `.excalidrawlib` are Tier 1 in Source mode (canonical authoring surface); `.excalidraw.png` and `.excalidraw.svg` are Tier 2 in Source mode because the embedded scene is derived from the rendered image, not authored as JSON.
 
 **Future structured anchors.** The Rust backend supports typed anchor variants for structured content (`CsvCell`, `JsonPath`, `ImageRect`, `HtmlRange`, `HtmlElement`, `WordRange`). Frontend entry points to create these anchors are not yet wired up. When they are, each structured viewer gains content-native commenting (e.g. click a CSV cell, click a JSON node) in visual mode — but the universal baseline above still applies.
 

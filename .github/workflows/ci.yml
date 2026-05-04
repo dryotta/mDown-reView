@@ -106,6 +106,9 @@ jobs:
       - name: Check JS bundle size (gzipped, 3 MB starter / 2 MB target)
         run: node scripts/check-bundle-size.mjs
 
+      - name: Check main entry bundle baseline (#352 / AC8 — within ±5%, lazy-boundary intact)
+        run: node scripts/check-bundle-baseline.mjs
+
   # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
   e2e-browser:
     name: E2E browser (Linux)

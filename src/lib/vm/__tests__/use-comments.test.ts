@@ -25,7 +25,7 @@ import {
 type FixtureComment = MatchedComment & { anchor?: Anchor };
 type FixtureThread = { root: FixtureComment; replies: FixtureComment[] };
 import { error as logError } from "@/logger";
-import { useStore } from "@/store/index";
+import { useStore } from "@/store";
 
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn((_eventName: string, _callback: unknown) => Promise.resolve(() => {})),

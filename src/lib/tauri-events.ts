@@ -97,6 +97,29 @@ export interface EventPayloads {
   "menu-about": void;
   "menu-check-updates": void;
   "menu-help-settings": void;
+  /**
+   * Issue #352 / iter-12 — pre-close flush handshake (renamed in
+   * iter-16 from `excalidraw-flush-before-close` to the generic
+   * `flush-before-close`). Emitted by Rust on
+   * `WindowEvent::CloseRequested` (after `prevent_close`); renderer
+   * drains all registered pending flushes and acks via the
+   * `close_flush_complete` IPC. Payload is the window label so a
+   * multi-window setup ack-es the correct close path. See
+   * `src-tauri/src/commands/close_flush.rs` and
+   * `src/hooks/useExcalidrawCloseFlush.ts`.
+   */
+  "flush-before-close": string;
+  /**
+   * Issue #352 / iter-15 — multi-window file singleton (focus-existing).
+   * Emitted by Rust's `claim_open_file` to the OWNING window when a
+   * different window tries to open a file already claimed there.
+   * Payload is the path string. Renderer hook
+   * `useFocusTab` listens and calls `setActiveTab(path)`. Rust ALSO
+   * focuses the owner window via `focus_window`
+   * (un-minimize → show → set-focus) before emitting, so the owner's
+   * window comes to the front even when minimized / hidden.
+   */
+  "focus-tab": string;
 }
 
 export type EventName = keyof EventPayloads;

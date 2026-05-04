@@ -161,6 +161,23 @@ async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Prom
   }
   if (cmd === "get_file_viewer_pref") return null;
   if (cmd === "set_file_viewer_pref") return undefined;
+  if (cmd === "write_workspace_text") return undefined;
+  if (cmd === "write_workspace_binary") return undefined;
+  // Issue #352 / iter-15 — multi-window file singleton. Tests should
+  // see the unowned default; specs that exercise the focus-existing
+  // path override via mockResolvedValueOnce on `commands.claimOpenFile`.
+  if (cmd === "claim_open_file") {
+    return { kind: "claimed" } as unknown as InvokeResult;
+  }
+  if (cmd === "release_open_file" || cmd === "release_open_files") {
+    return undefined;
+  }
+  // Iter-16 — close-flush primitive (renamed from
+  // excalidraw_close_flush_complete to the generic close_flush_complete;
+  // mark_close_flush_ready is the iter-16 ready gate).
+  if (cmd === "close_flush_complete" || cmd === "mark_close_flush_ready") {
+    return undefined;
+  }
   if (cmd === "get_sidecar_config")
     return {
       enabled: false,
