@@ -36,7 +36,11 @@ Editor mode **auto-saves on change** — there is no Save button and no manual s
 
 The save fires only when the **persistent content** has actually diverged from the on-disk baseline. The renderer keeps a `lastSavedHashRef` baseline, computed as a stable hash that strips Excalidraw's volatile `version` / `versionNonce` / `updated` fields (these mutate on every operation including mount-time normalisation passes). Mount-time onChanges produce the same stable hash as the loaded scene, so opening a file does NOT trigger a save. Tool clicks and viewport pans are filtered out the same way.
 
-**Cmd+S / Ctrl+S** flushes the pending debounce immediately and shows a transient `Saved` pill (top-right of the canvas, ~1.5s). This restores the muscle-memory affordance for power users — saves still happen automatically; the keyboard shortcut just confirms the action and bypasses the 2s wait.
+**Cmd+S / Ctrl+S** flushes the pending debounce immediately. A transient `Saved` pill flashes top-right of the canvas (~1.5 s) **only when a real disk write fired** — the pill is gated on `userInitiated && success`, so Cmd+S during paused / no-diff / conflict / in-flight states correctly does NOT flash the pill. The persistent `SaveStatusIndicator` (described below) is the source of truth for save state at all times; the pill is just a transient confirmation flash for the keyboard shortcut.
+
+### Persistent save-state indicator
+
+A persistent `SaveStatusIndicator` sits in the bottom-middle of the canvas in Editor mode and surfaces the current save state at all times — `saved`, `unsaved`, `saving`, `failed`, or `paused`. Priority order (highest → lowest): `paused > failed > saving > unsaved > saved`. The indicator hides until the first edit (no chrome on a freshly-opened, unmodified scene) and auto-fades 2 s after settling on `saved`; `failed` and `paused` never auto-fade — the user must take an explicit action (Retry / Resume / Dismiss) before the indicator clears. The `failed` and `paused` states use the must-acknowledge-banner pattern (`docs/best-practices-project/must-acknowledge-banner.md`): `paused` exposes only `[Resume]`, never `[Dismiss]`, so the user cannot accidentally hide an unsafe state.
 
 Format-preserving by file type (each branch is honoured in `src/lib/excalidraw/saveScene.ts`):
 
@@ -162,7 +166,6 @@ What this does NOT cross:
 ## Known limitations
 
 - **MRSF re-anchor fragility** (documented above). Saving an Excalidraw scene may degrade Tier-1 line-anchored comments to file-level. The first-Editor-entry banner alerts the user once.
-- **No persistent "saved" indicator yet.** The transient pill flashes on Cmd+S only; under autosave-only there is no on-screen affirmation that the *last* edit landed. Tracked as a follow-up — every autosave-only product the target user already pays for (Figma, Google Docs, VS Code) shows a persistent "Saved 2m ago" status. (Product review #352 P0-1.)
 - **Persistent host loses state on app close.** Undo history, library panel, viewport pan/zoom survive tab switches but reset on app restart. Cross-session persistence would require a custom undo stack persisted to disk.
 - **No native E2E save round-trip via the Editor UI yet.** `e2e/native/08-excalidraw-real-write.spec.ts` exercises the `write_workspace_text` IPC + watcher self-suppression + extension allowlist directly. A full Editor-driven `onChange → autosave → disk` round-trip in a real Tauri binary is tracked as a follow-up.
 

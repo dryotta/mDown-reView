@@ -263,6 +263,31 @@ export function useExcalidrawAutoSave(
     }
     const live = liveSceneRef.current;
     if (!live) return;
+    if (lastSavedHashRef.current === null) {
+      // No baseline established ⇒ the user cannot have authored any
+      // bytes. Bail out before the IPC fires.
+      //
+      // Iter-23 (#352 bug-expert ship-readiness): visual-mode unmount
+      // data-loss class. `notifyChange` populates `liveSceneRef` BEFORE
+      // the `if (modeRef !== "editor") return;` guard, so Excalidraw's
+      // mount-time normalisation `onChange` (font load, library merge,
+      // schema migration) leaves a populated `liveSceneRef` with a
+      // `null` baseline whenever the file was opened in Visual mode.
+      // The hook's unmount cleanup then calls
+      // `flushRef.current()` → `performSave(bypassModeCheck=true)`,
+      // which would otherwise compute `liveHash !== null` (always true
+      // against the `null` baseline), fire the IPC, and silently
+      // overwrite the on-disk bytes with normalisation drift.
+      // Worst case for `.excalidrawlib` (Visual-only post-iter-22):
+      // `liveLibraryItemsRef` was never seeded by `setBaselineLibrary`
+      // (that wiring lives in editor-mode entry), so the IPC payload's
+      // `libraryItems` is `null` and the file's curated palette is
+      // wiped — same blast radius as iter-21 P0-1, different code path.
+      // Regression test:
+      //   `[iter-23] visual-mode unmount does NOT save (no baseline ⇒
+      //    no edits possible)`.
+      return;
+    }
     const liveHash = computeSceneSnapshot(filePath, live);
     if (liveHash === lastSavedHashRef.current) {
       // No persistent-content drift since the last save (or the

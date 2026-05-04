@@ -359,3 +359,118 @@ describe("useExcalidrawAutoSave — close-flush bypasses paused guard (#352 P0-1
     });
   });
 });
+
+/**
+ * Iter-23 (#352 bug-expert ship-readiness review) — visual-mode
+ * unmount data-loss class.
+ *
+ * Bug shape: `notifyChange` populates `liveSceneRef.current = merged`
+ * BEFORE the `if (modeRef.current !== "editor") return;` guard. In
+ * Visual mode, Excalidraw's mount-time normalisation `onChange` fires
+ * (font load, library merge, schema migration) and populates
+ * `liveSceneRef`, but `lastSavedHashRef` stays `null` (the
+ * baseline-bootstrap branch in `notifyChange` is gated behind the
+ * mode check). When the user closes the tab, the hook's unmount
+ * cleanup calls `flushRef.current()` → `performSave(bypassModeCheck=true)`.
+ * The pre-fix `performSave` had no "no-baseline → bail" guard, so
+ * `liveHash !== lastSavedHashRef.current` (the latter `null`) compared
+ * true and the IPC fired with whatever Excalidraw stuffed into
+ * `liveSceneRef` — silently overwriting the on-disk bytes.
+ *
+ * Worst case is `.excalidrawlib` (Visual-only post-iter-22):
+ * `liveLibraryItemsRef` is seeded only by `setBaselineLibrary`, which
+ * fires from the Editor-mode entry effect — so a Visual-only library
+ * tab close writes `libraryItems: null`, wiping the curated palette
+ * (same blast radius as iter-21 P0-1, different code path).
+ *
+ * Fix: `performSave` bails if `lastSavedHashRef.current === null` —
+ * no baseline ⇒ the user cannot have authored any bytes ⇒ nothing to
+ * save.
+ */
+describe("useExcalidrawAutoSave — visual-mode unmount must NOT save (#352 iter-23)", () => {
+  it("[iter-23] .excalidraw in visual mode: tab-close-after-mount-onChange does not fire IPC", () => {
+    // Mount in visual mode. Excalidraw's mount-time `onChange` (font
+    // load / library merge / normalisation pass) populates
+    // `liveSceneRef` but the `mode !== "editor"` guard skips the
+    // baseline-bootstrap branch.
+    const { result, unmount } = renderHook(() =>
+      useExcalidrawAutoSave("/ws/foo.excalidraw", "visual", false),
+    );
+    act(() => {
+      result.current.notifyChange({
+        elements: [{ id: "e1", type: "rectangle" } as Record<string, unknown>],
+        appState: {},
+        files: {},
+      });
+    });
+    // No save queued — visual-mode notifyChange returns before
+    // arming the debounce timer.
+    expect(mocks.saveExcalidrawFileMock).not.toHaveBeenCalled();
+    // User closes the tab. Hook unmount cleanup calls
+    // `flushRef.current()` → `performSave(bypassModeCheck=true)`.
+    act(() => {
+      unmount();
+    });
+    // The unmount-flush MUST be a no-op for visual-mode tabs — the
+    // user cannot have authored any bytes if no baseline was
+    // established. Pre-fix this assertion failed: the IPC fired with
+    // the mount-onChange residue.
+    expect(mocks.saveExcalidrawFileMock).not.toHaveBeenCalled();
+  });
+
+  it("[iter-23] .excalidrawlib in visual mode: tab-close does not wipe the curated library", () => {
+    // .excalidrawlib is Visual-only post-iter-22. Every library
+    // tab-close used to silently wipe the palette via the
+    // unmount-flush path. This test locks the iter-21 P0-1 invariant
+    // (no library-wipe-on-save) at the visual-mode unmount path too.
+    const { result, unmount } = renderHook(() =>
+      useExcalidrawAutoSave("/ws/icons.excalidrawlib", "visual", false),
+    );
+    act(() => {
+      result.current.notifyChange({
+        elements: [],
+        appState: {},
+        files: {},
+      });
+    });
+    expect(mocks.saveExcalidrawFileMock).not.toHaveBeenCalled();
+    act(() => {
+      unmount();
+    });
+    expect(mocks.saveExcalidrawFileMock).not.toHaveBeenCalled();
+  });
+
+  it("[iter-23] editor-mode unmount STILL flushes pending edits (no regression on iter-11 D1)", () => {
+    // Defence-in-depth: the iter-23 no-baseline guard must NOT regress
+    // the iter-11 cleanup-flush contract. After a real edit is
+    // baselined and a divergent edit follows, unmount-flush MUST fire
+    // the IPC to drain the user's in-flight bytes.
+    const { result, unmount } = renderHook(() =>
+      useExcalidrawAutoSave("/ws/scene.excalidraw", "editor", false),
+    );
+    // First onChange establishes the baseline (mount-time).
+    act(() => {
+      result.current.notifyChange({
+        elements: [{ id: "e1", type: "rectangle" } as Record<string, unknown>],
+        appState: {},
+        files: {},
+      });
+    });
+    // Second onChange diverges from the baseline — a real edit.
+    act(() => {
+      result.current.notifyChange({
+        elements: [
+          { id: "e1", type: "rectangle" } as Record<string, unknown>,
+          { id: "e2", type: "ellipse" } as Record<string, unknown>,
+        ],
+        appState: {},
+        files: {},
+      });
+    });
+    // Unmount within the 2 s debounce window — flush, not cancel.
+    act(() => {
+      unmount();
+    });
+    expect(mocks.saveExcalidrawFileMock).toHaveBeenCalledTimes(1);
+  });
+});
