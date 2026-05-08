@@ -62,3 +62,178 @@ pub fn unregister_window_folder(
     log::info!("[window] {} unregistered folder", window.label());
     Ok(())
 }
+
+// ── Group B (issue #359 AC1/AC2/AC3/AC7) ──────────────────────────────────
+//
+// `register_window_file` — chokepoint called by the renderer's tab-open
+// path BEFORE dispatching `read_text_file`. Seeds the watcher allowlist
+// (so `ensure_readable` accepts the path) and returns the canonical path
+// + tier classification so the renderer can derive `readOnly` atomically
+// with the tab insert (closes the AC7 race that motivated removing
+// `classifyAndMarkReadOnly`).
+//
+// `extend_window_scope_files` — the banner-opt-in path (AC3): grants
+// BOTH asset-protocol scope AND watcher seed for the supplied files'
+// canonical parents via the existing `ScopeGrant::FilesParents`
+// chokepoint.
+
+#[derive(serde::Serialize, Debug, specta::Type)]
+pub struct RegisterWindowFileResult {
+    pub canonical: String,
+    pub classification: crate::core::types::wire::PathClassification,
+}
+
+/// Register a user-initiated file open with the per-window scope.
+///
+/// Called by the renderer's tab-open chokepoint BEFORE dispatching
+/// `read_text_file` so that `ensure_readable`'s `is_path_allowed` check
+/// passes. Adds the file's canonical-parent to the per-window
+/// `tree_watched_dirs` allowlist (watcher-seed only — does NOT widen
+/// asset-scope; that's the banner opt-in via `extend_window_scope_files`).
+///
+/// Security:
+/// - Canonicalises the input via `canonicalize_no_verbatim` (rejects `..`,
+///   relative, verbatim).
+/// - Classifies the canonical path via
+///   `core::security::system_locations::classify` and rejects `Tier::System`
+///   with the sentinel "system path blocked" matching
+///   `commands::fs::mod::ensure_readable`'s vocabulary.
+/// - Returns the canonical path plus a `PathClassification` so the renderer
+///   can derive `readOnly` atomically with the tab insert (AC7 — eliminates
+///   the `classifyAndMarkReadOnly` race).
+///
+/// Cite: docs/architecture.md rule 1 (chokepoint discipline) +
+/// docs/security.md rule 17 (asset-scope vs watcher-allowlist split).
+#[mdr_command]
+pub fn register_window_file(
+    window: tauri::Window,
+    path: String,
+    state: tauri::State<'_, crate::watcher::WatcherState>,
+) -> Result<RegisterWindowFileResult, String> {
+    register_window_file_inner(window.label(), &path, &state)
+}
+
+/// Test-seam: extracted body so unit/integration tests can drive without
+/// a full `tauri::App`. Mirrors the `_inner` pattern at
+/// `commands/fs/read.rs:read_text_file_inner`.
+pub fn register_window_file_inner(
+    window_label: &str,
+    path_str: &str,
+    state: &crate::watcher::WatcherState,
+) -> Result<RegisterWindowFileResult, String> {
+    use crate::core::security::system_locations::{classify, tier_to_wire, Tier};
+
+    let raw = std::path::Path::new(path_str);
+    let canonical = crate::core::paths::canonicalize_no_verbatim(raw).map_err(|e| {
+        tracing::warn!(
+            target: "fs-guard",
+            "[fs-guard] register_window_file canonicalize failed for {}: {e}",
+            path_str
+        );
+        "canonicalize failed".to_string()
+    })?;
+    let parent = canonical
+        .parent()
+        .ok_or_else(|| "path has no parent".to_string())?
+        .to_path_buf();
+
+    // Classify on the canonical path. The workspace_root argument is the
+    // canonical itself so the Inside/Outside discriminator collapses to
+    // Inside; only the Tier::System branch can reject. Mirrors the
+    // discriminator-collapse pattern in `commands::fs::mod::ensure_readable`.
+    let classification = match classify(&canonical, &canonical) {
+        Ok(Tier::System { .. }) => {
+            tracing::warn!(
+                target: "fs-guard",
+                "[fs-guard] register_window_file system path blocked: {}",
+                canonical.display()
+            );
+            return Err("system path blocked".into());
+        }
+        Ok(tier) => tier_to_wire(&tier, &canonical),
+        Err(e) => {
+            tracing::warn!(
+                target: "fs-guard",
+                "[fs-guard] register_window_file non-canonical: {} reason={:?}",
+                canonical.display(),
+                e
+            );
+            return Err("path not canonicalizable".into());
+        }
+    };
+
+    // Watcher seed only — NOT asset scope. Asset scope is the banner opt-in
+    // (extend_window_scope_files) per AC3.
+    state.seed_window_workspace(window_label, vec![parent]);
+
+    Ok(RegisterWindowFileResult {
+        canonical: canonical.to_string_lossy().into_owned(),
+        classification,
+    })
+}
+
+/// Extend per-window scope (BOTH asset-protocol scope AND watcher allowlist)
+/// for the given paths' canonical parents. Used by:
+///   1. The "Allow for this session" banner click in the markdown viewer
+///      (AC3) — grants asset scope to embedded image directories.
+///   2. Future single-window deferred grants. Idempotent.
+///
+/// Each path is canonicalized and classified. `Tier::System` paths are
+/// rejected with the "system path blocked" sentinel; non-canonical paths
+/// with "path not canonicalizable". On any per-path rejection, the IPC
+/// returns Err and no partial mutation occurs (atomic — collect all
+/// canonicals first, then call `extend_window_scope` once).
+///
+/// Cite: docs/security.md rule 17 (asset-scope chokepoint, banner opt-in).
+#[mdr_command]
+pub fn extend_window_scope_files(
+    window: tauri::Window,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    let canonicals = collect_canonicals_for_extend(&paths)?;
+    window_scope::extend_window_scope(
+        window.app_handle(),
+        window.label(),
+        ScopeGrant::FilesParents(canonicals),
+    );
+    Ok(())
+}
+
+/// Helper: canonicalize + classify each input path, returning the vec of
+/// canonicals on success. On any rejection (system path / non-canonical),
+/// returns Err with the first sentinel encountered — atomic, no partial
+/// mutation. Exposed as `pub` so integration tests in `src-tauri/tests/`
+/// (a separate crate) can drive without a `tauri::App` (the `mock_app()`
+/// harness is unreliable on Windows hosts — precedent:
+/// `comments_emit_test.rs:19-23`).
+pub fn collect_canonicals_for_extend(
+    paths: &[String],
+) -> Result<Vec<std::path::PathBuf>, String> {
+    use crate::core::security::system_locations::{classify, Tier};
+
+    let mut canonicals: Vec<std::path::PathBuf> = Vec::with_capacity(paths.len());
+    for path_str in paths {
+        let raw = std::path::Path::new(path_str);
+        let canonical = crate::core::paths::canonicalize_no_verbatim(raw).map_err(|e| {
+            tracing::warn!(
+                target: "fs-guard",
+                "[fs-guard] extend_window_scope_files canonicalize failed for {}: {e}",
+                path_str
+            );
+            "canonicalize failed".to_string()
+        })?;
+        match classify(&canonical, &canonical) {
+            Ok(Tier::System { .. }) => {
+                tracing::warn!(
+                    target: "fs-guard",
+                    "[fs-guard] extend_window_scope_files system path blocked: {}",
+                    canonical.display()
+                );
+                return Err("system path blocked".into());
+            }
+            Ok(_) => canonicals.push(canonical),
+            Err(_) => return Err("path not canonicalizable".into()),
+        }
+    }
+    Ok(canonicals)
+}

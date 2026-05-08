@@ -165,6 +165,11 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
                 if (cmd === "mark_close_flush_ready") return undefined;
                 if (cmd === "register_window_folder") return undefined;
                 if (cmd === "unregister_window_folder") return undefined;
+                if (cmd === "register_window_file") {
+                  const p = ((args as { path?: string })?.path) ?? "";
+                  return { canonical: p, classification: { tier: "inside", canonical: p } };
+                }
+                if (cmd === "extend_window_scope_files") return undefined;
                 if (cmd === "get_sidecar_config")
                   return {
                     enabled: false,
@@ -231,6 +236,11 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             if (cmd === "mark_close_flush_ready") return undefined;
             if (cmd === "register_window_folder") return undefined;
             if (cmd === "unregister_window_folder") return undefined;
+            if (cmd === "register_window_file") {
+              const p = ((args as { path?: string })?.path) ?? "";
+              return { canonical: p, classification: { tier: "inside", canonical: p } };
+            }
+            if (cmd === "extend_window_scope_files") return undefined;
             if (cmd === "get_sidecar_config")
               return { enabled: false, sidecar_root: null, count_in_folder: 0, count_colocated: 0 };
             if (cmd === "set_sidecar_config")

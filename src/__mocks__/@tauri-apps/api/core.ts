@@ -14,6 +14,7 @@ import type {
   MigrateSidecarsResult,
   MrsfSidecar,
   ReadDirResult,
+  RegisterWindowFileResult,
   SearchMatch,
   SidecarConfigResult,
   TextFileResult,
@@ -40,6 +41,7 @@ type InvokeResult =
   | WordSpan[]
   | Record<string, FileBadge>
   | TextFileResult
+  | RegisterWindowFileResult
   | FileViewerPref
   | SidecarConfigResult
   | MigrateSidecarsResult
@@ -201,6 +203,14 @@ async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Prom
   if (cmd === "read_dir") return { entries: [], total: 0, has_more: false } satisfies ReadDirResult;
   if (cmd === "register_window_folder") return undefined;
   if (cmd === "unregister_window_folder") return undefined;
+  if (cmd === "register_window_file") {
+    const p = (_args?.path as string) ?? "";
+    return {
+      canonical: p,
+      classification: { tier: "inside", canonical: p },
+    } satisfies RegisterWindowFileResult;
+  }
+  if (cmd === "extend_window_scope_files") return undefined;
   // record_startup_phase is fire-and-forget telemetry (#264). Tests don't
   // verify the side-effect; returning undefined matches the Rust
   // `() -> ()` shape so the façade's bindings.recordStartupPhase resolves.

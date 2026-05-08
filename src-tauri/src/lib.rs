@@ -443,6 +443,8 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 update::install_update,
                 commands::window_register::register_window_folder,
                 commands::window_register::unregister_window_folder,
+                commands::window_register::register_window_file,
+                commands::window_register::extend_window_scope_files,
                 $($extra)*
             ]
         };

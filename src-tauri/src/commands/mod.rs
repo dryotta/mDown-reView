@@ -73,7 +73,11 @@ pub use sidecar_config::{
     SidecarConfigResult,
 };
 pub use word_tokens::tokenize_words;
-pub use window_register::{register_window_folder, unregister_window_folder};
+pub use window_register::{
+    collect_canonicals_for_extend, extend_window_scope_files, register_window_file,
+    register_window_file_inner, register_window_folder, unregister_window_folder,
+    RegisterWindowFileResult,
+};
 
 /// True for `<file>.review.yaml` / `<file>.review.json` sidecar names.
 /// Shared by `fs::read_dir` (filtering) and `launch::set_root_via_test`.
