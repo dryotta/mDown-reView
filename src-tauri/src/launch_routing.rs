@@ -111,6 +111,20 @@ pub(crate) fn route_args_through_registry(
             registry::RouteDecision::AddToWindow { label, files } => {
                 if let Some(win) = handle.get_webview_window(&label) {
                     crate::focus_window(&win);
+                    // Issue #359 / AC4: forwarding a file to an existing window
+                    // must extend that window's asset-scope + watcher seed to
+                    // cover the new file's parent dir BEFORE emitting
+                    // `open-file-tab` — otherwise the renderer drains the new
+                    // tab and fires reads that fail the workspace guard with
+                    // "path not in workspace" and inline images fail asset
+                    // resolution. See `docs/security.md` rule 17 (asset-scope
+                    // chokepoint, banner-vs-direct-grant split): direct-grant
+                    // path mirrors the `CreateFileOnly` arm above.
+                    window_scope::extend_window_scope(
+                        handle,
+                        &label,
+                        window_scope::ScopeGrant::FilesParents(files.clone()),
+                    );
                     // Rule multiwin-window-scoped-events: emit_to(label, ...) scopes delivery;
                     // WebviewWindow::emit is a global broadcast.
                     let _ = handle.emit_to(label.as_str(), "open-file-tab", &files);
