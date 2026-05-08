@@ -62,8 +62,7 @@ pub(crate) fn route_args_through_registry(
                                 window_scope::extend_window_scope(
                                     handle,
                                     &label,
-                                    &registry::WindowKind::Folder(path.clone()),
-                                    &[],
+                                    window_scope::ScopeGrant::Folder(path.clone()),
                                 );
                                 reg.push_args(
                                     &label,
@@ -128,8 +127,7 @@ pub(crate) fn route_args_through_registry(
                         window_scope::extend_window_scope(
                             handle,
                             &label,
-                            &registry::WindowKind::FileOnly,
-                            &files,
+                            window_scope::ScopeGrant::FilesParents(files.clone()),
                         );
                         let file_strs: Vec<String> =
                             files.iter().map(|f| f.to_string_lossy().into_owned()).collect();

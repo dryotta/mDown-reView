@@ -22,6 +22,7 @@ pub mod search;
 pub mod startup;
 pub mod system;
 pub mod sidecar_config;
+pub mod window_register;
 pub mod word_tokens;
 
 // ── Re-export core types so existing code (lib.rs, tests) still compiles ──
@@ -72,6 +73,7 @@ pub use sidecar_config::{
     SidecarConfigResult,
 };
 pub use word_tokens::tokenize_words;
+pub use window_register::{register_window_folder, unregister_window_folder};
 
 /// True for `<file>.review.yaml` / `<file>.review.json` sidecar names.
 /// Shared by `fs::read_dir` (filtering) and `launch::set_root_via_test`.

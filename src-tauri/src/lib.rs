@@ -351,57 +351,10 @@ fn open_new_window(app: &tauri::AppHandle) -> Result<(), String> {
             // windows have no files to grant scope for — the call is a
             // documented no-op for this variant — but skipping it would
             // normalise the bypass for future maintainers.
-            window_scope::extend_window_scope(app, &new_label, &registry::WindowKind::FileOnly, &[]);
+            window_scope::extend_window_scope(app, &new_label, window_scope::ScopeGrant::FilesParents(vec![]));
             log::info!("[window] new-window: created {new_label}");
         })
         .map_err(|e| format!("failed to create window: {e}"))
-}
-
-#[mdr_command]
-fn register_window_folder(
-    window: tauri::Window,
-    folder: String,
-    registry: tauri::State<'_, registry::WindowRegistry>,
-) -> Result<(), String> {
-    let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(&folder))
-        .map_err(|e| format!("invalid folder: {}", e))?;
-    let display = folder_display_name(&canonical);
-    match registry.try_claim_folder(window.label(), canonical.clone()) {
-        Ok(()) => {
-            let _ = window.set_title(&format!("mdownreview — {display}"));
-            // #338 iter-1 forward-fix: chokepoint asset-scope + watcher seed.
-            window_scope::extend_window_scope(
-                window.app_handle(),
-                window.label(),
-                &registry::WindowKind::Folder(canonical.clone()),
-                &[],
-            );
-            log::info!("[window] {} registered folder: {display}", window.label());
-            Ok(())
-        }
-        Err(existing_label) => {
-            // Focus the window that already owns this folder
-            if let Some(existing_win) = window.app_handle().get_webview_window(&existing_label) {
-                focus_window(&existing_win);
-            }
-            log::info!(
-                "[window] {} tried to claim folder {display} already owned by {existing_label}",
-                window.label()
-            );
-            Err(format!("folder already open in window '{existing_label}'"))
-        }
-    }
-}
-
-#[mdr_command]
-fn unregister_window_folder(
-    window: tauri::Window,
-    registry: tauri::State<'_, registry::WindowRegistry>,
-) -> Result<(), String> {
-    registry.update_kind(window.label(), registry::WindowKind::FileOnly);
-    let _ = window.set_title("mdownreview");
-    log::info!("[window] {} unregistered folder", window.label());
-    Ok(())
 }
 
 // Route incoming `LaunchArgs` through the `WindowRegistry` — extracted to
@@ -488,8 +441,8 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::startup::record_startup_phase,
                 update::check_update,
                 update::install_update,
-                register_window_folder,
-                unregister_window_folder,
+                commands::window_register::register_window_folder,
+                commands::window_register::unregister_window_folder,
                 $($extra)*
             ]
         };
@@ -648,7 +601,7 @@ pub fn run() {
                 // #338 iter-1 forward-fix: extend asset-scope AND seed
                 // tree-watched-dirs synchronously so the renderer's first
                 // file-read IPC passes the workspace guard.
-                window_scope::extend_window_scope(app.handle(), "main", &registry::WindowKind::Folder(canonical.clone()), &[]);
+                window_scope::extend_window_scope(app.handle(), "main", window_scope::ScopeGrant::Folder(canonical.clone()));
             } else {
                 reg.register("main".to_string(), registry::WindowKind::FileOnly);
                 let file_paths: Vec<std::path::PathBuf> = launch_args
@@ -656,7 +609,7 @@ pub fn run() {
                     .iter()
                     .map(std::path::PathBuf::from)
                     .collect();
-                window_scope::extend_window_scope(app.handle(), "main", &registry::WindowKind::FileOnly, &file_paths);
+                window_scope::extend_window_scope(app.handle(), "main", window_scope::ScopeGrant::FilesParents(file_paths));
             }
 
             // Create additional windows for extra folders (beyond the first),
@@ -679,7 +632,7 @@ pub fn run() {
                                 let kind = registry::WindowKind::Folder(path.clone());
                                 reg.register(label.clone(), kind.clone());
                                 // #338 iter-1 forward-fix: chokepoint asset-scope + watcher seed.
-                                window_scope::extend_window_scope(&app_handle, &label, &kind, &[]);
+                                window_scope::extend_window_scope(&app_handle, &label, window_scope::ScopeGrant::Folder(path.clone()));
                                 reg.push_args(&label, LaunchArgs {
                                     folders: vec![path.to_string_lossy().into_owned()],
                                     files: vec![],
