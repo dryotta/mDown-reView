@@ -69,41 +69,11 @@ function registerWindowFile(nativePage: import("@playwright/test").Page, absPath
 }
 
 test.describe("issue #359 — outside file open", () => {
-  // TODO(#366): repro-1 is `test.skip` because it fails deterministically on
-  // CI Windows runners with `expected "ok", received "path not in workspace"`
-  // at line 104 (post-register read). The watched_dirs list in the failure
-  // log shows stale tempdirs from prior tests (timestamp 1778307091486 from
-  // a 5-minute-earlier test still appearing in scope state at 1778312325147),
-  // suggesting a test-fixture window-scope state leak between specs that
-  // gets unmasked under CI's slower scheduler. The local Windows clean run
-  // (after stale-process cleanup) passes this test, so the flake is
-  // CI-environment-specific.
-  //
-  // PR #363 (cold-start light-theme window flash fix) does NOT touch the
-  // code path this test exercises — `register_window_file`
-  // (commands/window_register.rs), `read_text_file` (commands/fs/),
-  // `set_root_via_test` (commands/launch.rs) — none of these are on the
-  // window-builder / theme-resolver path that PR #363 modified. The test
-  // failed identically across two consecutive Release Gate retries on the
-  // exact same iter-3 HEAD, ruling out flake-and-retry resolution.
-  //
-  // The IPC contract this test asserts is also covered at the unit/component
-  // layer:
-  //   - src/store/__tests__/tabs.test.ts (the `store/tabs.ts:openFile`
-  //     chokepoint that calls register-then-read in the right order)
-  //   - src/__tests__/no-classify-and-mark-readonly.test.ts (the
-  //     classify-on-register path)
-  //   - src-tauri/src/commands/fs/ unit tests (containment guard)
-  // Native-shell smoke is the only coverage gap — comparable narrowing
-  // to the existing `multiwin-concurrent-cli-launch` test.skip from
-  // PR #363 iter-1 forward-fix-2.
-  //
-  // Follow-up issue tracks restoring the native-shell smoke. Two options:
-  //   1. Reset window-scope state between tests in the native fixture
-  //      (e2e/native/fixtures.ts teardown).
-  //   2. Quarantine register-tests into their own Playwright project
-  //      that respawns the binary between specs.
-  test.skip("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
+  // Issue #366: precondition reset is wired in `fixtures.ts` `nativePage`
+  // fixture (calls `reset_window_scope_for_test` after `__TAURI_INTERNALS__`
+  // is ready and before `await use(page)`), so this spec receives an
+  // empty per-window scope state regardless of prior specs.
+  test("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
     const folderA = nativeTempDir("mdr-359-folderA");
     const folderB = nativeTempDir("mdr-359-fileB");
     const insideMd = path.join(folderA, "inside.md");

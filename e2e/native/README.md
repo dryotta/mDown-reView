@@ -28,11 +28,16 @@ Run via:
 ## Per-spec window-scope reset (issue #366)
 
 Specs share one debug binary, so per-window watcher state
-(`tree_watched_dirs`) accumulates across specs. The `nativePage` fixture in
-`e2e/native/fixtures.ts` calls the `#[cfg(debug_assertions)]`-only
-`reset_window_scope_for_test` IPC before yielding the page to each spec —
-giving every spec a clean precondition. New specs do NOT need to call this
-manually; using the `nativePage` fixture is the static invariant.
+(`tree_watched_dirs`, `watched_paths`) accumulates across specs. The
+`nativePage` fixture in `e2e/native/fixtures.ts` invokes the
+`#[cfg(debug_assertions)]`-only `reset_window_scope_for_test` IPC
+between the `__TAURI_INTERNALS__` readiness check and `await use(page)`,
+giving every spec a clean precondition. Single-chokepoint pattern: any
+spec using the `nativePage` fixture is reset; specs that bypass the
+fixture and call `base.test` directly are NOT reset (none currently do).
+
+New specs do NOT need to call this manually — using the `nativePage`
+fixture is the static invariant.
 
 ## Specs
 
