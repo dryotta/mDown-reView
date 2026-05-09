@@ -8,7 +8,7 @@ beforeEach(() => {
 });
 
 describe("recentItems — addRecentItem", () => {
-  it("adds a file to recentItems", () => {
+  it("adds a file to recentItems", async () => {
     useStore.getState().addRecentItem("/docs/readme.md", "file");
     const items = useStore.getState().recentItems;
     expect(items).toHaveLength(1);
@@ -17,7 +17,7 @@ describe("recentItems — addRecentItem", () => {
     expect(typeof items[0].timestamp).toBe("number");
   });
 
-  it("adds a folder to recentItems", () => {
+  it("adds a folder to recentItems", async () => {
     useStore.getState().addRecentItem("/workspace/docs", "folder");
     const items = useStore.getState().recentItems;
     expect(items).toHaveLength(1);
@@ -25,7 +25,7 @@ describe("recentItems — addRecentItem", () => {
     expect(items[0].type).toBe("folder");
   });
 
-  it("deduplicates by moving existing item to front", () => {
+  it("deduplicates by moving existing item to front", async () => {
     useStore.getState().addRecentItem("/a.md", "file");
     useStore.getState().addRecentItem("/b.md", "file");
     useStore.getState().addRecentItem("/a.md", "file");
@@ -35,7 +35,7 @@ describe("recentItems — addRecentItem", () => {
     expect(items[1].path).toBe("/b.md");
   });
 
-  it("evicts oldest item when exceeding max 5", () => {
+  it("evicts oldest item when exceeding max 5", async () => {
     for (let i = 1; i <= 6; i++) {
       useStore.getState().addRecentItem(`/file${i}.md`, "file");
     }
@@ -46,7 +46,7 @@ describe("recentItems — addRecentItem", () => {
     expect(items.find((i) => i.path === "/file1.md")).toBeUndefined();
   });
 
-  it("most recent item is first in the array", () => {
+  it("most recent item is first in the array", async () => {
     useStore.getState().addRecentItem("/first.md", "file");
     useStore.getState().addRecentItem("/second.md", "file");
     const items = useStore.getState().recentItems;
@@ -71,13 +71,13 @@ describe("closeFolder", () => {
 
   it("keeps open tabs unchanged", async () => {
     await useStore.getState().setRoot("/workspace");
-    useStore.getState().openFile("/workspace/readme.md");
+    await useStore.getState().openFile("/workspace/readme.md");
     useStore.getState().closeFolder();
     expect(useStore.getState().tabs).toHaveLength(1);
     expect(useStore.getState().activeTabPath).toBe("/workspace/readme.md");
   });
 
-  it("is a no-op when root is already null", () => {
+  it("is a no-op when root is already null", async () => {
     useStore.getState().closeFolder();
     expect(useStore.getState().root).toBeNull();
   });

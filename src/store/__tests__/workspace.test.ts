@@ -20,11 +20,15 @@ import { useStore } from "@/store";
 import { registerWindowFolder } from "@/lib/tauri-commands";
 import { warn } from "@/logger";
 
-vi.mock("@/lib/tauri-commands", () => ({
-  registerWindowFolder: vi.fn().mockResolvedValue(undefined),
-  // canonicalizeOrFallback uses canonicalize_path; mock it too.
-  canonicalize_path: vi.fn().mockImplementation(async (p: string) => p),
-}));
+vi.mock("@/lib/tauri-commands", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-commands")>();
+  return {
+    ...actual,
+    registerWindowFolder: vi.fn().mockResolvedValue(undefined),
+    // canonicalizeOrFallback uses canonicalize_path; mock it too.
+    canonicalize_path: vi.fn().mockImplementation(async (p: string) => p),
+  };
+});
 
 vi.mock("@/logger", () => ({
   error: vi.fn(),
@@ -129,9 +133,9 @@ describe("workspaceSlice.openFolderPath", () => {
 });
 
 describe("workspaceSlice.openFilePath", () => {
-  it("opens the file as a tab AND records it in recents in one call", () => {
+  it("opens the file as a tab AND records it in recents in one call", async () => {
     const before = useStore.getState().tabs.length;
-    useStore.getState().openFilePath("/test/notes.md");
+    await useStore.getState().openFilePath("/test/notes.md");
     const state = useStore.getState();
     expect(state.tabs.length).toBe(before + 1);
     expect(state.tabs[state.tabs.length - 1]).toEqual(

@@ -17,6 +17,8 @@
  */
 
 import { useStore } from "@/store";
+import { extendWindowScopeFiles } from "@/lib/tauri-commands";
+import { error as logError } from "@/logger";
 
 export type BannerVariant =
   | { kind: "tier3-references" }
@@ -113,7 +115,23 @@ function bannerCopy(variant: BannerVariant): BannerCopy {
         copy: "⚠ This document references files outside your workspace.",
         button: {
           label: "Allow for this session",
-          onClick: () => useStore.getState().allowOutsideForTab(tabPath),
+          // Issue #359 / AC3 — extend the asset-protocol scope to the
+          // file's canonical parent BEFORE flipping the renderer flag,
+          // so embedded relative-path images (rendered via
+          // `convertFileSrc`) resolve against the new scope on the next
+          // render. Fire async; on IPC failure log + still flip the
+          // renderer flag so the banner dismisses (the user has clearly
+          // opted in — the worst case is broken images, not a stuck UI).
+          onClick: () => {
+            void extendWindowScopeFiles([tabPath]).catch((err: unknown) => {
+              void logError(
+                `[banner] extend_window_scope_files failed for ${tabPath}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            });
+            useStore.getState().allowOutsideForTab(tabPath);
+          },
         },
       };
     }

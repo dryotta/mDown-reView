@@ -31,18 +31,18 @@ beforeEach(() => {
 });
 
 describe("excalidrawEditorMounts (issue #352 / iter-13)", () => {
-  it("starts empty", () => {
+  it("starts empty", async () => {
     expect(useStore.getState().excalidrawEditorMounts).toEqual([]);
   });
 
-  it("markExcalidrawEditorMounted adds the path", () => {
+  it("markExcalidrawEditorMounted adds the path", async () => {
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     expect(useStore.getState().excalidrawEditorMounts).toEqual([
       "/ws/a.excalidraw",
     ]);
   });
 
-  it("markExcalidrawEditorMounted is idempotent (returns SAME state on duplicate)", () => {
+  it("markExcalidrawEditorMounted is idempotent (returns SAME state on duplicate)", async () => {
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     const before = useStore.getState().excalidrawEditorMounts;
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
@@ -50,7 +50,7 @@ describe("excalidrawEditorMounts (issue #352 / iter-13)", () => {
     expect(after).toBe(before); // referential equality — no re-render
   });
 
-  it("supports multiple registered paths in registration order", () => {
+  it("supports multiple registered paths in registration order", async () => {
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/b.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/c.excalidrawlib");
@@ -61,9 +61,9 @@ describe("excalidrawEditorMounts (issue #352 / iter-13)", () => {
     ]);
   });
 
-  it("closeTab unregisters the closing path", () => {
-    useStore.getState().openFile("/ws/a.excalidraw");
-    useStore.getState().openFile("/ws/b.excalidraw");
+  it("closeTab unregisters the closing path", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw");
+    await useStore.getState().openFile("/ws/b.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/b.excalidraw");
     useStore.getState().closeTab("/ws/a.excalidraw");
@@ -72,10 +72,10 @@ describe("excalidrawEditorMounts (issue #352 / iter-13)", () => {
     ]);
   });
 
-  it("closeTab leaves OTHER registered paths intact", () => {
-    useStore.getState().openFile("/ws/a.excalidraw");
-    useStore.getState().openFile("/ws/b.excalidraw");
-    useStore.getState().openFile("/ws/c.excalidraw");
+  it("closeTab leaves OTHER registered paths intact", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw");
+    await useStore.getState().openFile("/ws/b.excalidraw");
+    await useStore.getState().openFile("/ws/c.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/b.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/c.excalidraw");
@@ -86,24 +86,24 @@ describe("excalidrawEditorMounts (issue #352 / iter-13)", () => {
     ]);
   });
 
-  it("closeAllTabs clears the registry", () => {
-    useStore.getState().openFile("/ws/a.excalidraw");
-    useStore.getState().openFile("/ws/b.excalidraw");
+  it("closeAllTabs clears the registry", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw");
+    await useStore.getState().openFile("/ws/b.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/b.excalidraw");
     useStore.getState().closeAllTabs();
     expect(useStore.getState().excalidrawEditorMounts).toEqual([]);
   });
 
-  it("LRU eviction unregisters the evicted path", () => {
+  it("LRU eviction unregisters the evicted path", async () => {
     // Open MAX_TABS files, register all as Excalidraw editors.
     for (let i = 0; i < MAX_TABS; i++) {
-      useStore.getState().openFile(`/ws/${i}.excalidraw`);
+      await useStore.getState().openFile(`/ws/${i}.excalidraw`);
       useStore.getState().markExcalidrawEditorMounted(`/ws/${i}.excalidraw`);
     }
     expect(useStore.getState().excalidrawEditorMounts.length).toBe(MAX_TABS);
     // Open a new tab — triggers LRU eviction of the oldest non-active.
-    useStore.getState().openFile("/ws/new.md");
+    await useStore.getState().openFile("/ws/new.md");
     // The evicted path's mount should be gone.
     expect(useStore.getState().excalidrawEditorMounts).not.toContain(
       "/ws/0.excalidraw",
@@ -111,12 +111,12 @@ describe("excalidrawEditorMounts (issue #352 / iter-13)", () => {
     expect(useStore.getState().excalidrawEditorMounts.length).toBe(MAX_TABS - 1);
   });
 
-  it("closeTab cleanup is atomic (single set() — multi-slice consistency)", () => {
+  it("closeTab cleanup is atomic (single set() — multi-slice consistency)", async () => {
     // Rule 16 in `docs/architecture.md` — multi-slice cleanups MUST be
     // a single set() call so subscribers never observe an
     // intermediate state. We assert by subscribing once and counting
     // the snapshot transitions during a single closeTab.
-    useStore.getState().openFile("/ws/a.excalidraw");
+    await useStore.getState().openFile("/ws/a.excalidraw");
     useStore.getState().markExcalidrawEditorMounted("/ws/a.excalidraw");
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);

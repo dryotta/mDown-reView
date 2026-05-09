@@ -38,25 +38,25 @@ describe("workspace slice – setRoot", () => {
   });
 
   it("does not affect tabs or comments when root changes", async () => {
-    useStore.getState().openFile("/some/file.md");
+    await useStore.getState().openFile("/some/file.md");
     await useStore.getState().setRoot("/new/root");
     expect(useStore.getState().tabs).toHaveLength(1);
   });
 });
 
 describe("workspace slice – toggleFolder / setFolderExpanded", () => {
-  it("toggleFolder expands a collapsed folder", () => {
+  it("toggleFolder expands a collapsed folder", async () => {
     useStore.getState().toggleFolder("/a/folder");
     expect(useStore.getState().expandedFolders["/a/folder"]).toBe(true);
   });
 
-  it("toggleFolder collapses an expanded folder", () => {
+  it("toggleFolder collapses an expanded folder", async () => {
     useStore.getState().setFolderExpanded("/a/folder", true);
     useStore.getState().toggleFolder("/a/folder");
     expect(useStore.getState().expandedFolders["/a/folder"]).toBe(false);
   });
 
-  it("setFolderExpanded sets a folder to the given boolean", () => {
+  it("setFolderExpanded sets a folder to the given boolean", async () => {
     useStore.getState().setFolderExpanded("/a/folder", true);
     expect(useStore.getState().expandedFolders["/a/folder"]).toBe(true);
     useStore.getState().setFolderExpanded("/a/folder", false);

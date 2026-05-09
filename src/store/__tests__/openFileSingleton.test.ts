@@ -25,6 +25,13 @@ vi.mock("@/lib/tauri-commands", async (importOriginal) => {
     claimOpenFile: (path: string) => claimMock(path),
     releaseOpenFile: (path: string) => releaseMock(path),
     releaseOpenFiles: (paths: string[]) => releaseManyMock(paths),
+    // Issue #359 — openFile awaits this. Inline a stable success
+    // shape so the multi-window singleton tests don't have to thread
+    // a register mock through every assertion.
+    registerWindowFile: async (path: string) => ({
+      canonical: path,
+      classification: { tier: "inside", canonical: path },
+    }),
   };
 });
 
@@ -53,7 +60,7 @@ afterEach(() => {
 describe("openFile multi-window singleton (iter-15)", () => {
   it("Claimed: tab is added and stays open", async () => {
     claimMock.mockResolvedValue({ kind: "claimed" });
-    useStore.getState().openFile("/ws/owned-locally.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/owned-locally.md", { recordHistory: false });
     // Synchronous: the tab is added immediately for instant UX.
     expect(useStore.getState().tabs.map((t) => t.path)).toEqual([
       "/ws/owned-locally.md",
@@ -75,14 +82,12 @@ describe("openFile multi-window singleton (iter-15)", () => {
       kind: "owned-elsewhere",
       window_label: "win-1",
     });
-    useStore.getState().openFile("/ws/owned-by-other.md", { recordHistory: false });
-    // Synchronous tab-add (briefly visible — ~ms before revert lands).
-    expect(useStore.getState().tabs.map((t) => t.path)).toEqual([
-      "/ws/owned-by-other.md",
-    ]);
-    expect(useStore.getState().activeTabPath).toBe("/ws/owned-by-other.md");
+    await useStore.getState().openFile("/ws/owned-by-other.md", { recordHistory: false });
 
-    // Drain.
+    // Issue #359 — openFile is now async (awaits register_window_file
+    // before inserting the tab). Pending microtasks (incl. claimOrRevert)
+    // may have already drained between insert and the resumption of the
+    // test's await; assert only the post-drain state.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -94,7 +99,7 @@ describe("openFile multi-window singleton (iter-15)", () => {
 
   it("OwnedElsewhere: revert preserves OTHER unrelated tabs and re-points active to most-recent", async () => {
     claimMock.mockResolvedValue({ kind: "claimed" });
-    useStore.getState().openFile("/ws/keep.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/keep.md", { recordHistory: false });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -103,9 +108,10 @@ describe("openFile multi-window singleton (iter-15)", () => {
       kind: "owned-elsewhere",
       window_label: "win-1",
     });
-    useStore.getState().openFile("/ws/owned-elsewhere.md", { recordHistory: false });
-    // The new tab is added synchronously and made active.
-    expect(useStore.getState().activeTabPath).toBe("/ws/owned-elsewhere.md");
+    await useStore.getState().openFile("/ws/owned-elsewhere.md", { recordHistory: false });
+    // Issue #359 — claimOrRevert may already have drained between the
+    // tab insert and this assertion under the new async openFile flow.
+    // The post-drain expectation below remains the source of truth.
 
     await Promise.resolve();
     await Promise.resolve();
@@ -125,7 +131,7 @@ describe("openFile multi-window singleton (iter-15)", () => {
           resolveClaim = res;
         }),
     );
-    useStore.getState().openFile("/ws/quick-close.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/quick-close.md", { recordHistory: false });
     expect(useStore.getState().tabs).toHaveLength(1);
 
     // User closes the tab BEFORE the claim resolves.
@@ -145,7 +151,7 @@ describe("openFile multi-window singleton (iter-15)", () => {
 
   it("closeTab fires releaseOpenFile for the closed path", async () => {
     claimMock.mockResolvedValue({ kind: "claimed" });
-    useStore.getState().openFile("/ws/release-me.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/release-me.md", { recordHistory: false });
     await Promise.resolve();
     expect(releaseMock).not.toHaveBeenCalled();
 
@@ -155,11 +161,11 @@ describe("openFile multi-window singleton (iter-15)", () => {
 
   it("closeAllTabs fires releaseOpenFiles for every open path", async () => {
     claimMock.mockResolvedValue({ kind: "claimed" });
-    useStore.getState().openFile("/ws/a.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/a.md", { recordHistory: false });
     await Promise.resolve();
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/b.md", { recordHistory: false });
     await Promise.resolve();
-    useStore.getState().openFile("/ws/c.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/c.md", { recordHistory: false });
     await Promise.resolve();
 
     useStore.getState().closeAllTabs();
@@ -178,7 +184,7 @@ describe("openFile multi-window singleton (iter-15)", () => {
 
   it("Claim IPC failure leaves the local tab open (graceful degradation)", async () => {
     claimMock.mockRejectedValue(new Error("registry missing"));
-    useStore.getState().openFile("/ws/no-rust.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/no-rust.md", { recordHistory: false });
     expect(useStore.getState().tabs).toHaveLength(1);
     await Promise.resolve();
     await Promise.resolve();

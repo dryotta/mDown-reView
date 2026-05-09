@@ -17,7 +17,7 @@ describe("tabHistory slice", () => {
     expect(s.forward()).toBeNull();
   });
 
-  it("pushHistory appends and updates cursor", () => {
+  it("pushHistory appends and updates cursor", async () => {
     useStore.getState().pushHistory("/a.md");
     let s = useStore.getState();
     expect(s.history).toEqual(["/a.md"]);
@@ -29,14 +29,14 @@ describe("tabHistory slice", () => {
     expect(s.historyIndex).toBe(1);
   });
 
-  it("re-pushing the current head is a no-op", () => {
+  it("re-pushing the current head is a no-op", async () => {
     useStore.getState().pushHistory("/a.md");
     useStore.getState().pushHistory("/a.md");
     expect(useStore.getState().history).toEqual(["/a.md"]);
     expect(useStore.getState().historyIndex).toBe(0);
   });
 
-  it("back/forward navigate the cursor and return target paths", () => {
+  it("back/forward navigate the cursor and return target paths", async () => {
     const { pushHistory } = useStore.getState();
     pushHistory("/a.md");
     pushHistory("/b.md");
@@ -57,7 +57,7 @@ describe("tabHistory slice", () => {
     expect(useStore.getState().forward()).toBeNull();
   });
 
-  it("pushHistory while not at head truncates forward history", () => {
+  it("pushHistory while not at head truncates forward history", async () => {
     const { pushHistory, back } = useStore.getState();
     pushHistory("/a.md");
     pushHistory("/b.md");
@@ -71,7 +71,7 @@ describe("tabHistory slice", () => {
     expect(s.historyIndex).toBe(2);
   });
 
-  it("ring buffer caps at MAX_TAB_HISTORY entries (oldest dropped)", () => {
+  it("ring buffer caps at MAX_TAB_HISTORY entries (oldest dropped)", async () => {
     const { pushHistory } = useStore.getState();
     for (let i = 0; i < MAX_TAB_HISTORY + 10; i++) {
       pushHistory(`/file-${i}.md`);
@@ -85,7 +85,7 @@ describe("tabHistory slice", () => {
     expect(s.historyIndex).toBe(MAX_TAB_HISTORY - 1);
   });
 
-  it("history is never persisted (not in partialize allowlist)", () => {
+  it("history is never persisted (not in partialize allowlist)", async () => {
     useStore.getState().pushHistory("/a.md");
     const persistApi = (useStore as unknown as {
       persist: { getOptions: () => { partialize?: (s: unknown) => unknown } };
@@ -99,18 +99,18 @@ describe("tabHistory slice", () => {
   // B2: history is now centralized — `openFile` and `setActiveTab` push by
   // default. Sidebar-opened tabs (which call openFile) must therefore land
   // in history without callers needing to pushHistory manually.
-  it("B2: openFile records history by default; recordHistory:false opts out", () => {
-    useStore.getState().openFile("/a.md");
+  it("B2: openFile records history by default; recordHistory:false opts out", async () => {
+    await useStore.getState().openFile("/a.md");
     expect(useStore.getState().history).toEqual(["/a.md"]);
 
-    useStore.getState().openFile("/b.md", { recordHistory: false });
+    await useStore.getState().openFile("/b.md", { recordHistory: false });
     expect(useStore.getState().history).toEqual(["/a.md"]);
     expect(useStore.getState().activeTabPath).toBe("/b.md");
   });
 
-  it("B2: setActiveTab records history by default; recordHistory:false opts out", () => {
-    useStore.getState().openFile("/a.md", { recordHistory: false });
-    useStore.getState().openFile("/b.md", { recordHistory: false });
+  it("B2: setActiveTab records history by default; recordHistory:false opts out", async () => {
+    await useStore.getState().openFile("/a.md", { recordHistory: false });
+    await useStore.getState().openFile("/b.md", { recordHistory: false });
     // Empty history so far.
     expect(useStore.getState().history).toEqual([]);
 

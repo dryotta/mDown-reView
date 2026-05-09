@@ -28,6 +28,13 @@ vi.mock("@/lib/tauri-commands", () => ({
   claimOpenFile: vi.fn().mockResolvedValue({ kind: "claimed" }),
   releaseOpenFile: vi.fn().mockResolvedValue(undefined),
   releaseOpenFiles: vi.fn().mockResolvedValue(undefined),
+  // Issue #359 — tabs.ts openFile awaits this before inserting.
+  registerWindowFile: vi
+    .fn()
+    .mockImplementation(async (path: string) => ({
+      canonical: path,
+      classification: { tier: "inside", canonical: path },
+    })),
 }));
 
 describe("WatcherSlice", () => {
@@ -38,11 +45,11 @@ describe("WatcherSlice", () => {
     });
   });
 
-  it("ghostEntries defaults to empty", () => {
+  it("ghostEntries defaults to empty", async () => {
     expect(useStore.getState().ghostEntries).toEqual([]);
   });
 
-  it("setGhostEntries updates entries", () => {
+  it("setGhostEntries updates entries", async () => {
     const entries = [
       { sidecarPath: "/a.review.json", sourcePath: "/a" },
       { sidecarPath: "/b.review.json", sourcePath: "/b" },
@@ -51,11 +58,11 @@ describe("WatcherSlice", () => {
     expect(useStore.getState().ghostEntries).toEqual(entries);
   });
 
-  it("lastSaveByPath defaults to empty object", () => {
+  it("lastSaveByPath defaults to empty object", async () => {
     expect(useStore.getState().lastSaveByPath).toEqual({});
   });
 
-  it("recordSave records timestamp for the given path", () => {
+  it("recordSave records timestamp for the given path", async () => {
     const before = Date.now();
     useStore.getState().recordSave("/some/file.md");
     const after = Date.now();
@@ -404,8 +411,8 @@ describe("useFileWatcher tabPaths stability — RC2/P1.1", () => {
 
     vi.mocked(updateWatchedFiles).mockClear();
 
-    act(() => {
-      useStore.getState().openFile("/b.md");
+    await act(async () => {
+      await useStore.getState().openFile("/b.md");
     });
     await act(async () => {});
 

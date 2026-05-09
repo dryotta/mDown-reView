@@ -79,7 +79,7 @@ describe("openFilesFromArgs – files", () => {
 describe("openFilesFromArgs – deduplication", () => {
   it("skips files that are already open", async () => {
     // Pre-open a file via normal store action
-    useStore.getState().openFile("/docs/readme.md");
+    await useStore.getState().openFile("/docs/readme.md");
     expect(useStore.getState().tabs).toHaveLength(1);
 
     // Now call openFilesFromArgs with the same file — must pass current state
@@ -90,7 +90,7 @@ describe("openFilesFromArgs – deduplication", () => {
   });
 
   it("opens only new files when a mix of old and new is supplied", async () => {
-    useStore.getState().openFile("/existing.md");
+    await useStore.getState().openFile("/existing.md");
 
     await openFilesFromArgs(["/existing.md", "/new.md"], [], useStore.getState());
 
@@ -107,7 +107,7 @@ describe("openFilesFromArgs – deduplication", () => {
   });
 
   it("deduplication works regardless of call order", async () => {
-    useStore.getState().openFile("/file.md");
+    await useStore.getState().openFile("/file.md");
 
     // Call twice; second call should also see the file as already open
     await openFilesFromArgs(["/file.md"], [], useStore.getState());

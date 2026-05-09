@@ -2,6 +2,29 @@ import "@testing-library/jest-dom";
 import { vi, beforeEach, afterEach, expect } from "vitest";
 import { __IPC_MOCK_LISTENERS_RESET } from "./__mocks__/@tauri-apps/api/__bus";
 
+// Issue #359 — apply the manual mock for `@tauri-apps/api/core` globally.
+//
+// Vitest's bare `vi.mock("@tauri-apps/api/core")` form (used per
+// `docs/test-strategy.md` IPC-mock chokepoint, enforced by
+// `src/__tests__/ipc-mock-hygiene.test.ts`) does NOT auto-load the
+// manual mock at `src/__mocks__/@tauri-apps/api/core.ts` — Vitest
+// looks for `__mocks__/` adjacent to the mocked path, not inside
+// `src/`. Pre-#359 this didn't matter because no production code
+// path called `invoke(...)` for a return-shape that any unit test
+// actually read; the auto-mock's undefined returns were silently
+// swallowed by `void` calls or paths the test didn't exercise.
+//
+// As of #359 `tabsSlice.openFile` `await commands.registerWindowFile(...)`
+// and reads `.classification.tier` from the result — every unit test
+// that touches `openFile` now needs the manual mock's default arms
+// (which return the right shape). Applying `vi.mock` here in a setup
+// file hoists the registration to every test file, so `vi.mock(
+// "@tauri-apps/api/core")` (or even no mock at all) resolves to the
+// manual mock module without per-file factory boilerplate.
+vi.mock("@tauri-apps/api/core", async () =>
+  await import("./__mocks__/@tauri-apps/api/core")
+);
+
 // jsdom does not implement HTMLDialogElement.showModal/close (the spec
 // requires top-layer / inert support that jsdom omits). Polyfill the
 // minimum surface so components that depend on the native <dialog>
