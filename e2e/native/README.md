@@ -39,6 +39,20 @@ fixture and call `base.test` directly are NOT reset (none currently do).
 New specs do NOT need to call this manually — using the `nativePage`
 fixture is the static invariant.
 
+### Known limitation (issue #369)
+
+The fixture-level reset alone is not sufficient to make
+``e2e/native/09-outside-file-open.spec.ts:repro-1`` pass on CI. The
+post-PR #367 release-gate run revealed an architectural race between
+``register_window_file`` (which seeds outside-file parent dirs into
+``tree_watched_dirs[label]``) and the renderer's ``update_tree_watched_dirs``
+sync (which replaces the per-window set, clobbering the outside-file
+seed). Repro-1 is currently ``test.skip``-ped pending the architectural
+fix tracked in #369. The fixture-level reset still ships because it
+addresses a real cross-spec contamination surface — the limitation is
+that one specific test exercises a different race that the reset
+doesn't cover.
+
 ## Specs
 
 - `01-smoke.spec.ts` — app boots and shows the welcome view.
