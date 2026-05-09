@@ -47,6 +47,12 @@ vi.mock("@/lib/tauri-commands", () => ({
   getLogPath: vi.fn().mockResolvedValue("/mock/log.log"),
   getAuthor: vi.fn().mockResolvedValue("Test User"),
   setAuthor: vi.fn().mockResolvedValue("Test User"),
+  // PR #363 — theme writes route through `useThemePref` so menu-driven
+  // theme changes persist to disk (Rust reads the file at next cold
+  // start to paint the OS frame BEFORE WebView2 attaches). The mock
+  // resolves immediately; the test below `await`s the IPC microtask
+  // chain before asserting on the store.
+  setTheme: vi.fn().mockResolvedValue(undefined),
   // Issue #264 — runtime tracing fires from App.tsx's mount effect.
   // Stub returns void; the real implementation logs to the rotating
   // file via Rust's StartupRecorder.
@@ -491,8 +497,16 @@ describe("App – menu event listeners", () => {
   it("menu-theme-light event sets theme to light", async () => {
     await renderApp();
 
-    act(() => {
+    // Theme writes now route through the `set_theme` IPC (PR #363) so
+    // the store update is one microtask behind the menu event. `act`
+    // with an async callback flushes the pending IPC promise + the
+    // follow-up store update.
+    await act(async () => {
       eventHandlers["menu-theme-light"]?.(undefined);
+      // Flush IPC microtask chain: `bindings.setTheme` -> unwrap -> the
+      // VM's `await` -> `setThemeInStore`. A single `Promise.resolve()`
+      // tick is not enough (3+ chained `.then`s); a `setTimeout(0)` is.
+      await new Promise((r) => setTimeout(r, 0));
     });
 
     expect(useStore.getState().theme).toBe("light");

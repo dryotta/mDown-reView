@@ -106,16 +106,45 @@ describe("main window — menu attached at build time (cold-start flicker fix)",
       ).toEqual([]);
     });
 
-    it("preserves PR #265's cold-start FOUC fix via .background_color()", () => {
-      // The dark backgroundColor previously lived in
-      // tauri.conf.json::app.windows[0].backgroundColor. Removing the
-      // windows[] block deletes that field; the builder's
-      // .background_color(WINDOW_BG) call is now the load-bearing path that
-      // paints the OS frame dark before WebView2 attaches.
-      expect(libRs).toMatch(/const WINDOW_BG: Color = Color\(0x0d, 0x11, 0x17, 0xff\);/);
-      const body = buildMainBody();
-      expect(body).not.toBeNull();
-      expect(body!).toMatch(/\.background_color\(WINDOW_BG\)/);
+    it("preserves PR #265's cold-start FOUC fix via .background_color() + .theme()", () => {
+      // Iter-1 of PR #363 deleted the hard-coded `WINDOW_BG` constant.
+      // Both window builders now resolve the OS-frame background AND
+      // the OS-chrome theme dynamically from the persisted
+      // `OnboardingState.theme` via `commands::config::resolve_window_bg`,
+      // so light-theme users no longer get a dark-background flash on
+      // cold start. The previous regex (`const WINDOW_BG: Color = …`
+      // and `.background_color(WINDOW_BG)`) is now a counter-assertion.
+      expect(libRs).not.toMatch(/const WINDOW_BG\b/);
+
+      // Both factories must call into `resolve_window_bg(handle)` to
+      // get the persisted (bg, theme) pair, then thread BOTH into the
+      // builder. Fail fast if a future change drops either side of the
+      // pair: `.background_color(bg)` alone is the original PR #265 fix
+      // (FOUC mitigation), `.theme(Some(theme))` is the PR #363
+      // extension that also paints the OS title-bar / menu chrome to
+      // match.
+      const mainBody = buildMainBody();
+      expect(mainBody, "build_main_window function body").not.toBeNull();
+      expect(mainBody!).toMatch(
+        /let \(bg, theme\) = commands::config::resolve_window_bg\(handle\);/,
+      );
+      expect(mainBody!).toMatch(/\.background_color\(bg\)/);
+      expect(mainBody!).toMatch(/\.theme\(Some\(theme\)\)/);
+
+      // Same invariant for the secondary-window factory used by
+      // `open_new_window` / CLI-driven additional windows. Without
+      // this, secondary windows would still cold-start with the Tauri
+      // default white frame even after PR #363.
+      const startIdx = libRs.indexOf("fn create_app_window");
+      expect(startIdx).toBeGreaterThan(-1);
+      const endIdx = libRs.indexOf("\n}\n", startIdx);
+      expect(endIdx).toBeGreaterThan(-1);
+      const createBody = libRs.slice(startIdx, endIdx + 3);
+      expect(createBody).toMatch(
+        /let \(bg, theme\) = commands::config::resolve_window_bg\(handle\);/,
+      );
+      expect(createBody).toMatch(/\.background_color\(bg\)/);
+      expect(createBody).toMatch(/\.theme\(Some\(theme\)\)/);
     });
   });
 });

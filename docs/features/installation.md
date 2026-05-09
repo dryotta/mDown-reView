@@ -77,12 +77,16 @@ First-launch and "what's new" UX is driven by a small Rust ViewModel persisted a
 
 ```jsonc
 {
-  "schema_version": 1,                          // u32; future versions are refused
-  "last_seen_sections": ["cli", "default-handler"]  // Vec<String> — onboarding cards already dismissed
+  "schema_version": 1,                              // u32; future versions are refused
+  "last_seen_sections": ["cli", "default-handler"], // Vec<String> — onboarding cards already dismissed
+  "author": "Alice",                                // Option<String> — display name on authored comments
+  "theme": "system"                                 // Option<String> — "system" | "light" | "dark"; omitted when absent
 }
 ```
 
-Source: `src-tauri/src/core/onboarding.rs:13-24`. **Forward-compat refusal:** any file with `schema_version > 1`, malformed JSON, or I/O error returns `OnboardingState::default()` (a fresh state) — old binaries never blow up on a future-format file. Saves go through `core/atomic.rs::write_atomic` so a crash mid-write cannot corrupt the file (`core/onboarding.rs:54-57`).
+Source: `src-tauri/src/core/onboarding.rs`. **Forward-compat refusal:** any file with `schema_version > 1`, malformed JSON, or I/O error returns `OnboardingState::default()` (a fresh state) — old binaries never blow up on a future-format file. Saves go through `core/atomic.rs::write_atomic` so a crash mid-write cannot corrupt the file.
+
+`theme` is read at window-construction time by `commands::config::resolve_window_bg` to set the OS-painted `WebviewWindowBuilder::background_color` and the `WebviewWindowBuilder::theme` (Windows titlebar / macOS chrome) **before** WebView2/WebKit attaches — eliminating the cold-start light-theme flash that was a regression of PR #265's dark-only fix. `schema_version` stays at **1**: `theme: Option<String>` is declared with `#[serde(default, skip_serializing_if = "Option::is_none")]`, which is a backward-compat additive change — pre-existing on-disk payloads without the field deserialize cleanly with `theme: None` and never write the key back unless the user explicitly sets a preference.
 
 The frontend reads via the `OnboardingSlice` in the Zustand store (`src/store/index.ts`) — `refreshOnboarding()` runs `Promise.allSettled` over all status reads + `onboarding_state`, and per-section action wrappers (e.g. `installCliShim`) chain a status refresh on settle.
 

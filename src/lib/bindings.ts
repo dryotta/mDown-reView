@@ -361,6 +361,14 @@ async getAuthor() : Promise<Result<string, ConfigError>> {
     else return { status: "error", error: e  as any };
 }
 },
+async setTheme(theme: string) : Promise<Result<null, ConfigError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_theme", { theme }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async searchInDocument(content: string, query: string) : Promise<SearchMatch[]> {
     return await TAURI_INVOKE("search_in_document", { content, query });
 },
@@ -728,6 +736,12 @@ export type ConfigError =
  */
 { kind: "InvalidAuthor"; reason: string } | 
 /**
+ * Theme rejected by validation. Renderer never sends garbage but this is
+ * defense-in-depth. Closed enum (no `reason` field) — the only valid values
+ * are "system" / "light" / "dark" so a single tag is sufficient.
+ */
+{ kind: "InvalidTheme" } | 
+/**
  * Persisting onboarding state failed (disk full, permission denied, etc.).
  */
 { kind: "IoError"; message: string }
@@ -826,7 +840,19 @@ export type OnboardingState = { schema_version: number; last_seen_sections?: str
  * onboarding bits because it's a one-off, settings-shaped value with no
  * natural home elsewhere.
  */
-author?: string | null }
+author?: string | null; 
+/**
+ * User's theme preference. One of `"system"`, `"light"`, or `"dark"`.
+ * Read at window-construction time by `commands::config::resolve_window_bg`
+ * to set `WebviewWindowBuilder::background_color` BEFORE WebView2 attaches —
+ * fixes the cold-start light-theme flash regression from PR #265. Set via
+ * `commands::config::set_theme` IPC. Persisted in this struct (rather than
+ * a dedicated settings file) for the same reason as `author`: one-off
+ * settings knob, no value in splitting the file. Schema version stays at 1
+ * because this is an additive optional field — backward-compat with old
+ * binaries that drop unknown keys.
+ */
+theme?: string | null }
 export type PathClassification = { tier: "inside"; canonical: string } | { tier: "outside"; canonical: string } | { tier: "system"; flavor: PathClassificationFlavor }
 export type PathClassificationFlavor = "posix" | "windows" | "unc"
 /**

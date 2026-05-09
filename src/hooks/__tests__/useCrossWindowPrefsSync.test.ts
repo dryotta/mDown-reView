@@ -179,6 +179,29 @@ describe("useCrossWindowPrefsSync", () => {
     expect(useStore.getState().readingWidth).toBe(900);
   });
 
+  it("does NOT call set_theme IPC when receiving a cross-window theme update", async () => {
+    // Follower windows update the in-memory store only; the leader
+    // window already wrote `onboarding.json` via the user-action site
+    // (`useThemePref().setTheme`). Re-firing `set_theme` here would
+    // cause a write storm proportional to the number of open windows
+    // and re-introduce the FOUC-fix race PR #363 closed.
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockClear();
+
+    useStore.setState({ theme: "system" });
+    renderHook(() => useCrossWindowPrefsSync());
+
+    act(() => {
+      fireStorageEvent("mdownreview-ui", payload({ theme: "dark" }));
+    });
+
+    expect(useStore.getState().theme).toBe("dark");
+    const setThemeCall = vi
+      .mocked(invoke)
+      .mock.calls.find((c) => c[0] === "set_theme");
+    expect(setThemeCall).toBeUndefined();
+  });
+
   it("removes the event listener on unmount", () => {
     const addSpy = vi.spyOn(window, "addEventListener");
     const removeSpy = vi.spyOn(window, "removeEventListener");

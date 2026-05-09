@@ -31,19 +31,17 @@ use commands::{parse_launch_args, LaunchArgs};
 #[cfg(all(debug_assertions, feature = "codegen"))]
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri::menu::{Menu, MenuBuilder, MenuItem, SubmenuBuilder};
-use tauri::utils::config::Color;
 use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_log::{Target, TargetKind};
 
-/// Default window background color — #0d1117. Painted by the OS BEFORE
-/// WebView2 attaches, so a dark-theme cold start does not flash white.
-/// See PR #265 for the FOUC analysis. Applied to every window (main and
-/// secondary) via `WebviewWindowBuilder::background_color`; previously
-/// lived in `tauri.conf.json::app.windows[0].backgroundColor`, but moved
-/// to Rust when the main window's menu attachment forced programmatic
-/// construction (otherwise the menu attaches post-show, causing a
-/// client-rect reflow / re-render — the whole point of this refactor).
-const WINDOW_BG: Color = Color(0x0d, 0x11, 0x17, 0xff);
+// Window background color is no longer a single static constant — it is
+// resolved per-window at construction time by
+// `commands::config::resolve_window_bg`, which folds the persisted
+// `OnboardingState::theme` together with in-process OS theme detection
+// (Win registry / macOS CFPreferences). This restores PR #265's cold-start
+// FOUC fix for both dark- AND light-theme users (the previous hard-coded
+// `#0d1117` flashed white for any user whose effective theme was light).
+// See `src-tauri/src/commands/config.rs` for the resolver and rationale.
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the bindings.ts header literal. Both the
@@ -282,12 +280,14 @@ pub(crate) fn create_app_window(
     label: &str,
     title: &str,
 ) -> tauri::Result<tauri::WebviewWindow> {
+    let (bg, theme) = commands::config::resolve_window_bg(handle);
     let builder =
         tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
             .title(title)
             .inner_size(1100.0, 750.0)
             .min_inner_size(600.0, 400.0)
-            .background_color(WINDOW_BG);
+            .background_color(bg)
+            .theme(Some(theme));
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -320,14 +320,18 @@ pub(crate) fn create_app_window(
 /// so the post-build app.set_menu path is flicker-free there.
 ///
 /// Sizes mirror the previous `tauri.conf.json::app.windows[0]` block.
-/// The `WINDOW_BG` constant preserves PR #265's cold-start FOUC fix.
+/// The window background + OS chrome theme come from
+/// `commands::config::resolve_window_bg`, which preserves PR #265's
+/// cold-start FOUC fix and extends it to light-theme users.
 fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    let (bg, theme) = commands::config::resolve_window_bg(handle);
     let builder =
         tauri::WebviewWindowBuilder::new(handle, "main", tauri::WebviewUrl::App("index.html".into()))
             .title("mdownreview")
             .inner_size(1200.0, 800.0)
             .min_inner_size(800.0, 600.0)
-            .background_color(WINDOW_BG);
+            .background_color(bg)
+            .theme(Some(theme));
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -419,6 +423,7 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::comments::badges::get_file_badges,
                 commands::config::set_author,
                 commands::config::get_author,
+                commands::config::set_theme,
                 commands::search::search_in_document,
                 commands::html::compute_fold_regions,
                 commands::search::parse_kql,

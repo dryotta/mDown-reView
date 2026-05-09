@@ -66,6 +66,9 @@ const EXEMPT_COMMANDS: &[&str] = &[
     // Process-global config in app_config_dir (author / preferences).
     "set_author",
     "get_author",
+    // Process-global theme preference in app_config_dir; cold-start window
+    // background resolver reads it from disk before any window exists.
+    "set_theme",
     // Process-global onboarding state in app_config_dir.
     "onboarding_state",
     // Process-global OS shell integration (CLI shim install/status/remove).

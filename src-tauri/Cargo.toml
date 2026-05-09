@@ -122,6 +122,22 @@ mdr-macros = { path = "mdr-macros" }
 winreg = "0.52"
 windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# In-process OS theme detection via CFPreferencesCopyAppValue. Reading
+# `AppleInterfaceStyle` (CFString "Dark" when dark mode is active, NULL
+# otherwise) lets `commands::config::detect_os_theme` paint the correct
+# window background BEFORE WebView2 attaches — no fork+exec to `defaults`,
+# no PATH-hijack risk, no 30-80ms cold-start cost. See PR #363 / FOUC fix.
+#
+# `core-foundation` 0.10 provides safe wrappers (CFString / TCFType) but
+# does NOT re-export the `preferences` module — that lives in the -sys
+# crate. We declare `core-foundation-sys` directly (rather than reaching
+# through a private path) so the FFI surface is explicit and stable across
+# `core-foundation` minor bumps. The version pin matches what
+# `core-foundation` 0.10.x transitively uses.
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
 tempfile = "3"
