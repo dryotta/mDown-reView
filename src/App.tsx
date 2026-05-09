@@ -14,6 +14,7 @@ import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
 import { useAuthor } from "@/lib/vm/useAuthor";
+import { useThemePref } from "@/lib/vm/useThemePref";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
 import { TabBar } from "@/components/TabBar/TabBar";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
@@ -37,15 +38,29 @@ import { useRenderCount } from "@/hooks/dev/useRenderCount";
 
 export default function App() {
   useRenderCount("App");
-  const { theme, root, commentsPaneVisible, activeTabPath } = useStore(
+  const { root, commentsPaneVisible, activeTabPath } = useStore(
     useShallow((s) => ({
-      theme: s.theme,
       root: s.root,
       commentsPaneVisible: s.commentsPaneVisible,
       activeTabPath: s.activeTabPath,
     }))
   );
-  const setTheme = useStore((s) => s.setTheme);
+  // Theme + persisting setter come from the VM so menu-driven theme
+  // changes go through the `set_theme` IPC (writes onboarding.json so
+  // the next cold start can paint the correct OS frame BEFORE WebView2
+  // attaches) and only then update the Zustand cache. The `setTheme`
+  // wrapper below adapts the async VM action to the synchronous
+  // `(theme) => void` shape `useMenuListeners`/`useGlobalShortcuts`
+  // expect; rejected IPC writes are swallowed because the user
+  // toggled a menu item and there is no surface to display an error
+  // (the in-memory theme is unaffected by the rejection).
+  const { theme, setTheme: setThemePref } = useThemePref();
+  const setTheme = useCallback(
+    (t: "system" | "light" | "dark") => {
+      void setThemePref(t).catch(() => {});
+    },
+    [setThemePref],
+  );
   const toggleCommentsPane = useStore((s) => s.toggleCommentsPane);
   const openFile = useStore((s) => s.openFile);
   const closeMermaidPopout = useStore((s) => s.closeMermaidPopout);
