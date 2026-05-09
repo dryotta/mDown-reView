@@ -36,8 +36,6 @@ manually; using the `nativePage` fixture is the static invariant.
 
 ## Specs
 
-(Inventory verified against `Get-ChildItem e2e/native/*.spec.ts | Sort-Object Name` at PR time.)
-
 - `01-smoke.spec.ts` — app boots and shows the welcome view.
 - `02-ipc-commands.spec.ts` — IPC round-trips work.
 - `03-file-reload.spec.ts` — file change re-renders.
@@ -47,9 +45,9 @@ manually; using the `nativePage` fixture is the static invariant.
 - `07-asset-scope.spec.ts` — asset-protocol scope grants.
 - `08-excalidraw-real-write.spec.ts` — Excalidraw save round-trip via the workspace-write chokepoint.
 - `09-outside-file-open.spec.ts` — outside-workspace file open path (issue #359).
+- `installer.spec.ts` — **real-installer smoke**, run by the second config (above). See the Two-config layout section for why it lives in its own config.
 - `multiwin-concurrent-cli-launch.spec.ts` — registry race (E1).
 - `multiwin-macos-clipboard.spec.ts` — macOS-only clipboard preservation across windows.
 - `multiwin-macos-close-hides.spec.ts` — macOS-only close-hides-window semantics.
 - `multiwin-new-window-ux.spec.ts` — new-window opening UX.
 - `multiwin-window-destroy-cleanup.spec.ts` — registry cleanup on window destroy.
-- `installer.spec.ts` — **real-installer smoke**, run by the second config (above). Builds-then-runs the Windows NSIS installer to verify per-user `PATH` is added on install and removed cleanly on uninstall. Static `.nsh` syntax checks (e.g. grepping for required tokens) are guardrails — see the comments in `src-tauri/installer/installer-hooks.nsh` — not a substitute for this spec.

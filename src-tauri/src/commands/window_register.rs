@@ -289,13 +289,27 @@ mod regression {
     fn register_window_file_seeds_parent_with_pre_populated_state() {
         let state = make_state();
 
+        // Anchor tempdirs under repo-local target/ to avoid Windows AppData
+        // (which classify() flags as Tier::System regardless of workspace_root,
+        // see core::security::system_locations:221).
+        use std::path::PathBuf;
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let temp_root = manifest_dir.join("target").join("test-tmp-window-register");
+        std::fs::create_dir_all(&temp_root).expect("temp_root mkdir");
+
         // Pre-populate: simulate prior specs leaving a stale folder in main's allowlist.
-        let stale_dir = tempfile::tempdir().unwrap();
+        let stale_dir = tempfile::Builder::new()
+            .prefix("mdr-366-stale-")
+            .tempdir_in(&temp_root)
+            .unwrap();
         let canonical_stale = canonicalize_no_verbatim(stale_dir.path()).unwrap();
-        state.seed_window_workspace("main", vec![canonical_stale.clone()]);
+        state.seed_window_workspace("test-main", vec![canonical_stale.clone()]);
 
         // Test setup: create a separate "outside" folder + file (mirrors 09-outside-file-open's repro-1).
-        let outside_dir = tempfile::tempdir().unwrap();
+        let outside_dir = tempfile::Builder::new()
+            .prefix("mdr-366-outside-")
+            .tempdir_in(&temp_root)
+            .unwrap();
         let outside_file = outside_dir.path().join("outside.md");
         std::fs::write(&outside_file, "# Outside\n").unwrap();
         let outside_file_str = outside_file.to_string_lossy().to_string();
@@ -307,7 +321,7 @@ mod regression {
         );
 
         // Action: register the outside file (mirrors store/tabs.ts:openFile chokepoint).
-        let result = register_window_file_inner("main", &outside_file_str, &state, None);
+        let result = register_window_file_inner("test-main", &outside_file_str, &state, None);
         assert!(result.is_ok(), "register_window_file_inner should succeed: {result:?}");
 
         // Post-condition: outside_file IS now allowed.

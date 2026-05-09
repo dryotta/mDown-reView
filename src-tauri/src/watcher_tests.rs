@@ -344,10 +344,10 @@ fn reset_window_scope_clears_both_maps_for_label() {
     let dir = tempfile::tempdir().unwrap();
     let canonical = canonicalize_no_verbatim(dir.path()).unwrap();
 
-    state.seed_window_workspace("main", vec![canonical.clone()]);
+    state.seed_window_workspace("test-main", vec![canonical.clone()]);
     assert!(state.is_path_allowed(&canonical), "precondition: seed succeeds");
 
-    state.reset_window_scope("main");
+    state.reset_window_scope("test-main");
     assert!(
         !state.is_path_allowed(&canonical),
         "post-reset: tree_watched_dirs[main] should be empty"
@@ -362,10 +362,10 @@ fn reset_window_scope_does_not_affect_other_windows() {
     let canonical_main = canonicalize_no_verbatim(dir_main.path()).unwrap();
     let canonical_secondary = canonicalize_no_verbatim(dir_secondary.path()).unwrap();
 
-    state.seed_window_workspace("main", vec![canonical_main.clone()]);
-    state.seed_window_workspace("secondary", vec![canonical_secondary.clone()]);
+    state.seed_window_workspace("test-primary", vec![canonical_main.clone()]);
+    state.seed_window_workspace("test-secondary", vec![canonical_secondary.clone()]);
 
-    state.reset_window_scope("main");
+    state.reset_window_scope("test-primary");
 
     assert!(
         !state.is_path_allowed(&canonical_main),
