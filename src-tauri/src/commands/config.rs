@@ -150,12 +150,10 @@ pub const DARK_BG: Color = Color(0x0d, 0x11, 0x17, 0xff);
 ///      browser `prefers-color-scheme` default and macOS "absent = light"
 ///      convention.
 ///
-/// Returns (Color, Option<tauri::Theme>) so the window builder can call BOTH
+/// Returns (Color, tauri::Theme) so the window builder can call BOTH
 /// `.background_color()` (OS-paint pre-attach) AND `.theme()` (OS chrome,
-/// e.g. Windows titlebar dark mode). Theme = `None` is not used in this
-/// resolver — every branch returns Some — but the signature mirrors what
-/// callers expect from a "system" preference (Tauri's `.theme(None)` means
-/// "follow OS" in some future variant; we always pin a concrete Theme).
+/// e.g. Windows titlebar dark mode). Every branch returns a concrete
+/// `tauri::Theme` (Light or Dark) — never `None`.
 ///
 /// Mirrors the `get_author_at_with<F: FnOnce() -> String>` pattern at line
 /// ~97 of this file: dependency-injection seam for unit-testability across

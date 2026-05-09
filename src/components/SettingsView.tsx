@@ -224,8 +224,12 @@ export function SettingsView({ onClose }: Props) {
       if (isConfigError(e)) {
         if (e.kind === "InvalidAuthor") {
           setAuthorError(REASON_MESSAGES[e.reason] ?? "Invalid name");
-        } else {
+        } else if (e.kind === "IoError") {
           setAuthorError(`Could not save: ${e.message}`);
+        } else {
+          // InvalidTheme — unreachable from setAuthor, but ConfigError is a
+          // shared union; exhaustiveness requires a branch.
+          setAuthorError("Could not save settings");
         }
       } else {
         setAuthorError("Could not save settings");
