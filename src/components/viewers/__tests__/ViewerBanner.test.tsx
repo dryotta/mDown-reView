@@ -130,13 +130,18 @@ describe("<ViewerBanner>", () => {
     expect(buttons.length).toBeLessThanOrEqual(1);
   });
 
-  it("tier-2 blocked Allow click → store.allowOutsideForTab(tabPath)", () => {
+  it("tier-2 blocked Allow click → store.extendScopeForTab(tabPath) flips flag after IPC resolves", async () => {
     render(
       <ViewerBanner
         variant={{ kind: "tier2-references-blocked", tabPath: "/ws/a.md" }}
       />
     );
     fireEvent.click(screen.getByRole("button", { name: /allow/i }));
+    // Issue #359 / AC3 — flag-flip is gated on the
+    // `extend_window_scope_files` IPC. Mocked invoke resolves
+    // synchronously through several microtasks (bindings → unwrap →
+    // extendScopeForTab); a setTimeout(0) flushes the whole chain.
+    await new Promise((r) => setTimeout(r, 0));
     expect(useStore.getState().allowOutsideWorkspace.has("/ws/a.md")).toBe(true);
   });
 

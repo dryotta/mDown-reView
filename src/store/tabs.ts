@@ -19,29 +19,19 @@
  */
 import type { StoreApi } from "zustand";
 
-import type { ViewMode } from "@/lib/file-types";
 import {
-  registerWindowFile,
   releaseOpenFile,
   releaseOpenFiles,
 } from "@/lib/tauri-commands";
+import type { ViewMode } from "@/lib/file-types";
 import { warn as logWarn } from "@/logger";
 
 import type { Store } from "./index";
-import { claimOrRevert } from "./tabsHelpers";
+import { openFileImpl } from "./openFileAction";
 
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
 export const MAX_TABS = 5;
-
-/**
- * Issue #359 — monotonic counter for `openFile`'s stale-request guard.
- * `Date.now()` alone can collide for synchronous back-to-back calls in
- * tests (and on fast machines), which would defeat the rapid-switch
- * de-clobber check below. The counter advances per-call so every
- * outstanding open has a distinct sentinel.
- */
-let openFileSeq = 0;
 
 export interface Tab {
   path: string;
@@ -134,17 +124,6 @@ export interface TabsSlice {
    * Session-only.
    */
   externalChangePendingByTab: Record<string, boolean>;
-  /**
-   * Issue #359 — transient stale-request guard for the async `openFile`
-   * action. `openFile` awaits `register_window_file` before inserting the
-   * tab; if the user opens path B while A's register is in flight, A's
-   * post-await `set()` would clobber B as active. The guard records the
-   * Date.now() of the latest accepted open call; a late resolution whose
-   * captured timestamp no longer matches drops its insert.
-   *
-   * Session-only — never persisted, never read by UI.
-   */
-  pendingOpenAt: number | null;
   openFile: (path: string, opts?: { recordHistory?: boolean }) => Promise<void>;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
@@ -245,151 +224,8 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     excalidrawDirtyByTab: {},
     externalChangePendingByTab: {},
     excalidrawEditorMounts: [],
-    pendingOpenAt: null,
 
-    openFile: async (path, opts) => {
-      get().closeMermaidPopout(); // issue #276 — close popout on file open
-      const recordHistory = opts?.recordHistory ?? true;
-      const now = Date.now();
-
-      const existing = get().tabs.find((t) => t.path === path);
-      if (existing) {
-        // Existing-tab activation path: no register/canonicalize work needed
-        // (the tab's path was already vetted at original open time).
-        set((s) => ({
-          activeTabPath: path,
-          tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
-        }));
-        if (recordHistory) get().pushHistory(path);
-        // Same-window re-claim is a no-op success in Rust; firing
-        // here keeps the registry warm in case the prior owner's
-        // entry was reaped (e.g. window force-killed before this).
-        void claimOrRevert(path, set, get);
-        return;
-      }
-
-      // Issue #359 — register BEFORE inserting the tab so the file is in
-      // the runtime allowlist by the time `useFileContent` reads it.
-      // Without this, opening a file outside the workspace failed with
-      // "path not in workspace" because the tab landed in the store
-      // synchronously and the read effect raced ahead of registration.
-      //
-      // Stale-request guard: a later openFile() supersedes this one.
-      // Capture a per-call sentinel and drop the late insert if a newer
-      // open has overtaken us between the await and the set().
-      const requestedAt = ++openFileSeq;
-      set({ pendingOpenAt: requestedAt });
-
-      let result;
-      try {
-        result = await registerWindowFile(path);
-      } catch (err) {
-        // Register rejected (system-tier path / canonicalize failure /
-        // parent-folder claimed by another window). Do NOT insert a
-        // tab — the file is unsafe to open in this window.
-        if (get().pendingOpenAt === requestedAt) {
-          set({ pendingOpenAt: null });
-        }
-        void logWarn(
-          `[openFile] register_window_file failed for ${path}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-        throw err;
-      }
-
-      if (get().pendingOpenAt !== requestedAt) {
-        // A newer open superseded this one between await and set().
-        // Drop the late insert so we don't clobber the newer tab as
-        // active. The newer call will publish its own `pendingOpenAt`
-        // and run its own set().
-        return;
-      }
-
-      // Issue #338 / AC9 — readOnly is `true` whenever the canonical path
-      // resolves OUTSIDE the window's tree_watched_dirs (tier !== "inside").
-      // Set atomically with tab insertion (rule 16) so subscribers never
-      // observe a transient frame where readOnly is undefined.
-      const isReadOnly = result.classification.tier !== "inside";
-      const canonical = result.canonical;
-
-      // Evict LRU non-active tab if at capacity.
-      const baseTabs = get().tabs;
-      if (baseTabs.length >= MAX_TABS) {
-        const activePath = get().activeTabPath;
-        // Issue #352 / iter-10 redesign — auto-save means evicted tabs
-        // already have their content on disk. The previous "exempt
-        // dirty editors from eviction" carve-out (iter-5) is no longer
-        // needed: the cap can apply uniformly. Pick the oldest non-active
-        // tab as the victim.
-        const candidates = baseTabs.filter((t) => t.path !== activePath);
-        const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
-        const victim = candidates.reduce((oldest, t) =>
-          accessed(t) < accessed(oldest) ? t : oldest
-        );
-        // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.
-        // Merge the eviction maps with the new-tab append into a
-        // SINGLE set() call so subscribers never observe an
-        // intermediate state (victim gone, new tab not yet added,
-        // active still pointing at the old active). Per rule 16 in
-        // docs/architecture.md.
-        const filteredTabs = baseTabs.filter((t) => t.path !== victim.path);
-        const { [victim.path]: _v, ...restView } = get().viewModeByTab;
-        const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
-        const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
-        const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
-        const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
-        // Issue #352 / iter-13 — drop the LRU victim from the
-        // persistent-mount registry so the host unmounts its
-        // <Excalidraw> instance and frees the associated memory.
-        const restMounts = get().excalidrawEditorMounts.filter(
-          (p) => p !== victim.path,
-        );
-        set({
-          tabs: [
-            ...filteredTabs,
-            { path: canonical, scrollTop: 0, lastAccessedAt: now, readOnly: isReadOnly },
-          ],
-          activeTabPath: canonical,
-          viewModeByTab: restView,
-          lastSaveByPath: restSave,
-          fileMetaByPath: restMeta,
-          excalidrawDirtyByTab: restDirty,
-          externalChangePendingByTab: restPending,
-          excalidrawEditorMounts: restMounts,
-          pendingOpenAt: null,
-        });
-        if (recordHistory) get().pushHistory(canonical);
-        // Iter-15 — release the LRU victim's claim so the next opener
-        // (any window) can re-claim it. Fire-and-forget; the destroy
-        // sweep is the safety net for IPC failures.
-        void releaseOpenFile(victim.path).catch((err: unknown) => {
-          void logWarn(
-            `[release] LRU victim ${victim.path} release failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        });
-        // Iter-15 — claim the new path. On owned-elsewhere, the
-        // helper reverts our just-added tab; rest of the LRU
-        // bookkeeping above is preserved (the victim eviction stays
-        // in place even if this open is rejected — a subsequent
-        // open of the victim path would need to re-add it).
-        void claimOrRevert(canonical, set, get);
-        return;
-      }
-      set({
-        tabs: [
-          ...baseTabs,
-          { path: canonical, scrollTop: 0, lastAccessedAt: now, readOnly: isReadOnly },
-        ],
-        activeTabPath: canonical,
-        pendingOpenAt: null,
-      });
-      if (recordHistory) get().pushHistory(canonical);
-      // Iter-15 — claim ownership; revert on conflict.
-      void claimOrRevert(canonical, set, get);
-    },
+    openFile: (path, opts) => openFileImpl(path, opts, set, get),
 
     closeTab: (path) => {
       // Issue #352 / iter-10 redesign — auto-save makes the close

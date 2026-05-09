@@ -137,11 +137,23 @@ pub fn register_window_file_inner(
         .ok_or_else(|| "path has no parent".to_string())?
         .to_path_buf();
 
-    // Classify on the canonical path. The workspace_root argument is the
-    // canonical itself so the Inside/Outside discriminator collapses to
-    // Inside; only the Tier::System branch can reject. Mirrors the
-    // discriminator-collapse pattern in `commands::fs::mod::ensure_readable`.
-    let classification = match classify(&canonical, &canonical) {
+    // AC7 — classify BEFORE seeding the watcher allowlist. Resolve the
+    // workspace root from `tree_watched_dirs` so an outside-workspace
+    // file actually surfaces `Tier::Outside` to the renderer (used by
+    // `tabs.openFile` to derive `readOnly` atomically with insertion).
+    //
+    // If the window has no workspace registered yet (file-only window /
+    // freshly-launched orphan-file open), there is no root to compare
+    // against — collapse the discriminator to Inside by passing the
+    // canonical as its own root, matching the historical behaviour for
+    // file-only windows. Order matters: doing the resolution BEFORE the
+    // seed below ensures an outside-workspace file in a workspace-bearing
+    // window classifies Outside even though we are about to add its
+    // parent to `tree_watched_dirs`.
+    let workspace_root =
+        crate::commands::path_classify::workspace_root_for_window(state, window_label)
+            .unwrap_or_else(|| canonical.clone());
+    let classification = match classify(&canonical, &workspace_root) {
         Ok(Tier::System { .. }) => {
             tracing::warn!(
                 target: "fs-guard",

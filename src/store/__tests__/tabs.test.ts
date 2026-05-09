@@ -144,7 +144,6 @@ describe("openFile async ordering (issue #359)", () => {
       excalidrawDirtyByTab: {},
       externalChangePendingByTab: {},
       excalidrawEditorMounts: [],
-      pendingOpenAt: null,
       recentItems: [],
     });
   });
@@ -227,8 +226,6 @@ describe("openFile async ordering (issue #359)", () => {
     expect(useStore.getState().tabs.length).toBe(before);
     // Active path untouched (still null from beforeEach reset).
     expect(useStore.getState().activeTabPath).toBeNull();
-    // Stale-request guard cleaned up.
-    expect(useStore.getState().pendingOpenAt).toBeNull();
   });
 
   it("rapidSwitch_dropsStaleInsert: A's late insert does NOT clobber B as active tab", async () => {
@@ -276,5 +273,27 @@ describe("openFile async ordering (issue #359)", () => {
     expect(useStore.getState().activeTabPath).toBe("/ws/B.md");
     // A is NOT inserted (the guard dropped its set()).
     expect(useStore.getState().tabs.map((t) => t.path)).toEqual(["/ws/B.md"]);
+  });
+
+  it("readOnly is true when register_window_file returns tier=outside (issue #359 / AC7)", async () => {
+    // Bug-expert regression seal — pre-fix Rust returned `tier: "inside"`
+    // for any non-system path because `classify(&canonical, &canonical)`
+    // collapsed the discriminator. After the fix, an outside-workspace
+    // file emits `tier: "outside"` and the renderer must surface
+    // `readOnly === true` on the inserted tab, atomically.
+    invokeMock.mockImplementationOnce(async (cmd, args) => {
+      if (cmd === "register_window_file") {
+        const a = args as { path?: string } | undefined;
+        const p = a?.path ?? "";
+        return {
+          canonical: p,
+          classification: { tier: "outside", canonical: p },
+        };
+      }
+      return undefined;
+    });
+    await useStore.getState().openFile("/elsewhere/x.md", { recordHistory: false });
+    const tab = useStore.getState().tabs.find((t) => t.path === "/elsewhere/x.md");
+    expect(tab?.readOnly).toBe(true);
   });
 });

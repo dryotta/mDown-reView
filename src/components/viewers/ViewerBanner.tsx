@@ -17,8 +17,6 @@
  */
 
 import { useStore } from "@/store";
-import { extendWindowScopeFiles } from "@/lib/tauri-commands";
-import { error as logError } from "@/logger";
 
 export type BannerVariant =
   | { kind: "tier3-references" }
@@ -115,22 +113,17 @@ function bannerCopy(variant: BannerVariant): BannerCopy {
         copy: "⚠ This document references files outside your workspace.",
         button: {
           label: "Allow for this session",
-          // Issue #359 / AC3 — extend the asset-protocol scope to the
-          // file's canonical parent BEFORE flipping the renderer flag,
-          // so embedded relative-path images (rendered via
-          // `convertFileSrc`) resolve against the new scope on the next
-          // render. Fire async; on IPC failure log + still flip the
-          // renderer flag so the banner dismisses (the user has clearly
-          // opted in — the worst case is broken images, not a stuck UI).
+          // Issue #359 / AC3 — route through the store action so the
+          // asset-protocol scope grant resolves BEFORE the renderer flag
+          // flips. The action awaits the IPC then flips the flag; on
+          // reject the flag stays unset and the banner remains visible.
+          // MVVM seam (architect-expert): View no longer calls IPC
+          // directly; the ViewModel owns IPC + flag mutation atomically.
           onClick: () => {
-            void extendWindowScopeFiles([tabPath]).catch((err: unknown) => {
-              void logError(
-                `[banner] extend_window_scope_files failed for ${tabPath}: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-              );
+            void useStore.getState().extendScopeForTab(tabPath).catch(() => {
+              // Already logged by the store action; the still-visible
+              // banner IS the user-facing failure signal.
             });
-            useStore.getState().allowOutsideForTab(tabPath);
           },
         },
       };

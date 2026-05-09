@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
+import { error as logError } from "@/logger";
 import {
   cliShimStatus as ipcCliShimStatus,
   defaultHandlerStatus as ipcDefaultHandlerStatus,
+  extendWindowScopeFiles as ipcExtendWindowScopeFiles,
   installCliShim as ipcInstallCliShim,
   onboardingState as ipcOnboardingState,
   removeCliShim as ipcRemoveCliShim,
@@ -210,6 +212,23 @@ interface OutsideWorkspaceSlice {
   allowOutsideWorkspace: Set<string>;
   allowOutsideForTab: (tabPath: string) => void;
   disallowOutsideForTab: (tabPath: string) => void;
+  /**
+   * Issue #359 / AC3 — atomic "extend asset-scope + flip allow flag"
+   * action for the outside-workspace banner. Awaits
+   * `extend_window_scope_files` BEFORE flipping `allowOutsideWorkspace`,
+   * so embedded relative-path images (rendered via `convertFileSrc`)
+   * resolve against the new asset-protocol scope on the next render.
+   * On IPC reject the flag stays UNSET — the banner remains visible so
+   * the user knows the grant didn't land. Re-throws so callers can
+   * surface failures if needed; the action also logs the failure
+   * internally.
+   *
+   * Architectural rationale (architect-expert): MVVM seam. The View
+   * (`ViewerBanner`) no longer calls `commands.extendWindowScopeFiles`
+   * directly — the ViewModel (this store action) owns IPC orchestration
+   * + flag mutation as a single atomic operation.
+   */
+  extendScopeForTab: (tabPath: string) => Promise<void>;
 }
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -304,6 +323,28 @@ export const useStore = create<Store>()(
           next.delete(tabPath);
           return { allowOutsideWorkspace: next };
         }),
+      // Issue #359 / AC3 — atomic extend-scope + flag-flip. See doc-comment
+      // on `OutsideWorkspaceSlice.extendScopeForTab` above for rationale.
+      extendScopeForTab: async (tabPath) => {
+        try {
+          await ipcExtendWindowScopeFiles([tabPath]);
+        } catch (err) {
+          void logError(
+            `[banner] extend_window_scope_files failed for ${tabPath}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          // Do NOT flip the flag. Banner stays visible so the user knows
+          // the grant didn't land. Re-throw so the View can decide whether
+          // to surface an additional UI cue (currently not needed — the
+          // unchanged banner IS the cue).
+          throw err;
+        }
+        // IPC succeeded — flip the per-tab allow flag atomically. Use
+        // `get().allowOutsideForTab` to share the single setter so any
+        // future changes to that path land here too.
+        get().allowOutsideForTab(tabPath);
+      },
 
       // Watcher
       ghostEntries: [],

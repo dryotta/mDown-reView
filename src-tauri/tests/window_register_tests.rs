@@ -169,32 +169,46 @@ mod group_b {
     #[test]
     fn register_window_file_outside_returns_outside_and_seeds_watcher() {
         // No seeded workspace — simulates a freshly-launched orphan-file
-        // window. The file lives in a totally separate dir; classify will
-        // return Outside because workspace_root == canonical.starts_with()
-        // collapses to Inside ONLY for the canonical itself; for a file
-        // path the parent is NOT a starts_with(canonical) match. Wait —
-        // we pass `(canonical, canonical)` so `canonical.starts_with(canonical)`
-        // IS true. So classify returns Inside for the file's own path
-        // (discriminator collapse, see ensure_readable doc-comment). The
-        // "outside" semantic is observable at the integration layer:
-        // ensure_readable rejects without prior register, and accepts after.
-        // To get a real Outside variant we'd need a workspace_root unrelated
-        // to the file; classify is called with `(canonical, canonical)` here
-        // so we cannot exercise the Outside branch via this path.
-        //
-        // What we CAN prove: registration succeeds for a file that has no
-        // pre-existing workspace, and the watcher gets seeded.
+        // window. With no workspace root for the window, the
+        // discriminator collapses to Inside per the file-only fallback in
+        // `register_window_file_inner` (workspace_root_for_window returns
+        // None → use canonical as its own root). Verifies the orphan-window
+        // path: registration succeeds and the watcher gets seeded.
         let outside = outside_tempdir();
         let state = empty_state();
         let file = write_file(outside.path(), "outside.md", b"out");
 
         let result =
             register_window_file_inner("w1", file.to_str().unwrap(), &state).expect("ok");
-        // Classification is Inside (per discriminator-collapse comment) — the
-        // load-bearing assertion here is that the watcher seed landed.
+        // No workspace registered → classification collapses to Inside;
+        // the load-bearing assertion is the watcher seed.
         assert!(matches!(result.classification, PathClassification::Inside { .. }));
         let parent = canonicalize_no_verbatim(file.parent().unwrap()).unwrap();
         assert!(dirs_for(&state, "w1").contains(&parent));
+    }
+
+    #[test]
+    fn register_window_file_outside_with_workspace_returns_outside() {
+        // AC7 — with a registered workspace, an outside-workspace file
+        // MUST classify Outside (not Inside). The pre-fix bug:
+        // `classify(&canonical, &canonical)` collapsed to Inside for any
+        // non-system path, defeating the renderer's `readOnly` derivation.
+        let workspace = workspace_tempdir();
+        let outside = outside_tempdir();
+        let state = state_with_workspace(workspace.path());
+        let file = write_file(outside.path(), "outside.md", b"out");
+
+        let result =
+            register_window_file_inner("test", file.to_str().unwrap(), &state).expect("ok");
+        match &result.classification {
+            PathClassification::Outside { canonical } => {
+                assert_eq!(canonical, &result.canonical);
+            }
+            other => panic!("expected Outside, got {other:?}"),
+        }
+        // Watcher still seeded so the subsequent ensure_readable accepts.
+        let parent = canonicalize_no_verbatim(file.parent().unwrap()).unwrap();
+        assert!(dirs_for(&state, "test").contains(&parent));
     }
 
     #[cfg(unix)]

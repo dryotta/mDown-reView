@@ -14,6 +14,16 @@ Per-filetype zoom (Ctrl+= / Ctrl+- / Ctrl+0) is wired through `useZoom(filetype)
 
 Remote `<img>` references are gated: the markdown viewer detects `![…](https://…)` or raw `<img src="https…">` (excluding code fences/inline ticks) and shows an "Allow remote images for this document" banner. Until the user opts in via `viewerPrefsSlice.allowRemoteImagesForDoc`, every remote image renders as a `RemoteImagePlaceholder`. Once allowed, the bytes flow through the bounded `fetch_remote_asset` Rust command (https-only, 8 MB cap, 10 s timeout, `image/*` allowlist, redirect policy capped at 5 https-only hops, semaphore-capped concurrency — rule 27 in [`docs/security.md`](../security.md)) and become `blob:` URLs, leaving the CSP `img-src` intact.
 
+### Allow for this session — outside-workspace files
+
+When the user opens a file outside the workspace (via Open File menu, Recent items, drag-drop, or CLI forward), the markdown body loads but embedded relative-path images stay blocked until the user opts in. A banner appears with a single button: "Allow for this session". Clicking it widens the asset-protocol scope to the file's canonical parent directory for the lifetime of the session via the `extend_window_scope_files` IPC; the renderer's per-tab `allowOutsideWorkspace` flag is then flipped (atomically — the flag flip is gated on IPC success, see `extendScopeForTab` in `src/store/index.ts`). The opt-in is per-tab; closing the tab does not invalidate the grant for other tabs in the same window.
+
+Failure modes:
+- If the canonical parent is a system directory (e.g., the user has somehow opened `/etc/something.md`), the IPC rejects and the banner stays visible — the renderer flag is NOT flipped. The user has no remediation path beyond closing the tab.
+- If the canonical parent is unwritable / non-canonicalizable, same as above.
+
+Implementation: see [`docs/security.md`](../security.md) rule 17 (asset-scope-vs-watcher-allowlist split) and `src-tauri/src/commands/window_register.rs::extend_window_scope_files`.
+
 The markdown anchor handler classifies clicks into four cases: in-document `#anchor` (browser default), `javascript:`/`file:`/`data:`/`vbscript:` (dropped + warned), external `http(s)`/`mailto`/`tel` (delegated to the OS opener via `openExternalUrl`), and workspace-relative paths (resolved through `resolveWorkspacePath` for containment, then `useStore.openFile`). The HTML preview iframe applies the same four-case routing inside the safe-mode iframe.
 
 A single Shiki highlighter instance is shared across viewers — see the Shiki singleton rule in [`docs/design-patterns.md`](../design-patterns.md). The table of contents, selection toolbar, and viewer toolbar are composable overlays, not viewer-specific code.
