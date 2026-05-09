@@ -21,6 +21,17 @@ pub struct OnboardingState {
     /// natural home elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// User's theme preference. One of `"system"`, `"light"`, or `"dark"`.
+    /// Read at window-construction time by `commands::config::resolve_window_bg`
+    /// to set `WebviewWindowBuilder::background_color` BEFORE WebView2 attaches —
+    /// fixes the cold-start light-theme flash regression from PR #265. Set via
+    /// `commands::config::set_theme` IPC. Persisted in this struct (rather than
+    /// a dedicated settings file) for the same reason as `author`: one-off
+    /// settings knob, no value in splitting the file. Schema version stays at 1
+    /// because this is an additive optional field — backward-compat with old
+    /// binaries that drop unknown keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
 }
 
 impl Default for OnboardingState {
@@ -29,6 +40,7 @@ impl Default for OnboardingState {
             schema_version: SCHEMA_VERSION,
             last_seen_sections: Vec::new(),
             author: None,
+            theme: None,
         }
     }
 }
@@ -128,5 +140,20 @@ mod tests {
         let path = dir.path().join("nested/missing/onboarding.json");
         save_at(&path, &OnboardingState::default()).unwrap();
         assert!(path.exists());
+    }
+
+    #[test]
+    fn legacy_payload_without_theme_field_loads_with_theme_none() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("onboarding.json");
+        std::fs::write(
+            &path,
+            r#"{"schema_version":1,"last_seen_sections":["cli"],"author":"Alice"}"#,
+        )
+        .unwrap();
+        let state = load_at(&path);
+        assert_eq!(state.schema_version, 1);
+        assert_eq!(state.author.as_deref(), Some("Alice"));
+        assert_eq!(state.theme, None);
     }
 }

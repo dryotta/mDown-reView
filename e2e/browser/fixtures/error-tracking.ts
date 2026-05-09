@@ -287,6 +287,7 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
             if (cmd === "update_comment") return undefined;
             if (cmd === "set_author") return "";
             if (cmd === "get_author") return "Test User";
+            if (cmd === "set_theme") return undefined;
             return null;
           },
         };

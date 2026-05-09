@@ -252,6 +252,15 @@ export const setAuthor = (name: string): Promise<string> => unwrap(bindings.setA
 
 export const getAuthor = (): Promise<string> => unwrap(bindings.getAuthor());
 
+// Window theme persistence ────────────────────────────────────────────────
+// Mirror the user's theme preference to disk so the next cold start paints
+// the right OS-level window background BEFORE WebView2 attaches. Cold-start
+// FOUC fix — see `src-tauri/src/commands/config.rs::resolve_window_bg`.
+// NO `getTheme` exists by design — the renderer reads theme from Zustand
+// persist (localStorage); only Rust's window builder needs to read from disk.
+export const setTheme = (theme: "system" | "light" | "dark"): Promise<void> =>
+  unwrap(bindings.setTheme(theme)).then(() => {});
+
 // Document search / parsers ────────────────────────────────────────────────
 
 export const searchInDocument = (content: string, query: string): Promise<SearchMatch[]> =>

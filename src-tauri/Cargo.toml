@@ -122,6 +122,14 @@ mdr-macros = { path = "mdr-macros" }
 winreg = "0.52"
 windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# In-process OS theme detection via CFPreferencesCopyAppValue. Reading
+# `AppleInterfaceStyle` (CFString "Dark" when dark mode is active, NULL
+# otherwise) lets `commands::config::detect_os_theme` paint the correct
+# window background BEFORE WebView2 attaches — no fork+exec to `defaults`,
+# no PATH-hijack risk, no 30-80ms cold-start cost. See PR #363 / FOUC fix.
+core-foundation = "0.10"
+
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
 tempfile = "3"

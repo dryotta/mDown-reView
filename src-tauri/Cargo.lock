@@ -2821,6 +2821,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap 4.6.1",
+ "core-foundation",
  "criterion",
  "dunce",
  "ignore",

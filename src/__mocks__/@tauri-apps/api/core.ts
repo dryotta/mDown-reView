@@ -123,6 +123,7 @@ async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Prom
   if (cmd === "update_comment") return undefined;
   if (cmd === "set_author") return "";
   if (cmd === "get_author") return "Test User";
+  if (cmd === "set_theme") return undefined;
   // ── Two-layer mock parity (issue #135) ────────────────────────────────
   // The Playwright browser fixture (e2e/browser/fixtures/error-tracking.ts)
   // has explicit arms for these commands. Mirroring them here so a Vitest
