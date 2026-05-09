@@ -68,6 +68,23 @@ function registerWindowFile(nativePage: import("@playwright/test").Page, absPath
   }, absPath);
 }
 
+/**
+ * Drive `update_watched_files` to mirror what `useFileWatcher` fires in
+ * production when `tabs[]` changes (`src/hooks/useFileWatcher.ts:66-70`).
+ * The native E2E bypasses `store.openFile`, so tabs[] never contains the
+ * outside file — without this step, an unrelated `updateWatchedFiles([])`
+ * fire from useFileWatcher's mount effect wipes the seed inserted by
+ * `register_window_file → seed_window_file`. See issue #369 forward-fix.
+ */
+function updateWatchedFiles(nativePage: import("@playwright/test").Page, paths: string[]) {
+  return nativePage.evaluate((p: string[]) => {
+    // @ts-ignore — Tauri internals
+    return window.__TAURI_INTERNALS__.invoke("update_watched_files", { paths: p })
+      .then(() => "ok")
+      .catch((e: unknown) => String(e));
+  }, paths);
+}
+
 test.describe("issue #359 — outside file open", () => {
   test("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
     const folderA = nativeTempDir("mdr-359-folderA");
@@ -97,6 +114,21 @@ test.describe("issue #359 — outside file open", () => {
         .poll(() => registerWindowFile(nativePage, outsideMd), {
           timeout: 15_000,
           intervals: [200, 500, 1000],
+        })
+        .toBe("ok");
+
+      // Mirror the second half of `store.openFile`: production pushes the
+      // outside file into `tabs[]`, which makes `useFileWatcher` fire
+      // `updateWatchedFiles(tabPaths)` (`src/hooks/useFileWatcher.ts:66-70`).
+      // The native E2E bypasses `store.openFile`, so without this step an
+      // unrelated `updateWatchedFiles([])` fire from useFileWatcher's mount
+      // effect would wipe the `register_window_file → seed_window_file`
+      // seed before `read_text_file` checks the allowlist. Issue #369
+      // forward-fix.
+      await expect
+        .poll(() => updateWatchedFiles(nativePage, [outsideMd]), {
+          timeout: 5_000,
+          intervals: [200, 500],
         })
         .toBe("ok");
 
@@ -134,6 +166,15 @@ test.describe("issue #359 — outside file open", () => {
         .poll(() => registerWindowFile(nativePage, outsideMd), {
           timeout: 15_000,
           intervals: [200, 500, 1000],
+        })
+        .toBe("ok");
+
+      // Mirror `store.openFile` second half (see repro-1). Even with no
+      // folder open, production correctness requires this step.
+      await expect
+        .poll(() => updateWatchedFiles(nativePage, [outsideMd]), {
+          timeout: 5_000,
+          intervals: [200, 500],
         })
         .toBe("ok");
 

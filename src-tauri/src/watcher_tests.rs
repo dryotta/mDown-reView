@@ -570,3 +570,51 @@ fn extend_window_scope_files_seeds_extra_watched_dirs_not_tree() {
         "tree_watched_dirs[test-main] must NOT contain banner-granted dirs (cross-window leak invariant)"
     );
 }
+
+// fails = product defect / passes = fix correct
+#[test]
+fn is_path_or_parent_allowed_does_not_allowlist_sibling_writes() {
+    // Issue #369 forward-fix — the parent-equality fallback in
+    // `is_path_or_parent_allowed` must accept ONLY sidecar siblings
+    // (`<seed.filename>.review.yaml` / `.review.json`), not arbitrary
+    // siblings. Without the narrowed match, opening `~/Downloads/note.md`
+    // would let the comment-mutation chokepoint write `~/Downloads/secret.txt`.
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-sibling-write-");
+    let outside_file = outside_dir.path().join("note.md");
+    std::fs::write(&outside_file, "x").unwrap();
+    let canonical = canonicalize_no_verbatim(&outside_file).unwrap();
+
+    state.seed_window_file("test-main", canonical.clone());
+
+    let parent_dir = canonical.parent().unwrap();
+
+    // Sidecars MUST be allowed (preserves first-comment-write).
+    let sidecar_yaml = parent_dir.join("note.md.review.yaml");
+    let sidecar_json = parent_dir.join("note.md.review.json");
+    assert!(
+        state.is_path_or_parent_allowed(&sidecar_yaml),
+        ".review.yaml sidecar of seeded file must be allowed (first-comment-write)"
+    );
+    assert!(
+        state.is_path_or_parent_allowed(&sidecar_json),
+        ".review.json sidecar of seeded file must be allowed (first-comment-write)"
+    );
+
+    // Arbitrary siblings MUST be rejected.
+    let sibling_txt = parent_dir.join("sibling.txt");
+    let sibling_md = parent_dir.join("another.md");
+    // Create them on-disk too so `is_path_allowed`'s canonicalize step
+    // succeeds — proves rejection holds for the live attack scenario,
+    // not just the deleted-file path.
+    std::fs::write(&sibling_txt, "y").unwrap();
+    std::fs::write(&sibling_md, "z").unwrap();
+    assert!(
+        !state.is_path_or_parent_allowed(&sibling_txt),
+        "non-sidecar sibling MUST NOT be allowlisted (sibling-write attack vector)"
+    );
+    assert!(
+        !state.is_path_or_parent_allowed(&sibling_md),
+        "non-sidecar sibling MUST NOT be allowlisted (sibling-write attack vector)"
+    );
+}

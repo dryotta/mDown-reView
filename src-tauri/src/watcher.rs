@@ -162,7 +162,10 @@ impl WatcherState {
                     if let Ok(c) = canonicalize_no_verbatim(&sidecar) {
                         entry.insert(c);
                     }
-                    entry.insert(sidecar);
+                    // Note: the raw (non-canonical) sidecar form is intentionally
+                    // NOT inserted — `is_path_allowed` canonicalizes its input
+                    // first, so the raw form is never consulted. (Lean pillar /
+                    // Never Increase Engineering Debt: drop dead inserts.)
                 }
                 entry.insert(canonical);
             }
@@ -340,17 +343,26 @@ impl WatcherState {
                 }
             }
         }
-        // Issue #369 — first-comment-write on an outside file: the candidate
-        // queried here is the parent dir of a file seeded into `watched_paths`
-        // by `register_window_file_inner` (via `seed_window_file`). Accept
-        // when any watched-path's canonical parent matches the queried
-        // parent. Cite: docs/security.md rule 17.
-        if let Ok(paths) = self.watched_paths.lock() {
-            for set in paths.values() {
-                for entry in set.iter() {
-                    if let Some(parent_of_entry) = entry.parent() {
-                        if parent_of_entry == canonical_parent.as_path() {
-                            return true;
+        // Issue #369 — first-comment-write on an outside file: the renderer
+        // writes `<canonical_outside_md>.review.yaml` whose parent matches
+        // the seeded outside file's parent. Accept ONLY sidecar siblings
+        // (`<seed.filename>.review.yaml` / `.review.json`) — NOT arbitrary
+        // siblings, which would be a sibling-write attack vector via the
+        // comment-mutation chokepoint. Cite: docs/security.md rule 17;
+        // docs/principles.md Lean pillar; docs/architecture.md rule 1.
+        if let Some(query_name) = path.file_name().and_then(|n| n.to_str()) {
+            if let Ok(paths) = self.watched_paths.lock() {
+                for set in paths.values() {
+                    for entry in set.iter() {
+                        if let (Some(p), Some(name)) =
+                            (entry.parent(), entry.file_name().and_then(|n| n.to_str()))
+                        {
+                            if p == canonical_parent.as_path()
+                                && (query_name == format!("{name}.review.yaml")
+                                    || query_name == format!("{name}.review.json"))
+                            {
+                                return true;
+                            }
                         }
                     }
                 }
