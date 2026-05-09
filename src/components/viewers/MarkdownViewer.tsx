@@ -93,6 +93,17 @@ async function ensureKatexCssLoaded(): Promise<void> {
 // produced by the Rust matcher.
 const REMARK_PLUGINS = [remarkFrontmatter, remarkGfm, remarkMath, remarkGithubAlerts] as const;
 
+// Issue #359 / iter-2 forward-fix — asset-protocol scheme detection.
+// Tauri v2's `convertFileSrc` returns scheme-prefixed URLs whose form
+// differs by platform: macOS yields `asset://<path>` while Windows yields
+// `http://asset.localhost/<path>` (CSP `img-src` lists both — see
+// `src-tauri/tauri.conf.json`). Cache-busting must match BOTH so the
+// scope-gen nonce fires on the primary Windows platform.
+const isAssetSchemeUrl = (url: string): boolean =>
+  url.startsWith("asset:") ||
+  url.startsWith("http://asset.localhost") ||
+  url.startsWith("https://asset.localhost");
+
 export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // Iter 3 of #252 — defer the heavy markdown parse so React can keep
   // frames moving while interactive surfaces (find-bar, scroll, click)
@@ -168,7 +179,7 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
       if (!React.isValidElement(el) || el.type !== "img") return el;
       const elProps = el.props as { src?: string };
       const src = elProps.src;
-      if (!src || !src.startsWith("asset:")) return el;
+      if (!src || !isAssetSchemeUrl(src)) return el;
       const sep = src.includes("?") ? "&" : "?";
       return React.cloneElement(el as React.ReactElement<{ src?: string }>, {
         src: `${src}${sep}scopeGen=${allowedScopeGen}`,

@@ -125,6 +125,41 @@ describe("MarkdownViewer image re-fetch on outside-workspace grant (#359 iter-2)
     const img = document.querySelector("img");
     expect(img?.getAttribute("src") ?? "").not.toMatch(/scopeGen=/);
   });
+
+  // Iter-2 forward-fix — react-tauri-expert BLOCK: the original detector
+  // only matched `asset:` (macOS scheme), so on Windows where Tauri v2's
+  // `convertFileSrc` returns `http://asset.localhost/<path>` the cache-bust
+  // never fired and the user-visible regression persisted. This test pins
+  // the Windows scheme by mocking `convertAssetUrl` to emit the
+  // `http://asset.localhost/...` form and asserting the nonce is appended.
+  it("appends ?scopeGen=N to http://asset.localhost img src after extendScopeForTab grants scope (Windows scheme)", async () => {
+    convertAssetUrlMock.mockImplementation(
+      (src: string) => `http://asset.localhost/${src.replace(/^\.?\/+/, "")}`
+    );
+    render(<MarkdownViewer content={CONTENT} filePath={FILE_PATH} />);
+
+    let img: HTMLImageElement | null = null;
+    await waitFor(() => {
+      img = document.querySelector("img");
+      expect(img).not.toBeNull();
+    });
+    const initialSrc = img!.getAttribute("src") ?? "";
+    expect(initialSrc.startsWith("http://asset.localhost")).toBe(true);
+    expect(initialSrc).not.toMatch(/scopeGen=/);
+
+    act(() => {
+      useStore.getState().allowOutsideForTab(FILE_PATH);
+      useStore.setState((s) => ({ allowedScopeGen: s.allowedScopeGen + 1 }) as never);
+    });
+
+    await waitFor(() => {
+      const refreshed = document.querySelector("img");
+      expect(refreshed).not.toBeNull();
+      const newSrc = refreshed!.getAttribute("src") ?? "";
+      expect(newSrc).toMatch(/[?&]scopeGen=1\b/);
+      expect(newSrc.startsWith("http://asset.localhost")).toBe(true);
+    });
+  });
 });
 
 // ─── extendScopeForTab bumps allowedScopeGen ────────────────────────────────
