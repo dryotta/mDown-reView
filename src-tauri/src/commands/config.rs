@@ -1,12 +1,24 @@
-//! User-facing config IPC. Currently just `set_author` (persists the display
-//! name written into `MrsfComment.author` for newly-created comments). The
-//! value lives in `OnboardingState` rather than a dedicated settings file
-//! because it's a single one-off knob — splitting a new file for it would be
-//! overkill.
+//! User-facing config IPC and cold-start window-background resolver.
 //!
-//! Validation is strict: name must be ≤128 UTF-8 bytes with no control
-//! characters and no newlines. Failures surface as a typed `ConfigError` so
-//! the renderer can branch on `kind` rather than parsing prose strings.
+//! Hosts `set_author` / `get_author` (persists the display name written into
+//! `MrsfComment.author` for newly-created comments) and `set_theme` (persists
+//! the user's theme preference — `"system"` / `"light"` / `"dark"`). Both
+//! values live in `OnboardingState` rather than a dedicated settings file
+//! because they are one-off settings knobs; splitting a new file would be
+//! overkill at the current scale (a SPLIT into `Settings` vs `OnboardingState`
+//! is tracked as a follow-up).
+//!
+//! The cold-start window-background resolver `resolve_window_bg(app)` reads
+//! the persisted theme preference (or detects OS theme in-process when
+//! absent / `"system"`) and returns the `(Color, tauri::Theme)` pair the
+//! window builder applies via `.background_color()` + `.theme(Some(...))`.
+//! This eliminates the cold-start light-theme flash regression from PR #265.
+//!
+//! Validation: `set_author` rejects ≤128 UTF-8 bytes with no control
+//! characters and no newlines; `set_theme` rejects anything outside the
+//! closed enum `{"system","light","dark"}`. Failures surface as a typed
+//! `ConfigError` so the renderer can branch on `kind` rather than parsing
+//! prose strings.
 
 use crate::core::onboarding::{load_at, save_at, OnboardingState};
 use std::path::{Path, PathBuf};
