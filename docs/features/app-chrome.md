@@ -55,6 +55,8 @@ The toolbar, viewer toolbar, and status bar are mounted **per window**. Each win
 
 Per-window state (tabs, active file, folder-tree expansion, pane sizes) is isolated per window — it never leaks across windows. Cross-window synchronized state (theme, author name, recent items, reading width, update channel) is declared in the exported `CROSS_WINDOW_SYNCED_KEYS` constant in `src/store/index.ts` and propagated via `useCrossWindowPrefsSync` so a theme toggle in one window updates every other window.
 
+The user-visible theme preference (system / light / dark) is also persisted in Rust at `app_config_dir/onboarding.json` (peer of `author`). At cold-start, Rust reads the preference at window-construction time and resolves it (via in-process OS detection — Windows registry / macOS `CFPreferencesCopyAppValue` / `"light"` fallback elsewhere) to set both `WebviewWindowBuilder::background_color` (OS-paint pre-attach) and `WebviewWindowBuilder::theme` (OS chrome — e.g. Windows titlebar dark mode). This eliminates the cold-start light-theme flash that was a regression of PR #265's dark-only fix. The renderer mirrors theme writes to Rust via the `useThemePref` write-through VM (`src/lib/vm/useThemePref.ts`, peer of `useAuthor`); `useApplyTheme.ts` remains a pure DOM applier with no IPC writes.
+
 For the canonical rule set governing per-window menus, window-scoped events, registry lifecycle, state isolation, label conventions, and the cross-window allowlist, see [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md) — the `multiwin-*` rules.
 
 ## Related rules
