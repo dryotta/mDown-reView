@@ -8,11 +8,10 @@
 //! "main" window. Hardcoding `"main"` works at startup but routes events
 //! to the wrong window the moment a user opens a second folder window.
 //!
-//! Allowlist captures the legitimate bootstrap call sites in
-//! `lib.rs::setup` and the post-test re-seed path in
-//! `commands/launch.rs::set_root_via_test` (debug-only). Test code
-//! (`#[cfg(test)] mod tests`) is allowed to use the literal freely
-//! since unit tests construct synthetic registries.
+//! Allowlist: explicit `(file, substring)` pairs in `ALLOW` and
+//! whole-file entries in `ALLOW_FILES` (currently only `src/registry.rs`,
+//! which owns the bootstrap label). Test code is NOT globally exempt —
+//! use synthetic labels like `"test-main"`.
 //!
 //! Self-tests at the bottom guard the matcher itself so a future edit
 //! that breaks the recognizer cannot silently let the gate pass empty.
@@ -59,10 +58,8 @@ const ALLOW: &[(&str, &str)] = &[
     ("src/lib.rs", "parse_menu_id(\"main:open-file\")"),
 ];
 
-/// Files allowed to use the literal `"main"` freely. Test code under
-/// `#[cfg(test)]` synthesises registries and is expected to register
-/// labels by name; gating it would force every unit test to wire up a
-/// runtime label generator for no architectural benefit.
+/// Whole-file exemptions. See crate-level docs for policy.
+/// Narrow by design — prefer adding a pair to `ALLOW` above.
 const ALLOW_FILES: &[&str] = &[
     "src/registry.rs",
 ];
@@ -175,6 +172,13 @@ fn matcher_flags_bare_main_literal() {
 fn matcher_flags_main_at_end_of_line() {
     // Positive: literal at end of line (no trailing char) must be flagged.
     let line = "    .get(\"main\")";
+    assert!(line_has_main_literal(line));
+}
+
+#[test]
+fn matcher_flags_main_in_synthetic_rust_test_line() {
+    // Test code is NOT exempt at the matcher level; only ALLOW/ALLOW_FILES exempt.
+    let line = "    state.seed_window_workspace(\"main\", vec![canonical.clone()]);";
     assert!(line_has_main_literal(line));
 }
 

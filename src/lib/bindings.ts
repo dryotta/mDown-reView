@@ -620,6 +620,25 @@ async setRootViaTest(path: string) : Promise<Result<null, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Test-only IPC clearing all per-window scope state for the calling
+ * window. Used by `e2e/native/fixtures.ts`'s `nativePage` fixture so
+ * each spec starts with an empty `tree_watched_dirs` precondition,
+ * closing the cross-spec state-leak surface that produced #366.
+ * 
+ * `#[cfg(debug_assertions)]`-gated — release builds do not register
+ * this command at all. Mirrors `set_root_via_test` (line 153-224).
+ * 
+ * Cite: docs/security.md rule 20 (debug-only IPC gate).
+ */
+async resetWindowScopeForTest() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reset_window_scope_for_test") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 

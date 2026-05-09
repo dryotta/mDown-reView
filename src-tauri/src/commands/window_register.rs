@@ -259,3 +259,75 @@ pub fn collect_canonicals_for_extend(
     }
     Ok(canonicals)
 }
+
+#[cfg(test)]
+mod regression {
+    use super::*;
+    use crate::core::paths::canonicalize_no_verbatim;
+    use crate::watcher::WatcherState;
+    use std::sync::mpsc::sync_channel;
+
+    fn make_state() -> WatcherState {
+        let (tx, _rx) = sync_channel(1);
+        WatcherState::new(tx)
+    }
+
+    /// Issue #366 regression: with `tree_watched_dirs["main"]` already
+    /// populated by a prior spec, calling `register_window_file_inner`
+    /// for an outside-the-existing-set file MUST seed the new parent so
+    /// `is_path_allowed(file)` returns true afterward.
+    ///
+    /// If this test PASSES with no fix in this PR: #366's CI flake is
+    /// environmental (canonicalize race / Windows fs flush) and the
+    /// fixture-level reset is a test-isolation improvement, not a code
+    /// fix. If it FAILS today: the reset masks a real defect that needs
+    /// addressing at a deeper layer.
+    ///
+    /// Cite: docs/test-strategy.md rule 24 (failing-then-passing
+    /// regression for every confirmed bug under Zero Bug Policy).
+    #[test]
+    fn register_window_file_seeds_parent_with_pre_populated_state() {
+        let state = make_state();
+
+        // Anchor tempdirs under repo-local target/ to avoid Windows AppData
+        // (which classify() flags as Tier::System regardless of workspace_root,
+        // see core::security::system_locations:221).
+        use std::path::PathBuf;
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let temp_root = manifest_dir.join("target").join("test-tmp-window-register");
+        std::fs::create_dir_all(&temp_root).expect("temp_root mkdir");
+
+        // Pre-populate: simulate prior specs leaving a stale folder in main's allowlist.
+        let stale_dir = tempfile::Builder::new()
+            .prefix("mdr-366-stale-")
+            .tempdir_in(&temp_root)
+            .unwrap();
+        let canonical_stale = canonicalize_no_verbatim(stale_dir.path()).unwrap();
+        state.seed_window_workspace("test-main", vec![canonical_stale.clone()]);
+
+        // Test setup: create a separate "outside" folder + file (mirrors 09-outside-file-open's repro-1).
+        let outside_dir = tempfile::Builder::new()
+            .prefix("mdr-366-outside-")
+            .tempdir_in(&temp_root)
+            .unwrap();
+        let outside_file = outside_dir.path().join("outside.md");
+        std::fs::write(&outside_file, "# Outside\n").unwrap();
+        let outside_file_str = outside_file.to_string_lossy().to_string();
+
+        // Pre-condition: outside_file is NOT yet allowed.
+        assert!(
+            !state.is_path_allowed(&outside_file),
+            "precondition: outside file rejected before register"
+        );
+
+        // Action: register the outside file (mirrors store/tabs.ts:openFile chokepoint).
+        let result = register_window_file_inner("test-main", &outside_file_str, &state, None);
+        assert!(result.is_ok(), "register_window_file_inner should succeed: {result:?}");
+
+        // Post-condition: outside_file IS now allowed.
+        assert!(
+            state.is_path_allowed(&outside_file),
+            "post-register: outside file should be allowed (#366 regression)"
+        );
+    }
+}

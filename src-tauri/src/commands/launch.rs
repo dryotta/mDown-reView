@@ -223,6 +223,24 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
     Ok(())
 }
 
+/// Test-only IPC clearing all per-window scope state for the calling
+/// window. Used by `e2e/native/fixtures.ts`'s `nativePage` fixture so
+/// each spec starts with an empty `tree_watched_dirs` precondition,
+/// closing the cross-spec state-leak surface that produced #366.
+///
+/// `#[cfg(debug_assertions)]`-gated — release builds do not register
+/// this command at all. Mirrors `set_root_via_test` (line 153-224).
+///
+/// Cite: docs/security.md rule 20 (debug-only IPC gate).
+#[cfg(debug_assertions)]
+#[mdr_command]
+pub fn reset_window_scope_for_test(window: tauri::Window) -> Result<(), String> {
+    use tauri::Manager;
+    let app = window.app_handle();
+    crate::window_scope::reset_window_scope(app, window.label());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -32,6 +32,20 @@ const test = base.extend<{ nativePage: Page }>({
       timeout: 15_000,
     });
 
+    // Issue #366: clear per-window watcher state (tree_watched_dirs +
+    // watched_paths for this window's label) so each spec starts from
+    // an empty precondition. Fixture-level reset (not module-scope
+    // `test.beforeEach`) keeps "every spec using nativePage is reset"
+    // as a static invariant — see iter-1 architect-expert review.
+    // Single-attempt invoke; the IPC is debug-only and synchronous;
+    // `__TAURI_INTERNALS__` is guaranteed live by the preceding
+    // waitForFunction. See docs/test-strategy.md rule 29 and
+    // docs/security.md rule 17.
+    await page.evaluate(() => {
+      // @ts-ignore — Tauri internals are available in the WebView
+      return window.__TAURI_INTERNALS__.invoke("reset_window_scope_for_test");
+    });
+
     await use(page);
     // close() on a CDP-connected browser disconnects without killing the process
     await browser.close();

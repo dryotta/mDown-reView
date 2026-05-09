@@ -14,7 +14,7 @@ Canonical for test layering, coverage floors, and mock hygiene. Cite violations 
 
 ```mermaid
 flowchart TB
-    Native["Native E2E — real Tauri binary, real OS events<br/>(~4 specs · release-only · slowest)"]
+    Native["Native E2E — real Tauri binary, real OS events<br/>(~15 specs · release-only · slowest)"]
     Browser["Browser integration — Playwright + Vite + IPC mock<br/>(~10 specs · 100+ assertions · fast)"]
     Unit["Unit / component — Vitest + React Testing Library + Rust #[cfg(test)]<br/>(700+ tests · runs in milliseconds)"]
     Native --> Browser
@@ -38,7 +38,7 @@ Tests pick the lowest layer that can prove the claim — the pyramid widens down
 | React components with branching render | 80% branch | No | 20 test files |
 | Rust core (`src-tauri/src/core/`) | 90% line, 95% branch on `matching.rs`/`anchors.rs` | `cargo tarpaulin` not wired | 74 `#[test]` across 7 modules + 22 integration |
 | Browser E2E command mock coverage | Every init command mocked in every spec | Grep-audit in CI (gap) | 101 IPC-keyword hits across 10 specs |
-| Native E2E | 0 tests that could be browser tests | Manual review | 4 specs |
+| Native E2E | 0 tests that could be browser tests | Manual review | ~15 specs |
 
 ## Rules
 
@@ -91,6 +91,7 @@ Tests pick the lowest layer that can prove the claim — the pyramid widens down
 
 ### Test data fidelity
 28. Regression tests for code that consumes filenames, paths, or structured data produced by an external library MUST build the fixture by invoking that library's own emitter (or otherwise reading the registered version's actual on-disk shape) — not by hand-writing the expected shape from documentation, README examples, or our own type definitions. Canonical implementation: `regression_serde_saphyr_emit_round_trips_through_load_sidecar` in `src-tauri/src/core/sidecar/tests.rs`. Cross-references: rule 7 in [`docs/architecture.md`](architecture.md), rule 8 in [`docs/security.md`](security.md), [`docs/observability.md`](observability.md) `## On-disk schemas`. Background: PR #295.
+29. Native E2E suite uses **two-config isolation** to prevent cross-spec contamination of process-global Windows state, plus **per-spec window-scope reset** to prevent cross-spec contamination of per-window watcher state: (a) `playwright.native.config.ts` (default `npm run test:e2e:native`) spawns one shared CDP-attached debug binary via `globalSetup`; specs share it serially, listed alphabetically. (b) `playwright.installer.config.ts` (`npm run test:e2e:native:installer`) runs `installer.spec.ts` only with NO `globalSetup` — required because Playwright's `globalSetup` is config-level not per-project (https://playwright.dev/docs/api/class-testproject — `TestProject` has no `globalSetup` property). The installer spec's silent NSIS install/uninstall via `execSync` would kill any shared debug binary if co-located. (c) Inside `playwright.native.config.ts`'s shared-binary suite, the `nativePage` fixture in `e2e/native/fixtures.ts` invokes the debug-only `reset_window_scope_for_test` IPC after the `__TAURI_INTERNALS__` readiness check and before `await use(page)`, clearing `tree_watched_dirs[label]` and `watched_paths[label]` so each spec starts with an empty per-window scope precondition. Cross-reference rule 17 in [`docs/security.md`](security.md) (which enumerates all `WindowRegistry::register` chokepoint sites including the test-only IPC). Issues #364 + #366.
 
 ## Gaps
 

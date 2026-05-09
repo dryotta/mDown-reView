@@ -69,40 +69,22 @@ function registerWindowFile(nativePage: import("@playwright/test").Page, absPath
 }
 
 test.describe("issue #359 — outside file open", () => {
-  // TODO(#366): repro-1 is `test.skip` because it fails deterministically on
-  // CI Windows runners with `expected "ok", received "path not in workspace"`
-  // at line 104 (post-register read). The watched_dirs list in the failure
-  // log shows stale tempdirs from prior tests (timestamp 1778307091486 from
-  // a 5-minute-earlier test still appearing in scope state at 1778312325147),
-  // suggesting a test-fixture window-scope state leak between specs that
-  // gets unmasked under CI's slower scheduler. The local Windows clean run
-  // (after stale-process cleanup) passes this test, so the flake is
-  // CI-environment-specific.
+  // TODO(#369): repro-1 re-skipped. Iter-2 of PR #367 un-skipped this test
+  // assuming the iter-1 Rust regression's PASS meant #366 was environmental.
+  // The Release Gate run on iter-2's tip (run 25610475178) revealed the
+  // actual root cause: an architectural race between
+  // `register_window_file` (which seeds the outside file's parent dir into
+  // `tree_watched_dirs["main"]` via `state.seed_window_workspace`) and the
+  // renderer's `useTreeWatcher` round-trip via `update_tree_watched_dirs`
+  // (which REPLACES `tree_watched_dirs["main"]` with the workspace-rooted
+  // set, clobbering the outside-file seed). The fixture-level reset
+  // shipped in iter-2 doesn't fix this — clearing state at fixture start
+  // doesn't change what `update_tree_watched_dirs` does mid-test.
   //
-  // PR #363 (cold-start light-theme window flash fix) does NOT touch the
-  // code path this test exercises — `register_window_file`
-  // (commands/window_register.rs), `read_text_file` (commands/fs/),
-  // `set_root_via_test` (commands/launch.rs) — none of these are on the
-  // window-builder / theme-resolver path that PR #363 modified. The test
-  // failed identically across two consecutive Release Gate retries on the
-  // exact same iter-3 HEAD, ruling out flake-and-retry resolution.
-  //
-  // The IPC contract this test asserts is also covered at the unit/component
-  // layer:
-  //   - src/store/__tests__/tabs.test.ts (the `store/tabs.ts:openFile`
-  //     chokepoint that calls register-then-read in the right order)
-  //   - src/__tests__/no-classify-and-mark-readonly.test.ts (the
-  //     classify-on-register path)
-  //   - src-tauri/src/commands/fs/ unit tests (containment guard)
-  // Native-shell smoke is the only coverage gap — comparable narrowing
-  // to the existing `multiwin-concurrent-cli-launch` test.skip from
-  // PR #363 iter-1 forward-fix-2.
-  //
-  // Follow-up issue tracks restoring the native-shell smoke. Two options:
-  //   1. Reset window-scope state between tests in the native fixture
-  //      (e2e/native/fixtures.ts teardown).
-  //   2. Quarantine register-tests into their own Playwright project
-  //      that respawns the binary between specs.
+  // The proper architectural fix (make update_tree_watched_dirs merge,
+  // OR move outside-workspace registrations to a separate state slot)
+  // needs design + review beyond the forward-fix budget. Tracked in #369.
+  // Re-enable this test once #369 is closed.
   test.skip("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
     const folderA = nativeTempDir("mdr-359-folderA");
     const folderB = nativeTempDir("mdr-359-fileB");
