@@ -113,7 +113,18 @@ function bannerCopy(variant: BannerVariant): BannerCopy {
         copy: "⚠ This document references files outside your workspace.",
         button: {
           label: "Allow for this session",
-          onClick: () => useStore.getState().allowOutsideForTab(tabPath),
+          // Issue #359 / AC3 — route through the store action so the
+          // asset-protocol scope grant resolves BEFORE the renderer flag
+          // flips. The action awaits the IPC then flips the flag; on
+          // reject the flag stays unset and the banner remains visible.
+          // MVVM seam (architect-expert): View no longer calls IPC
+          // directly; the ViewModel owns IPC + flag mutation atomically.
+          onClick: () => {
+            void useStore.getState().extendScopeForTab(tabPath).catch(() => {
+              // Already logged by the store action; the still-visible
+              // banner IS the user-facing failure signal.
+            });
+          },
         },
       };
     }

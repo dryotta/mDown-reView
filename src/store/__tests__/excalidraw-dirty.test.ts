@@ -41,7 +41,7 @@ describe("excalidrawDirtyByTab + externalChangePendingByTab (issue #352)", () =>
     confirmSpy.mockRestore();
   });
 
-  it("defaults to empty maps", () => {
+  it("defaults to empty maps", async () => {
     expect(useStore.getState().excalidrawDirtyByTab).toEqual({});
     expect(useStore.getState().externalChangePendingByTab).toEqual({});
   });
@@ -62,7 +62,7 @@ describe("excalidrawDirtyByTab + externalChangePendingByTab (issue #352)", () =>
     ).toBe(false);
   });
 
-  it("setExcalidrawDirty short-circuits when the boolean is unchanged", () => {
+  it("setExcalidrawDirty short-circuits when the boolean is unchanged", async () => {
     useStore.getState().setExcalidrawDirty("/ws/scene.excalidraw", true);
     const before = useStore.getState().excalidrawDirtyByTab;
     useStore.getState().setExcalidrawDirty("/ws/scene.excalidraw", true);
@@ -113,7 +113,7 @@ describe("excalidrawDirtyByTab + externalChangePendingByTab (issue #352)", () =>
     ).toBeUndefined();
   });
 
-  it("setViewMode preserves dirty + pending when staying in editor", () => {
+  it("setViewMode preserves dirty + pending when staying in editor", async () => {
     useStore.getState().setViewMode("/ws/a.excalidraw", "editor");
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);
@@ -141,15 +141,15 @@ describe("close-tab behaviour (issue #352 / iter-10 — auto-save)", () => {
     confirmSpy.mockRestore();
   });
 
-  it("closeTab on a clean tab does NOT prompt", () => {
-    useStore.getState().openFile("/ws/a.md", { recordHistory: false });
+  it("closeTab on a clean tab does NOT prompt", async () => {
+    await useStore.getState().openFile("/ws/a.md", { recordHistory: false });
     useStore.getState().closeTab("/ws/a.md");
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(useStore.getState().tabs.find((t) => t.path === "/ws/a.md")).toBeUndefined();
   });
 
-  it("closeTab on a dirty Excalidraw tab does NOT prompt (auto-save)", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+  it("closeTab on a dirty Excalidraw tab does NOT prompt (auto-save)", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().closeTab("/ws/a.excalidraw");
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -158,8 +158,8 @@ describe("close-tab behaviour (issue #352 / iter-10 — auto-save)", () => {
     ).toBeUndefined();
   });
 
-  it("closeTab proceeds + clears both maps", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+  it("closeTab proceeds + clears both maps", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);
     useStore.getState().closeTab("/ws/a.excalidraw");
@@ -170,9 +170,9 @@ describe("close-tab behaviour (issue #352 / iter-10 — auto-save)", () => {
     ).toBeUndefined();
   });
 
-  it("closeAllTabs does NOT prompt even when tabs are dirty (auto-save)", () => {
-    useStore.getState().openFile("/ws/a.md", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.excalidraw", { recordHistory: false });
+  it("closeAllTabs does NOT prompt even when tabs are dirty (auto-save)", async () => {
+    await useStore.getState().openFile("/ws/a.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/b.excalidraw", { recordHistory: false });
     useStore.getState().setExcalidrawDirty("/ws/b.excalidraw", true);
     useStore.getState().closeAllTabs();
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -181,9 +181,9 @@ describe("close-tab behaviour (issue #352 / iter-10 — auto-save)", () => {
     expect(useStore.getState().externalChangePendingByTab).toEqual({});
   });
 
-  it("closeAllTabs does NOT prompt when no tab is dirty", () => {
-    useStore.getState().openFile("/ws/a.md", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+  it("closeAllTabs does NOT prompt when no tab is dirty", async () => {
+    await useStore.getState().openFile("/ws/a.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/b.md", { recordHistory: false });
     useStore.getState().closeAllTabs();
     expect(confirmSpy).not.toHaveBeenCalled();
   });
@@ -203,16 +203,16 @@ describe("setActiveTab + setViewMode behaviour (issue #352 / iter-10)", () => {
     confirmSpy.mockRestore();
   });
 
-  it("does NOT prompt when leaving a clean tab", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+  it("does NOT prompt when leaving a clean tab", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    await useStore.getState().openFile("/ws/b.md", { recordHistory: false });
     useStore.getState().setActiveTab("/ws/a.excalidraw", { recordHistory: false });
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it("does NOT prompt when leaving a dirty Excalidraw editor tab (auto-save)", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
-    useStore.getState().openFile("/ws/b.md", { recordHistory: false });
+  it("does NOT prompt when leaving a dirty Excalidraw editor tab (auto-save)", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+    await useStore.getState().openFile("/ws/b.md", { recordHistory: false });
     useStore.setState({
       activeTabPath: "/ws/a.excalidraw",
       viewModeByTab: { "/ws/a.excalidraw": "editor" },
@@ -223,8 +223,8 @@ describe("setActiveTab + setViewMode behaviour (issue #352 / iter-10)", () => {
     expect(useStore.getState().activeTabPath).toBe("/ws/b.md");
   });
 
-  it("setViewMode out of editor does NOT prompt (auto-save) and clears dirty/pending", () => {
-    useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
+  it("setViewMode out of editor does NOT prompt (auto-save) and clears dirty/pending", async () => {
+    await useStore.getState().openFile("/ws/a.excalidraw", { recordHistory: false });
     useStore.getState().setViewMode("/ws/a.excalidraw", "editor");
     useStore.getState().setExcalidrawDirty("/ws/a.excalidraw", true);
     useStore.getState().setExternalChangePending("/ws/a.excalidraw", true);
@@ -248,29 +248,29 @@ describe("LRU eviction (issue #352 / iter-11)", () => {
   // content on disk. The previous "exempt dirty Excalidraw editors
   // from MAX_TABS eviction" carve-out is gone — the cap applies
   // uniformly. This suite asserts the simplified eviction.
-  it("evicting a clean tab silently cleans its (empty) maps", () => {
+  it("evicting a clean tab silently cleans its (empty) maps", async () => {
     // Open MAX_TABS+1 to force eviction. MAX_TABS is 5.
     for (let i = 0; i < 5; i++) {
-      useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
+      await useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
     // Open a new tab — this triggers LRU eviction of /ws/0.md (oldest).
-    useStore.getState().openFile("/ws/new.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/new.md", { recordHistory: false });
     expect(
       useStore.getState().tabs.find((t) => t.path === "/ws/0.md"),
     ).toBeUndefined();
     expect(useStore.getState().tabs.length).toBe(5);
   });
 
-  it("evicts the oldest non-active tab regardless of dirty flag (auto-save handles persistence)", () => {
+  it("evicts the oldest non-active tab regardless of dirty flag (auto-save handles persistence)", async () => {
     for (let i = 0; i < 5; i++) {
-      useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
+      await useStore.getState().openFile(`/ws/${i}.md`, { recordHistory: false });
     }
     // /ws/0.md is the oldest. Mark it dirty (legacy concept — the
     // map still exists for the conflict-banner gate, but no longer
     // exempts the tab from eviction).
     useStore.getState().setExcalidrawDirty("/ws/0.md", true);
     // /ws/4.md is active (just-opened).
-    useStore.getState().openFile("/ws/new.md", { recordHistory: false });
+    await useStore.getState().openFile("/ws/new.md", { recordHistory: false });
     // /ws/0.md (oldest non-active) is evicted even though it had
     // dirty=true. With auto-save, its content is already on disk.
     expect(useStore.getState().tabs.find((t) => t.path === "/ws/0.md")).toBeUndefined();

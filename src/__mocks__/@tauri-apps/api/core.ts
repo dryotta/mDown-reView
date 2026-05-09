@@ -14,6 +14,7 @@ import type {
   MigrateSidecarsResult,
   MrsfSidecar,
   ReadDirResult,
+  RegisterWindowFileResult,
   SearchMatch,
   SidecarConfigResult,
   TextFileResult,
@@ -40,6 +41,7 @@ type InvokeResult =
   | WordSpan[]
   | Record<string, FileBadge>
   | TextFileResult
+  | RegisterWindowFileResult
   | FileViewerPref
   | SidecarConfigResult
   | MigrateSidecarsResult
@@ -201,6 +203,23 @@ async function defaultInvoke(cmd: string, _args?: Record<string, unknown>): Prom
   if (cmd === "read_dir") return { entries: [], total: 0, has_more: false } satisfies ReadDirResult;
   if (cmd === "register_window_folder") return undefined;
   if (cmd === "unregister_window_folder") return undefined;
+  if (cmd === "register_window_file") {
+    const p = (_args?.path as string) ?? "";
+    // NOTE (issue #359): Production Rust resolves the per-window
+    // workspace root via `workspace_root_for_window` and classifies the
+    // canonical path against it — outside-workspace files therefore emit
+    // `tier: "outside"`. This mock returns `tier: "inside"` for every
+    // input because most renderer tests assume Inside. Tests that need
+    // to verify the outside-tier code path (e.g. `readOnly === true`
+    // atomic insertion) MUST override this with `mockImplementationOnce`
+    // returning `{ classification: { tier: "outside", canonical } }`.
+    // See `src/store/__tests__/tabs.test.ts` for examples.
+    return {
+      canonical: p,
+      classification: { tier: "inside", canonical: p },
+    } satisfies RegisterWindowFileResult;
+  }
+  if (cmd === "extend_window_scope_files") return undefined;
   // record_startup_phase is fire-and-forget telemetry (#264). Tests don't
   // verify the side-effect; returning undefined matches the Rust
   // `() -> ()` shape so the façade's bindings.recordStartupPhase resolves.

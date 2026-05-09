@@ -19,12 +19,15 @@
  */
 import type { StoreApi } from "zustand";
 
+import {
+  releaseOpenFile,
+  releaseOpenFiles,
+} from "@/lib/tauri-commands";
 import type { ViewMode } from "@/lib/file-types";
-import { releaseOpenFile, releaseOpenFiles } from "@/lib/tauri-commands";
 import { warn as logWarn } from "@/logger";
 
 import type { Store } from "./index";
-import { claimOrRevert, classifyAndMarkReadOnly } from "./tabsHelpers";
+import { openFileImpl } from "./openFileAction";
 
 
 /** Maximum number of open tabs. When exceeded, oldest non-active tab (by lastAccessedAt) is evicted. */
@@ -121,7 +124,7 @@ export interface TabsSlice {
    * Session-only.
    */
   externalChangePendingByTab: Record<string, boolean>;
-  openFile: (path: string, opts?: { recordHistory?: boolean }) => void;
+  openFile: (path: string, opts?: { recordHistory?: boolean }) => Promise<void>;
   closeTab: (path: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (path: string, opts?: { recordHistory?: boolean }) => void;
@@ -222,100 +225,7 @@ export function createTabsSlice(set: SliceSet, get: SliceGet): TabsSlice {
     externalChangePendingByTab: {},
     excalidrawEditorMounts: [],
 
-    openFile: (path, opts) => {
-      get().closeMermaidPopout(); // issue #276 — close popout on file open
-      const recordHistory = opts?.recordHistory ?? true;
-      const now = Date.now();
-      const existing = get().tabs.find((t) => t.path === path);
-      if (existing) {
-        set((s) => ({
-          activeTabPath: path,
-          tabs: s.tabs.map((t) => (t.path === path ? { ...t, lastAccessedAt: now } : t)),
-        }));
-        if (recordHistory) get().pushHistory(path);
-        // Same-window re-claim is a no-op success in Rust; firing
-        // here keeps the registry warm in case the prior owner's
-        // entry was reaped (e.g. window force-killed before this).
-        void claimOrRevert(path, set, get);
-        return;
-      }
-      // Evict LRU non-active tab if at capacity.
-      const baseTabs = get().tabs;
-      if (baseTabs.length >= MAX_TABS) {
-        const activePath = get().activeTabPath;
-        // Issue #352 / iter-10 redesign — auto-save means evicted tabs
-        // already have their content on disk. The previous "exempt
-        // dirty editors from eviction" carve-out (iter-5) is no longer
-        // needed: the cap can apply uniformly. Pick the oldest non-active
-        // tab as the victim.
-        const candidates = baseTabs.filter((t) => t.path !== activePath);
-        const accessed = (t: Tab) => t.lastAccessedAt ?? 0;
-        const victim = candidates.reduce((oldest, t) =>
-          accessed(t) < accessed(oldest) ? t : oldest
-        );
-        // Issue #352 / iter-5 architect-expert MEDIUM — atomicity.
-        // Merge the eviction maps with the new-tab append into a
-        // SINGLE set() call so subscribers never observe an
-        // intermediate state (victim gone, new tab not yet added,
-        // active still pointing at the old active). Per rule 16 in
-        // docs/architecture.md.
-        const filteredTabs = baseTabs.filter((t) => t.path !== victim.path);
-        const { [victim.path]: _v, ...restView } = get().viewModeByTab;
-        const { [victim.path]: _s, ...restSave } = get().lastSaveByPath;
-        const { [victim.path]: _m, ...restMeta } = get().fileMetaByPath;
-        const { [victim.path]: _d, ...restDirty } = get().excalidrawDirtyByTab;
-        const { [victim.path]: _p, ...restPending } = get().externalChangePendingByTab;
-        // Issue #352 / iter-13 — drop the LRU victim from the
-        // persistent-mount registry so the host unmounts its
-        // <Excalidraw> instance and frees the associated memory.
-        const restMounts = get().excalidrawEditorMounts.filter(
-          (p) => p !== victim.path,
-        );
-        set({
-          tabs: [...filteredTabs, { path, scrollTop: 0, lastAccessedAt: now }],
-          activeTabPath: path,
-          viewModeByTab: restView,
-          lastSaveByPath: restSave,
-          fileMetaByPath: restMeta,
-          excalidrawDirtyByTab: restDirty,
-          externalChangePendingByTab: restPending,
-          excalidrawEditorMounts: restMounts,
-        });
-        if (recordHistory) get().pushHistory(path);
-        void classifyAndMarkReadOnly(path, set);
-        // Iter-15 — release the LRU victim's claim so the next opener
-        // (any window) can re-claim it. Fire-and-forget; the destroy
-        // sweep is the safety net for IPC failures.
-        void releaseOpenFile(victim.path).catch((err: unknown) => {
-          void logWarn(
-            `[release] LRU victim ${victim.path} release failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        });
-        // Iter-15 — claim the new path. On owned-elsewhere, the
-        // helper reverts our just-added tab; rest of the LRU
-        // bookkeeping above is preserved (the victim eviction stays
-        // in place even if this open is rejected — a subsequent
-        // open of the victim path would need to re-add it).
-        void claimOrRevert(path, set, get);
-        return;
-      }
-      set({
-        tabs: [...baseTabs, { path, scrollTop: 0, lastAccessedAt: now }],
-        activeTabPath: path,
-      });
-      if (recordHistory) get().pushHistory(path);
-      // Issue #338 / AC9 — eagerly classify the just-opened tab so the
-      // comment-input UI can branch on `readOnly` BEFORE the user attempts
-      // a write. Fire-and-forget; on IPC failure we leave readOnly
-      // undefined (fail-closed: the next comment write attempt's typed
-      // CommentError will self-heal the flag — see comments slice in the
-      // Wave-2 migration scope).
-      void classifyAndMarkReadOnly(path, set);
-      // Iter-15 — claim ownership; revert on conflict.
-      void claimOrRevert(path, set, get);
-    },
+    openFile: (path, opts) => openFileImpl(path, opts, set, get),
 
     closeTab: (path) => {
       // Issue #352 / iter-10 redesign — auto-save makes the close

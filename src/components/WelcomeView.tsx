@@ -31,7 +31,7 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
     if (item.type === "folder") {
       void openFolderPath(item.path);
     } else {
-      openFilePath(item.path);
+      void openFilePath(item.path);
     }
   };
 

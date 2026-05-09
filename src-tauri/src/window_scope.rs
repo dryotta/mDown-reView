@@ -15,22 +15,69 @@
 //! state stratification; for now this module is the chokepoint every
 //! `WindowRegistry::register` site MUST go through.
 
-use crate::registry::WindowKind;
 use crate::watcher::WatcherState;
 use std::path::PathBuf;
 use tauri::{Manager, Runtime};
 
-/// Extend per-window resource grants when a window is registered.
+/// Verb-shaped grant describing what asset-scope + watcher seeding a
+/// freshly-registered window needs. Carried as owned data (not borrowed
+/// `&Path`) because every existing caller already produces owned
+/// `PathBuf` values via `canonicalize_no_verbatim`, so the move is free.
 ///
-/// * `WindowKind::Folder(canonical)` — recursive asset-scope on the folder
-///   plus one watcher-allowlist seed for that dir. This matches the
-///   user's mental model: "I opened folder X, anything under X is fair
-///   game".
-/// * `WindowKind::FileOnly` — non-recursive asset-scope on each unique
+/// Decoupled from `crate::registry::WindowKind` (the registry-identity
+/// discriminator) so that future grant shapes — e.g. add-files-to-folder
+/// in Group D — can extend this enum without warping the registry's
+/// folder-claimed vs FileOnly orphan model.
+///
+/// * `Folder(canonical)` — recursive asset-scope on the folder plus one
+///   watcher-allowlist seed for that dir. This matches the user's
+///   mental model: "I opened folder X, anything under X is fair game".
+/// * `FilesParents(files)` — non-recursive asset-scope on each unique
 ///   parent dir of `files` plus a watcher-allowlist seed for the same
 ///   parents. Non-recursive on purpose: orphan-file windows MUST NOT
 ///   silently grant access to siblings beyond the requested files'
 ///   immediate directory level.
+pub enum ScopeGrant {
+    Folder(PathBuf),
+    FilesParents(Vec<PathBuf>),
+}
+
+/// Compute the canonical dirs that should be seeded into the watcher
+/// `tree_watched_dirs` allowlist for a given grant. Pulled out of
+/// `extend_window_scope` so integration tests can exercise the dispatch
+/// (folder → recursive single dir, files-parents → deduped parents)
+/// without needing a real `tauri::App` for `asset_protocol_scope` —
+/// `tauri::test::mock_app()` is unusable on the dev Windows host (see
+/// `src-tauri/tests/comments_emit_test.rs` precedent). The watcher seed
+/// is the load-bearing observable here; asset-scope is verified by
+/// the native E2E layer.
+pub fn watcher_seed_dirs(grant: &ScopeGrant) -> Vec<PathBuf> {
+    match grant {
+        ScopeGrant::Folder(canonical) => vec![canonical.clone()],
+        ScopeGrant::FilesParents(files) => {
+            let mut parents: Vec<PathBuf> = files
+                .iter()
+                .filter_map(|f| f.parent().map(PathBuf::from))
+                .collect();
+            parents.sort();
+            parents.dedup();
+            parents
+        }
+    }
+}
+
+/// Extend per-window resource grants when a window is registered.
+///
+/// Single chokepoint (per `docs/architecture.md` rule 1) for asset-scope
+/// + watcher tree-seed extension. Called by every site that registers a
+/// window in [`crate::registry::WindowRegistry`] — without this, early
+/// IPC reads (drained synchronously on `args-received`) would fail the
+/// workspace guard and inline images would fail asset-scope resolution.
+///
+/// * [`ScopeGrant::Folder`] — recursive asset-scope on the folder plus
+///   one watcher seed for the same dir.
+/// * [`ScopeGrant::FilesParents`] — non-recursive asset-scope on each
+///   unique parent dir plus watcher seeds for those parents.
 ///
 /// Idempotent for asset-scope (`allow_directory` is additive on the
 /// underlying `Scope` — calling twice for the same dir is a no-op). For
@@ -44,14 +91,15 @@ use tauri::{Manager, Runtime};
 pub fn extend_window_scope<R: Runtime, M: Manager<R>>(
     handle: &M,
     window_label: &str,
-    kind: &WindowKind,
-    files: &[PathBuf],
+    grant: ScopeGrant,
 ) {
     let asset_scope = handle.asset_protocol_scope();
     let watcher_state = handle.state::<WatcherState>();
 
-    match kind {
-        WindowKind::Folder(canonical) => {
+    let seed_dirs = watcher_seed_dirs(&grant);
+
+    match &grant {
+        ScopeGrant::Folder(canonical) => {
             if let Err(e) = asset_scope.allow_directory(canonical, true) {
                 tracing::warn!(
                     target: "window-scope",
@@ -65,22 +113,15 @@ pub fn extend_window_scope<R: Runtime, M: Manager<R>>(
                     canonical.display()
                 );
             }
-            watcher_state.seed_window_workspace(window_label, vec![canonical.clone()]);
+            watcher_state.seed_window_workspace(window_label, seed_dirs);
             tracing::debug!(
                 target: "window-scope",
                 "[window-scope] watcher seeded folder for {window_label}: {}",
                 canonical.display()
             );
         }
-        WindowKind::FileOnly => {
-            // De-duplicated parent dirs only; non-recursive scope.
-            let mut parents: Vec<PathBuf> = files
-                .iter()
-                .filter_map(|f| f.parent().map(PathBuf::from))
-                .collect();
-            parents.sort();
-            parents.dedup();
-            for parent in &parents {
+        ScopeGrant::FilesParents(_files) => {
+            for parent in &seed_dirs {
                 if let Err(e) = asset_scope.allow_directory(parent, false) {
                     tracing::warn!(
                         target: "window-scope",
@@ -95,9 +136,9 @@ pub fn extend_window_scope<R: Runtime, M: Manager<R>>(
                     );
                 }
             }
-            if !parents.is_empty() {
-                let n = parents.len();
-                watcher_state.seed_window_workspace(window_label, parents);
+            if !seed_dirs.is_empty() {
+                let n = seed_dirs.len();
+                watcher_state.seed_window_workspace(window_label, seed_dirs);
                 tracing::debug!(
                     target: "window-scope",
                     "[window-scope] watcher seeded {n} parent(s) for {window_label}"

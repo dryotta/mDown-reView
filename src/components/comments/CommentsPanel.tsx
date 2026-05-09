@@ -130,7 +130,7 @@ export function CommentsPanel({ filePath, onScrollToLine }: Props) {
         // cold-loading viewers + rapid clicks (nonce supersedes earlier
         // queued targets, consume-by-filePath rejects mismatches).
         setPendingScrollTarget({ filePath: threadFilePath, line, commentId: comment.id });
-        openFile(threadFilePath);
+        void openFile(threadFilePath);
         // The destination viewer will pick up the flash on mount via the
         // `comment-flash` event we fire here — same-file flow does the
         // same dispatch below.

@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useShallow } from "zustand/shallow";
+import { error as logError } from "@/logger";
 import {
   cliShimStatus as ipcCliShimStatus,
   defaultHandlerStatus as ipcDefaultHandlerStatus,
+  extendWindowScopeFiles as ipcExtendWindowScopeFiles,
   installCliShim as ipcInstallCliShim,
   onboardingState as ipcOnboardingState,
   removeCliShim as ipcRemoveCliShim,
@@ -208,8 +210,36 @@ interface OnboardingSlice {
 // snapshot does not include this key.
 interface OutsideWorkspaceSlice {
   allowOutsideWorkspace: Set<string>;
+  /**
+   * Issue #359 / iter-2 — monotonic counter that increments each time
+   * `extendScopeForTab` successfully grants asset-protocol scope for an
+   * outside-workspace tab. Consumed by `MarkdownViewer` to append a nonce
+   * query param to `asset://` image URLs so the browser re-fetches them
+   * under the just-granted scope (the asset-protocol response is cached
+   * by URL, so without a busted URL the previously-blocked image stays
+   * broken even though the scope is now valid). Session-only — naturally
+   * excluded from the `partialize` allowlist below.
+   */
+  allowedScopeGen: number;
   allowOutsideForTab: (tabPath: string) => void;
   disallowOutsideForTab: (tabPath: string) => void;
+  /**
+   * Issue #359 / AC3 — atomic "extend asset-scope + flip allow flag"
+   * action for the outside-workspace banner. Awaits
+   * `extend_window_scope_files` BEFORE flipping `allowOutsideWorkspace`,
+   * so embedded relative-path images (rendered via `convertFileSrc`)
+   * resolve against the new asset-protocol scope on the next render.
+   * On IPC reject the flag stays UNSET — the banner remains visible so
+   * the user knows the grant didn't land. Re-throws so callers can
+   * surface failures if needed; the action also logs the failure
+   * internally.
+   *
+   * Architectural rationale (architect-expert): MVVM seam. The View
+   * (`ViewerBanner`) no longer calls `commands.extendWindowScopeFiles`
+   * directly — the ViewModel (this store action) owns IPC orchestration
+   * + flag mutation as a single atomic operation.
+   */
+  extendScopeForTab: (tabPath: string) => Promise<void>;
 }
 
 // ── Combined store ─────────────────────────────────────────────────────────
@@ -291,6 +321,7 @@ export const useStore = create<Store>()(
       // Session-only — see comment on `OutsideWorkspaceSlice` and the
       // exclusion in `partialize` below.
       allowOutsideWorkspace: new Set<string>(),
+      allowedScopeGen: 0,
       allowOutsideForTab: (tabPath) =>
         set((s) =>
           s.allowOutsideWorkspace.has(tabPath)
@@ -304,6 +335,35 @@ export const useStore = create<Store>()(
           next.delete(tabPath);
           return { allowOutsideWorkspace: next };
         }),
+      // Issue #359 / AC3 — atomic extend-scope + flag-flip. See doc-comment
+      // on `OutsideWorkspaceSlice.extendScopeForTab` above for rationale.
+      extendScopeForTab: async (tabPath) => {
+        try {
+          await ipcExtendWindowScopeFiles([tabPath]);
+        } catch (err) {
+          void logError(
+            `[banner] extend_window_scope_files failed for ${tabPath}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          // Do NOT flip the flag. Banner stays visible so the user knows
+          // the grant didn't land. Re-throw so the View can decide whether
+          // to surface an additional UI cue (currently not needed — the
+          // unchanged banner IS the cue).
+          throw err;
+        }
+        // IPC succeeded — flip the per-tab allow flag atomically. Use
+        // `get().allowOutsideForTab` to share the single setter so any
+        // future changes to that path land here too.
+        get().allowOutsideForTab(tabPath);
+        // Issue #359 / iter-2 — bump the scope-gen counter so subscribers
+        // (currently `MarkdownViewer`'s `<img>` resolver) can bust the
+        // browser's `asset://` cache for previously-blocked relative-path
+        // images. Without this, the just-granted scope has no observable
+        // effect on already-mounted `<img>` nodes — they keep their
+        // pre-grant (cached, failed) URL and stay broken.
+        set((s) => ({ allowedScopeGen: s.allowedScopeGen + 1 }));
+      },
 
       // Watcher
       ghostEntries: [],

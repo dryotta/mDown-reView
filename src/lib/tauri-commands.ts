@@ -84,6 +84,7 @@ export type {
   OnboardingState,
   Reaction,
   ReadDirResult,
+  RegisterWindowFileResult,
   SearchMatch,
   Severity,
   SidecarConfigResult,
@@ -130,6 +131,7 @@ import type {
   OnboardingState,
   PathKind,
   ReadDirResult,
+  RegisterWindowFileResult,
   SearchMatch,
   SidecarConfigResult,
   StartupPhase,
@@ -365,6 +367,19 @@ export const registerWindowFolder = (folder: string): Promise<void> =>
 
 export const unregisterWindowFolder = (): Promise<void> =>
   unwrap(bindings.unregisterWindowFolder()).then(() => {});
+
+// Per-window file registration (issue #359 AC1/AC2/AC7) — must be called
+// BEFORE `read_text_file` for paths outside the workspace allowlist.
+// Returns `{ canonical, classification }` so the renderer can derive
+// `readOnly` atomically with the tab insert (eliminates the
+// `classifyAndMarkReadOnly` race).
+export const registerWindowFile = (path: string): Promise<RegisterWindowFileResult> =>
+  unwrap(bindings.registerWindowFile(path));
+
+// Banner opt-in (issue #359 AC3) — extends per-window asset-protocol
+// scope AND watcher allowlist to the supplied files' canonical parents.
+export const extendWindowScopeFiles = (paths: string[]): Promise<void> =>
+  unwrap(bindings.extendWindowScopeFiles(paths)).then(() => {});
 
 // Startup-phase telemetry (issue #264) ────────────────────────────────────
 // The frontend reports the phases it owns — `theme-applied`,

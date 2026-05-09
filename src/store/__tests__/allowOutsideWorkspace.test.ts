@@ -7,10 +7,11 @@
  *      decisions cannot silently survive an app restart (security-expert
  *      finding for #338, mirrors `allowedRemoteImageDocs`).
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { useStore } from "@/store";
+import { invoke } from "@tauri-apps/api/core";
 
 beforeEach(() => {
   useStore.setState({ allowOutsideWorkspace: new Set<string>() } as never);
@@ -54,5 +55,52 @@ describe("allowOutsideWorkspace persistence allowlist", () => {
   it("excludes allowOutsideWorkspace (session-only trust — must not survive restart)", () => {
     expect(partializeBody.length).toBeGreaterThan(0);
     expect(partializeBody).not.toMatch(/allowOutsideWorkspace/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Issue #359 / AC3 — extendScopeForTab atomic IPC + flag-flip contract.
+// ────────────────────────────────────────────────────────────────────────
+describe("extendScopeForTab (issue #359 / AC3)", () => {
+  const invokeMock = vi.mocked(invoke);
+
+  beforeEach(() => {
+    useStore.setState({ allowOutsideWorkspace: new Set<string>() } as never);
+  });
+  afterEach(() => {
+    invokeMock.mockClear();
+  });
+
+  it("awaits IPC before flipping the allow flag", async () => {
+    let resolveExtend: () => void = () => {};
+    invokeMock.mockImplementationOnce(
+      (cmd) =>
+        new Promise<undefined>((res) => {
+          if (cmd !== "extend_window_scope_files") {
+            res(undefined);
+            return;
+          }
+          resolveExtend = () => res(undefined);
+        }),
+    );
+    const p = useStore.getState().extendScopeForTab("/ws/a.md");
+    // Flag must NOT flip while IPC is in flight.
+    expect(useStore.getState().allowOutsideWorkspace.has("/ws/a.md")).toBe(false);
+    resolveExtend();
+    await p;
+    // After IPC resolves, the flag is set.
+    expect(useStore.getState().allowOutsideWorkspace.has("/ws/a.md")).toBe(true);
+  });
+
+  it("on IPC reject does NOT flip the flag and rethrows", async () => {
+    invokeMock.mockImplementationOnce(async (cmd) => {
+      if (cmd === "extend_window_scope_files") throw "system path blocked";
+      return undefined;
+    });
+    await expect(
+      useStore.getState().extendScopeForTab("/sys/x.md"),
+    ).rejects.toBeDefined();
+    // Flag must remain unset so the banner stays visible.
+    expect(useStore.getState().allowOutsideWorkspace.has("/sys/x.md")).toBe(false);
   });
 });

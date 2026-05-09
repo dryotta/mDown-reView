@@ -70,6 +70,18 @@ describe("openFilesFromArgs canonicalisation (#89 iter 3)", () => {
         const p = (args as { path?: string })?.path ?? "";
         return map[p] ?? p;
       }
+      if (cmd === "register_window_file") {
+        // Issue #359 — tabs.ts openFile awaits this. Honour the same
+        // canonical map so the new tab lands on the long-form path
+        // (matches the production flow where Rust canonicalises
+        // before returning).
+        const p = (args as { path?: string })?.path ?? "";
+        const canonical = map[p] ?? p;
+        return {
+          canonical,
+          classification: { tier: "inside", canonical },
+        };
+      }
       return undefined;
     });
 

@@ -141,7 +141,7 @@ describe("SourceView", () => {
   // never cross-pollute coordinate spaces.
   it("saves scroll position to tab.sourceScrollTop on scroll", async () => {
     const { useStore } = await import("@/store");
-    useStore.getState().openFile("/scroll.ts");
+    await useStore.getState().openFile("/scroll.ts");
 
     // Force RAF to fire synchronously so the throttled save lands inside
     // the test's `fireEvent` act() boundary. Mirrors the pattern in

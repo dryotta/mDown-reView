@@ -21,9 +21,9 @@ export function useDialogActions() {
     try {
       const selected = await showOpenDialog({ directory: false, multiple: true });
       if (Array.isArray(selected)) {
-        for (const f of selected) openFilePath(f);
+        for (const f of selected) await openFilePath(f);
       } else if (typeof selected === "string") {
-        openFilePath(selected);
+        await openFilePath(selected);
       }
     } catch {
       // User cancelled or dialog error.

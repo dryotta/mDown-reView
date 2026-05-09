@@ -29,7 +29,10 @@ export function useOpenFileTab() {
       const { openFile } = useStore.getState();
       for (const filePath of paths) {
         const canonical = await canonicalizeOrFallback(filePath);
-        openFile(canonical);
+        // Issue #359 — openFile is async (awaits register_window_file
+        // before inserting). Await here so multi-path forwards land in
+        // a deterministic order and the last one is the active tab.
+        await openFile(canonical);
       }
     });
 

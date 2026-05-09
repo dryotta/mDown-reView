@@ -130,7 +130,11 @@ export function useLinkRouter(): LinkDispatcher {
           if (fragment) {
             state.setPendingFragment({ path: targetPath, fragment });
           }
-          state.openFile(targetPath);
+          // Issue #359 — openFile is async (awaits register_window_file).
+          // Fire-and-forget here: the link router has already resolved
+          // the navigation intent; surfacing register failures via a
+          // toast is the renderer's existing error-channel responsibility.
+          void state.openFile(targetPath);
           return;
         }
 
@@ -189,7 +193,7 @@ export function useLinkRouter(): LinkDispatcher {
           // fragment before resolution; recovery would require re-parsing.
           const targetPath = classification.canonical;
           if (ctx.filePath && targetPath === ctx.filePath) return;
-          state.openFile(targetPath);
+          void state.openFile(targetPath);
           return;
         }
 

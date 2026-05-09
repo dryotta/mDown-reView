@@ -46,8 +46,17 @@ export interface WorkspaceSlice {
    * `multiwin-window-folder-claim` in `v2-patterns.md`.
    */
   openFolderPath: (folder: string) => Promise<void>;
-  /** Open a file as a tab + record in recents. Single entry point. */
-  openFilePath: (path: string) => void;
+  /**
+   * Open a file as a tab + record in recents. Single entry point.
+   *
+   * Issue #359 — async because the tabs slice's `openFile` now awaits
+   * `register_window_file` BEFORE inserting the tab (so files outside
+   * the workspace land in the runtime allowlist by the time
+   * `useFileContent` reads them). On register-reject the tab is NOT
+   * inserted and `addRecentItem` MUST NOT run — mirrors the
+   * register-then-mutate ordering of `openFolderPath`.
+   */
+  openFilePath: (path: string) => Promise<void>;
 }
 
 type SliceSet = StoreApi<Store>["setState"];
@@ -100,9 +109,23 @@ export function createWorkspaceSlice(set: SliceSet, get: SliceGet): WorkspaceSli
         }
       }
     },
-    openFilePath: (path) => {
-      get().openFile(path);
-      get().addRecentItem(path, "file");
+    openFilePath: async (path) => {
+      // allow-chained-invokes: registerWindowFile (inside openFile) MUST
+      // resolve before addRecentItem runs. Rejection (system-tier path,
+      // canonicalize failure) keeps recents untouched — mirrors
+      // openFolderPath's reject-rollback shape.
+      try {
+        await get().openFile(path);
+        get().addRecentItem(path, "file");
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : typeof err === "string"
+              ? err
+              : String(err);
+        void warn(`[workspace] openFilePath failed for ${path}: ${message}`);
+      }
     },
   };
 }

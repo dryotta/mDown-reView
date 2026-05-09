@@ -55,7 +55,15 @@ export async function openFilesFromArgs(
   for (const file of unique) {
     const canonicalFile = await canonicalizeOrFallback(file);
     if (!alreadyOpen.has(canonicalFile)) {
-      store.openFile(canonicalFile);
+      // Issue #359 — openFile awaits register_window_file before
+      // inserting; await so multi-file launches insert in deterministic
+      // order. On register-reject (system tier / canonicalize failure)
+      // we skip the addRecentItem to mirror openFilePath's behaviour.
+      try {
+        await store.openFile(canonicalFile);
+      } catch {
+        continue;
+      }
       alreadyOpen.add(canonicalFile);
     }
     store.addRecentItem(canonicalFile, "file");

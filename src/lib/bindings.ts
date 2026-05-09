@@ -549,6 +549,60 @@ async unregisterWindowFolder() : Promise<Result<null, string>> {
 }
 },
 /**
+ * Register a user-initiated file open with the per-window scope.
+ * 
+ * Called by the renderer's tab-open chokepoint BEFORE dispatching
+ * `read_text_file` so that `ensure_readable`'s `is_path_allowed` check
+ * passes. Adds the file's canonical-parent to the per-window
+ * `tree_watched_dirs` allowlist (watcher-seed only — does NOT widen
+ * asset-scope; that's the banner opt-in via `extend_window_scope_files`).
+ * 
+ * Security:
+ * - Canonicalises the input via `canonicalize_no_verbatim` (rejects `..`,
+ * relative, verbatim).
+ * - Classifies the canonical path via
+ * `core::security::system_locations::classify` and rejects `Tier::System`
+ * with the sentinel "system path blocked" matching
+ * `commands::fs::mod::ensure_readable`'s vocabulary.
+ * - Returns the canonical path plus a `PathClassification` so the renderer
+ * can derive `readOnly` atomically with the tab insert (AC7 — eliminates
+ * the `classifyAndMarkReadOnly` race).
+ * 
+ * Cite: docs/architecture.md rule 1 (chokepoint discipline) +
+ * docs/security.md rule 17 (asset-scope vs watcher-allowlist split).
+ */
+async registerWindowFile(path: string) : Promise<Result<RegisterWindowFileResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("register_window_file", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Extend per-window scope (BOTH asset-protocol scope AND watcher allowlist)
+ * for the given paths' canonical parents. Used by:
+ * 1. The "Allow for this session" banner click in the markdown viewer
+ * (AC3) — grants asset scope to embedded image directories.
+ * 2. Future single-window deferred grants. Idempotent.
+ * 
+ * Each path is canonicalized and classified. `Tier::System` paths are
+ * rejected with the "system path blocked" sentinel; non-canonical paths
+ * with "path not canonicalizable". On any per-path rejection, the IPC
+ * returns Err and no partial mutation occurs (atomic — collect all
+ * canonicals first, then call `extend_window_scope` once).
+ * 
+ * Cite: docs/security.md rule 17 (asset-scope chokepoint, banner opt-in).
+ */
+async extendWindowScopeFiles(paths: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("extend_window_scope_files", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Test-only command: open a folder and all its non-sidecar files via args-received.
  */
 async setRootViaTest(path: string) : Promise<Result<null, string>> {
@@ -788,6 +842,7 @@ export type Reaction = { user: string; kind: string; ts: string }
  * Capped directory listing: entries + total count + overflow flag.
  */
 export type ReadDirResult = { entries: DirEntry[]; total: number; has_more: boolean }
+export type RegisterWindowFileResult = { canonical: string; classification: PathClassification }
 export type SearchMatch = { lineIndex: number; startCol: number; endCol: number }
 /**
  * Total order of severity for badge selection. `None` is the absence of any
