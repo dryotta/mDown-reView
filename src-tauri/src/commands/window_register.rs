@@ -109,8 +109,10 @@ pub fn register_window_file(
     window: tauri::Window,
     path: String,
     state: tauri::State<'_, crate::watcher::WatcherState>,
+    registry: tauri::State<'_, crate::registry::WindowRegistry>,
 ) -> Result<RegisterWindowFileResult, String> {
-    register_window_file_inner(window.label(), &path, &state)
+    let kind = registry.get_kind(window.label());
+    register_window_file_inner(window.label(), &path, &state, kind.as_ref())
 }
 
 /// Test-seam: extracted body so unit/integration tests can drive without
@@ -120,6 +122,7 @@ pub fn register_window_file_inner(
     window_label: &str,
     path_str: &str,
     state: &crate::watcher::WatcherState,
+    kind: Option<&crate::registry::WindowKind>,
 ) -> Result<RegisterWindowFileResult, String> {
     use crate::core::security::system_locations::{classify, tier_to_wire, Tier};
 
@@ -137,22 +140,29 @@ pub fn register_window_file_inner(
         .ok_or_else(|| "path has no parent".to_string())?
         .to_path_buf();
 
-    // AC7 — classify BEFORE seeding the watcher allowlist. Resolve the
-    // workspace root from `tree_watched_dirs` so an outside-workspace
-    // file actually surfaces `Tier::Outside` to the renderer (used by
-    // `tabs.openFile` to derive `readOnly` atomically with insertion).
+    // AC7 — classify BEFORE seeding the watcher allowlist. Resolution rule
+    // (corrected in iter 3 to fix the multi-file no-folder window bug):
     //
-    // If the window has no workspace registered yet (file-only window /
-    // freshly-launched orphan-file open), there is no root to compare
-    // against — collapse the discriminator to Inside by passing the
-    // canonical as its own root, matching the historical behaviour for
-    // file-only windows. Order matters: doing the resolution BEFORE the
-    // seed below ensures an outside-workspace file in a workspace-bearing
-    // window classifies Outside even though we are about to add its
-    // parent to `tree_watched_dirs`.
-    let workspace_root =
-        crate::commands::path_classify::workspace_root_for_window(state, window_label)
-            .unwrap_or_else(|| canonical.clone());
+    //   * `WindowKind::Folder(root)` — classify against the folder root.
+    //     Files outside the folder return Tier::Outside, surfacing the
+    //     read-only badge in the renderer.
+    //   * `WindowKind::FileOnly` — every user-opened file classifies as
+    //     Inside. There is no semantically-meaningful "workspace" to
+    //     compare against in a no-folder window; the user explicitly
+    //     picked the file via the OS dialog and should get full
+    //     editing/commenting rights.
+    //   * `None` (window not registered) — fall back to canonical-as-root
+    //     for backward compatibility (collapses to Inside).
+    //
+    // Order matters: the kind lookup happens BEFORE seed_window_workspace
+    // below, so the second-and-later file opened in a FileOnly window does
+    // NOT get classified against the first file's parent dir (the iter-2
+    // bug surfaced by user testing).
+    use crate::registry::WindowKind;
+    let workspace_root: std::path::PathBuf = match kind {
+        Some(WindowKind::Folder(root)) => root.clone(),
+        Some(WindowKind::FileOnly) | None => canonical.clone(),
+    };
     let classification = match classify(&canonical, &workspace_root) {
         Ok(Tier::System { .. }) => {
             tracing::warn!(

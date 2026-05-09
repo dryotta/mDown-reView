@@ -87,6 +87,7 @@ mod group_b {
     };
     use mdown_review_lib::core::paths::canonicalize_no_verbatim;
     use mdown_review_lib::core::types::wire::PathClassification;
+    use mdown_review_lib::registry::WindowKind;
     use mdown_review_lib::watcher::WatcherState;
     use std::path::PathBuf;
 
@@ -154,7 +155,7 @@ mod group_b {
         let file = write_file(workspace.path(), "inside.md", b"# Inside");
 
         let result =
-            register_window_file_inner("test", file.to_str().unwrap(), &state).expect("ok");
+            register_window_file_inner("test", file.to_str().unwrap(), &state, None).expect("ok");
         match &result.classification {
             PathClassification::Inside { canonical } => {
                 assert_eq!(canonical, &result.canonical);
@@ -179,7 +180,7 @@ mod group_b {
         let file = write_file(outside.path(), "outside.md", b"out");
 
         let result =
-            register_window_file_inner("w1", file.to_str().unwrap(), &state).expect("ok");
+            register_window_file_inner("w1", file.to_str().unwrap(), &state, None).expect("ok");
         // No workspace registered → classification collapses to Inside;
         // the load-bearing assertion is the watcher seed.
         assert!(matches!(result.classification, PathClassification::Inside { .. }));
@@ -198,8 +199,14 @@ mod group_b {
         let state = state_with_workspace(workspace.path());
         let file = write_file(outside.path(), "outside.md", b"out");
 
-        let result =
-            register_window_file_inner("test", file.to_str().unwrap(), &state).expect("ok");
+        let workspace_canonical = canonicalize_no_verbatim(workspace.path()).unwrap();
+        let result = register_window_file_inner(
+            "test",
+            file.to_str().unwrap(),
+            &state,
+            Some(&WindowKind::Folder(workspace_canonical)),
+        )
+        .expect("ok");
         match &result.classification {
             PathClassification::Outside { canonical } => {
                 assert_eq!(canonical, &result.canonical);
@@ -215,7 +222,7 @@ mod group_b {
     #[test]
     fn register_window_file_system_path_blocked() {
         let state = empty_state();
-        let err = register_window_file_inner("w1", "/etc/passwd", &state).unwrap_err();
+        let err = register_window_file_inner("w1", "/etc/passwd", &state, None).unwrap_err();
         assert_eq!(err, "system path blocked");
         // Watcher state UNCHANGED: no entry inserted under "w1".
         assert!(dirs_for(&state, "w1").is_empty());
@@ -232,6 +239,7 @@ mod group_b {
             "w1",
             r"C:\Windows\System32\drivers\etc\hosts",
             &state,
+            None,
         )
         .unwrap_err();
         assert_eq!(err, "system path blocked");
@@ -243,7 +251,7 @@ mod group_b {
         let state = empty_state();
         // A relative path with `..` cannot canonicalize to an absolute
         // existing file → `canonicalize_no_verbatim` errors → "canonicalize failed".
-        let err = register_window_file_inner("w1", "../nope/missing.md", &state).unwrap_err();
+        let err = register_window_file_inner("w1", "../nope/missing.md", &state, None).unwrap_err();
         assert_eq!(err, "canonicalize failed");
         assert!(dirs_for(&state, "w1").is_empty());
     }
@@ -254,8 +262,8 @@ mod group_b {
         let state = state_with_workspace(workspace.path());
         let file = write_file(workspace.path(), "doc.md", b"x");
 
-        register_window_file_inner("test", file.to_str().unwrap(), &state).unwrap();
-        register_window_file_inner("test", file.to_str().unwrap(), &state).unwrap();
+        register_window_file_inner("test", file.to_str().unwrap(), &state, None).unwrap();
+        register_window_file_inner("test", file.to_str().unwrap(), &state, None).unwrap();
 
         let parent = canonicalize_no_verbatim(file.parent().unwrap()).unwrap();
         let dirs = dirs_for(&state, "test");
@@ -269,7 +277,7 @@ mod group_b {
         let state = state_with_workspace(workspace.path());
         let file = write_file(workspace.path(), "doc.md", b"x");
 
-        register_window_file_inner("A", file.to_str().unwrap(), &state).unwrap();
+        register_window_file_inner("A", file.to_str().unwrap(), &state, None).unwrap();
 
         // Window B's tree is unchanged — registering for A must not bleed.
         assert!(dirs_for(&state, "B").is_empty());
@@ -284,7 +292,7 @@ mod group_b {
         let state = empty_state();
         let file = write_file(outside.path(), "note.md", b"hi");
 
-        register_window_file_inner("orphan", file.to_str().unwrap(), &state).unwrap();
+        register_window_file_inner("orphan", file.to_str().unwrap(), &state, None).unwrap();
         let canonical = ensure_readable(file.to_str().unwrap(), &state).expect("readable");
         let expected = canonicalize_no_verbatim(&file).unwrap();
         assert_eq!(canonical, expected);
@@ -299,6 +307,54 @@ mod group_b {
 
         let err = ensure_readable(file.to_str().unwrap(), &state).unwrap_err();
         assert_eq!(err, "path not in workspace");
+    }
+
+    #[test]
+    fn register_window_file_in_file_only_window_always_inside() {
+        // Reproduces the iter-3 bug: in a FileOnly window, opening two
+        // files in different parent dirs must NOT classify the second as
+        // Outside. Pre-fix, `workspace_root_for_window` returned the
+        // first file's parent dir from `tree_watched_dirs` and the second
+        // file (in a different folder) classified Outside, surfacing the
+        // 🔒 read-only badge that the user explicitly does not want.
+        let state = empty_state();
+        let label = "test-fileonly-window";
+
+        // Open file A in folderA — first call, no prior seed.
+        let temp_a = outside_tempdir();
+        let file_a = write_file(temp_a.path(), "a.md", b"# A");
+        let res_a = register_window_file_inner(
+            label,
+            file_a.to_str().unwrap(),
+            &state,
+            Some(&WindowKind::FileOnly),
+        )
+        .expect("register A");
+        assert!(
+            matches!(res_a.classification, PathClassification::Inside { .. }),
+            "first file in FileOnly window must be Inside; got {:?}",
+            res_a.classification,
+        );
+
+        // Open file B in DIFFERENT folderB — this is where the iter-2 bug fired.
+        let temp_b = outside_tempdir();
+        let file_b = write_file(temp_b.path(), "b.md", b"# B");
+        let res_b = register_window_file_inner(
+            label,
+            file_b.to_str().unwrap(),
+            &state,
+            Some(&WindowKind::FileOnly),
+        )
+        .expect("register B");
+        // Second file in a DIFFERENT folder must STILL be Inside in a
+        // FileOnly window. Pre-fix this returned Outside because
+        // `workspace_root_for_window` picked up folderA's parent from
+        // `tree_watched_dirs`.
+        assert!(
+            matches!(res_b.classification, PathClassification::Inside { .. }),
+            "second file in FileOnly window must STILL be Inside (bug fix); got {:?}",
+            res_b.classification,
+        );
     }
 
     // ── collect_canonicals_for_extend ──────────────────────────────────────

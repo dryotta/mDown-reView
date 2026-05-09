@@ -143,6 +143,19 @@ impl WindowRegistry {
         }
     }
 
+    /// Get the `WindowKind` for a registered window, if any.
+    ///
+    /// Returns `None` if the label is not in the registry. Returns
+    /// `Some(WindowKind::FileOnly)` for orphan-file windows and
+    /// `Some(WindowKind::Folder(path))` for folder-claimed windows.
+    pub fn get_kind(&self, label: &str) -> Option<WindowKind> {
+        let entries = self.entries.lock().expect("registry lock poisoned");
+        entries
+            .iter()
+            .find(|e| e.label == label)
+            .map(|e| e.kind.clone())
+    }
+
     /// Atomically claim a folder for a window, enforcing one-folder-one-window.
     ///
     /// - If the folder is already owned by `label` → update in place, return `Ok`.
