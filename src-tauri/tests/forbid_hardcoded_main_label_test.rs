@@ -8,18 +8,10 @@
 //! "main" window. Hardcoding `"main"` works at startup but routes events
 //! to the wrong window the moment a user opens a second folder window.
 //!
-//! Allowlist policy: only explicit entries in `ALLOW` (specific file +
-//! substring pairs) and entire-file allowlist via `ALLOW_FILES` (e.g.
-//! `src/registry.rs` which is the registry implementation that owns
-//! the `"main"` label literal as part of its public API) are exempt.
-//! Test code (`#[cfg(test)]` blocks, `tests/` directory, `*_tests.rs`
-//! files) is NOT globally exempt — new Rust tests should use synthetic
-//! window labels like `test-main` (or any non-`"main"` literal) unless
-//! they intentionally test bootstrap behaviour. The literal `"main"`
-//! is a specific window label, not a generic identifier; using it in
-//! tests creates the impression that the bootstrap window is special-
-//! cased when the IPC routing actually uses `window.label()` at
-//! runtime.
+//! Allowlist: explicit `(file, substring)` pairs in `ALLOW` and
+//! whole-file entries in `ALLOW_FILES` (currently only `src/registry.rs`,
+//! which owns the bootstrap label). Test code is NOT globally exempt —
+//! use synthetic labels like `"test-main"`.
 //!
 //! Self-tests at the bottom guard the matcher itself so a future edit
 //! that breaks the recognizer cannot silently let the gate pass empty.
@@ -66,14 +58,8 @@ const ALLOW: &[(&str, &str)] = &[
     ("src/lib.rs", "parse_menu_id(\"main:open-file\")"),
 ];
 
-/// Files allowed to use the literal `"main"` freely. This list is
-/// deliberately narrow — only files that own the bootstrap label as
-/// part of their public API qualify. `src/registry.rs` is the canonical
-/// example: it mints `"main"` for the bootstrap window. New Rust tests
-/// should use synthetic labels (e.g. `test-main`); they are NOT
-/// covered by this list. To grant a true bootstrap-behaviour test
-/// access to the literal, add an explicit pair to `ALLOW` above with
-/// the file path + the exact line substring.
+/// Whole-file exemptions. See crate-level docs for policy.
+/// Narrow by design — prefer adding a pair to `ALLOW` above.
 const ALLOW_FILES: &[&str] = &[
     "src/registry.rs",
 ];
@@ -191,23 +177,9 @@ fn matcher_flags_main_at_end_of_line() {
 
 #[test]
 fn matcher_flags_main_in_synthetic_rust_test_line() {
-    // A line that could appear inside a `#[cfg(test)]` block in
-    // `watcher_tests.rs` or any `tests/` integration crate. The matcher
-    // does NOT have a "test code is exempt" carve-out — exemption is
-    // controlled by `ALLOW` and `ALLOW_FILES`. A new test author who
-    // assumes test code is broadly exempt (per a misreading of the
-    // crate-level docstring before this fix) would be surprised when
-    // CI rejects this line.
-    //
-    // This test guards against future docstring drift: if anyone tries
-    // to make `#[cfg(test)]` a runtime-recognised exemption category
-    // (rather than the file-level ALLOW_FILES allowlist), this test
-    // would need to update — making the change visible to reviewers.
+    // Test code is NOT exempt at the matcher level; only ALLOW/ALLOW_FILES exempt.
     let line = "    state.seed_window_workspace(\"main\", vec![canonical.clone()]);";
-    assert!(
-        line_has_main_literal(line),
-        "matcher must flag synthetic test code containing the literal \"main\""
-    );
+    assert!(line_has_main_literal(line));
 }
 
 #[test]
