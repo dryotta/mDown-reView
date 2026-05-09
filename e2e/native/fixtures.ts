@@ -39,7 +39,8 @@ const test = base.extend<{ nativePage: Page }>({
     // as a static invariant — see iter-1 architect-expert review.
     // Single-attempt invoke; the IPC is debug-only and synchronous;
     // `__TAURI_INTERNALS__` is guaranteed live by the preceding
-    // waitForFunction. See docs/test-strategy.md rule 17.
+    // waitForFunction. See docs/test-strategy.md rule 29 and
+    // docs/security.md rule 17.
     await page.evaluate(() => {
       // @ts-ignore — Tauri internals are available in the WebView
       return window.__TAURI_INTERNALS__.invoke("reset_window_scope_for_test");
