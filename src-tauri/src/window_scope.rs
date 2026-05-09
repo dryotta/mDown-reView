@@ -147,3 +147,23 @@ pub fn extend_window_scope<R: Runtime, M: Manager<R>>(
         }
     }
 }
+
+/// Test-only chokepoint that clears all per-window resource grants for
+/// `window_label` so a native E2E spec starts with empty watcher
+/// allowlist state. Used by `e2e/native/fixtures.ts`'s `nativePage`
+/// fixture between specs.
+///
+/// Asset-protocol scope is intentionally NOT cleared — it is additive in
+/// Tauri v2 (no public revoke). Subsequent `read_text_file` /
+/// `read_binary_file` IPC calls still go through `is_path_allowed`
+/// (`watcher.rs:130`) which gates the workspace guard.
+///
+/// Cite: docs/architecture.md rule 1 (chokepoint discipline);
+///       docs/security.md rule 17 (asset-scope vs watcher-allowlist split).
+pub fn reset_window_scope<R: Runtime, M: Manager<R>>(handle: &M, window_label: &str) {
+    handle.state::<WatcherState>().reset_window_scope(window_label);
+    tracing::debug!(
+        target: "window-scope",
+        "[window-scope] reset window scope for {window_label}"
+    );
+}

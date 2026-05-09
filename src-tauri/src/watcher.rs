@@ -119,6 +119,44 @@ impl WatcherState {
         let _ = self.sync_tx.try_send(());
     }
 
+    /// Test-only path used by /e2e/native/fixtures.ts to give every spec a
+    /// clean per-window scope precondition. Mirrors `remove_window` (line 83-91)
+    /// but keyed by `window_label` — clears both `tree_watched_dirs[label]`
+    /// and `watched_paths[label]` for the calling window, then wakes the
+    /// watcher thread via `sync_tx.try_send(())` so the OS-level notify list
+    /// stays in sync.
+    ///
+    /// Idempotent: re-calling for an unseeded label is a no-op. Lock
+    /// poisoning logged-and-tolerated (Reliable pillar).
+    ///
+    /// Cite: docs/architecture.md rule 1 (chokepoint discipline) — public
+    /// callers go through `crate::window_scope::reset_window_scope`.
+    pub(crate) fn reset_window_scope(&self, window_label: &str) {
+        match self.tree_watched_dirs.lock() {
+            Ok(mut guard) => {
+                guard.remove(window_label);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "window-scope",
+                    "[window-scope] reset_window_scope tree_watched_dirs lock poisoned: {e}"
+                );
+            }
+        }
+        match self.watched_paths.lock() {
+            Ok(mut guard) => {
+                guard.remove(window_label);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "window-scope",
+                    "[window-scope] reset_window_scope watched_paths lock poisoned: {e}"
+                );
+            }
+        }
+        let _ = self.sync_tx.try_send(());
+    }
+
     /// Defense-in-depth allowlist for system-level commands (open / reveal):
     /// a path is considered "known to the user" if it is either currently
     /// open in a tab (`watched_paths`) or sits inside an open workspace folder

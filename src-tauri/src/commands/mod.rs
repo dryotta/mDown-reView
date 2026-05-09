@@ -53,7 +53,7 @@ pub use fs::{
 pub use fs_write::{write_workspace_binary, write_workspace_text};
 pub use html::{compute_fold_regions, resolve_html_assets, FoldRegion};
 #[cfg(debug_assertions)]
-pub use launch::set_root_via_test;
+pub use launch::{reset_window_scope_for_test, set_root_via_test};
 pub use launch::{
     get_launch_args, get_log_path, parse_launch_args, parse_trace_flag,
     scan_review_files,

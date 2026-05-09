@@ -337,3 +337,49 @@ fn ipc_event_payloads_serialize_to_frontend_contract() {
         "FolderChangeEvent wire shape drifted from frontend contract"
     );
 }
+
+#[test]
+fn reset_window_scope_clears_both_maps_for_label() {
+    let state = make_state();
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = canonicalize_no_verbatim(dir.path()).unwrap();
+
+    state.seed_window_workspace("main", vec![canonical.clone()]);
+    assert!(state.is_path_allowed(&canonical), "precondition: seed succeeds");
+
+    state.reset_window_scope("main");
+    assert!(
+        !state.is_path_allowed(&canonical),
+        "post-reset: tree_watched_dirs[main] should be empty"
+    );
+}
+
+#[test]
+fn reset_window_scope_does_not_affect_other_windows() {
+    let state = make_state();
+    let dir_main = tempfile::tempdir().unwrap();
+    let dir_secondary = tempfile::tempdir().unwrap();
+    let canonical_main = canonicalize_no_verbatim(dir_main.path()).unwrap();
+    let canonical_secondary = canonicalize_no_verbatim(dir_secondary.path()).unwrap();
+
+    state.seed_window_workspace("main", vec![canonical_main.clone()]);
+    state.seed_window_workspace("secondary", vec![canonical_secondary.clone()]);
+
+    state.reset_window_scope("main");
+
+    assert!(
+        !state.is_path_allowed(&canonical_main),
+        "main's tree_watched_dirs entry should be cleared"
+    );
+    assert!(
+        state.is_path_allowed(&canonical_secondary),
+        "secondary's tree_watched_dirs entry should remain"
+    );
+}
+
+#[test]
+fn reset_window_scope_idempotent_on_unseeded_label() {
+    let state = make_state();
+    state.reset_window_scope("never-seeded");
+    // No assertion needed — the test fails iff reset panics or deadlocks.
+}
