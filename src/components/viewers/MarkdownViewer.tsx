@@ -1,5 +1,5 @@
-import React from "react";
-import ReactMarkdown from "react-markdown";
+import React, { type ComponentPropsWithoutRef } from "react";
+import ReactMarkdown, { type ExtraProps } from "react-markdown";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "@/lib/remark-github-alerts";
@@ -139,8 +139,44 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
     useSelectionToolbar("data-source-line", 0);
 
   // Stable img resolver — only changes when filePath/allowance changes.
-  const { img } = useImgResolver(filePath);
+  const { img: rawImg } = useImgResolver(filePath);
   const workspaceRoot = useStore((s) => s.root) ?? "";
+
+  // Issue #359 / iter-2 — outside-workspace asset-cache busting.
+  // When the user clicks "Allow for this session" on the tier-2 banner,
+  // `extendScopeForTab` grants asset-protocol scope and bumps
+  // `allowedScopeGen`. The previously-mounted `<img>` nodes still hold
+  // their old `asset://…` URLs which the browser has cached as failed
+  // responses; without a fresh URL they stay broken even though scope
+  // is now valid. We append `?scopeGen=N` to `asset:` URLs only when
+  // this tab is in the outside-workspace allow set, leaving folder-
+  // internal (already-working) images unbusted.
+  const allowOutsideForThisTab = useStore((s) => s.allowOutsideWorkspace.has(filePath));
+  const allowedScopeGen = useStore((s) => s.allowedScopeGen);
+  // `rawImg` is constructed via `useCallback` inside `useImgResolver` —
+  // it is always a function component. The `ImgComponent` union type
+  // includes class components (which are not callable), so we narrow to
+  // the function form here for the post-render src-rewrite below.
+  type ImgFn = (
+    props: ComponentPropsWithoutRef<"img"> & ExtraProps
+  ) => React.ReactElement | null;
+  const img = useMemo(() => {
+    if (!allowOutsideForThisTab || allowedScopeGen === 0) return rawImg;
+    const inner = rawImg as unknown as ImgFn;
+    const Wrapped: ImgFn = (props) => {
+      const el = inner(props);
+      if (!React.isValidElement(el) || el.type !== "img") return el;
+      const elProps = el.props as { src?: string };
+      const src = elProps.src;
+      if (!src || !src.startsWith("asset:")) return el;
+      const sep = src.includes("?") ? "&" : "?";
+      return React.cloneElement(el as React.ReactElement<{ src?: string }>, {
+        src: `${src}${sep}scopeGen=${allowedScopeGen}`,
+      });
+    };
+    return Wrapped as unknown as typeof rawImg;
+  }, [rawImg, allowOutsideForThisTab, allowedScopeGen]);
+
   const components = useMemo(
     () => buildMarkdownComponents({ filePath, workspaceRoot, img }),
     [filePath, img, workspaceRoot]
@@ -163,7 +199,8 @@ export function MarkdownViewer({ content, filePath, fileSize }: Props) {
   // counts; tier-3/tier-2 reference scanning is deliberate follow-up
   // scope (see issue #338 follow-up). The banner returns null when all
   // counts are zero, so this lands the SHAPE without altering UX.
-  const allowOutsideForThisTab = useStore((s) => s.allowOutsideWorkspace.has(filePath));
+  // (`allowOutsideForThisTab` is selected above for the asset-cache-busting
+  // wrap on `img`; reused here to avoid a duplicate selector subscription.)
   const bannerVariant = useMemo(
     () =>
       selectBannerVariant({

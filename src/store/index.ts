@@ -210,6 +210,17 @@ interface OnboardingSlice {
 // snapshot does not include this key.
 interface OutsideWorkspaceSlice {
   allowOutsideWorkspace: Set<string>;
+  /**
+   * Issue #359 / iter-2 — monotonic counter that increments each time
+   * `extendScopeForTab` successfully grants asset-protocol scope for an
+   * outside-workspace tab. Consumed by `MarkdownViewer` to append a nonce
+   * query param to `asset://` image URLs so the browser re-fetches them
+   * under the just-granted scope (the asset-protocol response is cached
+   * by URL, so without a busted URL the previously-blocked image stays
+   * broken even though the scope is now valid). Session-only — naturally
+   * excluded from the `partialize` allowlist below.
+   */
+  allowedScopeGen: number;
   allowOutsideForTab: (tabPath: string) => void;
   disallowOutsideForTab: (tabPath: string) => void;
   /**
@@ -310,6 +321,7 @@ export const useStore = create<Store>()(
       // Session-only — see comment on `OutsideWorkspaceSlice` and the
       // exclusion in `partialize` below.
       allowOutsideWorkspace: new Set<string>(),
+      allowedScopeGen: 0,
       allowOutsideForTab: (tabPath) =>
         set((s) =>
           s.allowOutsideWorkspace.has(tabPath)
@@ -344,6 +356,13 @@ export const useStore = create<Store>()(
         // `get().allowOutsideForTab` to share the single setter so any
         // future changes to that path land here too.
         get().allowOutsideForTab(tabPath);
+        // Issue #359 / iter-2 — bump the scope-gen counter so subscribers
+        // (currently `MarkdownViewer`'s `<img>` resolver) can bust the
+        // browser's `asset://` cache for previously-blocked relative-path
+        // images. Without this, the just-granted scope has no observable
+        // effect on already-mounted `<img>` nodes — they keep their
+        // pre-grant (cached, failed) URL and stay broken.
+        set((s) => ({ allowedScopeGen: s.allowedScopeGen + 1 }));
       },
 
       // Watcher
