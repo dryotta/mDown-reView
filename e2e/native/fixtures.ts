@@ -60,5 +60,24 @@ export async function setRootViaTest(nativePage: Page, folder: string): Promise<
   }, folder);
 }
 
+/**
+ * Invoke the debug-only `open_file_via_test` command, forwarding an
+ * outside-file open through the `args-received` chokepoint. Mirrors the
+ * CLI / OS file-open path (`route_args_through_registry` AddToWindow arm
+ * for FilesParents) — used by native E2E because Playwright cannot spawn
+ * a second binary instance to drive single-instance forwarding directly.
+ *
+ * The renderer's `useLaunchArgsBootstrap` drains the queue, dispatches
+ * `store.openFile(path)` (which atomically `register_window_file`s and
+ * appends to `tabs[]`), and `useFileWatcher` then commits
+ * `update_watched_files` with the resulting tab paths. Issue #369.
+ */
+export async function openFileViaTest(nativePage: Page, file: string): Promise<void> {
+  await nativePage.evaluate((p: string) => {
+    // @ts-ignore — Tauri internals are available in the WebView
+    return window.__TAURI_INTERNALS__.invoke("open_file_via_test", { path: p });
+  }, file);
+}
+
 export { test };
 export { expect } from "@playwright/test";

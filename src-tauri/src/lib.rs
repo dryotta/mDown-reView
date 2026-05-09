@@ -460,7 +460,8 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         tauri_specta::Builder::<tauri::Wry>::new()
             .commands(specta_commands![
                 commands::launch::set_root_via_test,
-                commands::launch::reset_window_scope_for_test
+                commands::launch::reset_window_scope_for_test,
+                commands::launch::open_file_via_test
             ])
     }
     #[cfg(not(debug_assertions))]

@@ -96,6 +96,13 @@ const EXEMPT_COMMANDS: &[&str] = &[
     // into the bootstrap window. See `forbid_hardcoded_main_label_test.rs`
     // ALLOW list for the matching debt entries.
     "set_root_via_test",
+    // Debug-only test seam (gated by `#[cfg(debug_assertions)]`).
+    // Hardcodes the bootstrap "main" label deliberately — drives the
+    // `args-received` chokepoint with a single-file launch arg so the
+    // renderer's `useLaunchArgsBootstrap` exercises the production
+    // `store.openFile` path. Used by `e2e/native/09-outside-file-open`
+    // (issue #369). See `forbid_hardcoded_main_label_test.rs` ALLOW list.
+    "open_file_via_test",
     // BadgeCache lookups are read-only; cache is keyed by file path,
     // not window. The cache uses the WatcherState path-allowlist for
     // safety so the data it returns is already scope-limited.

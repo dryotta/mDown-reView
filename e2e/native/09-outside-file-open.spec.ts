@@ -29,7 +29,7 @@
  * Windows CI startup variance.
  */
 
-import { test, expect, setRootViaTest } from "./fixtures";
+import { test, expect, setRootViaTest, openFileViaTest } from "./fixtures";
 import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
@@ -57,7 +57,10 @@ function readTextFileSentinel(nativePage: import("@playwright/test").Page, absPa
 /**
  * Drive `register_window_file` and reduce to `"ok"` / error sentinel.
  * Mirrors the renderer's `await registerWindowFile(path)` chokepoint
- * exercised in `store/tabs.ts:openFile` (Group C).
+ * exercised in `store/tabs.ts:openFile` (Group C). Used only by repro-3
+ * to assert the watcher-only contract (NO asset-scope grant) — repro-1
+ * and repro-2 drive `openFileViaTest` instead, which mirrors production's
+ * `args-received` → `store.openFile` → `register_window_file` chain.
  */
 function registerWindowFile(nativePage: import("@playwright/test").Page, absPath: string) {
   return nativePage.evaluate((p: string) => {
@@ -66,23 +69,6 @@ function registerWindowFile(nativePage: import("@playwright/test").Page, absPath
       .then(() => "ok")
       .catch((e: unknown) => String(e));
   }, absPath);
-}
-
-/**
- * Drive `update_watched_files` to mirror what `useFileWatcher` fires in
- * production when `tabs[]` changes (`src/hooks/useFileWatcher.ts:66-70`).
- * The native E2E bypasses `store.openFile`, so tabs[] never contains the
- * outside file — without this step, an unrelated `updateWatchedFiles([])`
- * fire from useFileWatcher's mount effect wipes the seed inserted by
- * `register_window_file → seed_window_file`. See issue #369 forward-fix.
- */
-function updateWatchedFiles(nativePage: import("@playwright/test").Page, paths: string[]) {
-  return nativePage.evaluate((p: string[]) => {
-    // @ts-ignore — Tauri internals
-    return window.__TAURI_INTERNALS__.invoke("update_watched_files", { paths: p })
-      .then(() => "ok")
-      .catch((e: unknown) => String(e));
-  }, paths);
 }
 
 test.describe("issue #359 — outside file open", () => {
@@ -100,8 +86,6 @@ test.describe("issue #359 — outside file open", () => {
 
       // Pre-fix sanity: reading the outside file BEFORE register must
       // fail — proves the regression existed and the guard is real.
-      // Post-fix the renderer's `openFile` action awaits register first;
-      // here we drive the same ordering manually via the IPC bridge.
       await expect
         .poll(() => readTextFileSentinel(nativePage, outsideMd), {
           timeout: 15_000,
@@ -109,28 +93,19 @@ test.describe("issue #359 — outside file open", () => {
         })
         .toContain("not in workspace");
 
-      // Register the outside file (renderer chokepoint Group C added).
-      await expect
-        .poll(() => registerWindowFile(nativePage, outsideMd), {
-          timeout: 15_000,
-          intervals: [200, 500, 1000],
-        })
-        .toBe("ok");
-
-      // Mirror the second half of `store.openFile`: production pushes the
-      // outside file into `tabs[]`, which makes `useFileWatcher` fire
-      // `updateWatchedFiles(tabPaths)` (`src/hooks/useFileWatcher.ts:66-70`).
-      // The native E2E bypasses `store.openFile`, so without this step an
-      // unrelated `updateWatchedFiles([])` fire from useFileWatcher's mount
-      // effect would wipe the `register_window_file → seed_window_file`
-      // seed before `read_text_file` checks the allowlist. Issue #369
-      // forward-fix.
-      await expect
-        .poll(() => updateWatchedFiles(nativePage, [outsideMd]), {
-          timeout: 5_000,
-          intervals: [200, 500],
-        })
-        .toBe("ok");
+      // Drive the production code path: `open_file_via_test` enqueues the
+      // outside file as a launch arg and emits `args-received`. The
+      // renderer's `useLaunchArgsBootstrap` drains it, dispatches
+      // `store.openFile(outsideMd)` — which atomically calls
+      // `register_window_file` (seeding `watched_paths` via
+      // `seed_window_file`) AND appends the file to `tabs[]`. The tab
+      // change then makes `useFileWatcher` fire
+      // `update_watched_files([insideMd, outsideMd])`, keeping the
+      // outside file in the watcher allowlist. Without this, the
+      // renderer's deferred drain of any earlier `args-received` (from
+      // `setRootViaTest`) races a manual seed and clobbers it via the
+      // `tabs[]`-driven REBUILD. Issue #369 forward-fix iter-2.
+      await openFileViaTest(nativePage, outsideMd);
 
       // Post-register: read_text_file must succeed.
       await expect
@@ -162,21 +137,10 @@ test.describe("issue #359 — outside file open", () => {
         })
         .toContain("not in workspace");
 
-      await expect
-        .poll(() => registerWindowFile(nativePage, outsideMd), {
-          timeout: 15_000,
-          intervals: [200, 500, 1000],
-        })
-        .toBe("ok");
-
-      // Mirror `store.openFile` second half (see repro-1). Even with no
-      // folder open, production correctness requires this step.
-      await expect
-        .poll(() => updateWatchedFiles(nativePage, [outsideMd]), {
-          timeout: 5_000,
-          intervals: [200, 500],
-        })
-        .toBe("ok");
+      // Drive the production code path via `open_file_via_test` — same
+      // rationale as repro-1. Works without a prior `setRootViaTest`
+      // because the args-received chain does not require a folder.
+      await openFileViaTest(nativePage, outsideMd);
 
       await expect
         .poll(() => readTextFileSentinel(nativePage, outsideMd), {
