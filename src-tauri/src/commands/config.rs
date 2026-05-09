@@ -210,15 +210,24 @@ fn detect_os_theme() -> &'static str {
     // returns CFString "Dark" when dark mode is on, NULL otherwise (light is
     // the default; absence IS the light signal). In-process CFPreferences
     // call — no fork+exec.
+    //
+    // The `preferences` symbols live in `core-foundation-sys` (the FFI
+    // crate); `core-foundation` 0.10 does NOT re-export them. We import
+    // the function and the global `kCFPreferencesAnyApplication` constant
+    // (a `CFStringRef` static) directly from -sys. The constant must be
+    // used by reference — constructing `CFString::new("kCFPreferencesAnyApplication")`
+    // would silently pass a literal Rust string and never match the real
+    // global preferences scope.
     use core_foundation::base::TCFType;
-    use core_foundation::preferences::CFPreferencesCopyAppValue;
     use core_foundation::string::{CFString, CFStringRef};
+    use core_foundation_sys::preferences::{
+        kCFPreferencesAnyApplication, CFPreferencesCopyAppValue,
+    };
     unsafe {
         let key = CFString::new("AppleInterfaceStyle");
-        let app = CFString::new("kCFPreferencesAnyApplication");
         let value = CFPreferencesCopyAppValue(
             key.as_concrete_TypeRef(),
-            app.as_concrete_TypeRef(),
+            kCFPreferencesAnyApplication,
         );
         if value.is_null() {
             return "light";
