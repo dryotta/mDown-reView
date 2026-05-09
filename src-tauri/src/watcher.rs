@@ -19,6 +19,16 @@ pub struct WatcherState {
     watched_paths: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     /// Per-window tree-watched dirs (keyed by window label).
     tree_watched_dirs: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
+    /// Per-window banner-granted extra dirs (issue #369). ADDITIVE
+    /// semantics: never replaced by the renderer's `update_tree_watched_dirs`
+    /// IPC. Owned by `seed_window_extra_dirs` (banner opt-in via
+    /// `ScopeGrant::FilesParents`). Cleared only by `remove_window` /
+    /// `reset_window_scope`. `is_path_allowed` and the watcher-thread
+    /// `sync_dirs` union this slot into their views, but `mrsf_targets`
+    /// MUST NOT — banner-granted dirs do not own the workspace and
+    /// must not receive `sidecar-config-changed` events for it.
+    /// Cite: docs/architecture.md rule 1, docs/security.md rule 17.
+    extra_watched_dirs: Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     /// Sending on this channel wakes the watcher thread to sync dirs immediately.
     sync_tx: std::sync::mpsc::SyncSender<()>,
     /// Issue #352 / iter-12 (security HIGH#1) — Rust-side self-write
@@ -38,6 +48,7 @@ impl WatcherState {
         Self {
             watched_paths: Arc::new(Mutex::new(HashMap::new())),
             tree_watched_dirs: Arc::new(Mutex::new(HashMap::new())),
+            extra_watched_dirs: Arc::new(Mutex::new(HashMap::new())),
             sync_tx,
             self_write_suppressions: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -87,6 +98,9 @@ impl WatcherState {
         if let Ok(mut guard) = self.watched_paths.lock() {
             guard.remove(window_label);
         }
+        if let Ok(mut guard) = self.extra_watched_dirs.lock() {
+            guard.remove(window_label);
+        }
         let _ = self.sync_tx.try_send(());
     }
 
@@ -112,6 +126,79 @@ impl WatcherState {
                 tracing::warn!(
                     target: "window-scope",
                     "[window-scope] seed_window_workspace lock poisoned: {e}"
+                );
+                return;
+            }
+        }
+        let _ = self.sync_tx.try_send(());
+    }
+
+    /// Issue #369 — seed a single canonical file path into
+    /// `watched_paths[label]` (REBUILD-semantic slot owned by
+    /// `update_watched_files`). Used by `register_window_file_inner` for
+    /// the tab-open chokepoint so the seed survives the renderer's
+    /// `update_tree_watched_dirs("main", [workspaceRoot])` REPLACE that
+    /// fires ~115 ms later from `useTreeWatcher`.
+    ///
+    /// Inserts the canonical file plus its `.review.yaml` /
+    /// `.review.json` sidecar variants — mirrors the per-path insertion
+    /// pattern in `update_watched_files` so the watcher thread also
+    /// fires `file-changed` for sidecar edits to outside files.
+    ///
+    /// Idempotent (HashSet `insert`). Lock poisoning is logged-and-tolerated
+    /// (Reliable pillar — registration must not abort).
+    ///
+    /// Cite: docs/architecture.md rule 1 (chokepoint discipline);
+    ///       docs/security.md rule 17 (asset-scope vs watcher-allowlist split).
+    pub(crate) fn seed_window_file(&self, window_label: &str, canonical: PathBuf) {
+        match self.watched_paths.lock() {
+            Ok(mut guard) => {
+                let entry = guard.entry(window_label.to_string()).or_default();
+                // Sidecar variants — mirror update_watched_files insertion
+                // (`watcher.rs::update_watched_files`).
+                let canonical_str = canonical.to_string_lossy().into_owned();
+                for ext in &[".review.yaml", ".review.json"] {
+                    let sidecar = PathBuf::from(format!("{}{}", canonical_str, ext));
+                    if let Ok(c) = canonicalize_no_verbatim(&sidecar) {
+                        entry.insert(c);
+                    }
+                    entry.insert(sidecar);
+                }
+                entry.insert(canonical);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "window-scope",
+                    "[window-scope] seed_window_file lock poisoned: {e}"
+                );
+                return;
+            }
+        }
+        let _ = self.sync_tx.try_send(());
+    }
+
+    /// Issue #369 — additive insert into `extra_watched_dirs[label]`
+    /// (the banner-grant slot). Used by `window_scope::extend_window_scope`'s
+    /// `ScopeGrant::FilesParents` arm — must not collide with the
+    /// REPLACE-semantic `tree_watched_dirs[label]` slot owned by
+    /// `update_tree_watched_dirs`.
+    ///
+    /// `mrsf_targets` MUST NOT consult this slot (cross-window leak
+    /// invariant) — see the matching comment on the field.
+    ///
+    /// Cite: docs/architecture.md rule 1; docs/security.md rule 17.
+    pub(crate) fn seed_window_extra_dirs(&self, window_label: &str, dirs: Vec<PathBuf>) {
+        match self.extra_watched_dirs.lock() {
+            Ok(mut guard) => {
+                let entry = guard.entry(window_label.to_string()).or_default();
+                for dir in dirs {
+                    entry.insert(dir);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "window-scope",
+                    "[window-scope] seed_window_extra_dirs lock poisoned: {e}"
                 );
                 return;
             }
@@ -154,6 +241,17 @@ impl WatcherState {
                 );
             }
         }
+        match self.extra_watched_dirs.lock() {
+            Ok(mut guard) => {
+                guard.remove(window_label);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "window-scope",
+                    "[window-scope] reset_window_scope extra_watched_dirs lock poisoned: {e}"
+                );
+            }
+        }
         let _ = self.sync_tx.try_send(());
     }
 
@@ -178,6 +276,16 @@ impl WatcherState {
             }
         }
         if let Ok(dirs) = self.tree_watched_dirs.lock() {
+            for set in dirs.values() {
+                for dir in set.iter() {
+                    if canonical.starts_with(dir) {
+                        return true;
+                    }
+                }
+            }
+        }
+        // Issue #369 — banner-granted extra dirs (additive slot).
+        if let Ok(dirs) = self.extra_watched_dirs.lock() {
             for set in dirs.values() {
                 for dir in set.iter() {
                     if canonical.starts_with(dir) {
@@ -218,6 +326,62 @@ impl WatcherState {
                 for dir in set.iter() {
                     if canonical_parent.starts_with(dir) {
                         return true;
+                    }
+                }
+            }
+        }
+        // Issue #369 — banner-granted extra dirs (additive slot).
+        if let Ok(dirs) = self.extra_watched_dirs.lock() {
+            for set in dirs.values() {
+                for dir in set.iter() {
+                    if canonical_parent.starts_with(dir) {
+                        return true;
+                    }
+                }
+            }
+        }
+        // Issue #369 — first-comment-write on an outside file: the candidate
+        // queried here is the parent dir of a file seeded into `watched_paths`
+        // by `register_window_file_inner` (via `seed_window_file`). Accept
+        // when any watched-path's canonical parent matches the queried
+        // parent. Cite: docs/security.md rule 17.
+        if let Ok(paths) = self.watched_paths.lock() {
+            for set in paths.values() {
+                for entry in set.iter() {
+                    if let Some(parent_of_entry) = entry.parent() {
+                        if parent_of_entry == canonical_parent.as_path() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        // Issue #369 — callers that pass a parent dir DIRECTLY (the queried
+        // path IS the seed's parent) need acceptance too: this is the
+        // variant exercised by the AC #5 regression tests, where the
+        // first-comment-write path canonicalises the parent dir before
+        // constructing the sidecar path. Match canonical_self against the
+        // parent of any watched_paths entry or any extra_watched_dirs entry.
+        if let Ok(canonical_self) = canonicalize_no_verbatim(path) {
+            if let Ok(paths) = self.watched_paths.lock() {
+                for set in paths.values() {
+                    for entry in set.iter() {
+                        if let Some(p) = entry.parent() {
+                            if p == canonical_self.as_path() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(dirs) = self.extra_watched_dirs.lock() {
+                for set in dirs.values() {
+                    for dir in set.iter() {
+                        if let Some(p) = dir.parent() {
+                            if p == canonical_self.as_path() {
+                                return true;
+                            }
+                        }
                     }
                 }
             }
@@ -408,6 +572,7 @@ pub fn start_watcher(app: &AppHandle) {
     let state = app.state::<WatcherState>();
     let watched = Arc::clone(&state.watched_paths);
     let tree_watched = Arc::clone(&state.tree_watched_dirs);
+    let extra_watched = Arc::clone(&state.extra_watched_dirs);
     let self_write_suppressions = Arc::clone(&state.self_write_suppressions);
     let app_handle = app.clone();
 
@@ -571,7 +736,7 @@ pub fn start_watcher(app: &AppHandle) {
 
             if needs_sync {
                 let sidecar_dirs = app_handle.state::<SidecarConfigState>().extra_watched_dirs();
-                sync_dirs(&watched, &tree_watched, &sidecar_dirs, &mut watched_dirs, &mut debouncer);
+                sync_dirs(&watched, &tree_watched, &extra_watched, &sidecar_dirs, &mut watched_dirs, &mut debouncer);
             }
         }
     });
@@ -604,12 +769,14 @@ fn lock_per_window(watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>) -> H
 fn sync_dirs(
     watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     tree_watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
+    extra_watched: &Arc<Mutex<HashMap<String, HashSet<PathBuf>>>>,
     sidecar_dirs: &HashSet<PathBuf>,
     watched_dirs: &mut HashSet<PathBuf>,
     debouncer: &mut notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
 ) {
     let current_watched = lock_watched_union(watched);
     let current_tree = lock_watched_union(tree_watched);
+    let current_extra = lock_watched_union(extra_watched);
     let mut needed: HashSet<PathBuf> = current_watched
         .iter()
         .filter_map(|p| p.parent().map(|d| d.to_path_buf()))
@@ -617,6 +784,9 @@ fn sync_dirs(
     // Tree-watched dirs themselves must be observed (non-recursive) so we get
     // events for direct children added/removed/renamed.
     needed.extend(current_tree.iter().cloned());
+    // Issue #369 — banner-granted extra dirs receive `folder-changed` /
+    // `file-changed` notify events too (additive slot).
+    needed.extend(current_extra.iter().cloned());
     // AC8: also watch workspace roots (for .mrsf.yaml) and sidecar_root dirs.
     needed.extend(sidecar_dirs.iter().cloned());
 

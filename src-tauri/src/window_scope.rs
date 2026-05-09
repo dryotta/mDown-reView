@@ -138,7 +138,15 @@ pub fn extend_window_scope<R: Runtime, M: Manager<R>>(
             }
             if !seed_dirs.is_empty() {
                 let n = seed_dirs.len();
-                watcher_state.seed_window_workspace(window_label, seed_dirs);
+                // Issue #369 — banner-granted parents go into the
+                // ADDITIVE `extra_watched_dirs` slot, NOT the REPLACE-
+                // semantic `tree_watched_dirs` slot. Without this split,
+                // the renderer's `update_tree_watched_dirs("main",
+                // [workspaceRoot])` (fired by `useTreeWatcher` ~115 ms
+                // after registration) clobbers banner-granted dirs and
+                // subsequent inline-image reads fail `is_path_allowed`.
+                // Cite: docs/security.md rule 17, docs/architecture.md rule 1.
+                watcher_state.seed_window_extra_dirs(window_label, seed_dirs);
                 tracing::debug!(
                     target: "window-scope",
                     "[window-scope] watcher seeded {n} parent(s) for {window_label}"

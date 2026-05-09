@@ -69,23 +69,7 @@ function registerWindowFile(nativePage: import("@playwright/test").Page, absPath
 }
 
 test.describe("issue #359 — outside file open", () => {
-  // TODO(#369): repro-1 re-skipped. Iter-2 of PR #367 un-skipped this test
-  // assuming the iter-1 Rust regression's PASS meant #366 was environmental.
-  // The Release Gate run on iter-2's tip (run 25610475178) revealed the
-  // actual root cause: an architectural race between
-  // `register_window_file` (which seeds the outside file's parent dir into
-  // `tree_watched_dirs["main"]` via `state.seed_window_workspace`) and the
-  // renderer's `useTreeWatcher` round-trip via `update_tree_watched_dirs`
-  // (which REPLACES `tree_watched_dirs["main"]` with the workspace-rooted
-  // set, clobbering the outside-file seed). The fixture-level reset
-  // shipped in iter-2 doesn't fix this — clearing state at fixture start
-  // doesn't change what `update_tree_watched_dirs` does mid-test.
-  //
-  // The proper architectural fix (make update_tree_watched_dirs merge,
-  // OR move outside-workspace registrations to a separate state slot)
-  // needs design + review beyond the forward-fix budget. Tracked in #369.
-  // Re-enable this test once #369 is closed.
-  test.skip("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
+  test("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
     const folderA = nativeTempDir("mdr-359-folderA");
     const folderB = nativeTempDir("mdr-359-fileB");
     const insideMd = path.join(folderA, "inside.md");

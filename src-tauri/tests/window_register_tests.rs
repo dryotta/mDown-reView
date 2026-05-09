@@ -184,8 +184,10 @@ mod group_b {
         // No workspace registered → classification collapses to Inside;
         // the load-bearing assertion is the watcher seed.
         assert!(matches!(result.classification, PathClassification::Inside { .. }));
-        let parent = canonicalize_no_verbatim(file.parent().unwrap()).unwrap();
-        assert!(dirs_for(&state, "w1").contains(&parent));
+        // Issue #369 — seed is into `watched_paths[label]` (canonical
+        // file), NOT `tree_watched_dirs[label]` (parent dir).
+        assert!(state.is_path_allowed(&file));
+        assert!(dirs_for(&state, "w1").is_empty(), "tree_watched_dirs must NOT be touched");
     }
 
     #[test]
@@ -213,9 +215,12 @@ mod group_b {
             }
             other => panic!("expected Outside, got {other:?}"),
         }
-        // Watcher still seeded so the subsequent ensure_readable accepts.
-        let parent = canonicalize_no_verbatim(file.parent().unwrap()).unwrap();
-        assert!(dirs_for(&state, "test").contains(&parent));
+        // Issue #369 — outside file is now seeded into `watched_paths`,
+        // and `tree_watched_dirs[test]` retains only the workspace root
+        // (NOT the outside parent dir).
+        assert!(state.is_path_allowed(&file));
+        let outside_parent = canonicalize_no_verbatim(file.parent().unwrap()).unwrap();
+        assert!(!dirs_for(&state, "test").contains(&outside_parent));
     }
 
     #[cfg(unix)]
