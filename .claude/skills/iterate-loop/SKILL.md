@@ -47,7 +47,7 @@ fi
 **Idempotent label bootstrap** (first run on a fresh repo):
 ```bash
 gh label create iterate-in-progress --description "Issue claimed by iterate-loop" --color FBCA04 2>/dev/null || true
-gh label create iterate-pr           --description "PR opened by iterate-one-issue, awaiting release-gate validation by merge-pr-loop" --color BFD4F2 2>/dev/null || true
+gh label create iterate-pr           --description "PR opened by iterate-one-issue, awaiting CI validation by merge-pr-loop" --color BFD4F2 2>/dev/null || true
 ```
 
 ### 0b. Counters + run tag
@@ -232,7 +232,7 @@ Retrospective: $RETRO_FILE
 Each loop's inner agent runs synchronously in the foreground of its own terminal — output is always visible.
 
 - **Terminal A — `/iterate-loop`**: drains the issue backlog, opens ready-for-review PRs labelled `iterate-pr`.
-- **Terminal B — `/merge-pr-loop`**: watches PRs labelled `iterate-pr`, runs the Release Gate, drives forward-fixes via `iterate-one-issue --resume-pr <PR>`, and squash-merges on green.
+- **Terminal B — `/merge-pr-loop`**: watches PRs labelled `iterate-pr`, polls the CI run on each PR's HEAD, drives forward-fixes via `iterate-one-issue --resume-pr <PR>`, and squash-merges on green.
 - **Terminal C — `/test-exploratory-loop`** (optional, Windows-only): dogfoods the live binary, files new bugs.
 
 Each loop re-syncs to `origin/main` between rounds. Bugs filed by Terminal C get picked up by Terminal A, fixed PRs flow to Terminal B, merges land back on `main`. Self-improvement retrospectives from each loop feed `iterate-improvement` issues that Terminal A then consumes — closing the loop.

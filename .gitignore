@@ -63,6 +63,12 @@ src-tauri/binaries/mdownreview-cli-*
 .claude/iterate-loop/runs/
 .claude/retrospectives/
 
+# merge-pr-loop skill runtime artefacts (_*.json, _*.txt are per-PR caches;
+# runs/ holds per-loop digests + retros — both regenerated, never committed)
+.claude/merge-pr-loop/_*.json
+.claude/merge-pr-loop/_*.txt
+.claude/merge-pr-loop/runs/
+
 # Scheduling system runtime lock — regenerated automatically
 .claude/scheduled_tasks.lock
 
