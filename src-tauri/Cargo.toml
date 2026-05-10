@@ -139,7 +139,7 @@ core-foundation = "0.10"
 core-foundation-sys = "0.8"
 
 [dev-dependencies]
-criterion = { version = "0.4", features = ["html_reports"] }
+criterion = { version = "0.4" }
 tempfile = "3"
 serde-saphyr = "=0.0.25"
 serde_json = "1"
