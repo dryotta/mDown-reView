@@ -95,7 +95,7 @@ gh pr create --base main --head release/v<version> --title "chore: release v<ver
 
 Print PR URL. Wait 30 s, then `gh pr checks <pr_url> --watch` (async — may take 20+ min).
 
-- **Exit 0:** print "All release-gate checks passed — merge the PR, then confirm." Use `ask_user` with `Merged — create the tag` | `Cancel release`.
+- **Exit 0:** print "All CI checks passed — merge the PR, then confirm." Use `ask_user` with `Merged — create the tag` | `Cancel release`.
 - **Non-zero:** print failed-check output. Choices: `I pushed a fix — re-check` | `Cancel release`. Re-check loops back to `--watch` after 10 s. Cancel:
   ```bash
   git checkout main

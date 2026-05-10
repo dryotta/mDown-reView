@@ -1,6 +1,6 @@
 ### Done-Achieved
 
-Reached when Step 2's `exe-goal-assessor` returns `achieved` (every `REQUIREMENT` marked `met`). No release-gate dispatch — that lifecycle belongs to `merge-pr-loop`.
+Reached when Step 2's `exe-goal-assessor` returns `achieved` (every `REQUIREMENT` marked `met`). No CI dispatch — `merge-pr-loop` polls the CI run that the PR's `pull_request` trigger fires automatically.
 
 #### Termination preconditions (issue #309) — drain `## Open scope non-actions` before any Done-X exit
 
@@ -54,7 +54,7 @@ Handler steps (in order):
    ```
 4. Add the `iterate-pr` label so `merge-pr-loop` will pick it up. Idempotent label create on first run:
    ```bash
-   gh label create iterate-pr --description "PR opened by iterate-one-issue, awaiting release-gate validation by merge-pr-loop" --color BFD4F2 2>/dev/null || true
+   gh label create iterate-pr --description "PR opened by iterate-one-issue, awaiting CI validation by merge-pr-loop" --color BFD4F2 2>/dev/null || true
    gh pr edit <PR_NUMBER> --add-label iterate-pr
    ```
 5. Comment on the PR:
@@ -80,7 +80,7 @@ Banner:
 ITERATE_OUTCOME: Done-Achieved issue=<N|n/a> branch=<BRANCH> pr=<URL>
 ```
 
-Then exit cleanly. Chaining is `iterate-loop`'s responsibility; release-gate validation is `merge-pr-loop`'s.
+Then exit cleanly. Chaining is `iterate-loop`'s responsibility; CI validation is `merge-pr-loop`'s.
 
 ---
 

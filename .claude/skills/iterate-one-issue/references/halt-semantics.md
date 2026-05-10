@@ -4,7 +4,7 @@
 - Step 2 `blocked`
 - Step 1 abort after auto-resolution (rebase conflict)
 - Cap = 30 iterations
-- Step 2 `achieved` → Done-Achieved (no release-gate dispatch — `merge-pr-loop` owns that lifecycle)
+- Step 2 `achieved` → Done-Achieved (no CI dispatch — `merge-pr-loop` polls the auto-triggered CI run on the PR)
 
 **Halt (loop ends, Phase 2 skipped):**
 - Phase R (`--resume-pr`) success → `Done-ForwardFixed`
