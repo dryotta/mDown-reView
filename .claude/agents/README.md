@@ -138,6 +138,12 @@ Canonical tags introduced by the current agent set:
 | `mocks` | test mock contracts and hygiene |
 | `anchoring` | comment / annotation anchoring |
 | `async-errors` | async error handling, silent failures |
+| `build-system` | Tauri bundle config, hooks, externalBin, capability ACL at build time |
+| `signing` | per-platform code signing, notarization, signature verification |
+| `updater` | Tauri updater pubkey, manifest, signed artifacts, install modes |
+| `gha` | GitHub Actions workflow shape — triggers, concurrency, matrix, gates |
+| `cicd` | CI/CD pipeline correctness independent of provider |
+| `secrets` | secret handling, redaction, env-var indirection |
 
 When adding a new tag, update this table and any agent's `knowledge_tags`
 that should now match.
@@ -169,8 +175,10 @@ only. The agent file itself NEVER needs editing for portability.
 | `performance-expert` | ✅ | performance, hot-paths, react-rerender, react-rendering, js-performance, tauri-v2, bundle | performance | regressions vs numeric budgets |
 | `product-expert` | ✅ | product, accessibility, macos, ux-banners | charter, features | UX, scope, pillar progress |
 | `react-coding-expert` | ✅ | react-19, react-composition, react-hooks, state-management, react-rerender, react-rendering | design-patterns | idiomatic React 19 |
+| `tauri-build-expert` | ✅ | build-system, signing, updater, bundle, tauri-v2 | architecture, security, features | catch defects in the build/distribute path — bundle config, signing, updater, sidecar, Cargo profile |
 | `tauri-coding-expert` | ✅ | tauri-v2, ipc, events, macos, windows | design-patterns | idiomatic Tauri v2 |
 | `tauri-security-expert` | ✅ | security, ipc, tauri-v2 | security | concrete attack vectors in Tauri IPC + FS surface |
+| `github-actions-expert` | ✅ | gha, cicd, security, secrets | features | catch defects in GHA workflows — security, concurrency, caching, gate jobs |
 | `test-expert` | — | test, ipc, mocks | test-strategy | test completeness, oracle quality, mock hygiene |
 | `exe-goal-assessor` | — | (none) | (project-specific) | autonomous-loop satisfaction check |
 | `exe-implementation-validator` | — | (none) | (project-specific) | run-and-report validation gate |
