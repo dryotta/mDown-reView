@@ -29,6 +29,7 @@ vi.mock("@/lib/tauri-events", () => ({
     eventHandlers[event] = handler;
     return Promise.resolve(() => {});
   }),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("@/lib/tauri-commands", () => ({

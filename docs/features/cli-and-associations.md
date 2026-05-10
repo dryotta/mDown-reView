@@ -15,7 +15,7 @@ Opening the GUI a second time with a new file reuses the running instance (singl
 
 Single-instance behaviour is provided by `tauri-plugin-single-instance`. Secondary-launch arguments are forwarded to the running instance via the plugin callback; the running instance treats the forwarded argv like a normal file-open request.
 
-Launch arguments flow through a **pending-args queue** (`PendingArgsState` in `commands/launch.rs`). Three producers push onto the queue: the initial `setup()` hook (first instance, parses `std::env::args()`), the single-instance plugin callback (second-instance argv forwarding), and macOS `RunEvent::Opened` (Finder open events). The frontend drains the queue once on mount via `get_launch_args`; the `args-received` Tauri event is **signal-only** (no payload) and tells already-mounted code to call `get_launch_args` again to drain anything new. The queue prevents fast successive opens from clobbering each other if the frontend has not yet polled.
+Launch arguments flow through a **pending-args queue** (`PendingArgsState` in `commands/launch.rs`). Four producers push onto the queue: the initial `setup()` hook (first instance, parses `std::env::args()`), the single-instance plugin callback (second-instance argv forwarding), macOS `RunEvent::Opened` (Finder open events), and per-window drag-drop (`WindowEvent::DragDrop` in `lib.rs`). The frontend drains the queue once on mount via `get_launch_args`; the `args-received` Tauri event is **signal-only** (no payload) and tells already-mounted code to call `get_launch_args` again to drain anything new. The queue prevents fast successive opens from clobbering each other if the frontend has not yet polled.
 
 For CLI/single-instance forwarded files (i.e., when a second instance is spawned with `mdownreview <path>` while a primary window is open), the receiving window's per-window scope is extended to include each forwarded file's canonical parent (asset-protocol scope + watcher allowlist) BEFORE the renderer is asked to open the new tab. See [`docs/security.md`](../security.md) rule 17 for the chokepoint discipline; the multi-window registration model is covered by the `multiwin-*` rule family in `tauri-coding-expert`'s bundled knowledge. This prevents the "path not in workspace" race the prior implementation suffered.
 
@@ -28,6 +28,20 @@ Multi-file launches from the OS shell are forwarded as a single argv batch:
 
 - **Windows:** the NSIS installer (`installer/installer-hooks.nsh`) registers the file-association open verb as `"…\mdownreview.exe" %*` (not `%1`). Selecting 2+ `.md` files in Explorer and pressing Enter passes every selected path on one command line; the running instance opens all of them in tabs.
 - **macOS:** Finder dispatches each open as a `RunEvent::Opened` event; each event's paths are pushed onto the pending-args queue, so the frontend's next drain merges them.
+
+### Drag-and-drop
+
+Dragging files or folders from Explorer / Finder onto a running window triggers Tauri v2's `WindowEvent::DragDrop` event in `src-tauri/src/lib.rs::on_window_event`. The OS file paths are converted to a `LaunchArgs` via `parse_launch_args` (so file-vs-folder classification rules never drift between CLI and drag-drop) and routed through `launch_routing::route_args_through_registry` — the **same chokepoint** used by single-instance forwarding and macOS `RunEvent::Opened`. Behavior matches CLI launch:
+
+| Drop                               | Behavior                                                                  |
+|------------------------------------|---------------------------------------------------------------------------|
+| File under an open folder's tree   | Opens as a tab in that folder's window (focuses too).                     |
+| File outside any open folder       | Goes to the existing `FileOnly` window if any, otherwise spawns a new one.|
+| Folder already open in some window | Focuses that window.                                                      |
+| New folder                         | Spawns a new window with that folder as workspace root.                   |
+| Mixed files + folders              | Folders routed first (each via `route_folder`), then files.               |
+
+The renderer also subscribes to the JS-side `getCurrentWebview().onDragDropEvent` (via `src/lib/tauri-events.ts::listenDragDrop`) purely to drive a fullscreen visual overlay (`src/components/DragDropOverlay.tsx`); it does **not** consume the dropped paths. Per `mac-webview-drag-drop` rule in [`docs/best-practices-common/tauri/macos-platform.md`](../best-practices-common/tauri/macos-platform.md), keeping the file-open work in Rust avoids WKWebView's unreliable HTML5 `drop`-event propagation.
 
 File-association registration is per-user (no UAC elevation on Windows, no sudo on macOS) and is driven by install-time scripts configured in `tauri.conf.json`.
 
@@ -43,6 +57,8 @@ flowchart TD
     Push2 --> ArgsEvt["args-received (no payload)"]
     Mac["macOS RunEvent::Opened"] --> Push3["push paths onto<br/>PendingArgsState + signal"]
     Push3 --> ArgsEvt
+    Drop["WindowEvent::DragDrop<br/>(WebView2 / WKWebView native DnD)"] --> Push4["parse_launch_args + route_args_through_registry<br/>(focus existing window OR create new)"]
+    Push4 --> ArgsEvt
     Init --> First["first useEffect calls<br/>get_launch_args (drains queue)"]
     ArgsEvt --> Listener["useLaunchArgsBootstrap listener<br/>calls get_launch_args"]
     First --> Open["open / focus tabs<br/>for canonical paths"]

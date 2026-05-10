@@ -39,6 +39,7 @@ vi.mock("@/logger");
 
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn(() => Promise.resolve(() => {})),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("@/lib/tauri-commands", () => ({

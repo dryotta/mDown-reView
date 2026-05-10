@@ -5,6 +5,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { debug } from "@/logger";
 
 export type { UnlistenFn };
@@ -161,4 +162,51 @@ export function listenEvent<K extends EventName>(
     },
     { target: { kind: "WebviewWindow", label } },
   );
+}
+
+/**
+ * Webview-level drag-drop event payload. Mirrors the runtime shape
+ * emitted by Tauri's `getCurrentWebview().onDragDropEvent` (`enter`,
+ * `over`, `drop`, `leave`). Path processing is handled in Rust via
+ * `WindowEvent::DragDrop` (see `src-tauri/src/lib.rs` and
+ * `launch_routing::route_args_through_registry`); the renderer only
+ * needs `type` for visual feedback (overlay show/hide). `paths` and
+ * `position` are available for future affordances (e.g. a per-region
+ * highlight) but are intentionally not consumed today.
+ */
+export type DragDropPayload =
+  | { type: "enter"; paths: string[]; position: { x: number; y: number } }
+  | { type: "over"; position: { x: number; y: number } }
+  | { type: "drop"; paths: string[]; position: { x: number; y: number } }
+  | { type: "leave" };
+
+/**
+ * Subscribe to webview drag-drop events for the current window.
+ *
+ * The actual file-open work happens **in Rust**: WebView2 / WKWebView's
+ * native DnD delivers the OS file paths to `WindowEvent::DragDrop`,
+ * which `lib.rs` funnels through `route_args_through_registry` —
+ * identical semantics to CLI launch, single-instance forwarding, and
+ * macOS `RunEvent::Opened`. This JS-side listener is for **visual
+ * feedback only** (overlay show/hide).
+ *
+ * Per `mac-webview-drag-drop` rule in
+ * `docs/best-practices-common/tauri/macos-platform.md`, handling
+ * drops on the Rust side avoids WKWebView's unreliable HTML5
+ * `drop`-event propagation.
+ *
+ * Routed through this chokepoint so `getCurrentWebview` is imported
+ * in exactly one production file (mirrors `listenEvent`'s discipline
+ * for `@tauri-apps/api/event`).
+ */
+export function listenDragDrop(
+  callback: (payload: DragDropPayload) => void,
+): Promise<UnlistenFn> {
+  const label = currentLabel();
+  return getCurrentWebview().onDragDropEvent((event) => {
+    void debug(
+      `[tauri-events] received drag-drop type=${event.payload.type} window-label=${label}`,
+    );
+    callback(event.payload as DragDropPayload);
+  });
 }
