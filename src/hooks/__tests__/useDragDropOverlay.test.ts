@@ -1,18 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-const mockUnlisten = vi.fn();
+const mockUnlistenDrop = vi.fn();
+const mockUnlistenEvent = vi.fn();
 const dropCallbacks: Array<(payload: unknown) => void> = [];
 const eventCallbacks: Record<string, (payload: unknown) => void> = {};
 
 vi.mock("@/lib/tauri-events", () => ({
   listenDragDrop: vi.fn((cb: (payload: unknown) => void) => {
     dropCallbacks.push(cb);
-    return Promise.resolve(mockUnlisten);
+    return Promise.resolve(mockUnlistenDrop);
   }),
   listenEvent: vi.fn((eventName: string, cb: (payload: unknown) => void) => {
     eventCallbacks[eventName] = cb;
-    return Promise.resolve(mockUnlisten);
+    return Promise.resolve(mockUnlistenEvent);
   }),
 }));
 
@@ -29,6 +30,13 @@ beforeEach(() => {
   vi.useFakeTimers();
   dropCallbacks.length = 0;
   for (const k of Object.keys(eventCallbacks)) delete eventCallbacks[k];
+});
+
+afterEach(() => {
+  // Drain pending fake timers + restore real ones so a stale 3 s
+  // rejection-toast timeout from one test cannot leak into the next.
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
 
 async function flush() {
@@ -89,8 +97,10 @@ describe("useDragDropOverlay — isDragging", () => {
 
     unmount();
     await flush();
-    // Two subscriptions: drag-drop + drag-drop-rejected.
-    expect(mockUnlisten).toHaveBeenCalledTimes(2);
+    // Each subscription gets its own unlisten — verify both fired
+    // exactly once instead of asserting a sum on a shared fn.
+    expect(mockUnlistenDrop).toHaveBeenCalledTimes(1);
+    expect(mockUnlistenEvent).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -152,6 +162,46 @@ describe("useDragDropOverlay — rejection toast", () => {
     act(() => {
       vi.advanceTimersByTime(1500);
     });
+    expect(result.current.lastRejection).toBeNull();
+  });
+
+  it("a new drag-enter clears a pending rejection toast (M3)", async () => {
+    // Repro: drop is rejected → toast shows. Within 3 s the user
+    // starts a new drag (enter). The hook hides the toast during the
+    // drag (handled by the consumer via `lastRejection && !isDragging`),
+    // BUT must also CLEAR `lastRejection` so the now-stale toast
+    // does not re-appear when the new drag ends. Without this the
+    // user sees the prior rejection's copy in a context that no
+    // longer matches.
+    const { useDragDropOverlay } = await import("../useDragDropOverlay");
+    const { result } = renderHook(() => useDragDropOverlay());
+    await flush();
+
+    act(() => {
+      eventCallbacks["drag-drop-rejected"]({
+        count: 1,
+        reason: "no usable file or folder",
+      });
+    });
+    expect(result.current.lastRejection).not.toBeNull();
+
+    act(() => {
+      dropCallbacks[0]({
+        type: "enter",
+        paths: ["/b.md"],
+        position: { x: 1, y: 2 },
+      });
+    });
+    // The new drag must wipe the stale rejection state; the consumer's
+    // overlay-vs-toast precedence then has nothing to re-reveal on
+    // drop/leave.
+    expect(result.current.lastRejection).toBeNull();
+    expect(result.current.isDragging).toBe(true);
+
+    act(() => {
+      dropCallbacks[0]({ type: "leave" });
+    });
+    expect(result.current.isDragging).toBe(false);
     expect(result.current.lastRejection).toBeNull();
   });
 });

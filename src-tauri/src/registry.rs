@@ -356,11 +356,21 @@ impl WindowRegistry {
     /// Decision table:
     /// - File is under `target_label`'s `Folder(...)` workspace → `AddToWindow(target)`.
     /// - File is under any OTHER open folder → `AddToWindow(that label)` (focus that workspace's window — the file's natural home outranks the drop target).
-    /// - Otherwise → `AddToWindow(target_label)` (the user explicitly picked this window; route there even if it's `FileOnly` or owns an unrelated folder — `route_args_to_window`'s `AddToWindow` arm extends asset-protocol scope to cover the file).
+    /// - `target_label` is registered (FileOnly, or owns an unrelated
+    ///   folder) → `AddToWindow(target_label)` so the user's gesture
+    ///   wins; `route_args_to_window`'s `AddToWindow` arm extends
+    ///   asset-protocol scope to cover the file.
+    /// - `target_label` is NOT registered (window destroyed mid-drop —
+    ///   the worker's spawn_blocking can run after `WindowEvent::Destroyed`)
+    ///   → fall back to any other `FileOnly` window, else
+    ///   `CreateFileOnly`. Without this fallback the `AddToWindow {
+    ///   label: <gone> }` decision short-circuits silently in
+    ///   `route_args_to_window` because `get_webview_window` returns
+    ///   `None`, and the dropped file vanishes.
     ///
-    /// This honours the user's explicit drop target (architect H1)
-    /// without breaking the existing "files under an open folder belong
-    /// in that folder's window" UX.
+    /// This honours the user's explicit drop target without breaking
+    /// the existing "files under an open folder belong in that folder's
+    /// window" UX.
     pub fn route_file_for_target(
         &self,
         file: &Path,
@@ -380,8 +390,24 @@ impl WindowRegistry {
                 files: vec![file.to_path_buf()],
             };
         }
-        RouteDecision::AddToWindow {
-            label: target_label.to_string(),
+        // Target still alive — honour the user's explicit gesture.
+        if self.get_kind(target_label).is_some() {
+            return RouteDecision::AddToWindow {
+                label: target_label.to_string(),
+                files: vec![file.to_path_buf()],
+            };
+        }
+        // Target window was destroyed between the OS dispatching
+        // `DragDropEvent::Drop` and this routing decision running on
+        // the spawn_blocking worker. Don't drop the file on the floor —
+        // mirror `route_file`'s orphan-file logic.
+        if let Some(label) = self.find_file_only() {
+            return RouteDecision::AddToWindow {
+                label,
+                files: vec![file.to_path_buf()],
+            };
+        }
+        RouteDecision::CreateFileOnly {
             files: vec![file.to_path_buf()],
         }
     }
@@ -646,6 +672,100 @@ mod tests {
                 assert_eq!(files, vec![PathBuf::from("/random/foo.md")]);
             }
             other => panic!("expected AddToWindow(a), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_ghost_target_falls_back_to_file_only_window() {
+        // H4 repro: target window was destroyed between OS Drop event
+        // and the spawn_blocking worker running. With another
+        // `FileOnly` window registered, the drop must land there
+        // rather than vanish silently.
+        let reg = WindowRegistry::new();
+        reg.register("alive".into(), WindowKind::FileOnly);
+
+        match reg.route_file_for_target(Path::new("/random/foo.md"), "ghost") {
+            RouteDecision::AddToWindow { label, files } => {
+                assert_eq!(label, "alive", "must fall back to surviving FileOnly window");
+                assert_eq!(files, vec![PathBuf::from("/random/foo.md")]);
+            }
+            other => panic!("expected AddToWindow(alive), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_ghost_target_no_other_window_creates_new() {
+        // H4 repro: target gone, no other window registered. The
+        // dropped file would be lost without this fallback. Mirror
+        // `route_file`'s orphan path: spawn a new FileOnly window.
+        let reg = WindowRegistry::new();
+
+        match reg.route_file_for_target(Path::new("/random/foo.md"), "ghost") {
+            RouteDecision::CreateFileOnly { files } => {
+                assert_eq!(files, vec![PathBuf::from("/random/foo.md")]);
+            }
+            other => panic!("expected CreateFileOnly, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_ghost_target_natural_home_still_wins() {
+        // H4 partial: even when the target is gone, a file under
+        // another open folder routes to that folder's window — the
+        // "natural home" rule outranks both the target and the
+        // FileOnly fallback.
+        let reg = WindowRegistry::new();
+        reg.register("home".into(), WindowKind::Folder(PathBuf::from("/proj")));
+        reg.register("orphan".into(), WindowKind::FileOnly);
+
+        match reg.route_file_for_target(Path::new("/proj/src/main.rs"), "ghost") {
+            RouteDecision::AddToWindow { label, files } => {
+                assert_eq!(label, "home", "natural-home wins even with ghost target");
+                assert_eq!(files, vec![PathBuf::from("/proj/src/main.rs")]);
+            }
+            other => panic!("expected AddToWindow(home), got {other:?}"),
+        }
+    }
+
+    // ── Windows-path coverage for target-aware routing (test-expert M16) ──
+
+    #[test]
+    #[cfg(windows)]
+    fn route_file_for_target_windows_mixed_case_natural_home() {
+        // Stored folder uses pascal-case Windows path; dropped file
+        // uses lowercase. Must still match the natural-home folder.
+        let reg = WindowRegistry::new();
+        reg.register(
+            "home".into(),
+            WindowKind::Folder(PathBuf::from("C:\\Users\\Dev\\Project")),
+        );
+
+        match reg.route_file_for_target(
+            Path::new("c:\\users\\dev\\project\\src\\main.rs"),
+            "home",
+        ) {
+            RouteDecision::AddToWindow { label, .. } => {
+                assert_eq!(label, "home", "case-insensitive ancestor match must win");
+            }
+            other => panic!("expected AddToWindow(home), got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn route_folder_for_target_windows_mixed_case_dedupe() {
+        // Folder already open as "C:\\Proj"; user drops "c:\\proj"
+        // onto a different FileOnly window. Should focus the existing
+        // folder window, not claim or spawn.
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::Folder(PathBuf::from("C:\\Proj")));
+        reg.register("b".into(), WindowKind::FileOnly);
+
+        match reg.route_folder_for_target(Path::new("c:\\proj"), "b") {
+            RouteDecision::FocusExisting(label) => {
+                assert_eq!(label, "a", "case-insensitive dedupe must focus existing");
+            }
+            other => panic!("expected FocusExisting(a), got {other:?}"),
         }
     }
 

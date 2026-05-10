@@ -811,41 +811,65 @@ pub fn run() {
             // Drag-drop file-open. WebView2 / WKWebView's native DnD
             // delivers the OS file paths via `WindowEvent::DragDrop`
             // (`tauri::webview::WebviewWindowBuilder` has native DnD
-            // enabled by default). The actual classification + routing
-            // work runs on a `spawn_blocking` worker so the main GUI
-            // event loop never stalls — review of PR #372 by
-            // architect-expert (M4), security-expert (H1), and
-            // bug-expert (#1) all flagged synchronous canonicalize +
-            // metadata syscalls on this thread as a UI-freeze hazard
-            // for large drops or slow filesystems.
+            // enabled by default).
             //
-            // The body lives in `commands::drag_drop::handle_dropped_paths`
-            // so it's a unit-testable seam (lib.rs gets a one-liner).
-            // That helper:
+            // The classification + routing work runs on a
+            // `spawn_blocking` worker so the main GUI event loop never
+            // stalls (canonicalize + metadata syscalls would freeze it
+            // on slow filesystems / large drops).
+            //
+            // Cap order matters: `MAX_DROP_PATHS` is checked **before**
+            // the `paths.clone()` that moves into the worker so a
+            // pathological drop (100k paths from a misbehaving shell
+            // extension) cannot allocate N PathBufs on the
+            // window-event thread before the cap fires
+            // (`docs/performance.md` rule 1: "hard cap every unbounded
+            // input").
+            //
+            // The worker delegates to `commands::drag_drop`'s
+            // `handle_dropped_paths`, which:
             //   - reuses `parse_launch_args` so file-vs-folder, sidecar
-            //     redirect (#372 D5) and NTFS-ADS rejection (#372 S5)
-            //     stay consistent across CLI and drag-drop;
-            //   - calls `route_args_to_window` which honours the
-            //     dropped-on window's label (architect-expert #372 H1)
-            //     and adopts a folder for an empty `FileOnly` target
-            //     window without spawning a new one (#372 S1).
+            //     redirect and NTFS-ADS rejection stay consistent
+            //     across CLI and drag-drop;
+            //   - calls `route_args_to_window` (target-aware variant of
+            //     `route_args_through_registry`) so a drop on window B
+            //     never lands in window A.
             //
-            // Per `mac-webview-drag-drop` rule in
-            // `docs/best-practices-common/tauri/macos-platform.md`,
-            // handling drops on the Rust side avoids WKWebView's
-            // unreliable HTML5 drop-event propagation.
-            //
-            // macOS focus-quirk (`mac-webview-focus-quirks`):
-            // explicitly raise the dropped-on window after dispatch so
-            // the user lands back in the window they aimed at — drag
-            // gestures on macOS occasionally surrender focus.
+            // Per `mac-webview-drag-drop` rule, handling drops on the
+            // Rust side avoids WKWebView's unreliable HTML5 drop-event
+            // propagation. The trailing `set_focus()` on macOS counters
+            // `mac-webview-focus-quirks` (drag gestures occasionally
+            // surrender focus on WKWebView).
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                let target_label = window.label().to_string();
                 if paths.is_empty() {
-                    log::debug!("[drag-drop] {}: empty drop ignored", window.label());
+                    log::debug!("[drag-drop] {target_label}: empty drop ignored");
                     return;
                 }
-                let target_label = window.label().to_string();
                 let handle = window.app_handle().clone();
+                if paths.len() > commands::drag_drop::MAX_DROP_PATHS {
+                    let count = paths.len();
+                    log::warn!(
+                        "[drag-drop] {target_label}: rejecting drop of {count} paths (cap is {})",
+                        commands::drag_drop::MAX_DROP_PATHS,
+                    );
+                    let _ = handle.emit_to(
+                        target_label.as_str(),
+                        "drag-drop-rejected",
+                        serde_json::json!({
+                            "count": count,
+                            "reason": format!(
+                                "too many paths (cap {})",
+                                commands::drag_drop::MAX_DROP_PATHS,
+                            ),
+                        }),
+                    );
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = window.set_focus();
+                    }
+                    return;
+                }
                 commands::drag_drop::spawn_drag_drop_task(
                     handle,
                     target_label,

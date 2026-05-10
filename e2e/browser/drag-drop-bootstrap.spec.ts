@@ -1,8 +1,7 @@
 import { test, expect, queueLaunchArgs, dispatchTauriEvent } from "./fixtures";
 
 /**
- * Browser-E2E coverage of the renderer half of the drag-drop flow
- * (test-expert PR #372 review, finding H3).
+ * Browser-E2E coverage of the renderer half of the drag-drop flow.
  *
  * The actual `WindowEvent::DragDrop` event is OS-native and cannot be
  * synthesized in a browser-only Playwright run. But the renderer-side
@@ -14,8 +13,8 @@ import { test, expect, queueLaunchArgs, dispatchTauriEvent } from "./fixtures";
  * after the drag-drop emit (but not after the CLI emit) would not
  * surface in any browser-layer test.
  *
- * Native end-to-end (real Drop event, real Tauri runtime) lives in
- * the future native-E2E layer.
+ * Native end-to-end (real Drop event, real Tauri runtime) is tracked
+ * separately as `e2e/native/drag-drop.spec.ts` (issue #373).
  */
 test.describe("Drag-drop renderer bootstrap", () => {
   test("dispatching args-received with a single dropped file opens it as a tab", async ({ page }) => {

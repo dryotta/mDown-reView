@@ -88,14 +88,62 @@ fn path_has_no_ads(s: &str) -> bool {
 /// surfaces the reviewed source instead of the raw YAML/JSON, with the
 /// reviewed comments rendered via the standard MarkdownViewer/SourceView.
 ///
-/// Falls through transparently for non-sidecar paths.
+/// Two layout modes:
+///
+/// 1. **Co-located** (default): `<dir>/foo.md.review.yaml` annotates
+///    `<dir>/foo.md`. Suffix-strip + `exists()`.
+///
+/// 2. **Configured `sidecar_root`**: `.mrsf.yaml` at some workspace
+///    ancestor configures `sidecar_root: <rel>`. The sidecar lives at
+///    `<workspace>/<sidecar_root>/<rel>/foo.md.review.yaml` and the
+///    source lives at `<workspace>/<rel>/foo.md` — the suffix-strip
+///    alone yields a path inside the redirect folder where no source
+///    file exists, so the canonical mapping in
+///    [`crate::core::paths::source_for_sidecar_with_config`] is needed.
+///
+/// We try (1) first (fast path), then walk up looking for `.mrsf.yaml`
+/// for (2). Falls through transparently for non-sidecar paths and for
+/// orphan sidecars whose source no longer exists (the user gets to
+/// see the YAML — preferable to silent failure).
 fn redirect_sidecar_to_source(p: std::path::PathBuf) -> std::path::PathBuf {
+    // Fast path: co-located sidecar, suffix-stripped source exists.
     if let Some(source) = crate::core::paths::source_for_sidecar(&p) {
         if source.exists() {
             return source;
         }
     }
+    // Slow path: walk up to find `.mrsf.yaml` and use the configured
+    // `sidecar_root`-aware redirect.
+    if let Some(redirected) = redirect_via_mrsf_config(&p) {
+        if redirected.exists() {
+            return redirected;
+        }
+    }
     p
+}
+
+/// Walk up from `sidecar_path` looking for `.mrsf.yaml`. If found and
+/// it configures `sidecar_root`, return the configured source path
+/// (caller still verifies `exists()`). Returns `None` if no
+/// `.mrsf.yaml` is found, the config has no `sidecar_root`, or the
+/// path is not a sidecar.
+fn redirect_via_mrsf_config(sidecar_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = sidecar_path.parent()?;
+    loop {
+        if dir.join(".mrsf.yaml").exists() {
+            // load_mrsf_config returns Ok(None) when the file is
+            // present but omits sidecar_root; treat that and any
+            // load error as "no config" and stop walking.
+            let sidecar_root =
+                crate::core::sidecar::config::load_mrsf_config(dir).ok().flatten()?;
+            return crate::core::paths::source_for_sidecar_with_config(
+                sidecar_path,
+                dir,
+                Some(&sidecar_root),
+            );
+        }
+        dir = dir.parent()?;
+    }
 }
 
 /// Parse CLI-style launch arguments into a `LaunchArgs` struct.
@@ -715,5 +763,100 @@ mod tests {
     fn path_has_no_ads_rejects_ads_after_drive_letter() {
         // Drive letter is fine; subsequent colons are ADS.
         assert!(!path_has_no_ads("C:\\Users\\dev\\foo.md:hidden"));
+    }
+
+    // ── H5 (test-expert): redirect_sidecar_to_source honours .mrsf.yaml ──
+
+    /// `sidecar_root: .reviews` workspace — sidecar lives under
+    /// `<workspace>/.reviews/foo.md.review.yaml` and the source lives
+    /// at `<workspace>/foo.md`. Suffix-strip alone yields a path
+    /// inside the redirect folder where no source exists, so the
+    /// fallback walks up to `.mrsf.yaml` and uses
+    /// `source_for_sidecar_with_config` to compute the real source
+    /// location.
+    #[test]
+    fn parse_launch_args_redirects_sidecar_via_mrsf_config() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        // Write `.mrsf.yaml` configuring `sidecar_root: .reviews`.
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        // Source lives at the workspace root.
+        fs::write(ws.join("foo.md"), "source").unwrap();
+        // Sidecar lives under `.reviews/`.
+        fs::create_dir_all(ws.join(".reviews")).unwrap();
+        fs::write(ws.join(".reviews").join("foo.md.review.yaml"), "y").unwrap();
+
+        let sidecar = ws.join(".reviews").join("foo.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(
+            out.files,
+            vec![canon(ws.join("foo.md"))],
+            "config-aware redirect should map .reviews/foo.md.review.yaml → foo.md",
+        );
+    }
+
+    /// `sidecar_root: .reviews` with a nested source —
+    /// `<ws>/.reviews/sub/bar.md.review.yaml` annotates
+    /// `<ws>/sub/bar.md`. Verifies the relative path inside the
+    /// sidecar tree maps correctly.
+    #[test]
+    fn parse_launch_args_redirects_nested_sidecar_via_mrsf_config() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        fs::create_dir_all(ws.join("sub")).unwrap();
+        fs::write(ws.join("sub").join("bar.md"), "src").unwrap();
+        fs::create_dir_all(ws.join(".reviews").join("sub")).unwrap();
+        fs::write(
+            ws.join(".reviews").join("sub").join("bar.md.review.yaml"),
+            "y",
+        )
+        .unwrap();
+
+        let sidecar = ws.join(".reviews").join("sub").join("bar.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(
+            out.files,
+            vec![canon(ws.join("sub").join("bar.md"))],
+            "nested redirect must preserve the relative path",
+        );
+    }
+
+    /// Co-located sidecar still wins when both are present (matches
+    /// `resolve_sidecar_with_config`'s "co-located wins until
+    /// migrated" rule). The sidecar lives next to a real source —
+    /// fast path returns immediately, no walk-up needed.
+    #[test]
+    fn parse_launch_args_co_located_redirect_unaffected_by_mrsf_config() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        fs::write(ws.join("foo.md"), "src").unwrap();
+        fs::write(ws.join("foo.md.review.yaml"), "y").unwrap();
+
+        let sidecar = ws.join("foo.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(out.files, vec![canon(ws.join("foo.md"))]);
+    }
+
+    /// Orphan sidecar in a `sidecar_root` workspace — neither the
+    /// co-located source NOR the configured source exists. Returns
+    /// the sidecar itself rather than silently failing.
+    #[test]
+    fn parse_launch_args_orphan_sidecar_in_mrsf_workspace_returns_sidecar() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        fs::create_dir_all(ws.join(".reviews")).unwrap();
+        fs::write(ws.join(".reviews").join("foo.md.review.yaml"), "y").unwrap();
+        // Neither <ws>/foo.md nor <ws>/.reviews/foo.md exist.
+
+        let sidecar = ws.join(".reviews").join("foo.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(
+            out.files,
+            vec![canon(&sidecar)],
+            "orphan sidecar must still open as the sidecar so the user sees something",
+        );
     }
 }

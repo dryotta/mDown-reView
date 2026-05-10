@@ -2,24 +2,26 @@
 //!
 //! Most behaviour is now covered by **runtime** tests:
 //!   - `src/registry.rs::tests` — `route_folder_for_target` /
-//!     `route_file_for_target` decision tables (architect-expert
-//!     PR #372 review, finding H1).
-//!   - `src/commands/launch.rs::tests` — sidecar redirect (D5),
-//!     NTFS-ADS guard (S5), parse_launch_args reuse contract.
-//!   - `src/commands/drag_drop.rs::tests` — `MAX_DROP_PATHS` sanity.
+//!     `route_file_for_target` decision tables and ghost-target
+//!     fallbacks (must-fix follow-up).
+//!   - `src/commands/launch.rs::tests` — sidecar redirect (co-located
+//!     and `.mrsf.yaml`-aware), NTFS-ADS guard, parse_launch_args
+//!     reuse contract.
+//!   - `src/commands/drag_drop.rs::tests` — pure `classify_drop`
+//!     classifier covering Empty / OverCap / AllFailed / Partial /
+//!     Ok outcomes.
 //!
 //! What remains as a source-text guard is the **structural choice of
-//! `spawn_blocking`** — review of PR #372 by architect-expert (M4),
-//! security-expert (H1), and bug-expert (#1) all flagged synchronous
-//! canonicalize + metadata syscalls on the window-event thread as a
-//! UI-freeze hazard. That's a "where does the code live" property
-//! the runtime tests cannot prove, so a string check is the cheapest
-//! durable enforcement.
+//! `spawn_blocking`** and the **delegation shape from `lib.rs`**: where
+//! the code lives and what it imports — properties the runtime tests
+//! cannot prove. String checks are the cheapest durable enforcement.
 //!
 //! `tauri::test::mock_app()` is unusable on the dev Windows host
 //! (precedent: `launch_routing_tests.rs`, `comments_emit_test.rs`,
 //! `watcher_emit_test.rs`, `window_register_tests.rs`). End-to-end
-//! drop behavior is covered by the future native E2E layer.
+//! drop behaviour (real `WindowEvent::DragDrop`, real Tauri runtime,
+//! real WebView2/WKWebView) is tracked separately as
+//! `e2e/native/drag-drop.spec.ts` — see issue #373.
 
 use std::fs;
 use std::path::PathBuf;

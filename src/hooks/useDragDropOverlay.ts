@@ -42,6 +42,13 @@ export function useDragDropOverlay(): DragDropOverlayState {
     const unlistenPromise = listenDragDrop((payload: DragDropEvent) => {
       switch (payload.type) {
         case "enter":
+          // Clear any stale rejection toast from a prior drop — without
+          // this, a rejection within the 3 s timer window is briefly
+          // re-revealed when the new drag ends, showing context-stale
+          // copy. Coordinated with the rejection-toast effect below.
+          setLastRejection(null);
+          setIsDragging(true);
+          break;
         case "over":
           setIsDragging(true);
           break;

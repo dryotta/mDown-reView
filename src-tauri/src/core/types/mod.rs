@@ -14,7 +14,7 @@ pub struct DirEntry {
     pub is_dir: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, specta::Type)]
 pub struct LaunchArgs {
     pub files: Vec<String>,
     pub folders: Vec<String>,
