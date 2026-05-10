@@ -383,3 +383,238 @@ fn reset_window_scope_idempotent_on_unseeded_label() {
     state.reset_window_scope("never-seeded");
     // No assertion needed — the test fails iff reset panics or deadlocks.
 }
+
+// ── Issue #369 — three-slot watcher allowlist stratification (AC #5) ───────
+//
+// Each test:
+//   (a) exercises one slot or one fallback path that #366 broke;
+//   (b) is named exactly per the issue spec;
+//   (c) carries the literal `fails = product defect / passes = fix correct`
+//       comment per the issue's regression-test contract.
+//
+// Cite: docs/security.md rule 17 (asset-scope vs watcher-allowlist split);
+//       docs/architecture.md rule 1 (chokepoint discipline).
+
+/// Anchor tempdirs under repo-local target/ to avoid Windows AppData
+/// (Tier::System classification — see core::security::system_locations).
+fn issue_369_temp_root() -> std::path::PathBuf {
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.join("target").join("test-tmp-watcher-369");
+    std::fs::create_dir_all(&root).expect("issue_369 temp_root mkdir");
+    root
+}
+
+fn issue_369_tempdir(prefix: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(prefix)
+        .tempdir_in(issue_369_temp_root())
+        .unwrap()
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn update_tree_watched_dirs_preserves_register_window_file_seed() {
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-outside-");
+    let outside_file = outside_dir.path().join("outside.md");
+    std::fs::write(&outside_file, "x").unwrap();
+    let canonical_outside = canonicalize_no_verbatim(&outside_file).unwrap();
+
+    let workspace = issue_369_tempdir("mdr-369-workspace-");
+    let canonical_workspace = canonicalize_no_verbatim(workspace.path()).unwrap();
+
+    // Register-window-file path: seeds the canonical outside file into watched_paths.
+    state.seed_window_file("test-main", canonical_outside.clone());
+
+    // useTreeWatcher's `update_tree_watched_dirs` REPLACE for the workspace.
+    state
+        .set_tree_watched_dirs(
+            "test-main",
+            canonical_workspace.to_string_lossy().into_owned(),
+            vec![canonical_workspace.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+
+    // The outside file remains allowed — the seed lives in watched_paths,
+    // not tree_watched_dirs (which the renderer just clobbered).
+    assert!(state.is_path_allowed(&outside_file));
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn update_tree_watched_dirs_preserves_extend_window_scope_files_grant() {
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-banner-");
+    let canonical_outside = canonicalize_no_verbatim(outside_dir.path()).unwrap();
+    let inside_file = outside_dir.path().join("file.png");
+    std::fs::write(&inside_file, b"\x89PNG").unwrap();
+
+    let unrelated = issue_369_tempdir("mdr-369-unrelated-");
+    let canonical_unrelated = canonicalize_no_verbatim(unrelated.path()).unwrap();
+
+    // Banner-grant path: seeds outside dir into extra_watched_dirs.
+    state.seed_window_extra_dirs("test-main", vec![canonical_outside.clone()]);
+
+    // useTreeWatcher REPLACE on a totally unrelated workspace.
+    state
+        .set_tree_watched_dirs(
+            "test-main",
+            canonical_unrelated.to_string_lossy().into_owned(),
+            vec![canonical_unrelated.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+
+    // Banner-granted file still allowed via extra_watched_dirs (additive slot).
+    assert!(state.is_path_allowed(&inside_file));
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn register_window_file_does_not_seed_tree_watched_dirs() {
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-c1-");
+    let outside_file = outside_dir.path().join("a.md");
+    std::fs::write(&outside_file, "x").unwrap();
+    let canonical = canonicalize_no_verbatim(&outside_file).unwrap();
+    let canonical_parent = canonical.parent().unwrap().to_path_buf();
+
+    state.seed_window_file("test-main", canonical);
+
+    let tree = state.tree_watched_dirs.lock().unwrap();
+    let main_tree = tree.get("test-main").cloned().unwrap_or_default();
+    assert!(
+        !main_tree.contains(&canonical_parent),
+        "tree_watched_dirs[test-main] must NOT contain the file's parent dir; got {main_tree:?}"
+    );
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn register_window_file_does_not_allowlist_siblings() {
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-sibling-");
+    let outside_file = outside_dir.path().join("a.md");
+    let sibling = outside_dir.path().join("sibling.txt");
+    std::fs::write(&outside_file, "x").unwrap();
+    std::fs::write(&sibling, "y").unwrap();
+    let canonical = canonicalize_no_verbatim(&outside_file).unwrap();
+
+    state.seed_window_file("test-main", canonical);
+
+    assert!(
+        !state.is_path_allowed(&sibling),
+        "sibling MUST NOT be implicitly allowlisted by seeding a single file"
+    );
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn is_path_or_parent_allowed_accepts_watched_paths_parents() {
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-c5-");
+    let outside_file = outside_dir.path().join("a.md");
+    std::fs::write(&outside_file, "x").unwrap();
+    let canonical = canonicalize_no_verbatim(&outside_file).unwrap();
+
+    state.seed_window_file("test-main", canonical.clone());
+
+    let parent = canonical.parent().unwrap();
+    assert!(
+        state.is_path_or_parent_allowed(parent),
+        "first-comment-write must accept the parent of a seeded outside file"
+    );
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn is_path_or_parent_allowed_accepts_extra_watched_dirs_parents() {
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-c6-");
+    let canonical = canonicalize_no_verbatim(outside_dir.path()).unwrap();
+
+    state.seed_window_extra_dirs("test-main", vec![canonical.clone()]);
+
+    let parent = canonical.parent().unwrap();
+    assert!(
+        state.is_path_or_parent_allowed(parent),
+        "first-comment-write equivalent for banner-granted dir must accept its parent"
+    );
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn extend_window_scope_files_seeds_extra_watched_dirs_not_tree() {
+    // Slot-level migration check for window_scope::ScopeGrant::FilesParents.
+    // The arm in window_scope.rs now routes through seed_window_extra_dirs;
+    // calling that state method directly proves the slot semantics that
+    // the arm depends on (the arm itself needs a tauri::Manager to test
+    // end-to-end and `tauri::test::mock_app()` is unusable on the dev
+    // Windows host — precedent: comments_emit_test.rs).
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-c7-");
+    let canonical = canonicalize_no_verbatim(outside_dir.path()).unwrap();
+
+    state.seed_window_extra_dirs("test-main", vec![canonical.clone()]);
+
+    let extra = state.extra_watched_dirs.lock().unwrap();
+    assert!(
+        extra.get("test-main").map(|s| s.contains(&canonical)).unwrap_or(false),
+        "extra_watched_dirs[test-main] must contain the granted dir"
+    );
+    drop(extra);
+
+    let tree = state.tree_watched_dirs.lock().unwrap();
+    let main_tree = tree.get("test-main").cloned().unwrap_or_default();
+    assert!(
+        !main_tree.contains(&canonical),
+        "tree_watched_dirs[test-main] must NOT contain banner-granted dirs (cross-window leak invariant)"
+    );
+}
+
+// fails = product defect / passes = fix correct
+#[test]
+fn is_path_or_parent_allowed_does_not_allowlist_sibling_writes() {
+    // Issue #369 forward-fix — the parent-equality fallback in
+    // `is_path_or_parent_allowed` must accept ONLY sidecar siblings
+    // (`<seed.filename>.review.yaml` / `.review.json`), not arbitrary
+    // siblings. Without the narrowed match, opening `~/Downloads/note.md`
+    // would let the comment-mutation chokepoint write `~/Downloads/secret.txt`.
+    let state = make_state();
+    let outside_dir = issue_369_tempdir("mdr-369-sibling-write-");
+    let outside_file = outside_dir.path().join("note.md");
+    std::fs::write(&outside_file, "x").unwrap();
+    let canonical = canonicalize_no_verbatim(&outside_file).unwrap();
+
+    state.seed_window_file("test-main", canonical.clone());
+
+    let parent_dir = canonical.parent().unwrap();
+
+    // Sidecars MUST be allowed (preserves first-comment-write).
+    let sidecar_yaml = parent_dir.join("note.md.review.yaml");
+    let sidecar_json = parent_dir.join("note.md.review.json");
+    assert!(
+        state.is_path_or_parent_allowed(&sidecar_yaml),
+        ".review.yaml sidecar of seeded file must be allowed (first-comment-write)"
+    );
+    assert!(
+        state.is_path_or_parent_allowed(&sidecar_json),
+        ".review.json sidecar of seeded file must be allowed (first-comment-write)"
+    );
+
+    // Arbitrary siblings MUST be rejected.
+    let sibling_txt = parent_dir.join("sibling.txt");
+    let sibling_md = parent_dir.join("another.md");
+    // Create them on-disk too so `is_path_allowed`'s canonicalize step
+    // succeeds — proves rejection holds for the live attack scenario,
+    // not just the deleted-file path.
+    std::fs::write(&sibling_txt, "y").unwrap();
+    std::fs::write(&sibling_md, "z").unwrap();
+    assert!(
+        !state.is_path_or_parent_allowed(&sibling_txt),
+        "non-sidecar sibling MUST NOT be allowlisted (sibling-write attack vector)"
+    );
+    assert!(
+        !state.is_path_or_parent_allowed(&sibling_md),
+        "non-sidecar sibling MUST NOT be allowlisted (sibling-write attack vector)"
+    );
+}

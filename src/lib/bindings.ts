@@ -639,6 +639,35 @@ async resetWindowScopeForTest() : Promise<Result<null, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Test-only command: forward an outside-file open through the args-received
+ * chokepoint so the renderer's `useLaunchArgsBootstrap` drains via
+ * `getLaunchArgs()` and dispatches `store.openFile(path)`. This mirrors the
+ * CLI / OS file-open path (`route_args_through_registry` AddToWindow arm
+ * for FilesParents) that production uses for outside files; the native
+ * E2E uses this debug-only IPC because it cannot spawn a second binary
+ * instance from a Playwright test.
+ * 
+ * Differs from `set_root_via_test`:
+ * - takes a single FILE path, not a folder
+ * - does NOT extend asset-protocol scope (mirrors `register_window_file`'s
+ * watcher-only contract — banner opt-in via `extend_window_scope_files`
+ * remains the asset-scope chokepoint)
+ * - does NOT call `extend_window_scope` (no scope grant — the renderer's
+ * subsequent `register_window_file` IPC handles the watcher-allowlist
+ * seed via `seed_window_file`)
+ * 
+ * Cite: docs/security.md rule 17 (asset-scope vs watcher-allowlist split);
+ * docs/architecture.md rule 11 (launch args queue chokepoint).
+ */
+async openFileViaTest(path: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_file_via_test", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 

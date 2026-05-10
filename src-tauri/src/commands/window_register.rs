@@ -135,10 +135,6 @@ pub fn register_window_file_inner(
         );
         "canonicalize failed".to_string()
     })?;
-    let parent = canonical
-        .parent()
-        .ok_or_else(|| "path has no parent".to_string())?
-        .to_path_buf();
 
     // AC7 — classify BEFORE seeding the watcher allowlist. Resolution rule
     // (corrected in iter 3 to fix the multi-file no-folder window bug):
@@ -186,7 +182,15 @@ pub fn register_window_file_inner(
 
     // Watcher seed only — NOT asset scope. Asset scope is the banner opt-in
     // (extend_window_scope_files) per AC3.
-    state.seed_window_workspace(window_label, vec![parent]);
+    //
+    // Issue #369 — seed into `watched_paths[label]` (REBUILD-semantic slot
+    // owned by `update_watched_files`) instead of `tree_watched_dirs[label]`.
+    // The renderer's `useTreeWatcher` calls `update_tree_watched_dirs("main",
+    // [workspaceRoot])` ~115 ms after window registration, REPLACING
+    // `tree_watched_dirs[label]` and previously clobbering this seed —
+    // which then made `is_path_allowed` reject reads of the outside file.
+    // Cite: docs/security.md rule 17, docs/architecture.md rule 1.
+    state.seed_window_file(window_label, canonical.clone());
 
     Ok(RegisterWindowFileResult {
         canonical: canonical.to_string_lossy().into_owned(),
@@ -272,21 +276,18 @@ mod regression {
         WatcherState::new(tx)
     }
 
-    /// Issue #366 regression: with `tree_watched_dirs["main"]` already
-    /// populated by a prior spec, calling `register_window_file_inner`
-    /// for an outside-the-existing-set file MUST seed the new parent so
-    /// `is_path_allowed(file)` returns true afterward.
-    ///
-    /// If this test PASSES with no fix in this PR: #366's CI flake is
-    /// environmental (canonicalize race / Windows fs flush) and the
-    /// fixture-level reset is a test-isolation improvement, not a code
-    /// fix. If it FAILS today: the reset masks a real defect that needs
-    /// addressing at a deeper layer.
+    /// Issue #366 / #369 regression: with `tree_watched_dirs["main"]`
+    /// already populated by a prior spec, calling
+    /// `register_window_file_inner` for an outside-the-existing-set file
+    /// MUST seed `watched_paths` so `is_path_allowed(file)` returns true
+    /// afterward. Issue #369 stratified the slot — the canonical file
+    /// is now in `watched_paths`, not the parent in `tree_watched_dirs`.
     ///
     /// Cite: docs/test-strategy.md rule 24 (failing-then-passing
     /// regression for every confirmed bug under Zero Bug Policy).
+    // fails = product defect / passes = fix correct
     #[test]
-    fn register_window_file_seeds_parent_with_pre_populated_state() {
+    fn register_window_file_seeds_outside_file_for_is_path_allowed() {
         let state = make_state();
 
         // Anchor tempdirs under repo-local target/ to avoid Windows AppData
@@ -297,37 +298,33 @@ mod regression {
         let temp_root = manifest_dir.join("target").join("test-tmp-window-register");
         std::fs::create_dir_all(&temp_root).expect("temp_root mkdir");
 
-        // Pre-populate: simulate prior specs leaving a stale folder in main's allowlist.
+        // Pre-populate tree_watched_dirs to simulate prior spec leftover.
         let stale_dir = tempfile::Builder::new()
-            .prefix("mdr-366-stale-")
+            .prefix("mdr-369-stale-")
             .tempdir_in(&temp_root)
             .unwrap();
         let canonical_stale = canonicalize_no_verbatim(stale_dir.path()).unwrap();
         state.seed_window_workspace("test-main", vec![canonical_stale.clone()]);
 
-        // Test setup: create a separate "outside" folder + file (mirrors 09-outside-file-open's repro-1).
         let outside_dir = tempfile::Builder::new()
-            .prefix("mdr-366-outside-")
+            .prefix("mdr-369-outside-")
             .tempdir_in(&temp_root)
             .unwrap();
         let outside_file = outside_dir.path().join("outside.md");
         std::fs::write(&outside_file, "# Outside\n").unwrap();
         let outside_file_str = outside_file.to_string_lossy().to_string();
 
-        // Pre-condition: outside_file is NOT yet allowed.
         assert!(
             !state.is_path_allowed(&outside_file),
             "precondition: outside file rejected before register"
         );
 
-        // Action: register the outside file (mirrors store/tabs.ts:openFile chokepoint).
         let result = register_window_file_inner("test-main", &outside_file_str, &state, None);
         assert!(result.is_ok(), "register_window_file_inner should succeed: {result:?}");
 
-        // Post-condition: outside_file IS now allowed.
         assert!(
             state.is_path_allowed(&outside_file),
-            "post-register: outside file should be allowed (#366 regression)"
+            "post-register: outside file should be allowed via watched_paths"
         );
     }
 }

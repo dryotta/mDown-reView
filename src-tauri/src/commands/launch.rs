@@ -223,6 +223,44 @@ pub fn set_root_via_test(path: String, app: tauri::AppHandle) -> Result<(), Stri
     Ok(())
 }
 
+/// Test-only command: forward an outside-file open through the args-received
+/// chokepoint so the renderer's `useLaunchArgsBootstrap` drains via
+/// `getLaunchArgs()` and dispatches `store.openFile(path)`. This mirrors the
+/// CLI / OS file-open path (`route_args_through_registry` AddToWindow arm
+/// for FilesParents) that production uses for outside files; the native
+/// E2E uses this debug-only IPC because it cannot spawn a second binary
+/// instance from a Playwright test.
+///
+/// Differs from `set_root_via_test`:
+///   - takes a single FILE path, not a folder
+///   - does NOT extend asset-protocol scope (mirrors `register_window_file`'s
+///     watcher-only contract — banner opt-in via `extend_window_scope_files`
+///     remains the asset-scope chokepoint)
+///   - does NOT call `extend_window_scope` (no scope grant — the renderer's
+///     subsequent `register_window_file` IPC handles the watcher-allowlist
+///     seed via `seed_window_file`)
+///
+/// Cite: docs/security.md rule 17 (asset-scope vs watcher-allowlist split);
+///       docs/architecture.md rule 11 (launch args queue chokepoint).
+#[cfg(debug_assertions)]
+#[mdr_command]
+pub fn open_file_via_test(path: String, app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Emitter;
+
+    let launch_args = LaunchArgs {
+        files: vec![path],
+        folders: vec![],
+    };
+
+    let reg = app.state::<crate::registry::WindowRegistry>();
+    reg.push_args("main", launch_args);
+
+    app.emit_to("main", "args-received", ())
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// Test-only IPC clearing all per-window scope state for the calling
 /// window. Used by `e2e/native/fixtures.ts`'s `nativePage` fixture so
 /// each spec starts with an empty `tree_watched_dirs` precondition,

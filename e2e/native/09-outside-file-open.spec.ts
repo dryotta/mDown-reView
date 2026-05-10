@@ -29,7 +29,7 @@
  * Windows CI startup variance.
  */
 
-import { test, expect, setRootViaTest } from "./fixtures";
+import { test, expect, setRootViaTest, openFileViaTest } from "./fixtures";
 import { nativeTempDir } from "./_helpers/native-tmp";
 import * as path from "path";
 import * as fs from "fs";
@@ -57,7 +57,10 @@ function readTextFileSentinel(nativePage: import("@playwright/test").Page, absPa
 /**
  * Drive `register_window_file` and reduce to `"ok"` / error sentinel.
  * Mirrors the renderer's `await registerWindowFile(path)` chokepoint
- * exercised in `store/tabs.ts:openFile` (Group C).
+ * exercised in `store/tabs.ts:openFile` (Group C). Used only by repro-3
+ * to assert the watcher-only contract (NO asset-scope grant) — repro-1
+ * and repro-2 drive `openFileViaTest` instead, which mirrors production's
+ * `args-received` → `store.openFile` → `register_window_file` chain.
  */
 function registerWindowFile(nativePage: import("@playwright/test").Page, absPath: string) {
   return nativePage.evaluate((p: string) => {
@@ -69,23 +72,7 @@ function registerWindowFile(nativePage: import("@playwright/test").Page, absPath
 }
 
 test.describe("issue #359 — outside file open", () => {
-  // TODO(#369): repro-1 re-skipped. Iter-2 of PR #367 un-skipped this test
-  // assuming the iter-1 Rust regression's PASS meant #366 was environmental.
-  // The Release Gate run on iter-2's tip (run 25610475178) revealed the
-  // actual root cause: an architectural race between
-  // `register_window_file` (which seeds the outside file's parent dir into
-  // `tree_watched_dirs["main"]` via `state.seed_window_workspace`) and the
-  // renderer's `useTreeWatcher` round-trip via `update_tree_watched_dirs`
-  // (which REPLACES `tree_watched_dirs["main"]` with the workspace-rooted
-  // set, clobbering the outside-file seed). The fixture-level reset
-  // shipped in iter-2 doesn't fix this — clearing state at fixture start
-  // doesn't change what `update_tree_watched_dirs` does mid-test.
-  //
-  // The proper architectural fix (make update_tree_watched_dirs merge,
-  // OR move outside-workspace registrations to a separate state slot)
-  // needs design + review beyond the forward-fix budget. Tracked in #369.
-  // Re-enable this test once #369 is closed.
-  test.skip("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
+  test("repro-1 — outside file IPC chain succeeds with a folder open", async ({ nativePage }) => {
     const folderA = nativeTempDir("mdr-359-folderA");
     const folderB = nativeTempDir("mdr-359-fileB");
     const insideMd = path.join(folderA, "inside.md");
@@ -99,8 +86,6 @@ test.describe("issue #359 — outside file open", () => {
 
       // Pre-fix sanity: reading the outside file BEFORE register must
       // fail — proves the regression existed and the guard is real.
-      // Post-fix the renderer's `openFile` action awaits register first;
-      // here we drive the same ordering manually via the IPC bridge.
       await expect
         .poll(() => readTextFileSentinel(nativePage, outsideMd), {
           timeout: 15_000,
@@ -108,13 +93,19 @@ test.describe("issue #359 — outside file open", () => {
         })
         .toContain("not in workspace");
 
-      // Register the outside file (renderer chokepoint Group C added).
-      await expect
-        .poll(() => registerWindowFile(nativePage, outsideMd), {
-          timeout: 15_000,
-          intervals: [200, 500, 1000],
-        })
-        .toBe("ok");
+      // Drive the production code path: `open_file_via_test` enqueues the
+      // outside file as a launch arg and emits `args-received`. The
+      // renderer's `useLaunchArgsBootstrap` drains it, dispatches
+      // `store.openFile(outsideMd)` — which atomically calls
+      // `register_window_file` (seeding `watched_paths` via
+      // `seed_window_file`) AND appends the file to `tabs[]`. The tab
+      // change then makes `useFileWatcher` fire
+      // `update_watched_files([insideMd, outsideMd])`, keeping the
+      // outside file in the watcher allowlist. Without this, the
+      // renderer's deferred drain of any earlier `args-received` (from
+      // `setRootViaTest`) races a manual seed and clobbers it via the
+      // `tabs[]`-driven REBUILD. Issue #369 forward-fix iter-2.
+      await openFileViaTest(nativePage, outsideMd);
 
       // Post-register: read_text_file must succeed.
       await expect
@@ -146,12 +137,10 @@ test.describe("issue #359 — outside file open", () => {
         })
         .toContain("not in workspace");
 
-      await expect
-        .poll(() => registerWindowFile(nativePage, outsideMd), {
-          timeout: 15_000,
-          intervals: [200, 500, 1000],
-        })
-        .toBe("ok");
+      // Drive the production code path via `open_file_via_test` — same
+      // rationale as repro-1. Works without a prior `setRootViaTest`
+      // because the args-received chain does not require a folder.
+      await openFileViaTest(nativePage, outsideMd);
 
       await expect
         .poll(() => readTextFileSentinel(nativePage, outsideMd), {
