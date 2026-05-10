@@ -328,8 +328,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   bench-compile-gate:
     name: Bench compile gate (Linux)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
@@ -399,8 +399,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   bench-report:
     name: Perf bench report (non-blocking)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true'
     runs-on: ubuntu-22.04
     continue-on-error: true
     timeout-minutes: 30
