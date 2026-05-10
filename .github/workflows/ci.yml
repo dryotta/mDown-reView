@@ -19,6 +19,9 @@ name: CI
 # bounded by the slowest of {build matrix, native-e2e}.
 #
 # Jobs (all parallel under `changes` unless noted):
+#   - changes (ubuntu)               — docs-vs-code path filter
+#   - check-redundant (ubuntu)       — tree-hash skip on push-to-main
+#                                      (no-op for PR / workflow_call)
 #   - lint-and-vitest (ubuntu)      — eslint, vitest, frontend build, bundle gates
 #   - rust-test (ubuntu)             — clippy + cargo test (Linux)
 #   - rust-test-windows (win-2022)   — clippy + cargo test (Windows-cfg code)
@@ -116,12 +119,101 @@ jobs:
           echo "Heavy jobs will run: $CODE"
 
   # ─────────────────────────────────────────────────────────────────────────
+  # Check-redundant — skip heavy jobs on push-to-main when the post-squash
+  # commit's tree is byte-identical to a PR head SHA whose ci.yml run already
+  # concluded `success`. Falls open on every ambiguity (non-squash merge,
+  # direct push, lookup error, stale PR CI) so the safety net is never
+  # weaker than today. See `test-gate` for the skip-on-skip contract.
+  # ─────────────────────────────────────────────────────────────────────────
+  check-redundant:
+    name: Check if tree already tested
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      skip: ${{ steps.compare.outputs.skip }}
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.ref || github.ref }}
+
+      - id: compare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # `set +e` so every lookup falls open to `skip=false` on error
+          # rather than failing the job (which would skip heavy jobs by
+          # accident via the `needs:` edge).
+          set +e
+          skip=false
+
+          # Only consider skipping for push-to-main. PR / workflow_call
+          # events always run the full matrix.
+          if [ "${{ github.event_name }}" != "push" ] \
+             || [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "Event is not push-to-main; running full matrix."
+            echo "skip=$skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tree=$(git rev-parse HEAD^{tree})
+          msg=$(git log -1 --pretty=%s)
+          # GitHub appends "(#N)" to every squash-merge subject. Anything
+          # else (direct push, merge-commit, rebase-merge) falls open.
+          pr=$(echo "$msg" | grep -oE '\(#[0-9]+\)$' | tr -d '(#)')
+          if [ -z "$pr" ]; then
+            echo "HEAD subject is not a squash-merge ('$msg'); running full matrix."
+            echo "skip=$skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          head=$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null)
+          if [ -z "$head" ]; then
+            echo "Could not resolve PR #$pr head SHA; running full matrix."
+            echo "skip=$skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr_tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$head" -q .tree.sha 2>/dev/null)
+          if [ -z "$pr_tree" ]; then
+            echo "Could not resolve PR #$pr head tree; running full matrix."
+            echo "skip=$skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$tree" != "$pr_tree" ]; then
+            echo "Tree differs from PR #$pr head; running full matrix."
+            echo "  post-merge tree: $tree"
+            echo "  PR head tree:    $pr_tree"
+            echo "skip=$skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          conclusion=$(gh run list --commit "$head" --workflow ci.yml \
+                       --json conclusion -q '.[0].conclusion // ""' 2>/dev/null)
+          if [ "$conclusion" != "success" ]; then
+            echo "PR #$pr last ci.yml conclusion on $head is '$conclusion' (need 'success'); running full matrix."
+            echo "skip=$skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          skip=true
+          echo "✓ Tree $tree already tested green on PR #$pr (SHA $head)."
+          echo "  Heavy jobs will skip; CI gate accepts skip-on-skip."
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────────────────────────────────
   # Lint + Vitest + frontend build + bundle-size gates (Linux).
   # ─────────────────────────────────────────────────────────────────────────
   lint-and-vitest:
     name: Lint + Vitest (Linux)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -168,8 +260,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   rust-test:
     name: Rust tests (Linux)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -415,8 +507,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   rust-test-windows:
     name: Rust tests (Windows)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -464,8 +556,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   rust-test-macos:
     name: Rust tests (macOS)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: macos-14
     timeout-minutes: 30
     env:
@@ -513,8 +605,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   bindings-drift:
     name: Bindings drift check (#263)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -568,8 +660,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   e2e-browser:
     name: E2E browser (Linux)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
@@ -626,8 +718,8 @@ jobs:
   # specs share a single CDP-attached debug binary. Sharding deferred.
   native-e2e:
     name: Native E2E (Windows)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -699,8 +791,8 @@ jobs:
   # canary / release callers: `profile: release` + `sign: true` — ~10-12 min.
   build:
     name: Build (${{ matrix.name }})
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: [changes, check-redundant]
+    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -978,12 +1070,12 @@ jobs:
   # `native-e2e`, `rust-test*`, etc.; only its execution waits.
   installer-e2e:
     name: Installer E2E (Windows)
-    needs: [changes, build]
+    needs: [changes, check-redundant, build]
     # Only runs on PR / push (sign=false). On sign=true the build matrix
     # uploads a `.nsis.zip` updater bundle (no standalone setup.exe), so
     # installer-e2e has nothing to consume — release-preflight covers the
     # signed-artefact contract instead.
-    if: needs.changes.outputs.code == 'true' && inputs.sign != true
+    if: needs.changes.outputs.code == 'true' && inputs.sign != true && needs.check-redundant.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
@@ -1060,8 +1152,8 @@ jobs:
   # files (the High finding from `tauri-build-expert`).
   release-preflight:
     name: Release preflight
-    needs: [changes, build]
-    if: needs.changes.outputs.code == 'true' && inputs.sign == true
+    needs: [changes, check-redundant, build]
+    if: needs.changes.outputs.code == 'true' && inputs.sign == true && needs.check-redundant.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
@@ -1108,11 +1200,15 @@ jobs:
   # `installer-e2e` is required only when sign != true (canary/release skip
   # it because the build matrix emits a `.zip` updater bundle, not a setup
   # `.exe` — release-preflight covers the signed-artefact contract).
+  # On push-to-main the gate also accepts skip-on-skip when
+  # `check-redundant` proved the post-squash tree was already tested green
+  # on its source PR — see that job's comment block.
   test-gate:
     name: CI gate
     if: always()
     needs:
       - changes
+      - check-redundant
       - lint-and-vitest
       - rust-test
       - rust-test-windows
@@ -1134,6 +1230,10 @@ jobs:
             echo "::error::changes job did not succeed (got ${{ needs.changes.result }})"
             exit 1
           }
+          if [ "${{ needs.check-redundant.outputs.skip }}" = "true" ]; then
+            echo "Post-squash tree already tested green on source PR — heavy jobs correctly skipped. Gate green."
+            exit 0
+          fi
           CODE="${{ needs.changes.outputs.code }}"
           echo "code_changed=$CODE"
           if [ "$CODE" != "true" ]; then
