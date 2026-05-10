@@ -1,7 +1,7 @@
 //! Forbid `app.set_menu()` (and any `*.set_menu(`) calls outside the
 //! bootstrap allowlist.
 //!
-//! Per docs/best-practices-common/tauri/v2-patterns.md rule
+//! Per .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule
 //! `multiwin-per-window-menu`: secondary windows must use
 //! `WebviewWindowBuilder::menu(...)` so each window's menu bar is built
 //! before the window first paints. Only the bootstrap main window may
@@ -108,7 +108,7 @@ fn no_set_menu_outside_allowlist() {
     assert!(
         violations.is_empty(),
         "set_menu calls outside allowlist (use WebviewWindowBuilder::menu() instead). \
-         See docs/best-practices-common/tauri/v2-patterns.md rule multiwin-per-window-menu.\n  {}",
+         See .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule multiwin-per-window-menu.\n  {}",
         violations.join("\n  ")
     );
 }

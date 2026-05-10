@@ -13,7 +13,7 @@ import { resolve } from "node:path";
  * deleted or watered down, this fails loudly.
  */
 
-const AGENT_PATH = resolve(__dirname, "../../.claude/agents/exe-task-implementer.md");
+const AGENT_PATH = resolve(__dirname, "../../.claude/agents/exe-task-implementer/agent.md");
 const PROMPT = readFileSync(AGENT_PATH, "utf8");
 
 describe("exe-task-implementer agent prompt", () => {

@@ -1,7 +1,7 @@
 # Retrospective — iteration 1/30 (PASSED)
 
 ## Goal of this iteration
-Add a mandatory path-existence pre-check to `.claude/agents/exe-goal-assessor.md` so that any acceptance criterion naming a non-existent file path is automatically marked `unmet` (closing PR #73's failure mode).
+Add a mandatory path-existence pre-check to `.claude/agents/exe-goal-assessor/agent.md` so that any acceptance criterion naming a non-existent file path is automatically marked `unmet` (closing PR #73's failure mode).
 
 ## What went well
 - **Single-file scope let me skip the parallel implementer dispatch** — for a 30-line markdown edit to a single agent prompt, the standard 5-group sprint was overkill; I edited directly. Saved at least 4 background agent invocations.
@@ -20,7 +20,7 @@ Add a mandatory path-existence pre-check to `.claude/agents/exe-goal-assessor.md
 
 ### Scope iterate Step 6/7 to diff content (skip irrelevant experts on prompt/docs-only diffs)
 - **Category:** skill
-- **Problem (with evidence):** For PR #120 (issue #105) the diff was 1 file / 30 inserted lines in `.claude/agents/exe-goal-assessor.md`. Step 6b's full-suite contract (`npm run lint`, `tsc`, `cargo test`, `npm test`, e2e) and Step 7's 8-expert panel (architect/performance/react-tauri/bug/test/documentation/lean + conditional security) would have burned ~10 background agent invocations and ~5 minutes for zero useful signal. I deviated from the contract and ran only `rubber-duck` + CI poll; result was identical (1 BLOCK caught, 3 fixes applied).
+- **Problem (with evidence):** For PR #120 (issue #105) the diff was 1 file / 30 inserted lines in `.claude/agents/exe-goal-assessor/agent.md`. Step 6b's full-suite contract (`npm run lint`, `tsc`, `cargo test`, `npm test`, e2e) and Step 7's 8-expert panel (architect/performance/react-tauri/bug/test/documentation/lean + conditional security) would have burned ~10 background agent invocations and ~5 minutes for zero useful signal. I deviated from the contract and ran only `rubber-duck` + CI poll; result was identical (1 BLOCK caught, 3 fixes applied).
 - **Proposed change:** In `.claude/skills/iterate/SKILL.md`, add a "Diff-scoped Step 6b/7" subsection: when `git diff --stat $ITER_BASE_SHA HEAD` only touches paths matching `.claude/**` OR `docs/**` OR `*.md` (root), Step 6b polls CI only (no local suite) and Step 7 dispatches only `documentation-expert` + `rubber-duck` (skip the other 6 + conditional security). All other diffs run the full contract unchanged.
 - **Acceptance signal:** Next prompt-only or docs-only iteration completes Step 6b in ≤30s (CI-poll only) and Step 7 in ≤90s (2-expert parallel) with same review fidelity (BLOCKs caught at the same rate).
 - **Estimated size:** xs

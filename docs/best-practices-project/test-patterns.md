@@ -1,8 +1,12 @@
+---
+tags: [test, ipc, mocks]
+---
+
 # Test Patterns (mdownreview-specific)
 
 Concrete patterns for writing tests in this codebase. The **rules** live in [`../test-strategy.md`](../test-strategy.md); this file is the **how-to** that those rules cite. Use it as the authoritative reference for IPC mock setup, event simulation, native-test wiring, and DOM selectors.
 
-> **Scope:** mdownreview-specific. Generic test best-practices (TDD, oracle quality, layer choice) live in `docs/test-strategy.md`. Cross-stack JS perf for tests is in [`../best-practices-common/general/javascript-performance.md`](../best-practices-common/general/javascript-performance.md).
+> **Scope:** mdownreview-specific. Generic test best-practices (TDD, oracle quality, layer choice) live in `docs/test-strategy.md`. Cross-stack JS perf for tests is bundled with `performance-expert`.
 
 ## 1. Choosing the test layer
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
  * Cross-window state whitelist constant lint.
  *
  * Enforces rule `multiwin-cross-window-state-whitelist` in
- * `docs/best-practices-common/tauri/v2-patterns.md`. The rule body
+ * `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`. The rule body
  * prescribes a single exported `CROSS_WINDOW_SYNCED_KEYS` constant in
  * `src/store/index.ts` that BOTH the persist `partialize` selector AND
  * the `useCrossWindowPrefsSync` hook's patch builder consume. Two

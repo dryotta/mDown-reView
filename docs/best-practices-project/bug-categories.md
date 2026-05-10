@@ -1,8 +1,12 @@
+---
+tags: [bug, react-hooks, ipc, lifecycle, security]
+---
+
 # Bug Categories (mdownreview-specific)
 
 High-probability bug categories for the mdownreview stack: React 19 frontend + async file watcher + Tauri v2 IPC + comment anchoring. Use this as the primary checklist when bug-hunting; each category lists the file/line areas to read first and the typical failure mode.
 
-> **Scope:** project-specific. Generic React re-render and bundling pitfalls live in [`../best-practices-common/react/`](../best-practices-common/react/). Cross-cutting Tauri v2 footguns live in [`../best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md).
+> **Scope:** project-specific. Generic React re-render and bundling patterns are bundled with each review agent (`react-coding-expert`, `lean-expert`, `performance-expert`); cross-cutting Tauri v2 footguns are bundled with `tauri-coding-expert` and `tauri-architect-expert`.
 
 ## How to apply this file
 

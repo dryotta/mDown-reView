@@ -1,7 +1,7 @@
 //! Window-arg presence lint for `#[mdr_command]` / `#[tauri::command]`
 //! handlers.
 //!
-//! Per docs/best-practices-common/tauri/v2-patterns.md rule
+//! Per .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule
 //! `multiwin-renderer-window-context` (and its companion
 //! `multiwin-state-isolation` / `multiwin-allowlist-scope`): commands
 //! that mutate per-window state MUST take a `window: tauri::Window`
@@ -339,7 +339,7 @@ fn ipc_commands_take_window_arg_or_are_explicitly_exempt() {
     assert!(
         violations.is_empty() && missing_must_have.is_empty(),
         "Window-arg lint failures (rule multiwin-renderer-window-context in \
-         docs/best-practices-common/tauri/v2-patterns.md):\n  {}\n\
+         .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md):\n  {}\n\
          missing-from-source MUST_HAVE_WINDOW commands (delete from list or restore the IPC):\n  {}",
         violations.join("\n  "),
         missing_must_have

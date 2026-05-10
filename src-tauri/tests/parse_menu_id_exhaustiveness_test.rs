@@ -1,6 +1,6 @@
 //! Property test for the menu-id encoding contract documented in rule
 //! `multiwin-per-window-menu` and the menu-id table in
-//! docs/best-practices-common/tauri/v2-patterns.md (and reified by
+//! .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md (and reified by
 //! `encode_menu_id` / `parse_menu_id` in `src-tauri/src/lib.rs`).
 //!
 //! The contract is:

@@ -1,5 +1,5 @@
 //! Property tests for rule `multiwin-args-delivery`
-//! (docs/best-practices-common/tauri/v2-patterns.md) — the registry's
+//! (.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md) — the registry's
 //! per-window pending-args queue.
 //!
 //! The rule says: when creating a new window we `push_args` then emit

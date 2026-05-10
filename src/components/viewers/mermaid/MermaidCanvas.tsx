@@ -66,7 +66,7 @@ function clamp(v: number, lo: number, hi: number): number {
  * mirror) and a single `useLayoutEffect` on every render writes the
  * wrapper's `style.transform`, so React cannot stomp the value when
  * re-rendering for unrelated reasons (per
- * `docs/best-practices-common/react/rerender-optimization.md`: the
+ * `.claude/agents/performance-expert/knowledge/react-rerender-optimization.md`: the
  * "pan tick = no re-render" pattern).
  */
 export function MermaidCanvas({ content, path, zoom, setZoom, readOnly }: Props) {

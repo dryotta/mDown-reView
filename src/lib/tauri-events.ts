@@ -140,7 +140,7 @@ export type EventName = keyof EventPayloads;
  * window receives EVERY `emit_to` — re-introducing the multi-window
  * broadcast bug at the listener layer (rule
  * `multiwin-window-scoped-events` in
- * `docs/best-practices-common/tauri/v2-patterns.md`).
+ * `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`).
  *
  * Logs each receive at debug level with the window label so a log
  * file from a multi-window session shows which window's listener

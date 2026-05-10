@@ -11,7 +11,7 @@
 //!
 //! Cites rules:
 //!   * `multiwin-no-hardcoded-label` in
-//!     `docs/best-practices-common/tauri/v2-patterns.md` — `"main"` is
+//!     `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md` — `"main"` is
 //!     the unique unprefixed bootstrap label; secondary labels follow
 //!     the `win-N` pattern produced by `next_label()`.
 //!   * `caps-window-scope` (same doc) — the capability `windows` field
@@ -98,7 +98,7 @@ fn next_label_output_matches_capability_glob() {
              glob in capabilities/default.json (windows = {globs:?}). \
              A new window with this label would silently lose every \
              permission. See multiwin-no-hardcoded-label / caps-window-scope \
-             in docs/best-practices-common/tauri/v2-patterns.md."
+             in .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md."
         );
     }
 }

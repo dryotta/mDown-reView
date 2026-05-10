@@ -6,7 +6,7 @@ import { join, sep } from "node:path";
  * Per-event emit-target lint.
  *
  * Enforces rule `multiwin-window-scoped-events` in
- * `docs/best-practices-common/tauri/v2-patterns.md`. The rule body owns
+ * `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`. The rule body owns
  * a 5-column markdown table whose columns are
  *   `Event | Target (rule) | Required emit method | Current call site | Current state`.
  *
@@ -31,7 +31,7 @@ import { join, sep } from "node:path";
  */
 
 const REPO_ROOT = join(__dirname, "..", "..");
-const SPEC_PATH = join(REPO_ROOT, "docs", "best-practices-common", "tauri", "v2-patterns.md");
+const SPEC_PATH = join(REPO_ROOT, ".claude", "agents", "tauri-coding-expert", "knowledge", "tauri-v2-patterns.md");
 const EVENTS_PATH = join(__dirname, "..", "lib", "tauri-events.ts");
 const RUST_SRC = join(REPO_ROOT, "src-tauri", "src");
 
@@ -182,7 +182,7 @@ describe("multiwin-window-scoped-events: per-event emit-target table", () => {
     expect(
       missing,
       `These EventPayloads keys are missing rows in the per-event ` +
-        `emit-target table at docs/best-practices-common/tauri/v2-patterns.md ` +
+        `emit-target table at .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md ` +
         `(rule multiwin-window-scoped-events). Add a row documenting ` +
         `Target / Required emit method / Current call site / Current state.\n  ${missing.join(
           "\n  "

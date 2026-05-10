@@ -242,7 +242,7 @@ While `.git/rebase-merge` or `.git/rebase-apply` exists:
    - `RC=0` & rebase ongoing → `commits_replayed += 1`, `attempt = 0`, continue.
    - `RC=0` & rebase done → break.
    - `RC≠0` & `attempt < max` → `attempt += 1`, re-run step 3 with augmented prompt (prior attempt + still-present markers).
-   - `RC≠0` & `attempt == max` → escalate ONCE to `architect-expert` with full file + diff-from-main + diff-from-ours + prior implementer summaries. Apply, retry step 4.
+   - `RC≠0` & `attempt == max` → escalate ONCE to `tauri-architect-expert` with full file + diff-from-main + diff-from-ours + prior implementer summaries. Apply, retry step 4.
    - Still failing OR `commits_replayed > 20` → Abort.
 6. **Abort:**
    ```bash
@@ -292,9 +292,10 @@ Scan `NEXT_REQUIREMENTS` for triggers; spawn matched experts in ONE parallel mes
 
 | Trigger (keyword/path) | Expert |
 |---|---|
-| "IPC", "Tauri command", "invoke", `src-tauri/src/commands.rs`, `src/lib/tauri-commands.ts`, `src/store/*` | `architect-expert` |
-| "React component", "hook", "Zustand", `src/components/`, `src/hooks/`, `src/store/` | `react-tauri-expert` |
-| "file read/write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `security-expert` |
+| "IPC", "Tauri command", "invoke", `src-tauri/src/commands.rs`, `src/lib/tauri-commands.ts`, `src/store/*` | `tauri-architect-expert` |
+| "React component", "hook", "Zustand", `src/components/`, `src/hooks/`, `src/store/` | `react-coding-expert` |
+| "Tauri plugin", "v2 API", "capability", "emit_to", "menu" | `tauri-coding-expert` |
+| "file read/write", "path", "markdown render", `src-tauri/src/core/sidecar.rs`, `MarkdownViewer` | `tauri-security-expert` |
 | "startup", "debounce", "throttle", "watcher", "large file", "render cost" | `performance-expert` |
 | any source change (≈ always) | `test-expert` |
 | change to `docs/features/`, `AGENTS.md`, `BUILDING.md`, `docs/**/*.md` | `documentation-expert` |
@@ -372,7 +373,7 @@ AC literal compliance (issue #326 — load-bearing for issue mode with explicit 
 When the source spec has explicit acceptance-criteria checkboxes or bullets (`- [ ]` / `- [x]` / `- ` under `## Acceptance criteria`), the plan MUST emit a top-level `**AC literal compliance:**` section BEFORE the per-group breakdown. For each AC bullet, extract every:
 - LITERAL STRING — exact words/phrases the AC requires verbatim (e.g. `'environmental_failure: true'`, `'PASS — docs-only diff'`, `'docs/architecture.md'`).
 - STRUCTURED FIELD NAMES + VALUES — YAML/JSON/markdown field names with their required values (e.g. `verdict: ENVIRONMENTAL`, `LAYER: native-e2e`, `severity: P1`).
-- FILE PATHS — exact relative paths the AC names (e.g. `src-tauri/src/core/sidecar.rs`, `.claude/agents/lean-expert.md`).
+- FILE PATHS — exact relative paths the AC names (e.g. `src-tauri/src/core/sidecar.rs`, `.claude/agents/lean-expert/agent.md`).
 - COMMAND NAMES — exact CLI invocations or function names (e.g. `npm run lint:skills`, `cargo test`, `compute_anchor_hash`).
 - HEADINGS / SECTION NAMES — exact markdown headings the AC requires the implementation to emit or contain (e.g. `## Open scope non-actions`, `### Step 4 — Plan`).
 - REGEX / PATTERNS — any regex-shaped or pattern-shaped requirement (e.g. `^pre-flight:`, `MDR-CONSOLE-ERROR`).
@@ -386,7 +387,7 @@ Completeness rules (non-negotiable, per docs/test-strategy.md rules 4-5):
 
 Save as `PLAN`. Parse groups · label `independent` or list deps. The `**AC literal compliance:**` section (when emitted) is contractually attached to `PLAN` and forwarded to every Step 5 implementer prompt verbatim — see Step 5.
 
-**`risk=high`** → spawn `architect-expert`:
+**`risk=high`** → spawn `tauri-architect-expert`:
 ```
 Identify specific risks in this plan and propose concrete mitigations so it can proceed safely.
 <full PLAN>
@@ -424,10 +425,10 @@ Every implementer reports "no changes" → log `SKIPPED — no-op: <reason>` to 
 
 ##### 6a-noaction. Scope non-action capture (issue #309) — record implementer-reported deferrals
 
-Every `exe-task-implementer` Implementation Summary contains a `**Did NOT do (scope):** ...` field (see `.claude/agents/exe-task-implementer.md`). Before staging anything in this iteration's commit, parse those reports so deferred work cannot evaporate into agent-output text:
+Every `exe-task-implementer` Implementation Summary contains a `**Did NOT do (scope):** ...` field (see `.claude/agents/exe-task-implementer/agent.md`). Before staging anything in this iteration's commit, parse those reports so deferred work cannot evaporate into agent-output text:
 
 1. For every implementer summary returned in this iteration's wave (Step 5 group OR a 6d forward-fix attempt — see 6d step 4 below for the forward-fix re-run requirement), extract the scope non-action block using these explicit rules:
-   - **Start marker**: the literal line containing `**Did NOT do (scope):**` (case-sensitive — the field name is contractual, see `.claude/agents/exe-task-implementer.md`).
+   - **Start marker**: the literal line containing `**Did NOT do (scope):**` (case-sensitive — the field name is contractual, see `.claude/agents/exe-task-implementer/agent.md`).
    - **End marker**: the next top-level Implementation-Summary field marker (`**<Field>:**` matching `^\*\*[A-Z][A-Za-z ]+:\*\*` in markdown), OR end of the summary.
    - **Body**: the text BETWEEN start and end markers, indentation preserved verbatim. Trim only the start marker line itself.
    - **Empty/none**: if the body is empty, whitespace-only, or a single bullet `- none` / `none`, treat as no non-action and skip.
@@ -467,7 +468,7 @@ Implementers report their changed files in their Implementation Summary's `**Fil
    - Else: do NOT auto-revert (the file may carry load-bearing edits the implementer forgot to report). Log `[scope-guard] BLOCK: unexpected file outside reported scope: $path` to stdout, append the same line to the state file's current iteration block, and surface it as a **scope-guard BLOCK** to 6d's forward-fix wave (see 6d step 1 for the justify-or-revert carve-out). Re-run this guard until clean.
 5. Only after `UNEXPECTED` is empty do we proceed to the staging block below. Never `git add -A`.
 
-The implementer prompt forbids `cargo fmt`/`cargo fmt --all`/`cargo fmt -p` directly (see `.claude/agents/exe-task-implementer.md`); this guard is the second line of defence in case an agent (or a manual fix-up commit) violates that rule.
+The implementer prompt forbids `cargo fmt`/`cargo fmt --all`/`cargo fmt -p` directly (see `.claude/agents/exe-task-implementer/agent.md`); this guard is the second line of defence in case an agent (or a manual fix-up commit) violates that rule.
 
 ##### 6a-stage. Stage and commit
 ```bash
@@ -479,7 +480,7 @@ Commit messages: see Commit conventions table below.
 
 #### 6b. Classify diff (consumed by 6c and Step 7)
 
-**New-IPC-surface gate (issue #125)** — before running the classifier, if `git diff --name-only "$ITER_BASE_SHA" HEAD` includes any of `src-tauri/src/commands/**` (new `#[tauri::command]` lines), `src-tauri/src/commands.rs`, or `src/lib/tauri-commands.ts` (new exported wrapper), reject the iteration if the iter commit messages on `$ITER_BASE_SHA..HEAD` do not contain a `pre-flight:` line citing the rg result. Treat as a forward-fix BLOCK — feed back into 6d. The pre-flight contract is documented in `.claude/agents/exe-task-implementer.md` "Pre-flight: Caller-Side Verification".
+**New-IPC-surface gate (issue #125)** — before running the classifier, if `git diff --name-only "$ITER_BASE_SHA" HEAD` includes any of `src-tauri/src/commands/**` (new `#[tauri::command]` lines), `src-tauri/src/commands.rs`, or `src/lib/tauri-commands.ts` (new exported wrapper), reject the iteration if the iter commit messages on `$ITER_BASE_SHA..HEAD` do not contain a `pre-flight:` line citing the rg result. Treat as a forward-fix BLOCK — feed back into 6d. The pre-flight contract is documented in `.claude/agents/exe-task-implementer/agent.md` "Pre-flight: Caller-Side Verification".
 
 ```bash
 DIFF_FILES=$(git diff --name-only "$ITER_BASE_SHA" HEAD)
@@ -500,7 +501,7 @@ if [ "$DIFF_CLASS" = "code" ]; then
     | grep -E '^\+.*(#\[tauri::command\]|export (async )?function)' | wc -l)
   if [ "$ADDS_IPC" -gt 0 ]; then
     if ! git log "$ITER_BASE_SHA..HEAD" --format=%B | grep -q '^pre-flight:'; then
-      echo "[caller-preflight] BLOCK: new IPC surface added but no commit message contains 'pre-flight:' citation. See .claude/agents/exe-task-implementer.md."
+      echo "[caller-preflight] BLOCK: new IPC surface added but no commit message contains 'pre-flight:' citation. See .claude/agents/exe-task-implementer/agent.md."
       # Surface this to 6d as a forward-fix BLOCK; do not silently proceed.
     fi
   fi
@@ -592,7 +593,7 @@ Repeat until A, B, AND C are all green/APPROVE, or 5 attempts:
    Return Implementation Summary.
    ```
 3. **Re-apply scope-noaction capture (6a-noaction, issue #309) AND scope-diff guard (6a-pre, issue #302)** against the forward-fix implementer's Implementation Summary, in that order:
-   - First, run the 6a-noaction parser against the forward-fix Implementation Summary's `**Did NOT do (scope):**` field (per the explicit boundary rules at 6a-noaction step 1). Append any non-empty captures to the branch-level `## Open scope non-actions` section with `implementer_attempt_id: iter-<N>-6d-attempt-<K>`. The forward-fix prompt at step 2 above includes "Return Implementation Summary" — that summary MUST contain the standard `**Did NOT do (scope):**` field per `.claude/agents/exe-task-implementer.md`.
+   - First, run the 6a-noaction parser against the forward-fix Implementation Summary's `**Did NOT do (scope):**` field (per the explicit boundary rules at 6a-noaction step 1). Append any non-empty captures to the branch-level `## Open scope non-actions` section with `implementer_attempt_id: iter-<N>-6d-attempt-<K>`. The forward-fix prompt at step 2 above includes "Return Implementation Summary" — that summary MUST contain the standard `**Did NOT do (scope):**` field per `.claude/agents/exe-task-implementer/agent.md`.
    - Second, run the 6a-pre scope-diff guard against the forward-fix's reported `Files changed` (treat its summary as the new `EXPECTED_FILES`; the original Step 5 `EXPECTED_FILES` from this iteration still counts as in-scope).
    Then commit:
    ```bash
@@ -619,8 +620,8 @@ Spawn the panel in the SAME parallel message as the validators (6c-C). Compositi
 
 | `DIFF_CLASS` | Add to panel |
 |---|---|
-| `code` | `product-expert`, `performance-expert`, `architect-expert`, `react-tauri-expert`, `bug-expert`, `test-expert`, `documentation-expert` (always with code), and **conditionally** `security-expert` when diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` use, or any `src/components/viewers/` markdown rendering. |
-| `prompt-only` | `documentation-expert` (the prompt itself is documentation), `architect-expert` (skill/agent contracts shape downstream IPC and dispatch). Skip the rest — `react-tauri-expert`/`performance-expert`/`bug-expert`/`security-expert`/`test-expert` have nothing to say about a markdown contract change. |
+| `code` | `product-expert`, `performance-expert`, `tauri-architect-expert`, `react-coding-expert`, `tauri-coding-expert`, `bug-expert`, `test-expert`, `documentation-expert` (always with code), and **conditionally** `tauri-security-expert` when diff touches `src-tauri/src/commands.rs`, `src-tauri/src/core/sidecar.rs`, any `Path`/`canonicalize` use, or any `src/components/viewers/` markdown rendering. |
+| `prompt-only` | `documentation-expert` (the prompt itself is documentation), `tauri-architect-expert` (skill/agent contracts shape downstream IPC and dispatch). Skip the rest — `react-coding-expert`/`tauri-coding-expert`/`performance-expert`/`bug-expert`/`tauri-security-expert`/`test-expert` have nothing to say about a markdown contract change. |
 | `docs-only` | `documentation-expert` only. |
 | `none` | Skip Step 7 entirely. |
 
@@ -665,7 +666,7 @@ Workflow:
 
 1. Read every entry under `## Open scope non-actions` in the state file (this iteration's new entries from 6a-noaction PLUS any leftover `pending` entries from prior iterations on this branch).
 2. For each entry with `disposition: pending`, the runner reviews the entry against this iteration's commits, reviewer feedback, and other implementer summaries; chooses one of the three allowed values; writes a one-line `disposition_note`.
-3. For borderline entries, the runner MAY consult `architect-expert` or `bug-expert` with the entry's `raw_text` + `implementer_attempt_id` + iteration log. The runner makes the final call.
+3. For borderline entries, the runner MAY consult `tauri-architect-expert` or `bug-expert` with the entry's `raw_text` + `implementer_attempt_id` + iteration log. The runner makes the final call.
 4. Update the state file in place: replace `disposition: pending` with the chosen value, set `disposition_note`. Move the entry from `## Open scope non-actions` to `## Resolved scope non-actions` (audit history; entries here are never re-imported into Open).
 5. **Block PASSED:** if any entry remains `pending` at the end of this gate, the iteration cannot record PASSED. Log `DEGRADED — scope non-action <implementer_attempt_id> remains pending: <reason>`, set the iteration's outcome to DEGRADED in the Step 8 record below, and proceed (do NOT loop forever in this gate; PASSED is unavailable until the runner resolves all entries — either in a later 8-pre run or in the termination-precondition gate before any Done-X exit, see [`references/done-handlers.md`](references/done-handlers.md)).
 
@@ -978,7 +979,7 @@ if ! git merge-base --is-ancestor origin/main HEAD; then
   REBASE_HAPPENED=true
   # On conflict: reuse Step 1's conflict-resolver loop (per-file `exe-task-implementer` dispatch,
   # `attempt < max_attempts_per_commit=3` per file, `commits_replayed < max_total_commits=20`,
-  # `architect-expert` escalation once at max). If still unresolvable:
+  # `tauri-architect-expert` escalation once at max). If still unresolvable:
   #   git rebase --abort
   #   ITERATE_OUTCOME: Done-Blocked reason=`forward-fix rebase against origin/main failed`.
 fi

@@ -19,7 +19,7 @@ import { resolve } from "node:path";
 
 const VALIDATOR_PATH = resolve(
   __dirname,
-  "../../.claude/agents/exe-implementation-validator.md",
+  "../../.claude/agents/exe-implementation-validator/agent.md",
 );
 const VALIDATOR = readFileSync(VALIDATOR_PATH, "utf8");
 

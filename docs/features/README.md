@@ -1,6 +1,6 @@
 # Feature Docs
 
-One evergreen file per major user-facing feature area of mdownreview. The taxonomy and content rules are enforced by `.claude/agents/documentation-expert.md` on every iteration.
+One evergreen file per major user-facing feature area of mdownreview. The taxonomy and content rules are enforced by `.claude/agents/documentation-expert/agent.md` on every iteration.
 
 ## Rules of this directory
 

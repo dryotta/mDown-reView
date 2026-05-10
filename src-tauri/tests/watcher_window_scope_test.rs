@@ -1,5 +1,5 @@
 //! Placeholder for rule `multiwin-allowlist-scope`
-//! (docs/best-practices-common/tauri/v2-patterns.md): once
+//! (.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md): once
 //! `WatcherState::is_path_allowed` and `is_path_or_parent_allowed` take
 //! a `window_label` argument and scope to that window's set instead of
 //! unioning across all windows, this file MUST be filled in with a

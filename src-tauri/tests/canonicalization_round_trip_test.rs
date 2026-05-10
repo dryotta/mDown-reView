@@ -1,5 +1,5 @@
 //! Property test for rule `multiwin-canonicalize-at-ingest`
-//! (docs/best-practices-common/tauri/v2-patterns.md) +
+//! (.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md) +
 //! `fs-canonicalize-once` (docs/security.md):
 //! `core::paths::canonicalize_no_verbatim` MUST be **idempotent** —
 //! `canonicalize(canonicalize(p)) == canonicalize(p)` for any existing

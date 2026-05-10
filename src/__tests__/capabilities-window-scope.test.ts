@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
- * Per docs/best-practices-common/tauri/v2-patterns.md rule
+ * Per .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule
  * `caps-window-scope`: every Tauri capability
  * file under `src-tauri/capabilities/` MUST declare an explicit
  * `windows: [...]` array enumerating exactly which window labels (or

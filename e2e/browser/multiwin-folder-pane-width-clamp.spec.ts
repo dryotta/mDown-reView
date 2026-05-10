@@ -3,7 +3,7 @@
  * viewport on rehydrate.
  *
  * Tests rule `multiwin-rehydrate-clamp` in
- * docs/best-practices-common/tauri/v2-patterns.md.
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md.
  *
  * Today's behaviour: a `folderPaneWidth` of 1200 px persisted on a 4K
  * screen rehydrates verbatim on a 1366×768 laptop, hiding the drag

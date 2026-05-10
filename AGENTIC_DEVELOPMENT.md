@@ -128,12 +128,13 @@ Agents live in `.claude/agents/<name>.md`. They are stateless reviewers dispatch
 
 | Agent | Reviews |
 |---|---|
-| `architect-expert` | Layer separation, IPC chokepoints, store design, file-size budgets |
+| `tauri-architect-expert` | Layer separation, IPC chokepoints, store design, file-size budgets |
 | `bug-expert` | Confirmed defects with reproductions |
 | `lean-expert` | Bloat — fewer lines, deps, abstractions |
 | `performance-expert` | Render bottlenecks, watcher/IPC cost, Shiki, large files |
-| `react-tauri-expert` | React 19 + Tauri v2 idioms |
-| `security-expert` | IPC handlers, FS access, markdown XSS |
+| `react-coding-expert` | Idiomatic React 19 (hooks, composition, rerender hygiene) |
+| `tauri-coding-expert` | Idiomatic Tauri v2 (IPC, events, capabilities, plugins, windows) |
+| `tauri-security-expert` | IPC handlers, FS access, markdown XSS |
 | `test-expert` | Pyramid placement, oracle quality, mock hygiene |
 
 ### Product / docs reviewers

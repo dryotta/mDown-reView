@@ -55,10 +55,27 @@ Every rule is numbered and citable as "violates rule N in `docs/X.md`". Each doc
 | [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture, cross-hook communication |
 | [`docs/test-strategy.md`](docs/test-strategy.md) | Three-layer pyramid, coverage floors, IPC mock hygiene, console-spy contract |
 | [`docs/observability.md`](docs/observability.md) | `[ipc]` + `[startup]` + `[matching]` log schemas, `#[mdr_command]` macro contract, `StartupRecorder` phases, `--trace` launch flag + `MDR_IPC_TRACE` gating |
-| [`docs/best-practices-common/`](docs/best-practices-common/) | **Project-agnostic, stack-specific** patterns (composition, rerender, JS perf, bundle hygiene, Tauri v2). Distilled from external sources with attribution. Project-specific docs above always override. |
-| [`docs/best-practices-project/`](docs/best-practices-project/) | **mdownreview-specific** knowledge files: hot-paths, bug categories, test patterns, must-acknowledge banner UX rule. Single-area files for use by review agents under the per-knowledge-file dispatch protocol. |
+| [`docs/best-practices-project/`](docs/best-practices-project/) | **mdownreview-specific** knowledge files: hot-paths, bug categories, test patterns, must-acknowledge banner UX rule. Each file declares `tags: [...]` in YAML frontmatter; review agents declare `knowledge_tags: [...]` in their frontmatter and load files with overlapping tags (silent skip if absent). Single-area files for use by review agents under the per-knowledge-file dispatch protocol. |
 
-**When reviewing:** cite specific rule numbers ("violates rule 14 in `docs/architecture.md`", "violates rule `architecture-avoid-boolean-props` in `docs/best-practices-common/react/composition-patterns.md`"). Do not hand-wave.
+**When reviewing:** cite specific rule numbers ("violates rule 14 in `docs/architecture.md`", "violates rule `category: race-conditions` in `docs/best-practices-project/bug-categories.md`"). Do not hand-wave.
+
+## Agent project-doc manifest
+
+Review agents in `.claude/agents/<agent>/agent.md` are repo-agnostic. Each declares interest in project deep-dive docs by category in its `project_docs:` frontmatter (e.g. `project_docs: [architecture, test-strategy]`). The mapping below tells each agent where to find the host-repo equivalent in **this** repository. An agent dropped into another repo would consult that repo's manifest (or skip the load if the repo lacks one).
+
+If an agent declares a category that is unmapped here, or the mapped target is absent, the agent silently skips that load.
+
+| Category | Path | Description |
+|---|---|---|
+| `charter` | [`docs/principles.md`](docs/principles.md) | Pillars, meta-principles, Non-Goals |
+| `architecture` | [`docs/architecture.md`](docs/architecture.md) | Layer separation, IPC chokepoints, state stratification, file-size budgets, MRSF schema, re-anchoring |
+| `design-patterns` | [`docs/design-patterns.md`](docs/design-patterns.md) | React 19 + Tauri v2 idioms, hook composition, error capture, cross-hook communication |
+| `performance` | [`docs/performance.md`](docs/performance.md) | Numeric budgets, debounce windows, scan caps, render rules |
+| `security` | [`docs/security.md`](docs/security.md) | File-read bounds, path canonicalization, sidecar atomicity, CSP, capability ACL, markdown XSS posture |
+| `test-strategy` | [`docs/test-strategy.md`](docs/test-strategy.md) | Three-layer pyramid, coverage floors, IPC mock hygiene, console-spy contract, Test-data-fidelity rule |
+| `observability` | [`docs/observability.md`](docs/observability.md) | log schemas, `#[mdr_command]` macro contract, `StartupRecorder`, `--trace` flag |
+| `features` | [`docs/features/`](docs/features/) | **Folder** — load every `*.md` inside. Per-feature evergreen capability docs |
+| `behavioral-specs` | [`docs/specs/`](docs/specs/) | **Folder** — load every `*.md` inside. Given/When/Then specs at the binary boundary |
 
 ## Behavioral Specs
 
@@ -210,4 +227,4 @@ e2e/
 - [Settings](docs/features/settings.md) — full-page Settings region (CLI shim, default handler, folder context)
 - [Logging](docs/features/logging.md) — frontend + Rust logging chokepoint, exception capture
 
-Taxonomy + drift enforcement is owned by the `documentation-expert` agent (`.claude/agents/documentation-expert.md`).
+Taxonomy + drift enforcement is owned by the `documentation-expert` agent (`.claude/agents/documentation-expert/agent.md`).

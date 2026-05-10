@@ -77,7 +77,7 @@ pub(crate) fn folder_display_name(path: &std::path::Path) -> String {
 // ---------------------------------------------------------------------------
 // Per-window menu: encode window label into each menu item ID so
 // on_menu_event can route to the correct originating window.
-// See rule `multiwin-per-window-menu` in docs/best-practices-common/tauri/v2-patterns.md.
+// See rule `multiwin-per-window-menu` in .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md.
 // ---------------------------------------------------------------------------
 
 /// Encode a menu item ID as `{window_label}:{action}`.
@@ -132,7 +132,7 @@ fn build_window_menu<R: Runtime, M: Manager<R>>(
         handle, id("close-all-tabs"), "Close All Tabs", true, Some("CmdOrCtrl+Shift+W"),
     )?;
     // macOS HIG mandates Cmd+, for Settings (rule `mac-menu-settings-placement`
-    // in docs/best-practices-common/tauri/macos-platform.md); on Windows the
+    // in .claude/agents/tauri-coding-expert/knowledge/tauri-macos-platform.md); on Windows the
     // accelerator is intentionally omitted — we don't reserve Ctrl+, globally.
     #[cfg(target_os = "macos")]
     let help_settings = MenuItem::with_id(handle, id("help-settings"), "Settings…", true, Some("CmdOrCtrl+,"))?;

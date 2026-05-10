@@ -15,7 +15,7 @@
 - `IS_BUG` and bug-expert RCA inconclusive (Step 3a)
 
 **`SKIPPED` (continue):**
-- `risk=high` plan rejected by `architect-expert` (Step 4)
+- `risk=high` plan rejected by `tauri-architect-expert` (Step 4)
 - Every implementer reports no-op (Step 5)
 
 **Pre-loop halt:**

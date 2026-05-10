@@ -1,4 +1,4 @@
-//! Per docs/best-practices-common/tauri/v2-patterns.md rule
+//! Per .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule
 //! `multiwin-managed-state-cleanup`: every `app.manage(X)` call site
 //! whose state is keyed per-window or per-path MUST carry a
 //! `// Cleanup: …` rustdoc comment in the 3 lines immediately
@@ -151,7 +151,7 @@ fn every_app_manage_has_cleanup_annotation_or_none_does() {
         "Mixed-state convention: some `app.manage(` sites are annotated with \
          `// Cleanup:` but the following are not. The convention must be uniform — \
          see rule multiwin-managed-state-cleanup in \
-         docs/best-practices-common/tauri/v2-patterns.md:\n  {}",
+         .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md:\n  {}",
         violations.join("\n  ")
     );
 }

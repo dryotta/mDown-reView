@@ -6,7 +6,7 @@ import { join } from "node:path";
  * Renderer-side intake-path canonicalization symmetry lint.
  *
  * Enforces rule `multiwin-canonicalize-at-ingest` in
- * `docs/best-practices-common/tauri/v2-patterns.md`. The rule:
+ * `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`. The rule:
  *
  *   "Renderer-side intake (`openFilesFromArgs`, `useOpenFileTab`, drop
  *    handlers) shares this contract — both consumer paths into the
@@ -120,7 +120,7 @@ describe("multiwin-canonicalize-at-ingest: renderer intake-path symmetry", () =>
       offenders,
       `Renderer intake paths must canonicalise via ${REQUIRED_SUBSTRING} ` +
         `before storing — see rule multiwin-canonicalize-at-ingest in ` +
-        `docs/best-practices-common/tauri/v2-patterns.md.\n  ${offenders.join("\n  ")}`
+        `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md.\n  ${offenders.join("\n  ")}`
     ).toEqual([]);
   });
 

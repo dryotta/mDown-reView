@@ -4,7 +4,7 @@
  *
  * Tests rule `multiwin-atomic-registry-mutations` (and its underpinning
  * `multiwin-lifecycle-registry`) from
- * docs/best-practices-common/tauri/v2-patterns.md: `WindowKind::Folder(path)`
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md: `WindowKind::Folder(path)`
  * MUST be reached only via `WindowRegistry::try_claim_folder` so that two
  * concurrent CLI launches resolving to the same canonical folder cannot
  * both win the route. The expected steady state is one-folder-one-window.

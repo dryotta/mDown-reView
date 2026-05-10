@@ -36,7 +36,7 @@ interface Props {
    * commentable viewers). The toolbar stays oblivious to comment domain
    * knowledge — composition over prop-bag growth (see
    * `architecture-avoid-boolean-props` and `patterns-children-over-render-props`
-   * in `docs/best-practices-common/react/composition-patterns.md`).
+   * in `.claude/agents/react-coding-expert/knowledge/react-composition-patterns.md`).
    */
   centerSlot?: ReactNode;
   /**

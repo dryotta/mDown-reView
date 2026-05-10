@@ -6,7 +6,7 @@
  * Tests rule `multiwin-no-focused-fallback` (which forbids
  * `is_focused()` polling for routing) and the table entry for
  * `args-received` under `multiwin-window-scoped-events` in
- * docs/best-practices-common/tauri/v2-patterns.md. The Medium-priority
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md. The Medium-priority
  * fix in issue #315 introduces an MRU tracker that is updated from
  * `WindowEvent::Focused`, never queried as a fallback after the fact.
  *
