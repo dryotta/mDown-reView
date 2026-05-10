@@ -5,7 +5,7 @@ description: Use when the user says "release", "tag", "publish", "ship a new ver
 
 **RIGID. Fully autonomous — never calls `ask_user`.** Owns the full release lifecycle: version bump → CHANGELOG → release PR → tag → signed installers → published GitHub release. Pairs with `ci.yml` (called from `release.yml` via `workflow_call`).
 
-Phase 0 verifies `main` is healthy. Once those gates pass, every later failure is presumed release-pipeline-specific and fixed inline — no delegation. Fixes touching >50 LoC or application source under `src/` or `src-tauri/src/core/` signal an upstream regression Phase 0 should have caught → HALT.
+Phase 0 verifies `main` is healthy: local-state gates fail fast, and main-pipeline gates (`ci.yml` + `canary.yml`) wait until green rather than halting (someone else is presumed to be landing the fix on `main`). Once those gates pass, every later failure is presumed release-pipeline-specific and fixed inline — no delegation. Fixes touching >50 LoC or application source under `src/` or `src-tauri/src/core/` signal an upstream regression Phase 0 should have caught → HALT.
 
 ---
 
@@ -24,22 +24,77 @@ The arg is authoritative. No auto-detection from `feat!:` or `BREAKING CHANGE:` 
 
 ---
 
-## Phase 0 — Pre-flight (read-only, fail-fast)
+## Phase 0 — Pre-flight (read-only)
 
-Read-only — never auto-stashes, auto-commits, or auto-checks-out. On failure: print exact remediation and `exit 1`.
+Read-only — never auto-stashes, auto-commits, or auto-checks-out. Local-state gates fail fast; main-pipeline gates **wait** (someone else is presumed to be landing the fix on `main`).
 
 ```bash
 git --no-pager fetch origin --tags
 ```
+
+### Local-state gates (fail-fast)
+
+On failure: print exact remediation and `exit 1`.
 
 | Gate | Command | Fail message |
 |---|---|---|
 | Clean tree | `git status --porcelain` empty | `Working tree dirty — commit or stash before release.` |
 | On main | `git branch --show-current` == `main` | `Not on main — git checkout main && git pull --ff-only first.` |
 | Synced main | `git pull --ff-only origin main` | `Local main diverged from origin — investigate before release.` |
-| Latest CI on main green | `gh run list --workflow=ci.yml --branch=main --limit=1 --json conclusion,databaseId,headSha,url` → `conclusion == "success"` AND `headSha == HEAD` | `Latest ci.yml on main is <conclusion> at <url> — fix and let it land before releasing.` |
-| Latest canary on main green | `gh run list --workflow=canary.yml --branch=main --limit=1 --json conclusion,headSha,url` → `conclusion == "success"` | `Latest canary.yml on main is <conclusion> at <url> — fix before releasing (signed-build pipeline is broken).` |
 | Updater pubkey present | `jq -e '.plugins.updater.pubkey | length > 0' src-tauri/tauri.conf.json` | `tauri.conf.json plugins.updater.pubkey is empty — releases would be unverifiable.` |
+
+### Main-pipeline gates (wait until green)
+
+If the latest `ci.yml` or `canary.yml` run on `main` is **failing** or **in_progress**, do **not** halt — assume another contributor is shepherding the fix. Poll until both are green for the current `origin/main` HEAD, then proceed.
+
+Rationale: a release attempt during a brown-main window is almost always racing a fix that will land within minutes. Halting forces a human to re-invoke the skill; waiting absorbs the race for free. The skill remains fully autonomous — it never prompts.
+
+```bash
+wait_for_main_workflow_green() {
+  local workflow="$1"   # ci.yml | canary.yml
+  local poll_interval=60
+  local last_state=""
+  while :; do
+    # Stay in sync with origin/main while we wait — a fix landing
+    # advances HEAD, and we want to release the fixed SHA, not the brown one.
+    git --no-pager fetch origin --tags --quiet
+    git pull --ff-only origin main --quiet
+    local head_sha
+    head_sha=$(git rev-parse HEAD)
+    local run
+    run=$(gh run list --workflow="$workflow" --branch=main --limit=1 \
+      --json conclusion,status,headSha,url)
+    local conclusion status run_head url state
+    conclusion=$(jq -r '.[0].conclusion // ""' <<<"$run")
+    status=$(jq -r '.[0].status // ""' <<<"$run")
+    run_head=$(jq -r '.[0].headSha // ""' <<<"$run")
+    url=$(jq -r '.[0].url // ""' <<<"$run")
+
+    if [[ "$conclusion" == "success" && "$run_head" == "$head_sha" ]]; then
+      echo "[publish-release] $workflow green on main HEAD=$head_sha at $url"
+      return 0
+    fi
+
+    if [[ "$status" != "completed" ]]; then
+      state="$workflow $status for $run_head at $url"
+    elif [[ "$conclusion" != "success" ]]; then
+      state="$workflow $conclusion for $run_head at $url — waiting for fix to land on main"
+    else
+      state="$workflow green for $run_head, but origin/main HEAD=$head_sha — waiting for the next run on HEAD"
+    fi
+    if [[ "$state" != "$last_state" ]]; then
+      echo "[publish-release] waiting: $state"
+      last_state="$state"
+    fi
+    sleep "$poll_interval"
+  done
+}
+
+wait_for_main_workflow_green ci.yml
+wait_for_main_workflow_green canary.yml
+```
+
+The wait is **unbounded by design** — Phase 0 cannot ship a release on a brown `main`, and there is no useful budget at which "give up and halt" beats "keep waiting". A new state line is logged only on transitions, so an indefinite green-but-not-yet-on-HEAD wait does not spam the log.
 
 On all-green: log `[publish-release] pre-flight green; HEAD=<sha>`.
 
