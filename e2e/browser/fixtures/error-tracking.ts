@@ -36,6 +36,22 @@ const test = base.extend<ErrorTrackingFixtures & ErrorTrackingOptions>({
           launchArgsQueue.push(...values);
         };
         (window as Record<string, unknown>).__TAURI_INTERNALS__ = {
+          // PR #372: production code now reaches `getCurrentWebview()`
+          // and `getCurrentWebviewWindow()` (via `listenDragDrop` in
+          // `src/lib/tauri-events.ts` and the per-window listener
+          // target binding in `listenEvent`). Both read
+          // `__TAURI_INTERNALS__.metadata.{currentWindow,currentWebview}.label`
+          // — without these fields, App mount throws
+          // "Cannot read properties of undefined (reading 'currentWindow')"
+          // before `.app-layout` renders, and every browser-E2E test
+          // hangs at `expect(.app-layout).toBeVisible()` until the
+          // 30 s per-test timeout fires (× 1 retry × N tests).
+          // The label MUST match what `listenEvent` registers as the
+          // listener-target so dispatched events route correctly.
+          metadata: {
+            currentWindow: { label: "main" },
+            currentWebview: { label: "main" },
+          },
           convertFileSrc(filePath: string, protocol: string = "asset"): string {
             // Mirrors the @tauri-apps/api implementation but doesn't depend on
             // the OS detection used in production builds. The image viewer

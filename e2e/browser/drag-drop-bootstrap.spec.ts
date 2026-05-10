@@ -90,9 +90,15 @@ test.describe("Drag-drop renderer bootstrap", () => {
     await queueLaunchArgs(page, [{ files: [], folders: ["/test/proj"] }]);
     await dispatchTauriEvent(page, "args-received");
 
-    // After the bootstrap drain, FolderTree replaces the welcome view.
+    // After the bootstrap drain, FolderTree appears on the left.
+    // The welcome view is NOT mutually exclusive with FolderTree — App
+    // renders WelcomeView whenever `activeTabPath === null`, which is
+    // still the case here (folder open, no tabs). The original spec
+    // over-asserted on `.welcome-view` being hidden; that contradicts
+    // the production layout (App.tsx: viewer-area shows WelcomeView when
+    // no active tab, regardless of `root`). FolderTree visibility is
+    // the correct oracle for "folder was claimed via args-received".
     await expect(page.locator(".folder-tree")).toBeVisible();
-    await expect(page.locator(".welcome-view")).toBeHidden();
   });
 
   test("the drag-drop-rejected event renders a transient toast", async ({ page }) => {
