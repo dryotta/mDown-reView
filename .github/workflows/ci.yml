@@ -210,9 +210,9 @@ jobs:
         run: cargo test
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Bench compile gate (Linux). Separate parallel job so the ~7-10 min
-  # bench compile (release profile, 6 criterion binaries + plotters) does
-  # not block the rust-test critical path.
+  # Bench compile gate (Linux). Separate parallel job so the bench compile
+  # (release profile, 6 criterion binaries) does not block the rust-test
+  # critical path.
   #
   # Uses --profile release-ci (lto=off, codegen-units=16) rather than the
   # default bench/release profile (lto=thin, codegen-units=1) — captures
