@@ -1,3 +1,8 @@
+## v0.4.5 — 2026-05-10
+
+### Fixes
+- stop tracking .review.{yaml,json} fixtures in working tree (641a71a)
+
 ## v0.4.4 — 2026-05-10
 
 ### Features
