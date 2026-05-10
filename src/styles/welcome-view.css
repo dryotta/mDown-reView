@@ -91,6 +91,18 @@
   width: 100%;
 }
 
+.welcome-drag-hint {
+  /* PR #372 product-expert review (#3): empty workspace = first-encounter
+   * moment for drag-drop. Surface the affordance subtly under the
+   * primary actions instead of leaving it discoverable only by
+   * accident. */
+  margin: -8px 0 4px;
+  font-size: 12px;
+  color: var(--color-muted);
+  text-align: center;
+  font-style: italic;
+}
+
 .welcome-recent-title {
   font-size: 12px;
   font-weight: 600;

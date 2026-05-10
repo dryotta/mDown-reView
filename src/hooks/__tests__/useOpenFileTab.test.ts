@@ -12,6 +12,7 @@ vi.mock("@/lib/tauri-events", () => ({
       openFileTabListeners.push(cb as (paths: string[]) => void | Promise<void>);
     return Promise.resolve(mockUnlisten);
   }),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("@/store", () => ({

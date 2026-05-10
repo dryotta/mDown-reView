@@ -16,6 +16,7 @@ vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn((_eventName: string, _callback: unknown) =>
     Promise.resolve(() => {})
   ),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("@/lib/tauri-commands", () => ({

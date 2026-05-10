@@ -31,17 +31,19 @@ Multi-file launches from the OS shell are forwarded as a single argv batch:
 
 ### Drag-and-drop
 
-Dragging files or folders from Explorer / Finder onto a running window triggers Tauri v2's `WindowEvent::DragDrop` event in `src-tauri/src/lib.rs::on_window_event`. The OS file paths are converted to a `LaunchArgs` via `parse_launch_args` (so file-vs-folder classification rules never drift between CLI and drag-drop) and routed through `launch_routing::route_args_through_registry` — the **same chokepoint** used by single-instance forwarding and macOS `RunEvent::Opened`. Behavior matches CLI launch:
+Dragging files or folders from Explorer / Finder onto a running window triggers Tauri v2's `WindowEvent::DragDrop` event in `src-tauri/src/lib.rs::on_window_event`. The handler delegates to `commands::drag_drop::handle_dropped_paths`, which runs on a `tauri::async_runtime::spawn_blocking` worker so canonicalize + metadata syscalls never stall the GUI event loop on slow filesystems or large drops. Paths are classified via `parse_launch_args` (so file-vs-folder rules, sidecar redirect, and NTFS-ADS rejection stay consistent across CLI and drag-drop) and routed through `launch_routing::route_args_to_window` — a target-aware variant of the un-targeted `route_args_through_registry` used by CLI / single-instance / `RunEvent::Opened`. The dropped-on window's label biases routing decisions so a drop on window B is never misrouted to window A. Behavior matches CLI launch with two refinements:
 
-| Drop                               | Behavior                                                                  |
-|------------------------------------|---------------------------------------------------------------------------|
-| File under an open folder's tree   | Opens as a tab in that folder's window (focuses too).                     |
-| File outside any open folder       | Goes to the existing `FileOnly` window if any, otherwise spawns a new one.|
-| Folder already open in some window | Focuses that window.                                                      |
-| New folder                         | Spawns a new window with that folder as workspace root.                   |
-| Mixed files + folders              | Folders routed first (each via `route_folder`), then files.               |
+| Drop                                  | Behavior                                                                  |
+|---------------------------------------|---------------------------------------------------------------------------|
+| File under any open folder's tree     | Opens as a tab in **that** folder's window (focuses too).                |
+| File outside any open folder          | Opens as a tab in the **dropped-on** window (extends asset-protocol scope to the file's parent dir).|
+| Folder already open in some window    | Focuses that window.                                                      |
+| Folder dropped on an empty (FileOnly) window | The dropped-on window adopts the folder as its workspace root (matches "Open Folder" via toolbar for the empty-workspace case). |
+| Folder dropped on a window that already owns a folder | Spawns a new window for the dropped folder (preserves the user's current workspace). |
+| Mixed files + folders                 | Folders routed first, then files.                                         |
+| Sidecar (`*.review.yaml` / `*.review.json`) drop | Resolves to the source file (the reviewed `.md`) when it exists, so the user sees rendered content with comments — not raw YAML. |
 
-The renderer also subscribes to the JS-side `getCurrentWebview().onDragDropEvent` (via `src/lib/tauri-events.ts::listenDragDrop`) purely to drive a fullscreen visual overlay (`src/components/DragDropOverlay.tsx`); it does **not** consume the dropped paths. Per `mac-webview-drag-drop` rule in [`docs/best-practices-common/tauri/macos-platform.md`](../best-practices-common/tauri/macos-platform.md), keeping the file-open work in Rust avoids WKWebView's unreliable HTML5 `drop`-event propagation.
+The renderer also subscribes to the JS-side `getCurrentWebview().onDragDropEvent` (via `src/lib/tauri-events.ts::listenDragDrop`) purely to drive a fullscreen visual overlay (`src/components/DragDropOverlay.tsx`); it does **not** consume the dropped paths. The overlay is suppressed while a modal dialog (Settings / About) is open so drops do not silently land behind the modal. When Rust rejects an entire drop because no path classified to a usable file or folder, a `drag-drop-rejected` Tauri event surfaces a transient toast so the user gets visible feedback. Per `mac-webview-drag-drop` rule in [`docs/best-practices-common/tauri/macos-platform.md`](../best-practices-common/tauri/macos-platform.md), keeping the file-open work in Rust avoids WKWebView's unreliable HTML5 `drop`-event propagation.
 
 File-association registration is per-user (no UAC elevation on Windows, no sudo on macOS) and is driven by install-time scripts configured in `tauri.conf.json`.
 
@@ -57,7 +59,7 @@ flowchart TD
     Push2 --> ArgsEvt["args-received (no payload)"]
     Mac["macOS RunEvent::Opened"] --> Push3["push paths onto<br/>PendingArgsState + signal"]
     Push3 --> ArgsEvt
-    Drop["WindowEvent::DragDrop<br/>(WebView2 / WKWebView native DnD)"] --> Push4["parse_launch_args + route_args_through_registry<br/>(focus existing window OR create new)"]
+    Drop["WindowEvent::DragDrop<br/>(WebView2 / WKWebView native DnD)"] --> Push4["spawn_blocking → parse_launch_args + route_args_to_window<br/>(target-window-aware)"]
     Push4 --> ArgsEvt
     Init --> First["first useEffect calls<br/>get_launch_args (drains queue)"]
     ArgsEvt --> Listener["useLaunchArgsBootstrap listener<br/>calls get_launch_args"]

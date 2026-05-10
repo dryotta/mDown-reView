@@ -2,15 +2,26 @@
 //!
 //! Extracted from `lib.rs` (issue #338 / iter-1 forward-fix B) to keep
 //! `lib.rs` under the file-size budget set by `docs/architecture.md` rule 23.
-//! Shared by the single-instance callback, `setup()`, and `RunEvent::Opened`
-//! (macOS file-open) — all three paths must funnel `LaunchArgs` through
-//! exactly the same window-creation + scope-extension logic so that
-//! `WindowRegistry::register` and `window_scope::extend_window_scope` cannot
-//! drift between sites.
+//! Shared by the single-instance callback, `setup()`, `RunEvent::Opened`
+//! (macOS file-open), and drag-drop (`commands::drag_drop`) — all four
+//! paths must funnel `LaunchArgs` through exactly the same window-creation +
+//! scope-extension logic so that `WindowRegistry::register` and
+//! `window_scope::extend_window_scope` cannot drift between sites.
 //!
-//! The function is `pub(crate)` because the only callers live in `lib.rs`;
-//! external consumers (CLI shim, tests) construct windows via the public
-//! IPC surface, not this internal helper.
+//! Two entry points:
+//!   - [`route_args_through_registry`] — un-targeted (CLI / single-instance /
+//!     macOS Open). The registry picks the best window via
+//!     `route_folder` / `route_file`.
+//!   - [`route_args_to_window`] — drag-drop. Biases the routing decision
+//!     toward the dropped-on window's label so a drop on window B does
+//!     not end up routed to a different `FileOnly` window A just because
+//!     A appears first in the registry (architect-expert review of
+//!     PR #372, finding H1).
+//!
+//! The functions are `pub(crate)` because the only callers live in
+//! `lib.rs` / `commands/drag_drop.rs`; external consumers (CLI shim,
+//! tests) construct windows via the public IPC surface, not these
+//! internal helpers.
 use tauri::{Emitter, Manager};
 
 use crate::commands::LaunchArgs;
@@ -20,10 +31,42 @@ use crate::window_scope;
 /// Route incoming `LaunchArgs` through the `WindowRegistry`, creating new
 /// windows for unknown folders and focusing existing ones.  Shared by the
 /// single-instance callback, `setup()`, and `RunEvent::Opened`.
+///
+/// Drag-drop uses [`route_args_to_window`] instead — that variant biases
+/// the routing decision toward the dropped-on window so a user's
+/// explicit gesture is respected.
 pub(crate) fn route_args_through_registry(
     handle: &tauri::AppHandle,
     args: &LaunchArgs,
     ctx: &str,
+) {
+    route_args_inner(handle, args, ctx, None)
+}
+
+/// Drag-drop variant — routes `LaunchArgs` with awareness of the
+/// dropped-on window. The target-aware decision tables in
+/// [`registry::WindowRegistry::route_folder_for_target`] and
+/// [`registry::WindowRegistry::route_file_for_target`] honour the
+/// user's gesture without breaking the "files under an open folder
+/// belong in that folder's window" rule.
+///
+/// Falls back to the un-targeted routing (`route_args_through_registry`)
+/// for paths whose decision is unaffected by the target (e.g. files
+/// under a different open folder, folders already open elsewhere).
+pub(crate) fn route_args_to_window(
+    handle: &tauri::AppHandle,
+    args: &LaunchArgs,
+    ctx: &str,
+    target_label: &str,
+) {
+    route_args_inner(handle, args, ctx, Some(target_label))
+}
+
+fn route_args_inner(
+    handle: &tauri::AppHandle,
+    args: &LaunchArgs,
+    ctx: &str,
+    target_label: Option<&str>,
 ) {
     let Some(reg) = handle.try_state::<WindowRegistry>() else {
         return;
@@ -31,10 +74,57 @@ pub(crate) fn route_args_through_registry(
     for folder in &args.folders {
         let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(folder))
             .unwrap_or_else(|_| std::path::PathBuf::from(folder));
-        match reg.route_folder(&canonical) {
+        let decision = match target_label {
+            Some(t) => reg.route_folder_for_target(&canonical, t),
+            None => reg.route_folder(&canonical),
+        };
+        match decision {
             registry::RouteDecision::FocusExisting(label) => {
                 if let Some(win) = handle.get_webview_window(&label) {
                     crate::focus_window(&win);
+                }
+            }
+            registry::RouteDecision::ClaimForTarget { target_label: t, path } => {
+                // Drag-drop only: the dropped-on window is FileOnly and
+                // the dropped folder is unclaimed. Claim atomically;
+                // race-loss falls back to spawning a new window so the
+                // user is never left without their folder.
+                match reg.try_claim_folder(&t, path.clone()) {
+                    Ok(()) => {
+                        let display = crate::folder_display_name(&path);
+                        if let Some(win) = handle.get_webview_window(&t) {
+                            let _ = win.set_title(&format!("mdownreview — {display}"));
+                            crate::focus_window(&win);
+                        }
+                        // Asset-protocol scope + watcher seed before emit
+                        // (mirrors register_window_folder).
+                        window_scope::extend_window_scope(
+                            handle,
+                            &t,
+                            window_scope::ScopeGrant::Folder(path.clone()),
+                        );
+                        reg.push_args(
+                            &t,
+                            LaunchArgs {
+                                folders: vec![path.to_string_lossy().into_owned()],
+                                files: vec![],
+                            },
+                        );
+                        let _ = handle.emit_to(t.as_str(), "args-received", ());
+                        log::info!(
+                            "[window] {ctx}: claimed folder for target {t}: {}",
+                            path.display()
+                        );
+                    }
+                    Err(existing_label) => {
+                        log::info!(
+                            "[window] {ctx}: claim race lost on target {t} to {existing_label}; \
+                             falling back to focus-existing"
+                        );
+                        if let Some(win) = handle.get_webview_window(&existing_label) {
+                            crate::focus_window(&win);
+                        }
+                    }
                 }
             }
             registry::RouteDecision::CreateFolder { path } => {
@@ -107,7 +197,11 @@ pub(crate) fn route_args_through_registry(
     for file in &args.files {
         let canonical = crate::core::paths::canonicalize_no_verbatim(std::path::Path::new(file))
             .unwrap_or_else(|_| std::path::PathBuf::from(file));
-        match reg.route_file(&canonical) {
+        let decision = match target_label {
+            Some(t) => reg.route_file_for_target(&canonical, t),
+            None => reg.route_file(&canonical),
+        };
+        match decision {
             registry::RouteDecision::AddToWindow { label, files } => {
                 if let Some(win) = handle.get_webview_window(&label) {
                     crate::focus_window(&win);
@@ -124,6 +218,25 @@ pub(crate) fn route_args_through_registry(
                         handle,
                         &label,
                         window_scope::ScopeGrant::FilesParents(files.clone()),
+                    );
+                    // Bug-expert review of PR #372 (#3): also push_args so a
+                    // dropped file is recoverable if the target window's
+                    // listener has been torn down (close-flush in flight,
+                    // HMR module replacement, etc.). Symmetric with
+                    // `CreateFolder` / `CreateFileOnly` arms below — every
+                    // path that emits a renderer signal also persists via
+                    // the registry queue. Without this, a drop on a
+                    // closing window vanishes silently.
+                    let file_strs: Vec<String> = files
+                        .iter()
+                        .map(|f| f.to_string_lossy().into_owned())
+                        .collect();
+                    reg.push_args(
+                        &label,
+                        LaunchArgs {
+                            files: file_strs,
+                            folders: vec![],
+                        },
                     );
                     // Rule multiwin-window-scoped-events: emit_to(label, ...) scopes delivery;
                     // WebviewWindow::emit is a global broadcast.

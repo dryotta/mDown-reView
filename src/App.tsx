@@ -195,9 +195,14 @@ export default function App() {
   useCrossWindowPrefsSync();
 
   // Drag-drop visual overlay. The actual file-open work is in Rust
-  // (`WindowEvent::DragDrop` → `route_args_through_registry`); this
-  // hook only drives the affordance.
-  const isDragging = useDragDropOverlay();
+  // (`WindowEvent::DragDrop` → `commands::drag_drop::handle_dropped_paths`
+  // → `launch_routing::route_args_to_window`); this hook only drives
+  // the affordance. Suppress the overlay while a modal is open
+  // (Settings / About) so the user is not surprised by a drop landing
+  // behind the modal — bug-expert PR #372 review (#7) flagged
+  // modal-occlusion as a silent-success UX trap.
+  const { isDragging: isDraggingRaw, lastRejection } = useDragDropOverlay();
+  const isDragging = isDraggingRaw && !aboutOpen && !settingsDialogOpen;
 
   // Hydrate the persisted display name from disk so new comments get the
   // OS-user fallback even before the user opens Settings (AC #71/F7).
@@ -296,7 +301,11 @@ export default function App() {
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       {settingsDialogOpen && <SettingsView onClose={closeSettings} />}
-      <DragDropOverlay isDragging={isDragging} />
+      <DragDropOverlay
+        isDragging={isDragging}
+        hasWorkspace={root !== null}
+        lastRejection={lastRejection}
+      />
     </div>
   );
 }

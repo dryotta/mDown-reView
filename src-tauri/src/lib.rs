@@ -811,50 +811,49 @@ pub fn run() {
             // Drag-drop file-open. WebView2 / WKWebView's native DnD
             // delivers the OS file paths via `WindowEvent::DragDrop`
             // (`tauri::webview::WebviewWindowBuilder` has native DnD
-            // enabled by default). Funnel the payload through the same
-            // chokepoint that single-instance forwarding and macOS
-            // `RunEvent::Opened` use so all four "open these paths"
-            // entry points share one window-routing + scope-extension
-            // implementation (Architecture rule 1; see
-            // `launch_routing::route_args_through_registry`).
+            // enabled by default). The actual classification + routing
+            // work runs on a `spawn_blocking` worker so the main GUI
+            // event loop never stalls — review of PR #372 by
+            // architect-expert (M4), security-expert (H1), and
+            // bug-expert (#1) all flagged synchronous canonicalize +
+            // metadata syscalls on this thread as a UI-freeze hazard
+            // for large drops or slow filesystems.
             //
-            // `parse_launch_args` is reused for path classification
-            // (positional → metadata-probe; dir → folders, file →
-            // files) so the file-vs-folder rules cannot drift between
-            // CLI and drag-drop. Absolute paths from the OS bypass the
-            // `cwd` base entirely (parse_launch_args::Pass 2 doc).
+            // The body lives in `commands::drag_drop::handle_dropped_paths`
+            // so it's a unit-testable seam (lib.rs gets a one-liner).
+            // That helper:
+            //   - reuses `parse_launch_args` so file-vs-folder, sidecar
+            //     redirect (#372 D5) and NTFS-ADS rejection (#372 S5)
+            //     stay consistent across CLI and drag-drop;
+            //   - calls `route_args_to_window` which honours the
+            //     dropped-on window's label (architect-expert #372 H1)
+            //     and adopts a folder for an empty `FileOnly` target
+            //     window without spawning a new one (#372 S1).
             //
             // Per `mac-webview-drag-drop` rule in
             // `docs/best-practices-common/tauri/macos-platform.md`,
             // handling drops on the Rust side avoids WKWebView's
             // unreliable HTML5 drop-event propagation.
+            //
+            // macOS focus-quirk (`mac-webview-focus-quirks`):
+            // explicitly raise the dropped-on window after dispatch so
+            // the user lands back in the window they aimed at — drag
+            // gestures on macOS occasionally surrender focus.
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                if !paths.is_empty() {
-                    let argv: Vec<String> = paths
-                        .iter()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .collect();
-                    let cwd = std::env::current_dir().unwrap_or_default();
-                    let args = parse_launch_args(&argv, &cwd);
-                    if !args.files.is_empty() || !args.folders.is_empty() {
-                        log::info!(
-                            "[drag-drop] {label}: {n_folders} folder(s) + {n_files} file(s)",
-                            label = window.label(),
-                            n_folders = args.folders.len(),
-                            n_files = args.files.len(),
-                        );
-                        route_args_through_registry(
-                            window.app_handle(),
-                            &args,
-                            "drag-drop",
-                        );
-                    } else {
-                        log::warn!(
-                            "[drag-drop] {label}: dropped {} path(s) but none classified as file or folder",
-                            paths.len(),
-                            label = window.label(),
-                        );
-                    }
+                if paths.is_empty() {
+                    log::debug!("[drag-drop] {}: empty drop ignored", window.label());
+                    return;
+                }
+                let target_label = window.label().to_string();
+                let handle = window.app_handle().clone();
+                commands::drag_drop::spawn_drag_drop_task(
+                    handle,
+                    target_label,
+                    paths.clone(),
+                );
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = window.set_focus();
                 }
                 return;
             }

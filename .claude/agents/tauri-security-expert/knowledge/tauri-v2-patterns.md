@@ -133,7 +133,7 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 - Performance degrades linearly with window count
 - Bugs are silent: a window that forgets to filter processes events intended for another
 
-**Applies to:** `file-changed`, `folder-changed`, `sidecar-config-changed`, `comments-changed`, `args-received`, `open-file-tab`, `flush-before-close`, `focus-tab`, menu events. Only `update-progress` (always to main) and truly global preference changes warrant broadcast.
+**Applies to:** `file-changed`, `folder-changed`, `sidecar-config-changed`, `comments-changed`, `args-received`, `open-file-tab`, `flush-before-close`, `focus-tab`, `drag-drop-rejected`, menu events. Only `update-progress` (always to main) and truly global preference changes warrant broadcast.
 
 **Pattern:** The Rust side (watcher, command handler) must know which window(s) care about a given file/folder path. The `WindowRegistry` already tracks this — use it to look up the target label, then `emit_to(label, ...)`.
 
@@ -145,8 +145,8 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 |---|---|---|---|---|
 | `file-changed` | set (windows watching the path) | `emit_filter` | `watcher.rs:313` | ✅ |
 | `folder-changed` | one (watching window) | `emit_to(label, …)` | `watcher.rs:333` | ✅ |
-| `args-received` | one (target window) | `emit_to(label, …)` | `lib.rs::route_args_through_registry` (2×), `lib.rs::run` setup loop, `commands/launch.rs::set_root_via_test` | ✅ |
-| `open-file-tab` | one (routed window) | `emit_to(label, …)` | `lib.rs::route_args_through_registry` (file branch) | ✅ |
+| `args-received` | one (target window) | `emit_to(label, …)` | `launch_routing.rs::route_args_inner` (3×: ClaimForTarget, CreateFolder, CreateFileOnly arms), `lib.rs::run` setup loop, `commands/launch.rs::set_root_via_test` | ✅ |
+| `open-file-tab` | one (routed window) | `emit_to(label, …)` | `launch_routing.rs::route_args_inner` (file branch's `AddToWindow` arm) | ✅ |
 | `comments-changed` | set (windows with the file open) | `emit_filter` (registry-owns-path predicate) | `commands/comments/mod.rs:90` (`Emitter::emit` on `AppHandle`) | ❌ violates `multiwin-window-scoped-events` — global emit; should be `emit_filter` on registry-owns-path predicate. Future C2 fix. |
 | `update-progress` | one (`"main"`) | `emit_to("main", …)` | `update.rs:115,123` (`Emitter::emit` on `AppHandle`) | ❌ violates `multiwin-window-scoped-events` — broadcast; should be `emit_to("main", …)`. Future H2 fix. |
 | `sidecar-config-changed` | all | `app.emit(…)` | `commands/sidecar_config.rs:65-67` (manual `for win in app.webview_windows().values()` loop) | ❌ violates `multiwin-emit-filter` — manual loop over `app.webview_windows()`; should be `app.emit(…)`. Future C2 fix. |
@@ -166,6 +166,7 @@ Events that target a specific window MUST use `emit_to(label, event, payload)`, 
 | `menu-help-settings` | one (firing window) | `emit_to(label, …)` | `lib.rs::on_menu_event` via `menu::dispatch_menu_event` | ✅ |
 | `flush-before-close` | one (firing window) | `emit_to(label, …)` | `commands/close_flush.rs::flush_pending_writes_before_close` | ✅ |
 | `focus-tab` | one (path's owner window) | `emit_to(label, …)` | `commands/open_file_registry.rs::claim_open_file` | ✅ |
+| `drag-drop-rejected` | one (target window) | `emit_to(label, …)` | `commands/drag_drop.rs::handle_dropped_paths` | ✅ |
 
 Legend: **one** = exactly one window (`AppHandle::emit_to(label, …)` — `WebviewWindow::emit` is broadcast, see above), **set** = subset of windows determined by registry predicate (`emit_filter`), **all** = every window must react (`app.emit(…)` — never a manual loop, which violates `multiwin-emit-filter`); use **all** only for genuinely global state changes.
 

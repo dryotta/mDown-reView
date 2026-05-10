@@ -13,12 +13,8 @@
  *   `setRoot` → `addRecentItem` for ALL "open this folder" entry points
  *   (toolbar dialog, welcome-view recents) so the register-then-setRoot
  *   ordering can never drift between callers. Drag-drop folders bypass
- *   this slice action: they are intercepted by Rust's
- *   `WindowEvent::DragDrop` handler and routed through
- *   `launch_routing::route_args_through_registry`, which maps onto the
- *   existing `args-received` → `useLaunchArgsBootstrap` flow (so
- *   register/setRoot ordering still holds, just via a different code
- *   path that the multi-window registry already governs).
+ *   this slice — see `src-tauri/src/commands/drag_drop.rs` and the
+ *   target-aware routing in `launch_routing::route_args_to_window`.
  * - `openFilePath` symmetrically orchestrates `openFile` + `addRecentItem`.
  */
 import type { StoreApi } from "zustand";

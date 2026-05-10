@@ -23,6 +23,7 @@ vi.mock("@/lib/tauri-events", () => ({
       return unlistenMock;
     },
   ),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 import { useFocusTab } from "../useFocusTab";

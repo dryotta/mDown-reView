@@ -93,6 +93,18 @@ pub enum RouteDecision {
     CreateFileOnly {
         files: Vec<PathBuf>,
     },
+    /// Claim the folder for an existing `FileOnly` window (the drag-drop
+    /// target the user gestured at). Returned only by
+    /// `route_folder_for_target` — never by the un-targeted
+    /// [`WindowRegistry::route_folder`]. The caller (`route_args_to_window`)
+    /// performs the atomic `try_claim_folder` and emits the
+    /// `args-received` signal so the renderer's
+    /// `useLaunchArgsBootstrap` drains the queued folder via the
+    /// existing chokepoint.
+    ClaimForTarget {
+        target_label: String,
+        path: PathBuf,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +286,45 @@ impl WindowRegistry {
         }
     }
 
+    /// Target-aware variant of [`route_folder`]: when the user's gesture
+    /// has an unambiguous target window (drag-drop landed on a specific
+    /// window), prefer claiming the new folder for the **target** if it
+    /// is currently `FileOnly`. This matches the toolbar's "Open Folder"
+    /// dialog behaviour for the empty-workspace case (the freshly-opened
+    /// app's `main` window adopts the dropped folder as its workspace
+    /// root) without disturbing windows that already own a folder
+    /// (those still spawn a new window — Architecture rule:
+    /// one-folder-one-window preserved).
+    ///
+    /// Decision table:
+    /// - Folder already open in any window → `FocusExisting(label)` (same as `route_folder`).
+    /// - `target_label` is `FileOnly` → `ClaimForTarget { target_label, path }` (NEW).
+    /// - Otherwise → `CreateFolder { path }`.
+    ///
+    /// The caller (`route_args_to_window`) then atomically claims the
+    /// folder for the target via `try_claim_folder` — failure (race vs.
+    /// concurrent claim from another window) falls back to spawning a
+    /// new window per the existing `multiwin-atomic-registry-mutations`
+    /// rule.
+    pub fn route_folder_for_target(
+        &self,
+        folder: &Path,
+        target_label: &str,
+    ) -> RouteDecision {
+        if let Some(label) = self.find_by_folder(folder) {
+            return RouteDecision::FocusExisting(label);
+        }
+        if let Some(WindowKind::FileOnly) = self.get_kind(target_label) {
+            return RouteDecision::ClaimForTarget {
+                target_label: target_label.to_string(),
+                path: folder.to_path_buf(),
+            };
+        }
+        RouteDecision::CreateFolder {
+            path: folder.to_path_buf(),
+        }
+    }
+
     /// Decide how to handle an incoming file-open request.
     ///
     /// - If the file is under an already-open folder → `AddToWindow` (to that
@@ -295,6 +346,43 @@ impl WindowRegistry {
             RouteDecision::CreateFileOnly {
                 files: vec![file.to_path_buf()],
             }
+        }
+    }
+
+    /// Target-aware variant of [`route_file`]: route a dropped file to
+    /// the window the user dropped it onto (if scope-compatible) rather
+    /// than to whatever `find_file_only` happens to return first.
+    ///
+    /// Decision table:
+    /// - File is under `target_label`'s `Folder(...)` workspace → `AddToWindow(target)`.
+    /// - File is under any OTHER open folder → `AddToWindow(that label)` (focus that workspace's window — the file's natural home outranks the drop target).
+    /// - Otherwise → `AddToWindow(target_label)` (the user explicitly picked this window; route there even if it's `FileOnly` or owns an unrelated folder — `route_args_to_window`'s `AddToWindow` arm extends asset-protocol scope to cover the file).
+    ///
+    /// This honours the user's explicit drop target (architect H1)
+    /// without breaking the existing "files under an open folder belong
+    /// in that folder's window" UX.
+    pub fn route_file_for_target(
+        &self,
+        file: &Path,
+        target_label: &str,
+    ) -> RouteDecision {
+        if let Some(WindowKind::Folder(folder)) = self.get_kind(target_label) {
+            if is_ancestor(&folder, file) {
+                return RouteDecision::AddToWindow {
+                    label: target_label.to_string(),
+                    files: vec![file.to_path_buf()],
+                };
+            }
+        }
+        if let Some(label) = self.find_ancestor_folder(file) {
+            return RouteDecision::AddToWindow {
+                label,
+                files: vec![file.to_path_buf()],
+            };
+        }
+        RouteDecision::AddToWindow {
+            label: target_label.to_string(),
+            files: vec![file.to_path_buf()],
         }
     }
 
@@ -429,6 +517,135 @@ mod tests {
                 assert_eq!(files, vec![PathBuf::from("/random/file.md")]);
             }
             other => panic!("expected CreateFileOnly, got {other:?}"),
+        }
+    }
+
+    // ── Target-aware routing (PR #372 review of architect-expert H1) ─────
+
+    #[test]
+    fn route_folder_for_target_focus_when_already_open_anywhere() {
+        // Even with a `target_label`, a folder that's already open in
+        // some other window must focus that window — never split-claim.
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::Folder(PathBuf::from("/proj")));
+        reg.register("b".into(), WindowKind::FileOnly);
+
+        match reg.route_folder_for_target(Path::new("/proj"), "b") {
+            RouteDecision::FocusExisting(label) => assert_eq!(label, "a"),
+            other => panic!("expected FocusExisting(a), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_folder_for_target_claim_when_target_is_file_only() {
+        // FileOnly target adopts the dropped folder — UX matches "Open
+        // Folder via toolbar" replacing the empty workspace.
+        let reg = WindowRegistry::new();
+        reg.register("main".into(), WindowKind::FileOnly);
+
+        match reg.route_folder_for_target(Path::new("/new-proj"), "main") {
+            RouteDecision::ClaimForTarget { target_label, path } => {
+                assert_eq!(target_label, "main");
+                assert_eq!(path, PathBuf::from("/new-proj"));
+            }
+            other => panic!("expected ClaimForTarget(main), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_folder_for_target_creates_when_target_already_owns_folder() {
+        // Target window already has a workspace — preserve it; the new
+        // folder gets a new window. Avoids surprise replacement of the
+        // user's current work.
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::Folder(PathBuf::from("/proj-a")));
+
+        match reg.route_folder_for_target(Path::new("/proj-b"), "a") {
+            RouteDecision::CreateFolder { path } => {
+                assert_eq!(path, PathBuf::from("/proj-b"));
+            }
+            other => panic!("expected CreateFolder, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_folder_for_target_creates_when_target_unknown() {
+        // Defensive: a stale target label (window destroyed mid-drop)
+        // falls through to CreateFolder so no panic / silent loss.
+        let reg = WindowRegistry::new();
+
+        match reg.route_folder_for_target(Path::new("/new"), "ghost") {
+            RouteDecision::CreateFolder { path } => assert_eq!(path, PathBuf::from("/new")),
+            other => panic!("expected CreateFolder, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_routes_to_target_when_in_its_folder() {
+        // File under the target's workspace → straight to target.
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::Folder(PathBuf::from("/proj")));
+
+        match reg.route_file_for_target(Path::new("/proj/src/main.rs"), "a") {
+            RouteDecision::AddToWindow { label, files } => {
+                assert_eq!(label, "a");
+                assert_eq!(files, vec![PathBuf::from("/proj/src/main.rs")]);
+            }
+            other => panic!("expected AddToWindow(a), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_prefers_natural_home_over_target() {
+        // File belongs under window A's folder, but user dropped on B.
+        // The file's natural home outranks — it goes to A (and A
+        // focuses). UX reflects "files belong with their workspace".
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::Folder(PathBuf::from("/proj-a")));
+        reg.register("b".into(), WindowKind::Folder(PathBuf::from("/proj-b")));
+
+        match reg.route_file_for_target(Path::new("/proj-a/foo.md"), "b") {
+            RouteDecision::AddToWindow { label, files } => {
+                assert_eq!(label, "a");
+                assert_eq!(files, vec![PathBuf::from("/proj-a/foo.md")]);
+            }
+            other => panic!("expected AddToWindow(a), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_orphan_routes_to_target_not_first_file_only() {
+        // Architect H1 repro: with two FileOnly windows, a drop on B
+        // MUST land in B — not A just because A appears first in
+        // `find_file_only`. This is the bug the target-aware path fixes.
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::FileOnly);
+        reg.register("b".into(), WindowKind::FileOnly);
+
+        match reg.route_file_for_target(Path::new("/random/foo.md"), "b") {
+            RouteDecision::AddToWindow { label, files } => {
+                assert_eq!(label, "b", "drop on B must route to B, not A");
+                assert_eq!(files, vec![PathBuf::from("/random/foo.md")]);
+            }
+            other => panic!("expected AddToWindow(b), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn route_file_for_target_target_with_unrelated_folder_still_takes_orphan() {
+        // Target owns folder /proj-a; user drops /random/foo.md (not
+        // under any open folder) onto target. Route to target — the
+        // user's gesture wins; `route_args_to_window` will extend
+        // asset-protocol scope to cover the orphan's parent dir.
+        let reg = WindowRegistry::new();
+        reg.register("a".into(), WindowKind::Folder(PathBuf::from("/proj-a")));
+
+        match reg.route_file_for_target(Path::new("/random/foo.md"), "a") {
+            RouteDecision::AddToWindow { label, files } => {
+                assert_eq!(label, "a");
+                assert_eq!(files, vec![PathBuf::from("/random/foo.md")]);
+            }
+            other => panic!("expected AddToWindow(a), got {other:?}"),
         }
     }
 

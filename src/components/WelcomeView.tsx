@@ -62,6 +62,10 @@ export function WelcomeView({ onOpenFile, onOpenFolder }: WelcomeViewProps) {
           </button>
         </div>
 
+        <p className="welcome-drag-hint" aria-hidden="false">
+          or drag files and folders here to open them
+        </p>
+
         {recentItems.length > 0 && (
           <div className="welcome-recent">
             <h2 className="welcome-recent-title">Recent</h2>

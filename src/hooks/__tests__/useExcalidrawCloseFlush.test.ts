@@ -43,6 +43,7 @@ vi.mock("@/lib/tauri-events", () => ({
       return unlistenMock;
     },
   ),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 import { useExcalidrawCloseFlush } from "../useExcalidrawCloseFlush";

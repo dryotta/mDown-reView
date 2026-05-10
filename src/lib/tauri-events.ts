@@ -121,6 +121,16 @@ export interface EventPayloads {
    * window comes to the front even when minimized / hidden.
    */
   "focus-tab": string;
+  /**
+   * PR #372 — drag-drop classification rejected the entire drop
+   * because no path resolved to a usable file or folder (deleted,
+   * renamed, broken symlink, NTFS-ADS, etc.). Emitted by
+   * `commands::drag_drop::handle_dropped_paths` so the renderer can
+   * surface a transient toast — without it the overlay just hides
+   * on Drop and the user sees no explanation
+   * (bug-expert PR #372 #2 / product-expert #9).
+   */
+  "drag-drop-rejected": { count: number; reason: string };
 }
 
 export type EventName = keyof EventPayloads;
@@ -165,30 +175,25 @@ export function listenEvent<K extends EventName>(
 }
 
 /**
- * Webview-level drag-drop event payload. Mirrors the runtime shape
- * emitted by Tauri's `getCurrentWebview().onDragDropEvent` (`enter`,
- * `over`, `drop`, `leave`). Path processing is handled in Rust via
- * `WindowEvent::DragDrop` (see `src-tauri/src/lib.rs` and
- * `launch_routing::route_args_through_registry`); the renderer only
- * needs `type` for visual feedback (overlay show/hide). `paths` and
- * `position` are available for future affordances (e.g. a per-region
- * highlight) but are intentionally not consumed today.
+ * Webview-level drag-drop event payload, re-exported from
+ * `@tauri-apps/api/webview` so production code touches the upstream
+ * type — never a hand-rolled clone — and any future Tauri renaming of
+ * a discriminator (e.g. `type: "drop"` → `type: "dropped"`) breaks
+ * compilation here, not silently in production. Citation: see
+ * `@tauri-apps/api/webview` `DragDropEvent` (re-exported alongside
+ * `onDragDropEvent`'s `EventCallback<DragDropEvent>` signature).
  */
-export type DragDropPayload =
-  | { type: "enter"; paths: string[]; position: { x: number; y: number } }
-  | { type: "over"; position: { x: number; y: number } }
-  | { type: "drop"; paths: string[]; position: { x: number; y: number } }
-  | { type: "leave" };
+export type { DragDropEvent } from "@tauri-apps/api/webview";
 
 /**
  * Subscribe to webview drag-drop events for the current window.
  *
  * The actual file-open work happens **in Rust**: WebView2 / WKWebView's
  * native DnD delivers the OS file paths to `WindowEvent::DragDrop`,
- * which `lib.rs` funnels through `route_args_through_registry` —
- * identical semantics to CLI launch, single-instance forwarding, and
- * macOS `RunEvent::Opened`. This JS-side listener is for **visual
- * feedback only** (overlay show/hide).
+ * which `commands::drag_drop::handle_dropped_paths` funnels through
+ * `route_args_through_registry` — identical semantics to CLI launch,
+ * single-instance forwarding, and macOS `RunEvent::Opened`. This
+ * JS-side listener is for **visual feedback only** (overlay show/hide).
  *
  * Per `mac-webview-drag-drop` rule in
  * `docs/best-practices-common/tauri/macos-platform.md`, handling
@@ -197,16 +202,24 @@ export type DragDropPayload =
  *
  * Routed through this chokepoint so `getCurrentWebview` is imported
  * in exactly one production file (mirrors `listenEvent`'s discipline
- * for `@tauri-apps/api/event`).
+ * for `@tauri-apps/api/event`); enforced by
+ * `src/__tests__/event-chokepoint.test.ts`.
+ *
+ * `over` events fire continuously during drag (mouse-move cadence) so
+ * are NOT logged — only state-changing transitions (`enter`, `drop`,
+ * `leave`). Otherwise the rotating log file fills with hundreds of
+ * lines per drag, drowning useful signal.
  */
 export function listenDragDrop(
-  callback: (payload: DragDropPayload) => void,
+  callback: (payload: import("@tauri-apps/api/webview").DragDropEvent) => void,
 ): Promise<UnlistenFn> {
   const label = currentLabel();
   return getCurrentWebview().onDragDropEvent((event) => {
-    void debug(
-      `[tauri-events] received drag-drop type=${event.payload.type} window-label=${label}`,
-    );
-    callback(event.payload as DragDropPayload);
+    if (event.payload.type !== "over") {
+      void debug(
+        `[tauri-events] received drag-drop type=${event.payload.type} window-label=${label}`,
+      );
+    }
+    callback(event.payload);
   });
 }

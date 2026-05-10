@@ -11,6 +11,7 @@ vi.mock("@/lib/tauri-events", () => ({
     listeners.set(event, cb);
     return Promise.resolve(mockUnlisten);
   }),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 const mockUnregisterWindowFolder = vi.fn().mockResolvedValue(undefined);
