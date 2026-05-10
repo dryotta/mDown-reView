@@ -20,9 +20,11 @@ name: CI
 #
 # Jobs (all parallel under `changes` unless noted):
 #   - lint-and-vitest (ubuntu)      — eslint, vitest, frontend build, bundle gates
-#   - rust-test (ubuntu)             — clippy + cargo test + `cargo bench --no-run`
+#   - rust-test (ubuntu)             — clippy + cargo test (Linux)
 #   - rust-test-windows (win-2022)   — clippy + cargo test (Windows-cfg code)
 #   - rust-test-macos (macos-14)     — clippy + cargo test (macOS-cfg code)
+#   - bench-compile-gate (ubuntu)    — `cargo bench --no-run --profile release-ci`
+#                                      (parallel with rust-test; catches bench API drift)
 #   - bindings-drift (ubuntu)
 #   - e2e-browser (ubuntu)
 #   - native-e2e (win-2022)          — CDP-attached Playwright
@@ -166,7 +168,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -207,14 +209,58 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # Bench compile gate (Linux). Separate parallel job so the ~7-10 min
+  # bench compile (release profile, 6 criterion binaries + plotters) does
+  # not block the rust-test critical path.
+  #
+  # Uses --profile release-ci (lto=off, codegen-units=16) rather than the
+  # default bench/release profile (lto=thin, codegen-units=1) — captures
+  # the same API-drift signal at ~5× lower compile cost.
+  #
+  # `cargo bench --no-run` compiles benches/ but skips execution; it is the
+  # only cargo invocation that compiles bench harnesses (cargo test does not).
+  # ─────────────────────────────────────────────────────────────────────────
+  bench-compile-gate:
+    name: Bench compile gate (Linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Distinct prefix-key so the release-ci bench cache does not evict
+          # the test-profile cache used by rust-test.
+          prefix-key: bench-compile-gate
+
+      - name: Cache Linux system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
+
       - name: Compile-gate benches (cargo bench --no-run)
         # Catches bench code rot. `cargo test` does NOT compile benches/;
         # only `cargo bench` (or `--all-targets`) does. Running with
         # `--no-run` skips execution while still catching API drift in
         # `benches/{matching,scanner,sidecar,threads,parsers,hot_path}.rs`
         # and `benches/generate_fixtures.rs`.
+        # `--profile release-ci` uses lto=off + codegen-units=16 (vs the
+        # default bench profile which inherits lto=thin + codegen-units=1
+        # from [profile.release]), cutting compile time ~5×.
         working-directory: src-tauri
-        run: cargo bench --no-run
+        run: cargo bench --no-run --profile release-ci
 
   # ─────────────────────────────────────────────────────────────────────────
   # Rust tests (Windows) — exercises `#[cfg(target_os = "windows")]` and
@@ -927,6 +973,7 @@ jobs:
       - rust-test
       - rust-test-windows
       - rust-test-macos
+      - bench-compile-gate
       - bindings-drift
       - e2e-browser
       - native-e2e
@@ -954,6 +1001,7 @@ jobs:
             "rust-test:${{ needs.rust-test.result }}"
             "rust-test-windows:${{ needs.rust-test-windows.result }}"
             "rust-test-macos:${{ needs.rust-test-macos.result }}"
+            "bench-compile-gate:${{ needs.bench-compile-gate.result }}"
             "bindings-drift:${{ needs.bindings-drift.result }}"
             "e2e-browser:${{ needs.e2e-browser.result }}"
             "native-e2e:${{ needs.native-e2e.result }}"
