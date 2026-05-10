@@ -646,7 +646,7 @@ describe("iterate-one-issue + lean-expert — type-surface proof for reviewer co
  */
 describe("iterate-one-issue skill — Phase 1.5 inline-fix carry-over (Done-Achieved only, gated)", () => {
   const phase15Idx = SKILL.indexOf("## Phase 1.5 — Inline-fix carry-over");
-  const phaseRIdx = SKILL.indexOf("## Phase R — Release-gate forward-fix");
+  const phaseRIdx = SKILL.indexOf("## Phase R — CI forward-fix");
   const phase15Block = SKILL.slice(phase15Idx, phaseRIdx);
 
   it("Phase 1.5 section exists and sits between Phase 1 and Phase R in the document", () => {
@@ -825,7 +825,7 @@ describe("iterate-one-issue skill — Phase 1.5 inline-fix carry-over (Done-Achi
     // ready / iterate-pr label add lives). Lock that surface so it
     // cannot reference the inline-fix counter or feature-name itself.
     // (done-handlers.md legitimately mentions exe-task-implementer in
-    // Phase R / release-gate forward-fix — we only block inline-fix
+    // Phase R / CI forward-fix — we only block inline-fix
     // co-occurrence.)
     expect(DONE_HANDLERS).not.toMatch(/INLINE_FIX_USED/);
     expect(DONE_HANDLERS).not.toMatch(/inline-fix/i);
