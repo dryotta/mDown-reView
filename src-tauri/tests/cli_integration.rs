@@ -49,7 +49,7 @@ fn run_cli_bytes(args: &[&str]) -> (Vec<u8>, Vec<u8>, i32) {
 /// the directory plus the sidecar path inside it.
 fn stage_mixed() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
-    let src = fixtures_dir().join("mixed.md.review.yaml");
+    let src = fixtures_dir().join("mixed.md.review.yaml.fixture");
     let sidecar = tmp.path().join("mixed.md.review.yaml");
     std::fs::copy(&src, &sidecar).unwrap();
     std::fs::write(tmp.path().join("mixed.md"), "# Test").unwrap();
@@ -58,7 +58,7 @@ fn stage_mixed() -> (tempfile::TempDir, PathBuf) {
 
 fn stage_resolved() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
-    let src = fixtures_dir().join("resolved.md.review.yaml");
+    let src = fixtures_dir().join("resolved.md.review.yaml.fixture");
     let sidecar = tmp.path().join("resolved.md.review.yaml");
     std::fs::copy(&src, &sidecar).unwrap();
     std::fs::write(tmp.path().join("resolved.md"), "# Test").unwrap();
@@ -69,7 +69,7 @@ fn stage_threaded() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
     let src = fixtures_dir()
         .join("with-responses")
-        .join("threaded.md.review.yaml");
+        .join("threaded.md.review.yaml.fixture");
     let sidecar = tmp.path().join("threaded.md.review.yaml");
     std::fs::copy(&src, &sidecar).unwrap();
     std::fs::write(
@@ -78,6 +78,39 @@ fn stage_threaded() -> (tempfile::TempDir, PathBuf) {
     )
     .unwrap();
     (tmp, sidecar)
+}
+
+/// Stage the entire `tests/fixtures/cli/` tree into a fresh tempdir, renaming
+/// every `*.review.yaml.fixture` to its real `*.review.yaml` name. Used by
+/// folder-mode tests that walk the workspace via `--folder` and expect the
+/// scanner to find every sidecar in the tree (rather than a single staged
+/// file). Mirrors directory layout exactly so subdirectory tests still see
+/// `file-level/` and `with-responses/` shapes.
+fn stage_cli_fixtures() -> tempfile::TempDir {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let src_root = fixtures_dir();
+    fn copy_tree(src: &std::path::Path, dst: &std::path::Path) {
+        for entry in std::fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let name = entry.file_name();
+            let dst_name = match name.to_str() {
+                Some(n) if n.ends_with(".review.yaml.fixture") => {
+                    std::ffi::OsString::from(n.trim_end_matches(".fixture"))
+                }
+                _ => name,
+            };
+            let dst_path = dst.join(&dst_name);
+            if path.is_dir() {
+                std::fs::create_dir_all(&dst_path).unwrap();
+                copy_tree(&path, &dst_path);
+            } else {
+                std::fs::copy(&path, &dst_path).unwrap();
+            }
+        }
+    }
+    copy_tree(&src_root, tmp.path());
+    tmp
 }
 
 // ── --help aggregation ─────────────────────────────────────────────────────
@@ -105,7 +138,8 @@ fn top_level_help_lists_every_subcommand_and_its_flags() {
 
 #[test]
 fn read_text_format_shows_unresolved_only() {
-    let dir = fixtures_dir();
+    let staged = stage_cli_fixtures();
+    let dir = staged.path();
     let (stdout, _stderr, code) = run_cli(&["read", "--folder", dir.to_str().unwrap()]);
     assert_eq!(code, 0);
     assert!(stdout.contains("mixed.md"));
@@ -119,7 +153,8 @@ fn read_text_format_shows_unresolved_only() {
 
 #[test]
 fn read_text_format_shows_all_with_include_resolved() {
-    let dir = fixtures_dir();
+    let staged = stage_cli_fixtures();
+    let dir = staged.path();
     let (stdout, _stderr, code) = run_cli(&[
         "read",
         "--folder",
@@ -136,7 +171,8 @@ fn read_text_format_shows_all_with_include_resolved() {
 
 #[test]
 fn read_text_format_displays_type_severity_author_timestamp() {
-    let dir = fixtures_dir();
+    let staged = stage_cli_fixtures();
+    let dir = staged.path();
     let (stdout, _stderr, code) = run_cli(&["read", "--folder", dir.to_str().unwrap()]);
     assert_eq!(code, 0);
     assert!(stdout.contains("[issue]"));
@@ -149,7 +185,8 @@ fn read_text_format_displays_type_severity_author_timestamp() {
 
 #[test]
 fn read_old_all_flag_is_rejected() {
-    let dir = fixtures_dir();
+    let staged = stage_cli_fixtures();
+    let dir = staged.path();
     let (_stdout, stderr, code) = run_cli(&["read", "--folder", dir.to_str().unwrap(), "--all"]);
     assert_ne!(code, 0);
     assert!(
@@ -163,7 +200,8 @@ fn read_old_all_flag_is_rejected() {
 
 #[test]
 fn read_json_envelope_has_review_and_source_files() {
-    let dir = fixtures_dir();
+    let staged = stage_cli_fixtures();
+    let dir = staged.path();
     let (stdout, _stderr, code) = run_cli(&[
         "read",
         "--folder",
@@ -187,7 +225,8 @@ fn read_json_envelope_has_review_and_source_files() {
 
 #[test]
 fn read_json_flag_equals_format_json() {
-    let dir = fixtures_dir();
+    let staged = stage_cli_fixtures();
+    let dir = staged.path();
     let (out_a, _, code_a) = run_cli_bytes(&["read", "--folder", dir.to_str().unwrap(), "--json"]);
     let (out_b, _, code_b) = run_cli_bytes(&[
         "read",
@@ -502,7 +541,7 @@ fn stage_redirected_mixed() -> (tempfile::TempDir, PathBuf) {
     )
     .unwrap();
     std::fs::create_dir(tmp.path().join(".reviews")).unwrap();
-    let src = fixtures_dir().join("mixed.md.review.yaml");
+    let src = fixtures_dir().join("mixed.md.review.yaml.fixture");
     let sidecar = tmp.path().join(".reviews").join("mixed.md.review.yaml");
     std::fs::copy(&src, &sidecar).unwrap();
     std::fs::write(tmp.path().join("mixed.md"), "# Test").unwrap();
@@ -616,7 +655,7 @@ fn respond_writes_to_redirected_sidecar() {
 /// exist) without UTF-8 decoding their bytes.
 fn stage_file_level_binary() -> (tempfile::TempDir, std::path::PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
-    let src = fixtures_dir().join("file-level").join("binary.bin.review.yaml");
+    let src = fixtures_dir().join("file-level").join("binary.bin.review.yaml.fixture");
     let sidecar = tmp.path().join("binary.bin.review.yaml");
     std::fs::copy(&src, &sidecar).unwrap();
     // NB: do NOT write a `binary.bin` source file — proves the CLI does

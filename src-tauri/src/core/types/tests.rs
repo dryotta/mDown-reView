@@ -486,7 +486,7 @@ fn try_from_anchor_repr_html_element_clamps_text_preview() {
 
 #[test]
 fn fixture_html_anchors_deserializes() {
-    let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/html_anchors.review.yaml");
+    let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/html_anchors.review.yaml.fixture");
     let input = raw.replace("\r\n", "\n");
     let sidecar: MrsfSidecar = serde_saphyr::from_str(&input).unwrap();
     assert_eq!(sidecar.mrsf_version, "1.1");
@@ -512,7 +512,7 @@ fn fixture_html_anchors_deserializes() {
 
 #[test]
 fn fixture_reactions_deserializes() {
-    let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/reactions.review.yaml");
+    let raw = include_str!("../../../tests/fixtures/mrsf/v1.1/reactions.review.yaml.fixture");
     let input = raw.replace("\r\n", "\n");
     let sidecar: MrsfSidecar = serde_saphyr::from_str(&input).unwrap();
     assert_eq!(sidecar.mrsf_version, "1.1");
