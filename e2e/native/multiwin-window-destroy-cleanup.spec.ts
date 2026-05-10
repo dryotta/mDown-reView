@@ -3,7 +3,7 @@
  * managed state.
  *
  * Tests rule `multiwin-managed-state-cleanup` in
- * docs/best-practices-common/tauri/v2-patterns.md (and its dependency on
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md (and its dependency on
  * `multiwin-lifecycle-registry`).
  *
  * Today's behaviour: `WindowRegistry::unregister` and

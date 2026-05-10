@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 /**
- * Per docs/best-practices-common/tauri/v2-patterns.md rule
+ * Per .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule
  * `multiwin-cross-window-state-whitelist`: every `localStorage.{setItem,
  * removeItem, clear}` call site is a cross-window broadcast (the
  * browser's `storage` event fires in OTHER same-origin windows on every
@@ -112,7 +112,7 @@ describe("localStorage write chokepoint architecture", () => {
       offenders,
       `These files write to localStorage directly. Route through the Zustand persist ` +
         `adapter (src/store/index.ts) or src/lib/comment-drafts.ts. ` +
-        `See docs/best-practices-common/tauri/v2-patterns.md rule ` +
+        `See .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule ` +
         `multiwin-cross-window-state-whitelist:\n  ${offenders.join("\n  ")}`
     ).toEqual([]);
   });

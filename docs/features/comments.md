@@ -107,4 +107,4 @@ sequenceDiagram
 - Anchor branches each need an integration test — rule 3 + rule 8 in [`docs/test-strategy.md`](../test-strategy.md).
 - Comment-matching branch coverage — rule 3 in [`docs/test-strategy.md`](../test-strategy.md); round-trip MRSF test — rule 8.
 - "Reliable" pillar (comments indestructible across refactors) and "Zero Bug Policy" — [`docs/principles.md`](../principles.md).
-- Multi-window emit scoping for `comments-changed` (window-set delivery via `emit_filter`) — `multiwin-window-scoped-events` in [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md).
+- Multi-window emit scoping for `comments-changed` (window-set delivery via `emit_filter`) — `multiwin-window-scoped-events` rule.

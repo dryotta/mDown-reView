@@ -1,7 +1,7 @@
 //! Custom menu event routing.
 //!
 //! Per rule `multiwin-window-scoped-events` in
-//! `docs/best-practices-common/tauri/v2-patterns.md`: Tauri's
+//! `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`: Tauri's
 //! `Emitter::emit` is a global broadcast regardless of receiver
 //! (`AppManager::emit` iterates every webview). To scope delivery to
 //! one window we MUST call `emit_to(label, …)`.

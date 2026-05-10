@@ -32,7 +32,7 @@ interface Props {
  * Composition over prop-bag growth: the toolbar stays oblivious to comment
  * domain knowledge (see `architecture-avoid-boolean-props` and
  * `patterns-children-over-render-props` in
- * `docs/best-practices-common/react/composition-patterns.md`).
+ * `.claude/agents/react-coding-expert/knowledge/react-composition-patterns.md`).
  */
 export function ToolbarFileCommentPill({ filePath, onCommentOnFile }: Props): React.JSX.Element {
   const { threads } = useComments(filePath); // rule 30 — narrow per-surface subscription

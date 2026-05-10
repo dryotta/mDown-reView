@@ -5,7 +5,7 @@
  *
  * Tests rules `mac-menu-edit-submenu` and
  * `mac-webview-clipboard-requires-edit-menu` in
- * docs/best-practices-common/tauri/macos-platform.md.
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-macos-platform.md.
  *
  * Today's behaviour: the menu builder in `lib.rs` does not yet emit a
  * macOS Edit submenu (Section H5 of issue #315), so on Mac the

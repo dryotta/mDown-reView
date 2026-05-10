@@ -40,7 +40,7 @@ interface Props {
    * G4 — composition slot forwarded to `ViewerToolbar.centerSlot`. Callers
    * typically pass `<ToolbarFileCommentPill ... />`. See
    * `patterns-children-over-render-props` in
-   * `docs/best-practices-common/react/composition-patterns.md`.
+   * `.claude/agents/react-coding-expert/knowledge/react-composition-patterns.md`.
    */
   centerSlot?: ReactNode;
 }

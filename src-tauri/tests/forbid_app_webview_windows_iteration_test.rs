@@ -1,6 +1,6 @@
 //! Forbid iteration over `app.webview_windows()` outside `src/registry.rs`.
 //!
-//! Per docs/best-practices-common/tauri/v2-patterns.md rule
+//! Per .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule
 //! `multiwin-lifecycle-registry`: iterating the runtime
 //! window map (`app.webview_windows().{values, iter, keys, into_iter}()`)
 //! produces N×N noise — every consumer that loops gets every window
@@ -138,7 +138,7 @@ fn no_webview_windows_iteration_outside_allowlist() {
         violations.is_empty(),
         "Iteration over `app.webview_windows()` outside the registry. \
          Use `WindowRegistry::find_by_folder` / `find_ancestor_folder` / `find_file_only`. \
-         See docs/best-practices-common/tauri/v2-patterns.md rule multiwin-lifecycle-registry.\n  {}",
+         See .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md rule multiwin-lifecycle-registry.\n  {}",
         violations.join("\n  ")
     );
 }

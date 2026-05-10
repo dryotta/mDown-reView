@@ -6,7 +6,7 @@ import { join, sep } from "node:path";
  * Multi-window rules coverage gate (D1, issue #315 iter 6).
  *
  * Enforces that every `multiwin-*` rule declared in
- * `docs/best-practices-common/tauri/v2-patterns.md` has at least one
+ * `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md` has at least one
  * enforcement test file that cites it by ID. The "enforcement" can be a
  * unit lint (`src/__tests__/*.test.ts(x)`), a Rust integration test
  * (`src-tauri/tests/*.rs`), or a Playwright e2e spec
@@ -31,7 +31,7 @@ import { join, sep } from "node:path";
  */
 
 const REPO_ROOT = join(__dirname, "..", "..");
-const SPEC_PATH = join(REPO_ROOT, "docs", "best-practices-common", "tauri", "v2-patterns.md");
+const SPEC_PATH = join(REPO_ROOT, ".claude", "agents", "tauri-coding-expert", "knowledge", "tauri-v2-patterns.md");
 
 const TEST_ROOTS = [
   join(REPO_ROOT, "src", "__tests__"),
@@ -191,7 +191,7 @@ describe("multiwin-* rules coverage (D1)", () => {
     }
     expect(
       uncovered,
-      `These multiwin-* rules in docs/best-practices-common/tauri/v2-patterns.md ` +
+      `These multiwin-* rules in .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md ` +
         `have no enforcing test under src/__tests__/, src-tauri/tests/, or e2e/. ` +
         `Either add a test that cites the rule ID by name (in a top comment, ` +
         `describe label, or assertion message) or, if the rule is genuinely ` +

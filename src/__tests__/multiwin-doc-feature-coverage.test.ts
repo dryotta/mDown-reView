@@ -7,18 +7,22 @@ import { join } from "node:path";
  *
  * Rule: every file under `docs/features/*.md` that mentions multi-window
  * concepts (multiple windows, window lifecycle, per-window state) MUST
- * contain a cross-reference to
- * `docs/best-practices-common/tauri/v2-patterns.md` so a reader who
- * lands on the feature page can find the canonical `multiwin-*` rule
- * set without grepping. The two rule documents are authoritative; the
- * feature docs explain what the user sees and link out for the why.
+ * cite the canonical `multiwin-*` rule set so a reader who lands on the
+ * feature page can find the canonical rules without grepping. The rule
+ * set is bundled with the `tauri-coding-expert` agent at
+ * `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`.
+ *
+ * "Cite" is satisfied by either:
+ *   1. A path link / substring mention of the canonical bundled path, or
+ *   2. A bare-text mention of any `multiwin-*` rule-id (e.g.
+ *      `multiwin-window-scoped-events`, `multiwin-allowlist-scope`).
  *
  * "Mentions multi-window" is detected by a curated keyword list. We
  * keep the list short and obvious so unrelated mentions of "tab"
  * (e.g. "indent with a tab") don't trigger the cross-link requirement.
  *
  * `EXEMPT_FEATURE_DOCS` lists feature docs whose multi-window mentions
- * are incidental and a cross-link would be noise. Currently empty.
+ * are incidental and a citation would be noise. Currently empty.
  *
  * Self-tests at the bottom guard the matchers themselves.
  */
@@ -47,8 +51,15 @@ const MULTIWIN_KEYWORDS: ReadonlyArray<RegExp> = [
   /\bnew window\b/i,
 ];
 
-/** Substring that, if present, satisfies the cross-link requirement. */
-const REQUIRED_LINK = "docs/best-practices-common/tauri/v2-patterns.md";
+/** Path substring that, if present, satisfies the cross-link requirement. */
+const REQUIRED_LINK = ".claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md";
+
+/**
+ * Rule-id mention pattern that, if present, also satisfies the requirement.
+ * Matches both specific rule-ids (`multiwin-window-scoped-events`) and
+ * family globs (`multiwin-*`).
+ */
+const MULTIWIN_RULE_ID_PATTERN = /\bmultiwin-/;
 
 /**
  * Feature docs intentionally exempt from the cross-link rule. Each
@@ -73,14 +84,16 @@ export function findMultiwinKeywords(body: string): string[] {
 }
 
 /**
- * True iff `body` contains a reference to the canonical multiwin rule
- * doc, as a Markdown link target, a relative path, or a bare substring
- * mention. We accept both `../best-practices-common/...` and
- * `docs/best-practices-common/...` forms.
+ * True iff `body` contains a citation of the canonical multiwin rule
+ * set: either a path link (markdown link or bare substring) to the
+ * bundled `tauri-v2-patterns.md`, or a bare-text mention of any
+ * `multiwin-*` rule-id.
  */
 export function hasMultiwinRuleLink(body: string): boolean {
   return (
-    body.includes(REQUIRED_LINK) || body.includes("best-practices-common/tauri/v2-patterns.md")
+    body.includes(REQUIRED_LINK) ||
+    body.includes("tauri-coding-expert/knowledge/tauri-v2-patterns.md") ||
+    MULTIWIN_RULE_ID_PATTERN.test(body)
   );
 }
 
@@ -107,7 +120,7 @@ describe("docs/features cross-links to multiwin rules (D3)", () => {
     expect(docPaths.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("every feature doc that mentions multi-window keywords links to v2-patterns.md", () => {
+  it("every feature doc that mentions multi-window keywords cites a multiwin-* rule", () => {
     const offenders: { doc: string; matched: string[] }[] = [];
     for (const path of docPaths) {
       const base = path.split(/[\\/]/).pop()!;
@@ -120,9 +133,10 @@ describe("docs/features cross-links to multiwin rules (D3)", () => {
     }
     const message =
       `These feature docs discuss multi-window concepts but do not ` +
-      `reference \`${REQUIRED_LINK}\`. Add a short "Multi-window" section ` +
-      `with a link to the canonical rule set, or add the basename to ` +
-      `EXEMPT_FEATURE_DOCS with justification:\n  ` +
+      `cite the canonical multiwin rule set. Either link to ` +
+      `\`${REQUIRED_LINK}\` or mention a \`multiwin-*\` rule-id by name ` +
+      `in prose, or add the basename to EXEMPT_FEATURE_DOCS with ` +
+      `justification:\n  ` +
       offenders.map((o) => `${o.doc} — matched keywords: ${o.matched.join(", ")}`).join("\n  ");
     expect(offenders, message).toEqual([]);
   });
@@ -165,21 +179,31 @@ describe("docs/features cross-links to multiwin rules (D3)", () => {
 
   describe("hasMultiwinRuleLink (self-test)", () => {
     it("matches an absolute-style path mention", () => {
-      expect(hasMultiwinRuleLink("see docs/best-practices-common/tauri/v2-patterns.md")).toBe(true);
+      expect(hasMultiwinRuleLink("see .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md")).toBe(true);
     });
 
     it("matches a relative-style markdown link", () => {
-      const body = "[v2 patterns](../best-practices-common/tauri/v2-patterns.md)";
+      const body = "[v2 patterns](../tauri-coding-expert/knowledge/tauri-v2-patterns.md)";
       expect(hasMultiwinRuleLink(body)).toBe(true);
     });
 
-    it("returns false when the link is absent", () => {
+    it("matches a bare multiwin-* rule-id mention", () => {
+      expect(hasMultiwinRuleLink("see the `multiwin-window-scoped-events` rule")).toBe(true);
+      expect(hasMultiwinRuleLink("`multiwin-allowlist-scope` and `multiwin-per-window-menu` rules")).toBe(true);
+      expect(hasMultiwinRuleLink("consult the `multiwin-*` rule family")).toBe(true);
+    });
+
+    it("returns false when no link or rule-id is present", () => {
       expect(hasMultiwinRuleLink("Just prose, no link.")).toBe(false);
     });
 
-    it("does not false-match a sibling doc in best-practices-common", () => {
-      const body = "[react patterns](../best-practices-common/react/composition.md)";
+    it("does not false-match a sibling agent-bundle doc", () => {
+      const body = "[react patterns](../react-coding-expert/knowledge/react-composition-patterns.md)";
       expect(hasMultiwinRuleLink(body)).toBe(false);
+    });
+
+    it("does not false-match a non-multiwin rule-id", () => {
+      expect(hasMultiwinRuleLink("see the `architecture-avoid-boolean-props` rule")).toBe(false);
     });
   });
 });

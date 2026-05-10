@@ -4,7 +4,7 @@
  *
  * Tests rule `multiwin-window-scoped-events` (and the table entry that
  * marks `comments-changed` as ❌-current → `emit_filter` future) in
- * docs/best-practices-common/tauri/v2-patterns.md.
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md.
  *
  * Today's behaviour: `commands/comments/mod.rs:90` uses a global
  * `Emitter::emit` that broadcasts to every window. The future fix

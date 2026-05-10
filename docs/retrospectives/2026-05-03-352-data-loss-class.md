@@ -79,7 +79,7 @@ Nine buckets cover all 27 bugs. For each, the **anatomy** of the failure mode an
 
 ### Class 5 — Termination-path skip (4 bugs: #1, #2, #15, #22)
 **Anatomy.** Data is lost because some specific exit/quit/destroy path skips the persistence step.
-**Examples.** Close-tab discarded buffer with no confirm (#1); window-X bypassed `closeTab` (#2); `WindowEvent::CloseRequested` fired no flush handshake (#15); "Keep my edits" deferred the write until next onChange and lost it on quit/power-loss (#22). **Still open per architect-expert P1-8:** macOS Cmd+Q fires `RunEvent::ExitRequested`, not per-window `CloseRequested` — the close-flush handshake does not cover it.
+**Examples.** Close-tab discarded buffer with no confirm (#1); window-X bypassed `closeTab` (#2); `WindowEvent::CloseRequested` fired no flush handshake (#15); "Keep my edits" deferred the write until next onChange and lost it on quit/power-loss (#22). **Still open per tauri-architect-expert P1-8:** macOS Cmd+Q fires `RunEvent::ExitRequested`, not per-window `CloseRequested` — the close-flush handshake does not cover it.
 **Earliest detection point.** Native E2E with explicit close-path coverage. Today's matrix is incomplete: Tab-X / Ctrl-W / Window-X / Alt-F4 / Cmd-W / Cmd-Q / Quit-from-menu / system-shutdown — at least 8 distinct paths, and we covered them piecemeal as user reports came in.
 
 ### Class 6 — Affordance gap (2 bugs: #26, #27)
@@ -145,7 +145,7 @@ Zero Bug Policy is the right principle but is **detection-bound**: a bug we did 
 
 Proper Fix Over Patch is the principle most clearly lived during this PR (the iter-16 generic close-flush refactor; the iter-20 typed-error contract; the iter-21 commit-aligned remount via `loadVersion`). But several violations were tolerated PR-internally:
 
-- The synthetic `mdownreview:file-changed` `CustomEvent` forging (react-tauri P1 #1, iter-12) — Reload dispatches a watcher-only event to fool `useFileContent`. Fix is "use a `forceReload(path)` action," not "dispatch the wire event."
+- The synthetic `mdownreview:file-changed` `CustomEvent` forging (react-coding-expert P1 #1, iter-12) — Reload dispatches a watcher-only event to fool `useFileContent`. Fix is "use a `forceReload(path)` action," not "dispatch the wire event."
 - The `eslint-disable react-hooks/exhaustive-deps` with comment "deliberate empty deps" inside `useExcalidrawAutoSave` `useCallback` arms.
 
 These are **not** data-loss bugs but they are how the next data-loss bug will be born.
@@ -180,7 +180,7 @@ Doc-vs-code drift directly produced bug #5 (sidebar payload — the doc and the 
 ### 4.6 Canonicalized-key pattern → `docs/best-practices-project/canonicalized-key.md`
 **Trigger:** any path-keyed map crossing the FS-boundary (watcher state, suppression registry, mounts registry). **Canonical (proposed):** the value passed in by callers must be canonicalized via `canonicalize_no_verbatim` exactly once, at the public-API boundary; downstream code reads/writes only that canonical form. **Anti-pattern:** registering under one casing and reading under another (P1-7, still open).
 
-These six files belong in `docs/best-practices-project/` (project-specific knowledge files), not `docs/best-practices-common/` (project-agnostic). Each file should have a one-paragraph trigger, the canonical example with a file:line citation, the anti-pattern with a contrasting citation, and a test-pattern showing how to assert compliance.
+These six files belong in `docs/best-practices-project/` (project-specific knowledge files), not in the project-agnostic patterns that review agents bundle in their `knowledge/` folders. Each file should have a one-paragraph trigger, the canonical example with a file:line citation, the anti-pattern with a contrasting citation, and a test-pattern showing how to assert compliance.
 
 ---
 
@@ -318,19 +318,19 @@ The iter-20 ship-readiness sweep dispatched 9 experts in parallel. Earlier exper
 | Pri | Title | Owner | Deliverable | Acceptance |
 |---|---|---|---|---|
 | **P0** | Round-trip CI test for `samples/excalidraw/*` | test-expert | `src/lib/excalidraw/__tests__/saveScene.roundtrip.test.ts` per §6.1 | Test fails when revert of `4c4c2e7` is applied; passes on HEAD. |
-| **P0** | Codify single-source-ref pattern | architect-expert | New rule 33 in `docs/architecture.md` (§3 wording); apply across `useExcalidrawAutoSave`, `useFileContent`, `useFileWatcher` | Each ref has a source-citation comment; PR review will reject any new ref without one. |
-| **P0** | Must-acknowledge banner pattern | architect-expert + product-expert | `docs/best-practices-project/must-acknowledge-banner.md` per §4.3 | Doc page with citations; lint or test asserts no banner has identical buttons in safe and unsafe states. |
-| **P0** | Reliable-pillar rewording + autosave-only contract | architect-expert | `docs/principles.md` Reliable + Excalidraw carve-out per §3, §5.1, §5.2 | Carve-out reciprocity rule (35) cited; PR template updated. |
+| **P0** | Codify single-source-ref pattern | tauri-architect-expert | New rule 33 in `docs/architecture.md` (§3 wording); apply across `useExcalidrawAutoSave`, `useFileContent`, `useFileWatcher` | Each ref has a source-citation comment; PR review will reject any new ref without one. |
+| **P0** | Must-acknowledge banner pattern | tauri-architect-expert + product-expert | `docs/best-practices-project/must-acknowledge-banner.md` per §4.3 | Doc page with citations; lint or test asserts no banner has identical buttons in safe and unsafe states. |
+| **P0** | Reliable-pillar rewording + autosave-only contract | tauri-architect-expert | `docs/principles.md` Reliable + Excalidraw carve-out per §3, §5.1, §5.2 | Carve-out reciprocity rule (35) cited; PR template updated. |
 | **P1** | Bug-expert P1-6 (close-flush failure contract) | architect + bug-expert | `Result<{failed_paths}, _>` wire contract; user-facing prompt | Disconnected-network-drive E2E asserts user-visible "Save again / Discard / Cancel" prompt before destroy. |
 | **P1** | Bug-expert P1-7 (watcher canonical-case mismatch) | bug-expert | Single-line fix in `fs_write.rs:153-163` per plan.md item #7 + Windows native E2E | E2E on Windows asserts no spurious file-changed echo on mixed-case workspace path. |
-| **P1** | Architect P1-8 (macOS Cmd+Q ExitRequested) | architect-expert + react-tauri | `RunEvent::ExitRequested` flush handshake | Native E2E (mac-only) asserts Cmd+Q during 2 s debounce preserves bytes on disk. |
+| **P1** | Architect P1-8 (macOS Cmd+Q ExitRequested) | tauri-architect-expert + react-coding-expert | `RunEvent::ExitRequested` flush handshake | Native E2E (mac-only) asserts Cmd+Q during 2 s debounce preserves bytes on disk. |
 | **P1** | Property-based round-trip per format | test-expert | `fast-check` arbitraries for scene + library; CI integrated | Mutation score on `saveScene.ts` ≥ 80%. |
 | **P1** | Document data-loss adversary review pass | documentation-expert | New skill `docs/skills/data-loss-adversary-review.md` per §7 | Mandatory dispatch for any PR touching `fs_write.rs` / `close_flush.rs` / autosave hooks. |
-| **P1** | Commit-aligned remount pattern doc | architect-expert | `docs/best-practices-project/commit-aligned-remount.md` per §4.2 | Pattern referenced from `useExcalidrawScene.ts` `loadVersion` declaration. |
+| **P1** | Commit-aligned remount pattern doc | tauri-architect-expert | `docs/best-practices-project/commit-aligned-remount.md` per §4.2 | Pattern referenced from `useExcalidrawScene.ts` `loadVersion` declaration. |
 | **P2** | Mutation testing pilot | test-expert | Stryker config on `src/lib/excalidraw/` + `src/hooks/useExcalidraw*` | Baseline mutation score reported; uncovered mutants triaged into 5 follow-up tests. |
 | **P2** | Test-fixture-pinning CI gate | test-expert | Determinism check + grep-forbid on `samples/excalidraw/` | CI fails if a sample file's SHA differs from `.fixtures.lock` and no regen-script-output marker is present. |
 | **P2** | Iteration-cap review process | tech lead | `.github/PULL_REQUEST_TEMPLATE.md` checkbox: "[ ] Iter ≤ 5 since last full-PR expert pass" | Honor system; auditable via PR commit count. |
-| **P2** | Single-source ref / canonicalized-key / typed-failure-contract / write-through-ack pattern docs | architect-expert | Four files in `docs/best-practices-project/` per §4.1, §4.4, §4.5, §4.6 | Each doc has trigger + canonical example + anti-pattern + test-pattern. |
+| **P2** | Single-source ref / canonicalized-key / typed-failure-contract / write-through-ack pattern docs | tauri-architect-expert | Four files in `docs/best-practices-project/` per §4.1, §4.4, §4.5, §4.6 | Each doc has trigger + canonical example + anti-pattern + test-pattern. |
 | **P2** | Drain remaining test-expert + documentation-expert review items | test + docs experts | All remaining iter-20 P1/P2 review items per `plan.md:42-46` | Each item is closed or explicitly deferred with a tracking issue. |
 
 ---

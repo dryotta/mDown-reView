@@ -4,7 +4,7 @@
  *
  * Tests rule `multiwin-state-isolation` (the row classifying
  * `recentItems` as cross-window-synced) and `multiwin-cross-window-state-whitelist`
- * in docs/best-practices-common/tauri/v2-patterns.md.
+ * in .claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md.
  *
  * Today's behaviour: cross-window persistence uses last-writer-wins on
  * the `mdownreview-ui` localStorage key, so when window A and window B

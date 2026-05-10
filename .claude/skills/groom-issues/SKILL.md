@@ -136,12 +136,13 @@ Dispatch the relevant subset **in parallel** (single message, multiple `Agent` t
 
 | Agent | Trigger |
 |---|---|
-| `architect-expert` | Layering, IPC contract, store design, separation of concerns |
+| `tauri-architect-expert` | Layering, IPC contract, store design, separation of concerns |
 | `documentation-expert` | Any user-facing change or new feature area |
 | `lean-expert` | New deps, new files, new abstractions, binary-size impact |
 | `performance-expert` | Rendering, watcher, large-file handling, IPC volume |
 | `product-improvement-expert` | New feature or UX change |
-| `react-tauri-expert` | React hooks, Tauri plugins, IPC, version-specific APIs |
+| `react-coding-expert` | React hooks, composition, rerender, version-specific React APIs |
+| `tauri-coding-expert` | Tauri plugins, IPC, events, version-specific Tauri APIs |
 | `security-reviewer` | `src-tauri/src/`, file IO, markdown rendering, capability changes |
 | `test-expert` | Any source-code change |
 

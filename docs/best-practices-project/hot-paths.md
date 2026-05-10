@@ -1,8 +1,12 @@
+---
+tags: [performance, hot-paths, react-rendering, ipc, security]
+---
+
 # Hot Paths (mdownreview-specific)
 
 Performance-sensitive areas of the codebase, with what each is sensitive to. Use this as the first-look checklist for any performance investigation.
 
-> **Scope:** project-specific. Generic JS/React performance rules live in [`../best-practices-common/general/javascript-performance.md`](../best-practices-common/general/javascript-performance.md), [`../best-practices-common/react/rerender-optimization.md`](../best-practices-common/react/rerender-optimization.md), and [`../best-practices-common/react/rendering-performance.md`](../best-practices-common/react/rendering-performance.md). Numeric budgets (debounce windows, file-size caps, memory ceilings) live in [`../performance.md`](../performance.md).
+> **Scope:** project-specific. Generic JS/React performance rules are bundled with `performance-expert`. Numeric budgets (debounce windows, file-size caps, memory ceilings) live in [`../performance.md`](../performance.md).
 
 ## How to apply
 
@@ -63,7 +67,7 @@ Sensitive to:
 - Selectors that return new object/array references each call cause every consumer to re-render.
 - Combined hooks pulling many fields when only one is needed.
 
-Cross-ref: [`../best-practices-common/react/rerender-optimization.md`](../best-practices-common/react/rerender-optimization.md) — `rerender-defer-reads`, `rerender-split-combined-hooks`.
+Cross-ref: `rerender-defer-reads` and `rerender-split-combined-hooks` rules in `performance-expert`'s bundled knowledge.
 
 ### `hot-path: file-watcher`
 

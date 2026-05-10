@@ -171,7 +171,7 @@ What this does NOT cross:
 
 ## Multi-window same-file singleton
 
-Cross-window event/state patterns this section builds on are documented in [`docs/best-practices-common/tauri/v2-patterns.md`](../best-practices-common/tauri/v2-patterns.md) (window-scoped emit/listen, `multiwin-window-scoped-events`).
+Cross-window event/state patterns this section builds on are governed by the `multiwin-window-scoped-events` rule (window-scoped emit/listen) — see `tauri-coding-expert`'s bundled knowledge.
 
 A canonical file path is open in **at most one window at a time**. When window B tries to open a file already in window A:
 

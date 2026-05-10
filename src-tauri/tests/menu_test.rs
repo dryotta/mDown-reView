@@ -2,7 +2,7 @@
 //! dispatcher seam.
 //!
 //! Per rule `multiwin-window-scoped-events` in
-//! `docs/best-practices-common/tauri/v2-patterns.md`. The structural
+//! `.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md`. The structural
 //! lint at `src/__tests__/event-emit-target.test.ts` catches broadcast
 //! calls written with a string-literal event name; THESE tests close
 //! the variable-shape blind spot by mocking `MenuEmitter` and pinning

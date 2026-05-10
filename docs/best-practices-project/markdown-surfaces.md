@@ -1,3 +1,7 @@
+---
+tags: [markdown, security, react-rendering]
+---
+
 # ReactMarkdown Surface Guard
 
 Every `<ReactMarkdown>` mounting site must inherit the overflow-wrap cascade

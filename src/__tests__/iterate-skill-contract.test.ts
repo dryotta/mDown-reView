@@ -31,21 +31,30 @@ const DONE_HANDLERS = readFileSync(DONE_HANDLERS_PATH, "utf8");
 
 const EXE_TASK_IMPLEMENTER_PATH = resolve(
   __dirname,
-  "../../.claude/agents/exe-task-implementer.md",
+  "../../.claude/agents/exe-task-implementer/agent.md",
 );
 const EXE_TASK_IMPLEMENTER = readFileSync(EXE_TASK_IMPLEMENTER_PATH, "utf8");
 
 const LEAN_EXPERT_PATH = resolve(
   __dirname,
-  "../../.claude/agents/lean-expert.md",
+  "../../.claude/agents/lean-expert/agent.md",
 );
 const LEAN_EXPERT = readFileSync(LEAN_EXPERT_PATH, "utf8");
 
 const TEST_EXPERT_PATH = resolve(
   __dirname,
-  "../../.claude/agents/test-expert.md",
+  "../../.claude/agents/test-expert/agent.md",
 );
 const TEST_EXPERT = readFileSync(TEST_EXPERT_PATH, "utf8");
+
+// The PR #323 worked example moved to project knowledge to keep test-expert
+// repo-agnostic. test-expert/agent.md retains the abstract rule; the worked
+// example with mdownreview-specific commit/PR refs lives here:
+const TEST_BYPASS_INCIDENTS_PATH = resolve(
+  __dirname,
+  "../../docs/best-practices-project/test-bypass-vector-incidents.md",
+);
+const TEST_BYPASS_INCIDENTS = readFileSync(TEST_BYPASS_INCIDENTS_PATH, "utf8");
 describe("iterate-one-issue skill — DIFF_CLASS scoping (issue #122)", () => {
   it("Step 6b classifies the diff into code | prompt-only | docs-only | none", () => {
     expect(SKILL).toMatch(/####\s+6b\.?\s+Classify diff/i);
@@ -67,9 +76,9 @@ describe("iterate-one-issue skill — DIFF_CLASS scoping (issue #122)", () => {
   });
 
   it("expert panel (Step 7) is scoped per DIFF_CLASS and skips irrelevant experts on prompt/docs diffs", () => {
-    // prompt-only must NOT pull react-tauri / performance / bug / security / test experts.
+    // prompt-only must NOT pull react-coding / tauri-coding / performance / bug / tauri-security / test experts.
     const promptOnlyRow = SKILL.match(
-      /`prompt-only`\s*\|[^\n]*Skip the rest[^\n]*react-tauri-expert[^\n]*performance-expert[^\n]*bug-expert[^\n]*security-expert[^\n]*test-expert/,
+      /`prompt-only`\s*\|[^\n]*Skip the rest[^\n]*react-coding-expert[^\n]*tauri-coding-expert[^\n]*performance-expert[^\n]*bug-expert[^\n]*tauri-security-expert[^\n]*test-expert/,
     );
     expect(promptOnlyRow, "Step 7 table must explicitly skip the irrelevant experts on prompt-only diffs").not.toBeNull();
     // docs-only must reduce to documentation-expert only.
@@ -281,7 +290,7 @@ describe("iterate-one-issue skill — scope guard against workspace-wide formatt
 });
 
 describe("iterate-one-issue skill — consume implementer scope non-action reports (issue #309)", () => {
-  // Issue #309 — implementer agents are instructed at `.claude/agents/exe-task-implementer.md`
+  // Issue #309 — implementer agents are instructed at `.claude/agents/exe-task-implementer/agent.md`
   // to fill in `**Did NOT do (scope):** ...` whenever they cannot do all the work in the task,
   // but the iterate skill had no consumer for those reports. The fix:
   //   1. `6a-noaction. Scope non-action capture` parses every implementer summary's
@@ -612,13 +621,10 @@ describe("iterate-one-issue + lean-expert — type-surface proof for reviewer co
     const outputBlock = LEAN_EXPERT.slice(outputIdx);
     expect(outputBlock).toMatch(/verified against/i);
     expect(outputBlock).toMatch(/pseudocode/i);
-  });
-
-  it("lean-expert.md cites a worked-example struct/file:line reference (proves the format is concrete, not abstract)", () => {
-    // The original retro identified MrsfComment's missing `responses` field —
-    // pinning a concrete type-surface citation in the agent rule prevents
-    // a future rewrite from silently dropping the file:line requirement.
-    expect(LEAN_EXPERT).toMatch(/src-tauri\/src\/core\/types/);
+    // The format must include a file:line placeholder so the citation shape
+    // is concrete (not just "cite a file"). Repo-specific paths are out of
+    // scope here — agents are repo-agnostic; only the placeholder shape matters.
+    expect(outputBlock).toMatch(/file:line/i);
   });
 });
 
@@ -843,9 +849,9 @@ describe("test-expert agent — bypass-vector enumeration for source-byte regres
     expect(outOfScopeIdx).toBeGreaterThan(alwaysCheckIdx);
     const alwaysBlock = TEST_EXPERT.slice(alwaysCheckIdx, outOfScopeIdx);
 
-    // Rule must be present and self-identify as the issue #331 follow-on.
+    // Rule must be present (issue #331 sourcing moved to project knowledge so
+    // test-expert stays repo-agnostic; the abstract rule itself stays).
     expect(alwaysBlock).toMatch(/Bypass-vector enumeration/i);
-    expect(alwaysBlock).toMatch(/issue #331/);
 
     // Trigger pattern must enumerate BOTH halves: include_str! AND a contains/needles loop.
     expect(alwaysBlock).toMatch(/include_str!/);
@@ -860,35 +866,37 @@ describe("test-expert agent — bypass-vector enumeration for source-byte regres
     expect(alwaysBlock).toMatch(/out-of-scope rationale/);
   });
 
-  it("test-expert.md cites the PR #323 worked example with all three bypass-vector categories", () => {
+  it("project knowledge cites the PR #323 worked example with all three bypass-vector categories", () => {
     // The worked example is the prompt's concrete anchor — without it, "bypass
     // vector" stays abstract. The PR #323 case spans three vector categories
     // (constant-interpolation, non-year literal, concat reconstruction) — all
     // three must be named so a future test-expert call has the templates.
-    expect(TEST_EXPERT).toMatch(/PR #323/);
+    // Lives in project knowledge (loaded by test-expert via knowledge_tags
+    // overlap on `test`) to keep the agent file itself repo-agnostic.
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/PR #323/);
 
     // Vector 1 — constant-interpolation bypass.
-    expect(TEST_EXPERT).toMatch(/Constant-interpolation/i);
-    expect(TEST_EXPERT).toMatch(/format!\("\{FILE_PREFIX\}\.\{stamp\}\{FILE_SUFFIX\}"\)/);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/Constant-interpolation/i);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/format!\("\{FILE_PREFIX\}\.\{stamp\}\{FILE_SUFFIX\}"\)/);
 
     // Vector 2 — non-year literal bypass.
-    expect(TEST_EXPERT).toMatch(/Non-year literal/i);
-    expect(TEST_EXPERT).toMatch(/"mdownreview\.placeholder\.log"/);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/Non-year literal/i);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/"mdownreview\.placeholder\.log"/);
 
     // Vector 3 — concat reconstruction.
-    expect(TEST_EXPERT).toMatch(/Concat reconstruction/i);
-    expect(TEST_EXPERT).toMatch(/concat\(\)|\.join\(""\)/);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/Concat reconstruction/i);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/concat\(\)|\.join\(""\)/);
   });
 
-  it("test-expert.md cites the forward-fix commit that closed two of the three vectors (anchor for future regressions)", () => {
+  it("project knowledge cites the forward-fix commit that closed two of the three vectors (anchor for future regressions)", () => {
     // Pin the commit SHA that adopted the bypass needles so a future
     // regression has a concrete recovery reference. If the SHA is ever
     // amended, this test will fail and force a deliberate refresh.
-    expect(TEST_EXPERT).toMatch(/9d663d8/);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/9d663d8/);
     // The placeholder needle pair from the forward-fix is the canonical
     // "what does a bypass needle look like" example.
-    expect(TEST_EXPERT).toMatch(/format!\("<prefix>\.\{/);
-    expect(TEST_EXPERT).toMatch(/format!\("<prefix>_\{/);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/format!\("<prefix>\.\{/);
+    expect(TEST_BYPASS_INCIDENTS).toMatch(/format!\("<prefix>_\{/);
   });
 
   it("test-expert.md mandates a `### Bypass-vector enumeration` block in the agent's output when the trigger fires", () => {
@@ -933,7 +941,7 @@ describe("test-expert agent — bypass-vector enumeration for source-byte regres
 
 const VALIDATOR_PATH = resolve(
   __dirname,
-  "../../.claude/agents/exe-implementation-validator.md",
+  "../../.claude/agents/exe-implementation-validator/agent.md",
 );
 const VALIDATOR = readFileSync(VALIDATOR_PATH, "utf8");
 

@@ -167,10 +167,10 @@ steps:
       - "D:/work/mdownreview2/docs/principles.md"
       - "D:/work/mdownreview2/docs/security.md"
       - "D:/work/mdownreview2/docs/test-strategy.md"
-      - "D:/work/mdownreview2/docs/best-practices-common/README.md"
-      - "D:/work/mdownreview2/docs/best-practices-common/react/composition-patterns.md"
-      - "D:/work/mdownreview2/docs/best-practices-common/react/react19-apis.md"
-      - "D:/work/mdownreview2/docs/best-practices-common/react/rendering-performance.md"
+      - "D:/work/mdownreview2/.claude/agents/README.md"
+      - "D:/work/mdownreview2/.claude/agents/react-coding-expert/knowledge/react-composition-patterns.md"
+      - "D:/work/mdownreview2/.claude/agents/react-coding-expert/knowledge/react19-apis.md"
+      - "D:/work/mdownreview2/.claude/agents/performance-expert/knowledge/react-rendering-performance.md"
   - { kind: wait, ms: 1500 }
 success_signal:
   selector: ".tab-bar [role='tab'], .tab-bar button"

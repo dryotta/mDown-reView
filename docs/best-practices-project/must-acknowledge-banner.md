@@ -1,3 +1,7 @@
+---
+tags: [ux-banners, react-composition, product, architecture]
+---
+
 # Must-Acknowledge Banner Pattern (mdownreview-specific)
 
 > **Cite as:** `pattern: must-acknowledge-banner in docs/best-practices-project/must-acknowledge-banner.md`.

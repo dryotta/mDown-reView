@@ -62,7 +62,7 @@ Satisfy all 13 acceptance criteria of #79 by replacing the welcome-screen / firs
 ### Sweep `docs/architecture.md` rule 3 (and similar count-based rules) for drift
 - **Category:** docs
 - **Problem (with evidence):** architect-expert round 1 caught `docs/architecture.md` rule 3 still claiming three onboarding-state schema-versioned records when the codebase had collapsed to one. This is the same class of drift as previous retros (`feature-issue-71-comment-ux-followup-iter-1.md` flagged similar slip).
-- **Proposed change:** Add a `documentation-expert` checklist line to its agent spec (`.claude/agents/documentation-expert.md`) explicitly: "When a refactor changes the count or list-shape of an enumerated thing (schema-versioned states, viewer types, slices, IPC commands), grep `docs/**/*.md` for the prior count word/number and update every occurrence in the same PR." Verify by running the grep on the current tree and producing zero hits for stale counts.
+- **Proposed change:** Add a `documentation-expert` checklist line to its agent spec (`.claude/agents/documentation-expert/agent.md`) explicitly: "When a refactor changes the count or list-shape of an enumerated thing (schema-versioned states, viewer types, slices, IPC commands), grep `docs/**/*.md` for the prior count word/number and update every occurrence in the same PR." Verify by running the grep on the current tree and producing zero hits for stale counts.
 - **Acceptance signal:** Agent spec updated; one-shot sweep of docs/ yields no stale enumerations against the current tree.
 - **Estimated size:** xs
 - **Confidence this matters:** medium — recurring low-grade noise that erodes docs-as-spec credibility.

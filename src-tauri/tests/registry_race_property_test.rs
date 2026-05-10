@@ -1,5 +1,5 @@
 //! Property test for rule `multiwin-atomic-registry-mutations`
-//! (docs/best-practices-common/tauri/v2-patterns.md): under N concurrent
+//! (.claude/agents/tauri-coding-expert/knowledge/tauri-v2-patterns.md): under N concurrent
 //! `WindowRegistry::try_claim_folder` calls for the same canonical folder,
 //! exactly one returns `Ok` and the registry holds exactly one
 //! `WindowKind::Folder(path)` entry pointing at the test path.

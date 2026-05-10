@@ -18,7 +18,7 @@ import { resolve } from "node:path";
 
 const AGENT_PATH = resolve(
   __dirname,
-  "../../.claude/agents/exe-task-implementer.md",
+  "../../.claude/agents/exe-task-implementer/agent.md",
 );
 const SKILL_PATH = resolve(
   __dirname,

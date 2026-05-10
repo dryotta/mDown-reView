@@ -4,7 +4,7 @@
  *
  * Tests rules `mac-lifecycle-close-hides` and
  * `mac-lifecycle-reopen-on-activate` in
- * docs/best-practices-common/tauri/macos-platform.md.
+ * .claude/agents/tauri-coding-expert/knowledge/tauri-macos-platform.md.
  *
  * Today's behaviour: the `RunEvent::WindowEvent` handler does not yet
  * intercept `CloseRequested` on macOS to call `api.prevent_close()` +
