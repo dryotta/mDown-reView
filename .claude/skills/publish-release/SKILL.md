@@ -58,7 +58,7 @@ else
 fi
 
 git --no-pager log "$LAST_TAG_RANGE" --no-merges --pretty=format:"%H%x09%s" \
-  | grep -Ev '^[a-f0-9]+\schore: release v' \
+  | grep -Ev $'^[a-f0-9]+\tchore: release v' \
   > /tmp/publish-release.commits.tsv
 ```
 
@@ -103,15 +103,17 @@ Same input always produces the same output. No subjective "is this user-facing?"
 
 ### Rules
 
-1. Parse each commit subject as `^(?<type>[a-z]+)(\((?<scope>[^)]*)\))?(?<bang>!)?:\s*(?<desc>.+)$`.
-2. **Drop entirely** if `scope` ∈ `{ci, test, build, chore, deps, docs, infra, agents, skill, release}`.
-3. Drop if subject starts with `chore: release v`.
-4. Bucket the rest by `type`:
+1. Parse each commit subject as `^(?<type>[a-z][a-z-]*)(\((?<scope>[^)]*)\))?(?<bang>!)?:\s*(?<desc>.+)$`. Subjects that don't match the conventional-commit shape (e.g. `auto-improve:` with a hyphen — covered by `[a-z-]+` — but free-form merge-style subjects) → drop.
+2. **Drop entirely** if `scope` ∈ the **infra scopes** `{ci, test, build, deps, docs, infra, agents, release}`.
+3. **Drop entirely** if `scope` matches any directory name under `.claude/skills/` (enumerated, kept in sync with the filesystem):
+   `{groom-issues, iterate-loop, iterate-one-issue, merge-pr-loop, optimize-prompt, publish-release, run-build-test, test-exploratory-e2e, test-exploratory-loop, validate-ci}`.
+4. **Drop entirely** if `type` ∈ the **non-user-facing types** `{chore, refactor, style, samples, auto-improve, wip, build, test, ci, docs, revert}` — regardless of scope. (Rule 2/3 already covered the common scoped cases; this rule handles unscoped meta commits like `chore: bump deps`, `auto-improve: …`, `refactor: …`.)
+5. Bucket the survivors by `type`:
    - `feat` → **Features**
    - `fix` or `perf` → **Fixes**
-   - everything else → **Other**
-5. Each entry is `- <desc> (<short-sha>)`.
-6. Skip empty buckets.
+   - anything else (unknown type that survived rule 4) → **Other**
+6. Each entry is `- <desc> (<short-sha>)`.
+7. Skip empty buckets. If all three buckets are empty after filtering, `exit 0` with `Nothing user-facing to release since $LAST_TAG.` — same exit semantics as Phase 1's empty-commit case.
 
 ### Output (prepend to CHANGELOG.md, create if missing)
 
@@ -171,17 +173,55 @@ declare -A PRETAG_RERUN_COUNT
 
 ### Loop
 
-1. `gh pr checks "$PR_URL" --watch` → blocks until run completes.
-2. Green → `gh pr merge "$PR_URL" --squash --auto` (or `--admin` if branch protection requires it). Phase 7.
-3. Failed → fetch failed-job names + logs:
-   ```bash
-   RUN_ID=$(gh run list --branch "release/v$NEW_VERSION" --workflow=ci.yml --limit=1 --json databaseId -q '.[0].databaseId')
-   FAILED_JOBS=$(gh run view "$RUN_ID" --json jobs -q '.jobs[] | select(.conclusion=="failure") | .name')
-   ```
-4. Classify per **Failure Classification**.
-5. Flake → if `${PRETAG_RERUN_COUNT[$job]:-0} < PRETAG_RERUN_BUDGET_PER_JOB`, `gh run rerun "$RUN_ID" --failed`, increment counter, loop to 1.
-6. Real failure → if `PRETAG_FIX_ATTEMPTS < PRETAG_FIX_CAP`, inline fix, `git commit --amend --no-edit || git commit -m "fix: ..."`, `git push --force-with-lease origin "release/v$NEW_VERSION"`, increment, loop to 1.
-7. Budget exhausted or unclassified → HALT.
+```bash
+while :; do
+  if gh pr checks "$PR_URL" --watch; then
+    # All checks green — squash-merge directly. The skill has already
+    # watched checks to completion, so --admin is deterministic; --auto
+    # would also work but can hang if branch protection updates mid-run.
+    gh pr merge "$PR_URL" --squash --admin --delete-branch
+    break  # → Phase 7
+  fi
+
+  # One or more checks failed. Fetch failed-job names + URLs.
+  RUN_ID=$(gh run list --branch "release/v$NEW_VERSION" --workflow=ci.yml \
+    --limit=1 --json databaseId -q '.[0].databaseId')
+  FAILED_JOBS=$(gh run view "$RUN_ID" --json jobs \
+    -q '.jobs[] | select(.conclusion=="failure") | .name')
+
+  # Classify per Failure Classification (first match wins).
+  CLASS=$(classify "$RUN_ID")  # flake | signing | lockfile-drift | …
+
+  case "$CLASS" in
+    flake)
+      # Per-job rerun cap.
+      for job in $FAILED_JOBS; do
+        if (( ${PRETAG_RERUN_COUNT[$job]:-0} < PRETAG_RERUN_BUDGET_PER_JOB )); then
+          gh run rerun "$RUN_ID" --failed
+          PRETAG_RERUN_COUNT[$job]=$(( ${PRETAG_RERUN_COUNT[$job]:-0} + 1 ))
+        else
+          halt "flake budget exhausted on $job"
+        fi
+      done
+      ;;
+    lockfile-drift|bindings-drift|changelog/version-mismatch)
+      if (( PRETAG_FIX_ATTEMPTS < PRETAG_FIX_CAP )); then
+        inline_fix "$CLASS"   # see "Expected inline fixes" below
+        git add -A
+        git commit --amend --no-edit 2>/dev/null \
+          || git commit -m "fix(release): $CLASS"
+        git push --force-with-lease origin "release/v$NEW_VERSION"
+        ((PRETAG_FIX_ATTEMPTS++))
+      else
+        halt "fix-attempt budget exhausted ($PRETAG_FIX_ATTEMPTS/$PRETAG_FIX_CAP)"
+      fi
+      ;;
+    signing|fixable-build|regression|unclassified)
+      halt "$CLASS — see Failure Classification table"
+      ;;
+  esac
+done
+```
 
 ### Expected inline fixes
 
@@ -256,8 +296,13 @@ git checkout main && git pull --ff-only
 # Examples: NSIS hook syntax, stage-cli profile detection, bundle target
 # list, missing platform-conditional. >50 LoC → HALT.
 
-# Phase 3: update version files.
-# Phase 4: prepend CHANGELOG entry under "## v$NEW_VERSION — <date>" with
+# Phase 3: update version files (no Phase 4 re-classification — the
+#   user-facing changelog for the underlying commits is already merged
+#   into main as the "## v$PREV_FAILED" entry; we only ADD a supersession
+#   marker at the top so the missing tag is auditable).
+# Phase 4 (re-roll variant): prepend a minimal entry — supersession line ONLY:
+#   ## v$NEW_VERSION — <date>
+#
 #   ### Other
 #   - chore(release): supersedes failed v$PREV_FAILED — <one-line cause>
 
@@ -335,7 +380,7 @@ When budget is exhausted or a non-fixable class is hit:
    Remediation:   <class-specific message>
    ```
 2. Pre-tag HALT (PR not yet merged): leave branch and PR in place — preserves debugging context.
-3. Post-tag HALT: tag stays in place. For `signing` class, the tag is fine — fix the secret and re-trigger via `gh workflow run release.yml --ref v$NEW_VERSION`.
+3. Post-tag HALT: tag stays in place. For `signing` class, the tag is fine — fix the secret, then re-trigger via `gh workflow run release.yml --ref "v$NEW_VERSION" -f tag="v$NEW_VERSION"` (the `tag` input is `required: true` per `release.yml`).
 4. Print Phase 9 summary with `HALTED: <class>` in the Release URL row.
 5. `exit 1`.
 
@@ -347,7 +392,7 @@ Documented for human follow-up; the skill does not invoke them during HALT.
 
 - Delete tag + release: `gh release delete "v$VERSION" --cleanup-tag --yes`
 - Delete release branch: `git push origin --delete "release/v$VERSION"; git checkout main; git branch -D "release/v$VERSION"`
-- Re-trigger release.yml after secret fix: `gh workflow run release.yml --ref "v$NEW_VERSION"`
+- Re-trigger release.yml after secret fix: `gh workflow run release.yml --ref "v$NEW_VERSION" -f tag="v$NEW_VERSION"`
 
 ---
 
