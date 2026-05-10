@@ -345,6 +345,17 @@ jobs:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
 
+      - name: Stage placeholder CLI binary for Tauri externalBin check
+        # tauri-build's externalBin existence check (Path::exists() +
+        # Path::is_file()) is satisfied by a 0-byte file at the staged path
+        # — see scripts/stage-cli.mjs comment around the writeFileSync
+        # placeholder. Benches do not link the CLI bin, so the full
+        # `npm run stage:cli` (which actually builds mdownreview-cli) would
+        # be wasted work in this compile-only gate.
+        run: |
+          mkdir -p src-tauri/binaries
+          touch src-tauri/binaries/mdownreview-cli-x86_64-unknown-linux-gnu
+
       - name: Compile-gate benches (cargo bench --no-run)
         # Catches bench code rot. `cargo test` does NOT compile benches/;
         # only `cargo bench` (or `--all-targets`) does. Running with
@@ -406,6 +417,18 @@ jobs:
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
+
+      - name: Stage placeholder CLI binary for Tauri externalBin check
+        # tauri-build's externalBin existence check (Path::exists() +
+        # Path::is_file()) is satisfied by a 0-byte file at the staged path
+        # — see scripts/stage-cli.mjs comment around the writeFileSync
+        # placeholder. The example and benches do not link the CLI bin,
+        # so the full `npm run stage:cli` (which actually builds
+        # mdownreview-cli in debug profile) would just add wasted work
+        # on a separate cargo-fingerprint to this release-ci job.
+        run: |
+          mkdir -p src-tauri/binaries
+          touch src-tauri/binaries/mdownreview-cli-x86_64-unknown-linux-gnu
 
       - name: Generate bench fixtures
         # Populates target/bench-fixtures/ (gitignored) used by matching_bench,
