@@ -188,6 +188,23 @@ panic = "abort"
 # `hot_path_bench.rs` if this changes.
 opt-level = "s"
 
+# Note: `trim-paths = "all"` would strip builder-host paths from the
+# binary but is unstable in Cargo as of 1.95 (requires nightly + `-Z
+# trim-paths`). Re-evaluate when the feature stabilises.
+
+# Fast PR-validation profile inherited from release. Drops LTO and
+# splits codegen units so a clean `cargo build --profile release-ci`
+# completes ~5× faster on Windows than the production release profile.
+# Used by CI's build-matrix jobs to validate compile/link/bundle on
+# every PR without paying the ~10-12 min ThinLTO cost. Production
+# (canary + release) builds still use `[profile.release]` proper, so
+# shipped artefacts retain ThinLTO + opt-level=s + strip + trim-paths.
+[profile.release-ci]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+strip = false
+
 [[bench]]
 name = "sidecar_bench"
 harness = false

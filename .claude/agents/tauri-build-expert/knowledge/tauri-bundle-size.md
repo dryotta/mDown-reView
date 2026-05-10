@@ -56,7 +56,7 @@ Document the choice with a comment when picking anything other than `"s"`.
 
 ### `cargo-trim-paths-removes-leaks`
 
-`trim-paths = "all"` (stable in Rust 1.81+) removes absolute build-host paths from the binary (`/Users/alice/.cargo/registry/...`). These paths leak the developer's username and home directory in stack traces. Add it to the release profile when shipping reproducible / privacy-respecting builds.
+`trim-paths = "all"` removes absolute build-host paths from the binary (`/Users/alice/.cargo/registry/...`). These paths leak the developer's username and home directory in stack traces. The feature is stable as a `rustc -Cstrip-paths` flag but is **unstable in Cargo's `[profile]` syntax** as of Cargo 1.95 — it requires nightly + `-Z trim-paths`. Re-evaluate when stabilised in stable Cargo. Until then, mitigate by running production builds in CI sandboxes whose paths don't leak meaningful identity.
 
 ### `cargo-incremental-dev-only`
 

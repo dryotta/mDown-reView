@@ -1,5 +1,12 @@
 name: Release
 
+# Tag-triggered release workflow. Delegates build + signing + verification to
+# ci.yml via workflow_call (sign=true, profile=release). Wrapper workflow
+# only handles release-creation, asset renaming, manifest publication, and
+# undraft. If CI passes, this workflow cannot fail downstream — every
+# canary/release-specific check (DMG layout, ad-hoc sig, updater asset
+# presence) lives inside ci.yml itself.
+
 on:
   push:
     tags:
@@ -8,30 +15,66 @@ on:
     inputs:
       tag:
         description: 'Tag to release (e.g. v0.2.2)'
+        type: string
         required: true
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  # Named static group so release publishes serialize. Never cancel an
+  # in-progress release — half-published GitHub releases are user-visible.
+  group: release-publish
+  cancel-in-progress: false
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
+  # ── Resolve tag (env-var indirected to avoid script injection) ──────────
+  resolve-tag:
+    name: Resolve tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+    permissions:
+      contents: read
+    steps:
+      - name: Validate + emit tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$DISPATCH_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::Refusing to release tag '$TAG' — expected vMAJOR.MINOR.PATCH[-pre]"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  # ── Create draft release ────────────────────────────────────────────────
+  create-release:
+    name: Create draft release
+    needs: resolve-tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Get tag name
-        id: tag
+      - name: Create draft release if absent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-      - name: Create draft release
-        run: |
-          # Skip creation if release already exists (re-run scenario)
-          gh release view "${{ steps.tag.outputs.tag }}" &>/dev/null || \
-          gh release create "${{ steps.tag.outputs.tag }}" \
+          gh release view "$TAG" &>/dev/null && exit 0
+          gh release create "$TAG" \
             --draft \
-            --title "mdownreview ${{ steps.tag.outputs.tag }}" \
+            --title "mdownreview $TAG" \
             --notes "## Install
 
           ### Script install (recommended)
@@ -66,249 +109,112 @@ jobs:
           ### Why is the app unsigned?
 
           See [docs/features/installation.md](https://github.com/dryotta/mdownreview/blob/main/docs/features/installation.md) for the rationale and security trade-offs."
+
+  # ── Delegate build + verify to ci.yml ───────────────────────────────────
+  ci:
+    name: CI (signed, release profile)
+    needs: resolve-tag
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.resolve-tag.outputs.tag }}
+      profile: release
+      sign: true
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+  # ── Rename + upload artefacts to the GitHub release ─────────────────────
+  upload-assets:
+    name: Upload assets
+    needs: [resolve-tag, create-release, ci]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts/
+
+      - name: List downloaded artefacts
+        run: ls -la artefacts/ artefacts/*/
+
+      - name: Rename + upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build:
-    needs: create-release
-    name: Build (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: windows-x64
-            rust_target: x86_64-pc-windows-msvc
-            target_dir: src-tauri/target/release
-            tauri_args: ""
-          - os: windows-latest
-            name: windows-arm64
-            rust_target: aarch64-pc-windows-msvc
-            target_dir: src-tauri/target/aarch64-pc-windows-msvc/release
-            tauri_args: "--target aarch64-pc-windows-msvc"
-          - os: macos-latest
-            name: macos-arm64
-            rust_target: aarch64-apple-darwin
-            target_dir: src-tauri/target/release
-            tauri_args: ""
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Set up Node.js (LTS)
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Clean stale bundles from cache
-        shell: bash
-        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
-
-      - name: Stage CLI binary (build + copy to externalBin path)
-        shell: bash
-        run: node scripts/stage-cli.mjs --release --target "${{ matrix.rust_target }}"
-
-      - name: Build Tauri app
-        shell: bash
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
-          # Retry to absorb the well-known macOS bundle_dmg.sh / hdiutil /
-          # AppleScript flakiness (tauri-apps/tauri#3055, electron-builder#3115).
-          attempt=1
-          max_attempts=2
-          while [ $attempt -le $max_attempts ]; do
-            echo "::group::Build attempt $attempt of $max_attempts"
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              killall Finder 2>/dev/null || true
-              hdiutil info | awk '/image-path/ {print $NF}' | while read -r p; do
-                hdiutil detach "$p" -force 2>/dev/null || true
-              done
-              rm -rf src-tauri/target/release/bundle/dmg src-tauri/target/*/release/bundle/dmg 2>/dev/null || true
-            fi
-            if [ -n "${{ matrix.tauri_args }}" ]; then
-              npm run tauri:build -- ${{ matrix.tauri_args }} && { echo "::endgroup::"; exit 0; }
-            else
-              npm run tauri:build && { echo "::endgroup::"; exit 0; }
-            fi
-            echo "::warning::Build attempt $attempt failed"
-            echo "::endgroup::"
-            attempt=$((attempt + 1))
-          done
-          echo "::error::All $max_attempts build attempts failed"
-          exit 1
-        env:
-          STAGE_CLI_TARGET: ${{ matrix.rust_target }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: Verify ad-hoc signing (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          # Use matrix.target_dir (single, always-correct path) like the DMG verify step.
-          # A dual-glob `ls a/*.app b/*.app` here aborted the script silently under
-          # `set -e -o pipefail` whenever one glob didn't expand: bash kept the literal,
-          # ls errored on it (stderr suppressed), and pipefail propagated the non-zero
-          # exit through `| head -1`. Single glob matches the bundle path Tauri actually
-          # produced and avoids that booby-trap.
-          APP_PATH=$(ls -d ${{ matrix.target_dir }}/bundle/macos/*.app 2>/dev/null | head -1)
-          [ -n "$APP_PATH" ] || { echo "::error::No .app bundle found"; exit 1; }
-          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | tee codesign.log
-          grep -q 'Signature=adhoc' codesign.log || { echo "::error::App is not ad-hoc signed"; exit 1; }
-          codesign -dv --verbose=4 "$APP_PATH/Contents/MacOS/mdownreview-cli" 2>&1 | tee codesign-cli.log
-          grep -q 'Signature=adhoc' codesign-cli.log || { echo "::error::Embedded CLI is not ad-hoc signed"; exit 1; }
-          echo "✓ App and embedded CLI are ad-hoc signed"
-
-      - name: Verify DMG layout (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          DMG=$(ls -t ${{ matrix.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
-          [ -n "$DMG" ] || { echo "::error::No DMG found to verify"; exit 1; }
-          echo "Verifying DMG layout: $DMG"
-          # Defensive: detach any existing mount of THIS DMG before attaching ourselves.
-          # Tauri's bundle_dmg.sh has historically left the DMG attached in some
-          # failure modes (tauri-apps/tauri#3055, electron-builder#3115), which makes
-          # our `hdiutil attach` below fail silently with "Resource busy".
-          DMG_ABS=$(cd "$(dirname "$DMG")" && pwd)/$(basename "$DMG")
-          hdiutil info | awk -v target="$DMG_ABS" '
-            BEGIN { path="" }
-            /^=+$/ { path=""; next }
-            $1 == "image-path" { sub(/^image-path[ \t]*:[ \t]*/, ""); path=$0; next }
-            $1 ~ /^\/dev\/disk[0-9]+$/ && path == target { print $1 }
-          ' | while IFS= read -r dev; do
-            hdiutil detach "$dev" -force >/dev/null 2>&1 || true
-          done
-          # Single attach with stderr captured. Avoid PlistBuddy ":system-entities:0:mount-point":
-          # Tauri DMGs put the GUID-partition-scheme entity at index 0 (no mount-point);
-          # the actual filesystem entity with mount-point is at index 1+. PlistBuddy errors
-          # there were silently swallowed by 2>/dev/null + ||true, leaving the DMG mounted
-          # while the fallback retried and tripped "Resource busy".
-          if ! ATTACH_OUT=$(hdiutil attach -nobrowse -readonly "$DMG" 2>&1); then
-            echo "::error::hdiutil attach failed"
-            echo "$ATTACH_OUT"
-            exit 1
-          fi
-          echo "$ATTACH_OUT"
-          # Use match()+substr() — `sub(/^[^\/]*/, "")` is broken for hdiutil lines that
-          # already start with `/dev/...` (it strips zero chars and prints the whole line,
-          # so $MOUNT becomes the entire `/dev/diskN  Apple_HFS  /Volumes/Foo` row and
-          # `[ -d "$MOUNT" ]` fails). match()/substr() also preserves spaces in volume names.
-          MOUNT=$(echo "$ATTACH_OUT" | awk 'match($0, /\/Volumes\/.*/) { print substr($0, RSTART); exit }')
-          [ -n "$MOUNT" ] && [ -d "$MOUNT" ] || { echo "::error::Failed to mount DMG"; exit 1; }
-          trap 'hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true' EXIT
-          echo "Mounted at: $MOUNT"
-          ls -la "$MOUNT"
-          [ -L "$MOUNT/Applications" ] || { echo "::error::Applications symlink missing in DMG"; exit 1; }
-          echo "✓ DMG mounts cleanly and contains the Applications symlink"
-
-      - name: Rename and upload artifacts
-        shell: bash
-        run: |
-          TAG="${{ needs.create-release.outputs.tag }}"
+          set -e
           VERSION="${TAG#v}"
-          NAME="mdownreview-${VERSION}-${{ matrix.name }}"
+          for plat in windows-x64 windows-arm64 macos-arm64; do
+            base="mdownreview-${VERSION}-${plat}"
+            indir="artefacts/${plat}"
+            [ -d "$indir" ] || { echo "::error::Missing artefact dir for $plat"; exit 1; }
+            case "$plat" in
+              windows-*)
+                cp "${indir}/mdownreview-${plat}.zip" "${base}.zip"
+                gh release upload "$TAG" "${base}.zip" --clobber
+                if [ -s "${indir}/mdownreview-${plat}.zip.sig" ]; then
+                  cp "${indir}/mdownreview-${plat}.zip.sig" "${base}.zip.sig"
+                  gh release upload "$TAG" "${base}.zip.sig" --clobber
+                else
+                  echo "::error::Missing .sig for $plat"; exit 1
+                fi
+                ;;
+              macos-*)
+                cp "${indir}/mdownreview-${plat}.dmg" "${base}.dmg"
+                gh release upload "$TAG" "${base}.dmg" --clobber
+                cp "${indir}/mdownreview-${plat}.app.tar.gz" "${base}.app.tar.gz"
+                gh release upload "$TAG" "${base}.app.tar.gz" --clobber
+                if [ -s "${indir}/mdownreview-${plat}.app.tar.gz.sig" ]; then
+                  cp "${indir}/mdownreview-${plat}.app.tar.gz.sig" "${base}.app.tar.gz.sig"
+                  gh release upload "$TAG" "${base}.app.tar.gz.sig" --clobber
+                else
+                  echo "::error::Missing .sig for $plat updater"; exit 1
+                fi
+                ;;
+            esac
+          done
 
-          if [[ "${{ matrix.name }}" == windows-* ]]; then
-            # Rename the NSIS zip (serves as both download and updater artifact)
-            nsis_zip=$(ls -t ${{ matrix.target_dir }}/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
-            [ -z "$nsis_zip" ] && { echo "::error::NSIS zip not found"; exit 1; }
-            cp "$nsis_zip" "${NAME}.zip"
-            gh release upload "$TAG" "${NAME}.zip" --clobber
-
-            # Upload CLI binary
-            cli_bin=$(find ${{ matrix.target_dir }} -maxdepth 1 -name "mdownreview-cli.exe" 2>/dev/null | head -1)
-            if [ -n "$cli_bin" ]; then
-              cp "$cli_bin" "mdownreview-cli-${VERSION}-${{ matrix.name }}.exe"
-              gh release upload "$TAG" "mdownreview-cli-${VERSION}-${{ matrix.name }}.exe" --clobber
-            fi
-
-            # Upload the signature file with matching name
-            sig="${nsis_zip}.sig"
-            if [ -f "$sig" ]; then
-              cp "$sig" "${NAME}.zip.sig"
-              gh release upload "$TAG" "${NAME}.zip.sig" --clobber
-            fi
-          else
-            # Rename the DMG for human download
-            dmg=$(ls -t ${{ matrix.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
-            [ -z "$dmg" ] && { echo "::error::DMG not found"; exit 1; }
-            cp "$dmg" "${NAME}.dmg"
-            gh release upload "$TAG" "${NAME}.dmg" --clobber
-
-            # Upload CLI binary
-            cli_bin=$(find ${{ matrix.target_dir }} -maxdepth 1 -name "mdownreview-cli" 2>/dev/null | head -1)
-            if [ -n "$cli_bin" ]; then
-              cp "$cli_bin" "mdownreview-cli-${VERSION}-${{ matrix.name }}"
-              gh release upload "$TAG" "mdownreview-cli-${VERSION}-${{ matrix.name }}" --clobber
-            fi
-
-            # Rename the .app.tar.gz updater bundle
-            app_tar=$(ls -t ${{ matrix.target_dir }}/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
-            if [ -n "$app_tar" ]; then
-              cp "$app_tar" "${NAME}.app.tar.gz"
-              gh release upload "$TAG" "${NAME}.app.tar.gz" --clobber
-              sig="${app_tar}.sig"
-              if [ -f "$sig" ]; then
-                cp "$sig" "${NAME}.app.tar.gz.sig"
-                gh release upload "$TAG" "${NAME}.app.tar.gz.sig" --clobber
-              fi
-            fi
-          fi
+  # ── Publish updater manifest ────────────────────────────────────────────
+  publish-update-manifest:
+    name: Publish update manifest
+    needs: [resolve-tag, upload-assets]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Build + upload latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Native E2E tests run in release-gate.yml before merge.
-  # They require WebView2 + CDP on a Windows runner (debug binary).
-
-  publish-update-manifest:
-    needs: [create-release, build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build and upload latest.json
-        shell: bash
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
-          TAG="${{ needs.create-release.outputs.tag }}"
+          set -e
           VERSION="${TAG#v}"
           BASE_URL="https://github.com/dryotta/mdownreview/releases/download/${TAG}"
           NAME="mdownreview-${VERSION}"
-
           mkdir -p /tmp/sigs
-
-          # Read signature file content from a release asset
           read_sig() {
             local asset_name="$1"
             gh release download "$TAG" --pattern "${asset_name}" --dir /tmp/sigs 2>/dev/null || true
-            cat "/tmp/sigs/${asset_name}" 2>/dev/null || echo ""
+            local content
+            content=$(cat "/tmp/sigs/${asset_name}" 2>/dev/null || echo "")
+            if [ -z "$content" ]; then
+              echo "::error::Missing or empty signature: $asset_name"
+              return 1
+            fi
+            echo "$content"
           }
-
-          # Verify all required updater assets exist before generating manifest
           for asset in "${NAME}-windows-x64.zip" "${NAME}-windows-arm64.zip" "${NAME}-macos-arm64.app.tar.gz"; do
             gh release view "$TAG" --json assets --jq ".assets[].name" | grep -q "^${asset}$" || \
               { echo "::error::Required updater asset not found: $asset"; exit 1; }
           done
-
           WIN_X64_SIG=$(read_sig "${NAME}-windows-x64.zip.sig")
           WIN_ARM64_SIG=$(read_sig "${NAME}-windows-arm64.zip.sig")
           MAC_ARM64_SIG=$(read_sig "${NAME}-macos-arm64.app.tar.gz.sig")
-
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
           cat > /tmp/latest.json <<EOF
           {
             "version": "${VERSION}",
@@ -330,17 +236,19 @@ jobs:
             }
           }
           EOF
-
           gh release upload "$TAG" /tmp/latest.json --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── Undraft ─────────────────────────────────────────────────────────────
   publish-release:
-    needs: [create-release, build, publish-update-manifest]
-    runs-on: ubuntu-latest
+    name: Publish release (undraft)
+    needs: [resolve-tag, publish-update-manifest]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Publish release
-        run: gh release edit "${{ needs.create-release.outputs.tag }}" --draft=false
+      - name: Undraft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false

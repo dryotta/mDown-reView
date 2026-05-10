@@ -1,5 +1,12 @@
 name: Canary Build
 
+# Push-to-main canary release. Delegates build + signing + verification to
+# ci.yml via workflow_call. Wrapper handles version-patching the source
+# tree, creating the canary GitHub release, asset rename + upload, and
+# updater-manifest publish. The mutable `canary` tag is updated last so
+# auto-update clients only see the new version after every artefact is
+# verified present.
+
 on:
   push:
     branches: [main]
@@ -10,20 +17,32 @@ on:
       - '.github/workflows/pages.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: canary
-  cancel-in-progress: true
+  # Named static group so canary publishes serialize. Never cancel an
+  # in-progress canary — half-published canary releases would point at
+  # missing assets, breaking auto-update for every canary client.
+  group: canary-publish
+  cancel-in-progress: false
 
 jobs:
+  # ── Compute canary version + patch source tree ──────────────────────────
   prepare:
-    runs-on: ubuntu-latest
+    name: Prepare canary version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      patched_branch: ${{ steps.patch.outputs.branch }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Compute canary version
         id: version
         run: |
@@ -34,186 +53,143 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Canary version: ${VERSION} (tag: ${TAG})"
 
-  build:
-    needs: prepare
-    name: Build (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: windows-x64
-            rust_target: x86_64-pc-windows-msvc
-            target_dir: src-tauri/target/release
-            tauri_args: ""
-          - os: windows-latest
-            name: windows-arm64
-            rust_target: aarch64-pc-windows-msvc
-            target_dir: src-tauri/target/aarch64-pc-windows-msvc/release
-            tauri_args: "--target aarch64-pc-windows-msvc"
-          - os: macos-latest
-            name: macos-arm64
-            rust_target: aarch64-apple-darwin
-            target_dir: src-tauri/target/release
-            tauri_args: ""
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Patch canary version
-        shell: bash
+      - name: Patch version into source tree + push branch
+        id: patch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          # tauri.conf.json
+          set -e
           node -e "
             const fs = require('fs');
             const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            conf.version = '${VERSION}';
+            conf.version = process.env.VERSION;
             fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
           "
-          # Cargo.toml
           sed -i.bak "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
           rm -f src-tauri/Cargo.toml.bak
-          echo "Patched version to ${VERSION}"
+          BRANCH="canary-build/${TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add src-tauri/tauri.conf.json src-tauri/Cargo.toml
+          git commit -m "chore(canary): patch version to ${VERSION}"
+          git push --force origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+  # ── Delegate build + verify to ci.yml ───────────────────────────────────
+  ci:
+    name: CI (signed, release profile)
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.patched_branch }}
+      profile: release
+      sign: true
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+  # ── Create immutable canary-N release + upload assets ───────────────────
+  publish-canary-release:
+    name: Publish canary-${{ github.run_number }}
+    needs: [prepare, ci]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artefacts
+        uses: actions/download-artifact@v4
         with:
-          targets: ${{ matrix.rust_target }}
+          path: artefacts/
 
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Set up Node.js (LTS)
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Clean stale bundles from cache
-        shell: bash
-        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
-
-      - name: Stage CLI binary (build + copy to externalBin path)
-        shell: bash
-        run: node scripts/stage-cli.mjs --release --target "${{ matrix.rust_target }}"
-
-      - name: Build Tauri app
-        shell: bash
-        run: |
-          # Retry to absorb the well-known macOS bundle_dmg.sh / hdiutil /
-          # AppleScript flakiness (tauri-apps/tauri#3055, electron-builder#3115).
-          attempt=1
-          max_attempts=2
-          while [ $attempt -le $max_attempts ]; do
-            echo "::group::Build attempt $attempt of $max_attempts"
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              killall Finder 2>/dev/null || true
-              hdiutil info | awk '/image-path/ {print $NF}' | while read -r p; do
-                hdiutil detach "$p" -force 2>/dev/null || true
-              done
-              rm -rf src-tauri/target/release/bundle/dmg src-tauri/target/*/release/bundle/dmg 2>/dev/null || true
-            fi
-            if [ -n "${{ matrix.tauri_args }}" ]; then
-              npm run tauri:build -- ${{ matrix.tauri_args }} && { echo "::endgroup::"; exit 0; }
-            else
-              npm run tauri:build && { echo "::endgroup::"; exit 0; }
-            fi
-            echo "::warning::Build attempt $attempt failed"
-            echo "::endgroup::"
-            attempt=$((attempt + 1))
-          done
-          echo "::error::All $max_attempts build attempts failed"
-          exit 1
+      - name: Create canary release + upload assets
         env:
-          STAGE_CLI_TARGET: ${{ matrix.rust_target }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: Rename and upload artifacts
-        shell: bash
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          TAG="${{ needs.prepare.outputs.tag }}"
-          VERSION="${{ needs.prepare.outputs.version }}"
-          NAME="mdownreview-${VERSION}-${{ matrix.name }}"
-
-          # Create the immutable canary release if it doesn't exist
-          gh release view "$TAG" &>/dev/null 2>&1 || \
+          set -e
+          NAME="mdownreview-${VERSION}"
+          gh release view "$TAG" &>/dev/null || \
           gh release create "$TAG" \
             --prerelease \
             --title "Canary Build #${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes "Canary build from main at \`${GITHUB_SHA::7}\`."
+          for plat in windows-x64 windows-arm64 macos-arm64; do
+            base="${NAME}-${plat}"
+            indir="artefacts/${plat}"
+            [ -d "$indir" ] || { echo "::error::Missing artefact dir for $plat"; exit 1; }
+            case "$plat" in
+              windows-*)
+                cp "${indir}/mdownreview-${plat}.zip" "${base}.zip"
+                gh release upload "$TAG" "${base}.zip" --clobber
+                if [ -s "${indir}/mdownreview-${plat}.zip.sig" ]; then
+                  cp "${indir}/mdownreview-${plat}.zip.sig" "${base}.zip.sig"
+                  gh release upload "$TAG" "${base}.zip.sig" --clobber
+                else
+                  echo "::error::Missing .sig for $plat"; exit 1
+                fi
+                ;;
+              macos-*)
+                cp "${indir}/mdownreview-${plat}.dmg" "${base}.dmg"
+                gh release upload "$TAG" "${base}.dmg" --clobber
+                cp "${indir}/mdownreview-${plat}.app.tar.gz" "${base}.app.tar.gz"
+                gh release upload "$TAG" "${base}.app.tar.gz" --clobber
+                if [ -s "${indir}/mdownreview-${plat}.app.tar.gz.sig" ]; then
+                  cp "${indir}/mdownreview-${plat}.app.tar.gz.sig" "${base}.app.tar.gz.sig"
+                  gh release upload "$TAG" "${base}.app.tar.gz.sig" --clobber
+                else
+                  echo "::error::Missing .sig for $plat updater"; exit 1
+                fi
+                ;;
+            esac
+          done
 
-          if [[ "${{ matrix.name }}" == windows-* ]]; then
-            nsis_zip=$(ls -t ${{ matrix.target_dir }}/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
-            [ -z "$nsis_zip" ] && { echo "::error::NSIS zip not found"; exit 1; }
-            cp "$nsis_zip" "${NAME}.zip"
-            gh release upload "$TAG" "${NAME}.zip" --clobber
-
-            sig="${nsis_zip}.sig"
-            if [ -f "$sig" ]; then
-              cp "$sig" "${NAME}.zip.sig"
-              gh release upload "$TAG" "${NAME}.zip.sig" --clobber
-            fi
-          else
-            dmg=$(ls -t ${{ matrix.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
-            [ -z "$dmg" ] && { echo "::error::DMG not found"; exit 1; }
-            cp "$dmg" "${NAME}.dmg"
-            gh release upload "$TAG" "${NAME}.dmg" --clobber
-
-            app_tar=$(ls -t ${{ matrix.target_dir }}/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
-            if [ -n "$app_tar" ]; then
-              cp "$app_tar" "${NAME}.app.tar.gz"
-              gh release upload "$TAG" "${NAME}.app.tar.gz" --clobber
-              sig="${app_tar}.sig"
-              if [ -f "$sig" ]; then
-                cp "$sig" "${NAME}.app.tar.gz.sig"
-                gh release upload "$TAG" "${NAME}.app.tar.gz.sig" --clobber
-              fi
-            fi
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+  # ── Update mutable `canary` tag → manifest pointer ──────────────────────
   publish-canary-manifest:
-    needs: [prepare, build]
-    runs-on: ubuntu-latest
+    name: Publish canary manifest
+    needs: [prepare, publish-canary-release]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and publish canary-latest.json
-        shell: bash
+      - name: Build + publish canary-latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          TAG="${{ needs.prepare.outputs.tag }}"
-          VERSION="${{ needs.prepare.outputs.version }}"
+          set -e
           BASE_URL="https://github.com/dryotta/mdownreview/releases/download/${TAG}"
           NAME="mdownreview-${VERSION}"
-
           mkdir -p /tmp/sigs
-
           read_sig() {
             local asset_name="$1"
             gh release download "$TAG" --pattern "${asset_name}" --dir /tmp/sigs 2>/dev/null || true
-            cat "/tmp/sigs/${asset_name}" 2>/dev/null || echo ""
+            local content
+            content=$(cat "/tmp/sigs/${asset_name}" 2>/dev/null || echo "")
+            if [ -z "$content" ]; then
+              echo "::error::Missing or empty signature: $asset_name"
+              return 1
+            fi
+            echo "$content"
           }
-
-          # Verify all updater assets exist
           for asset in "${NAME}-windows-x64.zip" "${NAME}-windows-arm64.zip" "${NAME}-macos-arm64.app.tar.gz"; do
             gh release view "$TAG" --json assets --jq ".assets[].name" | grep -q "^${asset}$" || \
               { echo "::error::Required updater asset not found: $asset"; exit 1; }
           done
-
           WIN_X64_SIG=$(read_sig "${NAME}-windows-x64.zip.sig")
           WIN_ARM64_SIG=$(read_sig "${NAME}-windows-arm64.zip.sig")
           MAC_ARM64_SIG=$(read_sig "${NAME}-macos-arm64.app.tar.gz.sig")
-
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
           cat > /tmp/canary-latest.json <<EOF
           {
             "version": "${VERSION}",
@@ -235,8 +211,6 @@ jobs:
             }
           }
           EOF
-
-          # Update the mutable "canary" release (manifest pointer only)
           gh release delete canary --yes 2>/dev/null || true
           git tag -f canary
           git push origin canary --force
@@ -245,21 +219,16 @@ jobs:
             --title "Canary (latest)" \
             --notes "Points to the latest canary build. Auto-updated on each main push."
           gh release upload canary /tmp/canary-latest.json --clobber
-
           echo "Published canary-latest.json pointing to ${TAG}"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Clean up old canary releases (keep last 5)
-        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # List canary-N releases sorted by creation date (oldest first)
           RELEASES=$(gh release list --json tagName,createdAt \
             --jq '[.[] | select(.tagName | startswith("canary-"))] | sort_by(.createdAt) | .[].tagName')
-
           COUNT=$(echo "$RELEASES" | wc -l)
           KEEP=5
-
           if [ "$COUNT" -gt "$KEEP" ]; then
             DELETE_COUNT=$((COUNT - KEEP))
             echo "Cleaning up ${DELETE_COUNT} old canary releases (keeping last ${KEEP})"
@@ -270,5 +239,23 @@ jobs:
           else
             echo "Only ${COUNT} canary releases, nothing to clean up"
           fi
+
+  # ── Clean up the patched-version branch ─────────────────────────────────
+  cleanup:
+    name: Clean up patched branch
+    needs: [prepare, publish-canary-manifest]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Delete patched branch
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ needs.prepare.outputs.patched_branch }}
+        run: |
+          if [ -n "$BRANCH" ]; then
+            git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1 && \
+              git push origin --delete "$BRANCH" || echo "Branch $BRANCH already gone."
+          fi

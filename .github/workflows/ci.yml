@@ -1,80 +1,109 @@
 name: CI
 
+# Single converged workflow gating every PR to main + reused by canary/release.
+#
+# Triggers:
+#   - pull_request: PR validation (no signing, no secrets, fast profile).
+#   - push to main: post-merge sanity (no signing, no secrets).
+#   - workflow_call: invoked by canary.yml and release.yml with sign=true and
+#     profile=release to produce signed updater artefacts.
+#
+# Branch-protection contract: the aggregate gate `Test (Linux)` is the single
+# required check. It runs on EVERY PR (no path filter) so the gate always
+# reports a status — docs-only PRs see all heavy jobs skipped via the
+# `changes` job's `code` output, and the gate accepts skip-on-skip.
+
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'src-tauri/**'
-      - 'e2e/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'vite.config.*'
-      - 'tsconfig*'
-      - 'vitest.config.*'
-      - 'playwright.config.*'
-      - 'eslint.config.*'
-      - '.github/workflows/ci.yml'
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        description: Ref to checkout (release/canary callers pass this; PR/push leave empty).
+      profile:
+        type: string
+        default: release-ci
+        description: Cargo profile for build matrix. PR/push use `release-ci` (fast, no LTO). canary/release callers pass `release` for production-quality output.
+      sign:
+        type: boolean
+        default: false
+        description: Whether to sign artefacts and emit `.sig` files. canary/release callers pass `true`. PR/push are always unsigned.
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Per-PR group cancels stale runs on push; per-ref group on push to main and
+  # workflow_call lets each named release/canary version build to completion.
+  group: ci-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # ── Rust tests (Linux) ───────────────────────────────────────────────────
-  # Runs in parallel with vitest, e2e-browser, and the build matrix.
-  rust-test:
-    name: Rust tests (Linux)
+  # ─────────────────────────────────────────────────────────────────────────
+  # Changes — compute whether anything outside docs/agent-config changed.
+  # ─────────────────────────────────────────────────────────────────────────
+  # Docs-only PRs (no source code touched) skip every heavy job and the
+  # aggregate gate accepts skip-on-skip. Code PRs run the full matrix.
+  # On push to main and workflow_call we always run the full matrix
+  # because canary/release need every artefact regardless of what changed.
+  changes:
+    name: Compute changed paths
     runs-on: ubuntu-latest
-
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
-          # Only the main branch publishes the cache; PR jobs restore-only.
-          # Saves ~2m of post-job cache packing per PR.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          fetch-depth: 0
 
-      - name: Set up Node.js (LTS)
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
+      - id: filter
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "Non-PR trigger — running full matrix."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          CHANGED=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          echo "Changed files:"
+          echo "$CHANGED"
+          CODE=false
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            case "$f" in
+              docs/*|.claude/*|site/*) ;;
+              *.md) ;;
+              *) CODE=true ;;
+            esac
+          done <<< "$CHANGED"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Heavy jobs will run: $CODE"
 
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Cache Linux system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-          version: 1.0
-
-      - name: Stage CLI binary (needed by integration tests + Tauri externalBin)
-        run: npm run stage:cli
-
-      - name: Clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D clippy::dbg_macro -D clippy::todo
-
-      - name: Rust tests
-        working-directory: src-tauri
-        run: cargo test
-
-  # ── Vitest unit tests (Linux) ────────────────────────────────────────────
-  # No Rust, no apt deps needed — vitest runs under jsdom.
-  vitest:
-    name: Vitest (Linux)
-    runs-on: ubuntu-latest
-
+  # ─────────────────────────────────────────────────────────────────────────
+  # Lint + Vitest + frontend build + bundle-size gates (Linux).
+  # ─────────────────────────────────────────────────────────────────────────
+  lint-and-vitest:
+    name: Lint + Vitest (Linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
@@ -91,11 +120,11 @@ jobs:
       - name: ESLint (typed)
         run: npm run lint:typed
 
-      - name: Vitest unit tests
-        run: npm test
-
       - name: Lint skill docs (npm-script references)
         run: npm run lint:skills
+
+      - name: Vitest unit tests
+        run: npm test
 
       - name: Audit zoom cascade
         run: npm run audit:zoom-cascade
@@ -103,19 +132,131 @@ jobs:
       - name: Build frontend bundle
         run: npm run build
 
-      - name: Check JS bundle size (gzipped, 3 MB starter / 2 MB target)
+      - name: Check JS bundle size (gzipped)
         run: node scripts/check-bundle-size.mjs
 
-      - name: Check main entry bundle baseline (#352 / AC8 — within ±5%, lazy-boundary intact)
+      - name: Check main entry bundle baseline (within ±5%)
         run: node scripts/check-bundle-baseline.mjs
 
-  # ── Playwright E2E (browser mode, Linux) ─────────────────────────────────
-  e2e-browser:
-    name: E2E browser (Linux)
-    runs-on: ubuntu-latest
-
+  # ─────────────────────────────────────────────────────────────────────────
+  # Clippy + Rust tests (Linux). Combined into one job so the cargo cache
+  # warms once for both phases (~2 min saved vs splitting).
+  # ─────────────────────────────────────────────────────────────────────────
+  rust-test:
+    name: Rust tests (Linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Cache Linux system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
+
+      - name: Stage CLI binary (needed by Tauri externalBin during cargo test)
+        run: npm run stage:cli
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D clippy::dbg_macro -D clippy::todo
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Bindings drift check — separate prefix-key so codegen feature doesn't
+  # evict production cache.
+  # ─────────────────────────────────────────────────────────────────────────
+  bindings-drift:
+    name: Bindings drift check (#263)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          prefix-key: bindings-drift
+
+      - name: Cache Linux system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Stage CLI binary (needed by Tauri externalBin)
+        run: npm run stage:cli
+
+      - name: Regenerate bindings.ts
+        working-directory: src-tauri
+        run: cargo test --features codegen --test specta_codegen generate_bindings_ts
+
+      - name: Assert bindings.ts is up-to-date
+        run: |
+          if ! git diff --exit-code src/lib/bindings.ts; then
+            echo "::error::bindings.ts is out of date. Regenerate with:"
+            echo "::error::  cd src-tauri && cargo test --features codegen --test specta_codegen generate_bindings_ts"
+            echo "::error::Then commit the result."
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Playwright browser-mode E2E (Linux, Vite dev server + IPC mock).
+  # ─────────────────────────────────────────────────────────────────────────
+  e2e-browser:
+    name: E2E browser (Linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
@@ -153,45 +294,37 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-browser
           path: |
             playwright-report/
             test-results/
           retention-days: 7
 
-  # ── Bindings drift check (#263) ──────────────────────────────────────────
-  # Regenerates `src/lib/bindings.ts` via the codegen test and asserts no
-  # diff against the committed copy. Fails the PR if the Rust IPC surface
-  # (commands or wire types) has drifted from `bindings.ts`. Uses the same
-  # Linux apt deps as `rust-test` because `tests/specta_codegen.rs` links
-  # against `mdown_review_lib::build_specta_builder` which pulls
-  # `tauri::Wry` and `tauri-runtime-wry`.
-  bindings-drift:
-    name: Bindings drift check (#263)
-    runs-on: ubuntu-latest
-
+  # ─────────────────────────────────────────────────────────────────────────
+  # Native E2E (Windows, debug binary + CDP-attached Playwright).
+  # ─────────────────────────────────────────────────────────────────────────
+  # `playwright.native.config.ts` enforces workers:1, fullyParallel:false —
+  # specs share a single CDP-attached debug binary. Sharding deferred.
+  native-e2e:
+    name: Native E2E (Windows)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: src-tauri
-          # Only the main branch publishes the cache; PR jobs restore-only.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Distinct cache key so the `--features codegen` build (which
-          # pulls `specta-typescript` and tauri-specta's `typescript`
-          # sub-feature) does not evict the production rust-test artefacts.
-          prefix-key: bindings-drift
-
-      - name: Cache Linux system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-          version: 1.0
+          prefix-key: native-e2e-debug
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
@@ -202,85 +335,95 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # `tauri-build` validates `tauri.conf.json::externalBin` at compile time;
-      # without a staged CLI binary the build script aborts with
-      # `resource path \`binaries/mdownreview-cli-<triple>\` doesn't exist`.
-      # `stage:cli` writes a placeholder if the real binary isn't built yet,
-      # which is enough to satisfy the existence check for the codegen build.
-      - name: Stage CLI binary (needed by Tauri externalBin)
+      - name: Stage CLI binary (debug, needed by Tauri externalBin)
         run: npm run stage:cli
 
-      - name: Regenerate bindings.ts
+      - name: Build debug binary (for CDP native tests)
         working-directory: src-tauri
-        run: cargo test --features codegen --test specta_codegen generate_bindings_ts
+        run: cargo build
 
-      - name: Assert bindings.ts is up-to-date
-        run: |
-          if ! git diff --exit-code src/lib/bindings.ts; then
-            echo "::error::bindings.ts is out of date. Regenerate with:"
-            echo "::error::  cd src-tauri && cargo test --features codegen --test specta_codegen generate_bindings_ts"
-            echo "::error::Then commit the result."
-            exit 1
-          fi
+      - name: Get Playwright version
+        id: pw-version
+        shell: bash
+        run: echo "version=$(npx playwright --version)" >> "$GITHUB_OUTPUT"
 
-  # ── Aggregate test gate (satisfies branch-protection rule) ──────────────
-  # Branch protection requires a check called "Test (Linux)".
-  # This no-op job depends on every Linux test job so the gate stays green.
-  test-gate:
-    name: Test (Linux)
-    if: always()
-    needs: [rust-test, vitest, e2e-browser, bindings-drift]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check test results
-        run: |
-          if [[ "${{ needs.rust-test.result }}" != "success" || \
-                "${{ needs.vitest.result }}" != "success" || \
-                "${{ needs.e2e-browser.result }}" != "success" || \
-                "${{ needs.bindings-drift.result }}" != "success" ]]; then
-            echo "::error::One or more test jobs failed"
-            exit 1
-          fi
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: playwright-Windows-${{ steps.pw-version.outputs.version }}
 
-  # ── Installer builds (Windows x64 + macOS) ──────────────────────────────
-  # Runs in parallel with tests. Windows ARM64 build is in release-gate only
-  # (cross-compilation takes ~8m; not needed for every PR).
+      - name: Install Playwright (Chromium only)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Native E2E tests
+        run: npm run test:e2e:native
+        env:
+          MDR_NATIVE_SKIP_INSTALLER: "1"
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-native-e2e
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build matrix — windows-x64, windows-arm64, macos-arm64.
+  # ─────────────────────────────────────────────────────────────────────────
+  # PR / push: `profile: release-ci` (no LTO, no strip) — ~6-8 min.
+  # canary / release callers: `profile: release` + `sign: true` — ~10-12 min.
   build:
     name: Build (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
+      # release gate is the last line of defense; we want full cross-platform
+      # signal in one run rather than discovering a macOS failure on retry.
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            name: windows-x64
+          - name: windows-x64
+            os: windows-2022
             rust_target: x86_64-pc-windows-msvc
-            target_dir: src-tauri/target/release
             tauri_args: ""
             artifact_ext: zip
-
-          - os: macos-latest
-            name: macos-arm64
+          - name: windows-arm64
+            os: windows-2022
+            rust_target: aarch64-pc-windows-msvc
+            tauri_args: "--target aarch64-pc-windows-msvc"
+            artifact_ext: zip
+          - name: macos-arm64
+            os: macos-14
             rust_target: aarch64-apple-darwin
-            target_dir: src-tauri/target/release
             tauri_args: ""
             artifact_ext: dmg
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
         with:
           targets: ${{ matrix.rust_target }}
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: src-tauri
-          # Only the main branch publishes the cache; PR jobs restore-only.
-          # Saves ~2m of post-job cache packing per PR.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Distinct cache per target+profile so the release-ci PR cache
+          # cannot evict the release production cache (and vice versa).
+          prefix-key: build-${{ matrix.name }}-${{ inputs.profile || 'release-ci' }}
 
       - name: Set up Node.js (LTS)
         uses: actions/setup-node@v4
@@ -291,34 +434,68 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Resolve target dir for active profile
+        id: paths
+        shell: bash
+        run: |
+          PROFILE="${{ inputs.profile || 'release-ci' }}"
+          if [ -n "${{ matrix.tauri_args }}" ]; then
+            # `--target <triple>` causes cargo to put output under
+            # target/<triple>/<profile>/ instead of target/<profile>/.
+            TARGET_DIR="src-tauri/target/${{ matrix.rust_target }}/${PROFILE}"
+          else
+            TARGET_DIR="src-tauri/target/${PROFILE}"
+          fi
+          echo "target_dir=${TARGET_DIR}" >> "$GITHUB_OUTPUT"
+          echo "profile=${PROFILE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved target_dir=${TARGET_DIR} profile=${PROFILE}"
+
       - name: Clean stale bundles from cache
         shell: bash
-        run: rm -rf src-tauri/target/release/bundle src-tauri/target/*/release/bundle 2>/dev/null || true
+        run: rm -rf src-tauri/target/release/bundle src-tauri/target/release-ci/bundle src-tauri/target/*/release/bundle src-tauri/target/*/release-ci/bundle 2>/dev/null || true
+
+      - name: Stage CLI binary (sidecar always release profile)
+        shell: bash
+        run: node scripts/stage-cli.mjs --release --target "${{ matrix.rust_target }}"
 
       - name: Build Tauri app
         shell: bash
+        env:
+          STAGE_CLI_TARGET: ${{ matrix.rust_target }}
+          # Signing keys flow only when caller sets sign=true. PR/push leave
+          # them unset → Tauri produces unsigned bundles + no .sig files.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
+          PROFILE="${{ steps.paths.outputs.profile }}"
+          # When sign=false (PR/push) we must suppress updater artefact creation
+          # — tauri.conf.json sets `createUpdaterArtifacts: "v1Compatible"` so
+          # the bundler tries to sign with an empty key and aborts with
+          # "failed to decode secret key". Passing a `--config` JSON patch
+          # that flips the flag to `false` keeps PR builds unsigned without
+          # touching the committed config.
+          if [ "${{ inputs.sign }}" = "true" ]; then
+            CONFIG_OVERRIDE=""
+          else
+            CONFIG_OVERRIDE='--config {"bundle":{"createUpdaterArtifacts":false}}'
+          fi
           # Retry to absorb the well-known macOS bundle_dmg.sh / hdiutil /
-          # AppleScript flakiness (tauri-apps/tauri#3055, electron-builder#3115).
-          # Linux + Windows builds rarely flake but the wrapper is harmless.
+          # AppleScript flakiness (tauri-apps/tauri#3055).
           attempt=1
           max_attempts=2
           while [ $attempt -le $max_attempts ]; do
-            echo "::group::Build attempt $attempt of $max_attempts"
+            echo "::group::Build attempt $attempt of $max_attempts (profile=$PROFILE, sign=${{ inputs.sign }})"
             if [ "$RUNNER_OS" = "macOS" ]; then
-              # Pre-attempt hygiene: reset Finder, detach any orphan disk
-              # images, and remove half-written DMG output from a prior
-              # failed attempt (bundle_dmg.sh refuses to overwrite).
               killall Finder 2>/dev/null || true
               hdiutil info | awk '/image-path/ {print $NF}' | while read -r p; do
                 hdiutil detach "$p" -force 2>/dev/null || true
               done
-              rm -rf src-tauri/target/release/bundle/dmg src-tauri/target/*/release/bundle/dmg 2>/dev/null || true
+              rm -rf "src-tauri/target/$PROFILE/bundle/dmg" src-tauri/target/*/"$PROFILE"/bundle/dmg 2>/dev/null || true
             fi
-            if [ -n "${{ matrix.tauri_args }}" ]; then
-              npm run tauri:build -- ${{ matrix.tauri_args }} && { echo "::endgroup::"; exit 0; }
-            else
-              npm run tauri:build && { echo "::endgroup::"; exit 0; }
+            # `tauri build` flags before `--`; cargo runner flags after `--`.
+            if npx tauri build ${{ matrix.tauri_args }} $CONFIG_OVERRIDE -- --profile "$PROFILE"; then
+              echo "::endgroup::"
+              exit 0
             fi
             echo "::warning::Build attempt $attempt failed"
             echo "::endgroup::"
@@ -326,33 +503,227 @@ jobs:
           done
           echo "::error::All $max_attempts build attempts failed"
           exit 1
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      - name: Build CLI binary
+      # ── Verification when sign=true ─────────────────────────────────────
+      - name: Verify ad-hoc signing (macOS)
+        if: runner.os == 'macOS' && inputs.sign == true
         shell: bash
-        run: cargo build --release --bin mdownreview-cli --manifest-path src-tauri/Cargo.toml
+        run: |
+          APP_PATH=$(ls -d ${{ steps.paths.outputs.target_dir }}/bundle/macos/*.app 2>/dev/null | head -1)
+          [ -n "$APP_PATH" ] || { echo "::error::No .app bundle found"; exit 1; }
+          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | tee codesign.log
+          grep -q 'Signature=adhoc' codesign.log || { echo "::error::App is not ad-hoc signed"; exit 1; }
+          codesign -dv --verbose=4 "$APP_PATH/Contents/MacOS/mdownreview-cli" 2>&1 | tee codesign-cli.log
+          grep -q 'Signature=adhoc' codesign-cli.log || { echo "::error::Embedded CLI is not ad-hoc signed"; exit 1; }
+          echo "✓ App and embedded CLI are ad-hoc signed"
 
-      - name: Package artifact
+      - name: Verify DMG layout (macOS)
+        if: runner.os == 'macOS' && inputs.sign == true
+        shell: bash
+        run: |
+          DMG=$(ls -t ${{ steps.paths.outputs.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
+          [ -n "$DMG" ] || { echo "::error::No DMG found to verify"; exit 1; }
+          DMG_ABS=$(cd "$(dirname "$DMG")" && pwd)/$(basename "$DMG")
+          hdiutil info | awk -v target="$DMG_ABS" '
+            BEGIN { path="" }
+            /^=+$/ { path=""; next }
+            $1 == "image-path" { sub(/^image-path[ \t]*:[ \t]*/, ""); path=$0; next }
+            $1 ~ /^\/dev\/disk[0-9]+$/ && path == target { print $1 }
+          ' | while IFS= read -r dev; do
+            hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+          done
+          if ! ATTACH_OUT=$(hdiutil attach -nobrowse -readonly "$DMG" 2>&1); then
+            echo "::error::hdiutil attach failed"
+            echo "$ATTACH_OUT"
+            exit 1
+          fi
+          echo "$ATTACH_OUT"
+          MOUNT=$(echo "$ATTACH_OUT" | awk 'match($0, /\/Volumes\/.*/) { print substr($0, RSTART); exit }')
+          [ -n "$MOUNT" ] && [ -d "$MOUNT" ] || { echo "::error::Failed to mount DMG"; exit 1; }
+          trap 'hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true' EXIT
+          ls -la "$MOUNT"
+          [ -L "$MOUNT/Applications" ] || { echo "::error::Applications symlink missing in DMG"; exit 1; }
+          echo "✓ DMG mounts cleanly and contains the Applications symlink"
+
+      - name: Verify updater signature artefacts (Windows)
+        if: runner.os == 'Windows' && inputs.sign == true
+        shell: bash
+        run: |
+          nsis_zip=$(ls -t ${{ steps.paths.outputs.target_dir }}/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
+          [ -n "$nsis_zip" ] || { echo "::error::No NSIS zip produced"; exit 1; }
+          sig="${nsis_zip}.sig"
+          [ -s "$sig" ] || { echo "::error::Updater signature missing or empty: $sig"; exit 1; }
+          echo "✓ NSIS zip + signature present"
+
+      - name: Verify updater signature artefacts (macOS)
+        if: runner.os == 'macOS' && inputs.sign == true
+        shell: bash
+        run: |
+          app_tar=$(ls -t ${{ steps.paths.outputs.target_dir }}/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
+          [ -n "$app_tar" ] || { echo "::error::No .app.tar.gz updater bundle produced"; exit 1; }
+          sig="${app_tar}.sig"
+          [ -s "$sig" ] || { echo "::error::Updater signature missing or empty: $sig"; exit 1; }
+          echo "✓ .app.tar.gz + signature present"
+
+      # ── Artefact packaging + upload ──────────────────────────────────────
+      # Bundle output depends on whether updater artefacts are produced:
+      #   - sign=true  → Tauri produces `*.nsis.zip` (updater) + `*.app.tar.gz` (mac updater) + `.sig` files
+      #   - sign=false → Tauri produces `*-setup.exe` (standard NSIS) + `.dmg` only (no updater)
+      - name: Package artefact
         shell: bash
         run: |
           NAME="mdownreview-${{ matrix.name }}"
+          TARGET_DIR="${{ steps.paths.outputs.target_dir }}"
           if [[ "${{ matrix.artifact_ext }}" == "zip" ]]; then
-            nsis_zip=$(ls -t ${{ matrix.target_dir }}/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
-            [ -z "$nsis_zip" ] && { echo "::error::NSIS zip not found"; exit 1; }
-            cp "$nsis_zip" "${NAME}.zip"
-            echo "ARTIFACT=${NAME}.zip" >> "$GITHUB_ENV"
+            if [ "${{ inputs.sign }}" = "true" ]; then
+              # Updater artefact: `*.nsis.zip` (signed)
+              nsis_zip=$(ls -t "$TARGET_DIR"/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
+              [ -z "$nsis_zip" ] && { echo "::error::NSIS updater zip not found in $TARGET_DIR/bundle/nsis"; exit 1; }
+              cp "$nsis_zip" "${NAME}.zip"
+              if [ -s "${nsis_zip}.sig" ]; then
+                cp "${nsis_zip}.sig" "${NAME}.zip.sig"
+              fi
+            else
+              # Standard NSIS installer: `*-setup.exe` (unsigned PR build)
+              setup_exe=$(ls -t "$TARGET_DIR"/bundle/nsis/*-setup.exe 2>/dev/null | head -1)
+              [ -z "$setup_exe" ] && { echo "::error::NSIS installer not found in $TARGET_DIR/bundle/nsis"; exit 1; }
+              cp "$setup_exe" "${NAME}.exe"
+            fi
           else
-            dmg=$(ls -t ${{ matrix.target_dir }}/bundle/dmg/*.dmg 2>/dev/null | head -1)
-            [ -z "$dmg" ] && { echo "::error::DMG not found"; exit 1; }
+            dmg=$(ls -t "$TARGET_DIR"/bundle/dmg/*.dmg 2>/dev/null | head -1)
+            [ -z "$dmg" ] && { echo "::error::DMG not found in $TARGET_DIR/bundle/dmg"; exit 1; }
             cp "$dmg" "${NAME}.dmg"
-            echo "ARTIFACT=${NAME}.dmg" >> "$GITHUB_ENV"
+            if [ "${{ inputs.sign }}" = "true" ]; then
+              app_tar=$(ls -t "$TARGET_DIR"/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
+              if [ -n "$app_tar" ]; then
+                cp "$app_tar" "${NAME}.app.tar.gz"
+                if [ -s "${app_tar}.sig" ]; then
+                  cp "${app_tar}.sig" "${NAME}.app.tar.gz.sig"
+                fi
+              fi
+            fi
           fi
 
-      - name: Upload installer artifact
+      - name: Upload installer artefact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: ${{ env.ARTIFACT }}
+          path: |
+            mdownreview-${{ matrix.name }}.zip
+            mdownreview-${{ matrix.name }}.zip.sig
+            mdownreview-${{ matrix.name }}.exe
+            mdownreview-${{ matrix.name }}.dmg
+            mdownreview-${{ matrix.name }}.app.tar.gz
+            mdownreview-${{ matrix.name }}.app.tar.gz.sig
+          if-no-files-found: ignore
           retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Release preflight — only when sign=true (canary/release callers).
+  # ─────────────────────────────────────────────────────────────────────────
+  # Validates every updater asset the manifest will reference exists and is
+  # non-empty BEFORE the wrapper workflow tries to publish. Closes the gap
+  # where canary/release would push a manifest pointing at missing `.sig`
+  # files (the High finding from `tauri-build-expert`).
+  release-preflight:
+    name: Release preflight
+    needs: [changes, build]
+    if: needs.changes.outputs.code == 'true' && inputs.sign == true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Download all build artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts/
+
+      - name: Assert every updater asset is present
+        shell: bash
+        run: |
+          set -e
+          missing=0
+          required=(
+            "windows-x64/mdownreview-windows-x64.zip"
+            "windows-x64/mdownreview-windows-x64.zip.sig"
+            "windows-arm64/mdownreview-windows-arm64.zip"
+            "windows-arm64/mdownreview-windows-arm64.zip.sig"
+            "macos-arm64/mdownreview-macos-arm64.dmg"
+            "macos-arm64/mdownreview-macos-arm64.app.tar.gz"
+            "macos-arm64/mdownreview-macos-arm64.app.tar.gz.sig"
+          )
+          for asset in "${required[@]}"; do
+            path="artefacts/$asset"
+            if [ ! -s "$path" ]; then
+              echo "::error::Missing or empty updater asset: $path"
+              missing=$((missing + 1))
+            else
+              size=$(stat -c%s "$path" 2>/dev/null || stat -f%z "$path")
+              echo "✓ $asset ($size bytes)"
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing updater asset(s) missing — release/canary would publish a broken manifest."
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Aggregate gate — REQUIRED by branch protection as `Test (Linux)`.
+  # ─────────────────────────────────────────────────────────────────────────
+  # Always runs (`if: always()`). For docs-only PRs every heavy job is
+  # skipped → the gate accepts skip-on-skip. For code PRs every heavy job
+  # must succeed. release-preflight is required only when sign=true.
+  test-gate:
+    name: Test (Linux)
+    if: always()
+    needs:
+      - changes
+      - lint-and-vitest
+      - rust-test
+      - bindings-drift
+      - e2e-browser
+      - native-e2e
+      - build
+      - release-preflight
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Check job results
+        shell: bash
+        run: |
+          [ "${{ needs.changes.result }}" = "success" ] || {
+            echo "::error::changes job did not succeed (got ${{ needs.changes.result }})"
+            exit 1
+          }
+          CODE="${{ needs.changes.outputs.code }}"
+          echo "code_changed=$CODE"
+          if [ "$CODE" != "true" ]; then
+            echo "Docs-only PR — heavy jobs correctly skipped. Gate green."
+            exit 0
+          fi
+          jobs=(
+            "lint-and-vitest:${{ needs.lint-and-vitest.result }}"
+            "rust-test:${{ needs.rust-test.result }}"
+            "bindings-drift:${{ needs.bindings-drift.result }}"
+            "e2e-browser:${{ needs.e2e-browser.result }}"
+            "native-e2e:${{ needs.native-e2e.result }}"
+            "build:${{ needs.build.result }}"
+          )
+          if [ "${{ inputs.sign }}" = "true" ]; then
+            jobs+=("release-preflight:${{ needs.release-preflight.result }}")
+          fi
+          failed=0
+          for entry in "${jobs[@]}"; do
+            name="${entry%%:*}"
+            result="${entry##*:}"
+            if [ "$result" != "success" ]; then
+              echo "::error::$name did not succeed (got $result)"
+              failed=$((failed + 1))
+            else
+              echo "✓ $name: $result"
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::$failed job(s) failed — gate red."
+            exit 1
+          fi
+          echo "All required jobs succeeded — gate green."

@@ -8,10 +8,11 @@ on:
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
+# Workflow-level default is read-only. The deploy job below opts in to
+# pages: write + id-token: write — narrowing OIDC token scope to the
+# only job that needs it (sec-token-default-read-only).
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -19,10 +20,16 @@ concurrency:
 
 jobs:
   deploy:
+    name: Deploy
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
@@ -32,3 +39,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
