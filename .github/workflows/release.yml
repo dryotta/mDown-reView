@@ -143,6 +143,10 @@ jobs:
       - name: Rename + upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `gh release upload` needs the repo context. This job has no
+          # `actions/checkout` step (we only download artefacts), so `gh`
+          # cannot infer the repo from `git remote`. Set it explicitly.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           set -e
@@ -189,6 +193,9 @@ jobs:
       - name: Build + upload latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No `actions/checkout` in this job → set repo context for `gh`
+          # release download / view / upload.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: |
           set -e
@@ -250,5 +257,7 @@ jobs:
       - name: Undraft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No `actions/checkout` in this job → set repo context for `gh`.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: gh release edit "$TAG" --draft=false
