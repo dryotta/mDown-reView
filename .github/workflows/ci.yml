@@ -566,17 +566,28 @@ jobs:
           echo "✓ .app.tar.gz + signature present"
 
       # ── Artefact packaging + upload ──────────────────────────────────────
+      # Bundle output depends on whether updater artefacts are produced:
+      #   - sign=true  → Tauri produces `*.nsis.zip` (updater) + `*.app.tar.gz` (mac updater) + `.sig` files
+      #   - sign=false → Tauri produces `*-setup.exe` (standard NSIS) + `.dmg` only (no updater)
       - name: Package artefact
         shell: bash
         run: |
           NAME="mdownreview-${{ matrix.name }}"
           TARGET_DIR="${{ steps.paths.outputs.target_dir }}"
           if [[ "${{ matrix.artifact_ext }}" == "zip" ]]; then
-            nsis_zip=$(ls -t "$TARGET_DIR"/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
-            [ -z "$nsis_zip" ] && { echo "::error::NSIS zip not found in $TARGET_DIR/bundle/nsis"; exit 1; }
-            cp "$nsis_zip" "${NAME}.zip"
-            if [ "${{ inputs.sign }}" = "true" ] && [ -s "${nsis_zip}.sig" ]; then
-              cp "${nsis_zip}.sig" "${NAME}.zip.sig"
+            if [ "${{ inputs.sign }}" = "true" ]; then
+              # Updater artefact: `*.nsis.zip` (signed)
+              nsis_zip=$(ls -t "$TARGET_DIR"/bundle/nsis/*.nsis.zip 2>/dev/null | head -1)
+              [ -z "$nsis_zip" ] && { echo "::error::NSIS updater zip not found in $TARGET_DIR/bundle/nsis"; exit 1; }
+              cp "$nsis_zip" "${NAME}.zip"
+              if [ -s "${nsis_zip}.sig" ]; then
+                cp "${nsis_zip}.sig" "${NAME}.zip.sig"
+              fi
+            else
+              # Standard NSIS installer: `*-setup.exe` (unsigned PR build)
+              setup_exe=$(ls -t "$TARGET_DIR"/bundle/nsis/*-setup.exe 2>/dev/null | head -1)
+              [ -z "$setup_exe" ] && { echo "::error::NSIS installer not found in $TARGET_DIR/bundle/nsis"; exit 1; }
+              cp "$setup_exe" "${NAME}.exe"
             fi
           else
             dmg=$(ls -t "$TARGET_DIR"/bundle/dmg/*.dmg 2>/dev/null | head -1)
@@ -600,6 +611,7 @@ jobs:
           path: |
             mdownreview-${{ matrix.name }}.zip
             mdownreview-${{ matrix.name }}.zip.sig
+            mdownreview-${{ matrix.name }}.exe
             mdownreview-${{ matrix.name }}.dmg
             mdownreview-${{ matrix.name }}.app.tar.gz
             mdownreview-${{ matrix.name }}.app.tar.gz.sig
