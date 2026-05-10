@@ -454,14 +454,42 @@ jobs:
         shell: bash
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/release-ci/bundle src-tauri/target/*/release/bundle src-tauri/target/*/release-ci/bundle 2>/dev/null || true
 
-      - name: Stage CLI binary (sidecar always release profile)
+      - name: Build frontend (so tauri::generate_context! can validate dist/ during pre-build)
+        # The pre-build step below uses `--features tauri/custom-protocol`,
+        # which makes `tauri::generate_context!` validate that `frontendDist`
+        # (= `../dist`) exists at compile time. We must build the Vite bundle
+        # before the cargo step, otherwise the proc-macro panics with
+        # "frontendDist ... doesn't exist". `tauri build`'s
+        # `beforeBuildCommand: "npm run build"` re-runs Vite during step 2,
+        # which is fast (Vite is incremental and dist/ is already populated).
         shell: bash
-        run: node scripts/stage-cli.mjs --release --target "${{ matrix.rust_target }}"
+        run: npm run build
+
+      - name: Stage CLI binary + pre-build GUI bin (matches active profile)
+        # The CLI sidecar is staged using the SAME Cargo profile as the GUI
+        # build that runs next, so the dep graph is compiled once instead of
+        # twice (Cargo cannot share artefacts between `release` and
+        # `release-ci`). `--with-gui` makes this a `cargo build --bins
+        # --features tauri/custom-protocol`, compiling both binaries in one
+        # invocation that shares the dep + lib graph. The subsequent
+        # `tauri build` step's cargo invocation then finds every fingerprint
+        # fresh and skips straight to the bundler stage. STATIC_VCRUNTIME
+        # is pre-set to `true` to match the env var tauri-cli unconditionally
+        # exports, otherwise tauri-build's static-vcruntime link directives
+        # would change between this step and `tauri build`, forcing a
+        # link-only re-run on Windows MSVC.
+        shell: bash
+        env:
+          STATIC_VCRUNTIME: "true"
+        run: node scripts/stage-cli.mjs --profile "${{ steps.paths.outputs.profile }}" --target "${{ matrix.rust_target }}" --with-gui
 
       - name: Build Tauri app
         shell: bash
         env:
           STAGE_CLI_TARGET: ${{ matrix.rust_target }}
+          # Match the env var pre-set above so tauri-build's link-arg
+          # outputs are identical between the two cargo invocations.
+          STATIC_VCRUNTIME: "true"
           # Signing keys flow only when caller sets sign=true. PR/push leave
           # them unset → Tauri produces unsigned bundles + no .sig files.
           TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
