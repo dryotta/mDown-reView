@@ -372,9 +372,18 @@ jobs:
         # `--no-run` skips execution while still catching API drift in
         # `benches/{matching,scanner,sidecar,threads,parsers,hot_path}.rs`
         # and `benches/generate_fixtures.rs`.
+        #
         # `--profile release-ci` uses lto=off + codegen-units=16 (vs the
         # default bench profile which inherits lto=thin + codegen-units=1
         # from [profile.release]), cutting compile time ~5×.
+        #
+        # The lib + both bins carry `bench = false` in Cargo.toml so
+        # cargo only compiles the six explicit `[[bench]]` targets —
+        # avoiding the panic-strategy collision between
+        # `[profile.release-ci].panic = "abort"` and cargo's implicit
+        # `panic = "unwind"` for lib-as-bench / bin-as-bench targets.
+        # See `[lib].bench = false` in src-tauri/Cargo.toml for the full
+        # rationale.
         working-directory: src-tauri
         run: cargo bench --no-run --profile release-ci
 
@@ -449,6 +458,9 @@ jobs:
       - name: Run benchmarks
         # Outputs bench-output.txt at the repo root (default working directory)
         # so subsequent steps reference it without path gymnastics.
+        # The lib + both bins carry `bench = false` in Cargo.toml so this
+        # only executes the six explicit `[[bench]]` targets — see
+        # bench-compile-gate's comment for the panic-strategy rationale.
         run: |
           cargo bench --manifest-path src-tauri/Cargo.toml \
             --profile release-ci -- --output-format bencher 2>&1 \
