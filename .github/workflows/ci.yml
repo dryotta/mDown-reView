@@ -25,6 +25,9 @@ name: CI
 #   - rust-test-macos (macos-14)     — clippy + cargo test (macOS-cfg code)
 #   - bench-compile-gate (ubuntu)    — `cargo bench --no-run --profile release-ci`
 #                                      (parallel with rust-test; catches bench API drift)
+#   - bench-report (ubuntu)          — runs benchmarks, compares against docs/performance.md
+#                                      budgets, posts summary to job page. Non-blocking
+#                                      (`continue-on-error: true`, not in test-gate).
 #   - bindings-drift (ubuntu)
 #   - e2e-browser (ubuntu)
 #   - native-e2e (win-2022)          — CDP-attached Playwright
@@ -261,6 +264,146 @@ jobs:
         # from [profile.release]), cutting compile time ~5×.
         working-directory: src-tauri
         run: cargo bench --no-run --profile release-ci
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Perf bench report (Linux, non-blocking).
+  #
+  # Generates bench fixtures, runs all criterion benchmarks with
+  # `--output-format bencher`, then parses the output against the numeric
+  # budgets declared in docs/performance.md and writes a markdown pass/fail
+  # table to the job summary page (visible on the PR checks tab). Raw bench
+  # output is uploaded as a 14-day artifact for trend inspection.
+  #
+  # `continue-on-error: true` + absent from `test-gate` → purely advisory.
+  # A slow bench or fixture-gen failure never blocks a merge.
+  #
+  # Budgets (release-ci profile — lto=off, codegen-units=16):
+  #   hot_path/get_file_comments_large          < 20 ms
+  #   matching/50_comments_1000_lines           <  5 ms
+  #   fold_regions/large_100kb_jsonlike/default <  5 ms
+  #   parse_kql/pipeline_50_steps               <  1 ms
+  #   strip_json_comments/large_100kb           <  3 ms
+  # ─────────────────────────────────────────────────────────────────────────
+  bench-report:
+    name: Perf bench report (non-blocking)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Distinct prefix-key so the bench-report release-ci cache does not
+          # evict the test-profile cache used by rust-test or the compile-only
+          # cache used by bench-compile-gate.
+          prefix-key: bench-report
+
+      - name: Cache Linux system dependencies
+        uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
+        with:
+          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          version: 1.0
+
+      - name: Generate bench fixtures
+        # Populates target/bench-fixtures/ (gitignored) used by matching_bench,
+        # hot_path_bench, sidecar_bench, and scanner_bench. Must run before
+        # `cargo bench` so fixture-dependent benches don't panic/skip.
+        working-directory: src-tauri
+        run: cargo run --example generate_bench_fixtures --profile release-ci
+
+      - name: Run benchmarks
+        working-directory: src-tauri
+        run: |
+          cargo bench --profile release-ci -- --output-format bencher 2>&1 \
+            | tee ../bench-output.txt
+
+      - name: Write perf summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Perf Bench Report"
+            echo ""
+            echo "Profile: \`release-ci\` (lto=off, codegen-units=16 — expect ~1.5–2× slower than production \`release\`)"
+            echo ""
+            echo "| Bench | Measured | Budget | Status |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Budgets in nanoseconds — mirrors docs/performance.md.
+          declare -A BUDGETS=(
+            ["hot_path/get_file_comments_large"]=20000000
+            ["matching/50_comments_1000_lines"]=5000000
+            ["fold_regions/large_100kb_jsonlike/default"]=5000000
+            ["parse_kql/pipeline_50_steps"]=1000000
+            ["strip_json_comments/large_100kb"]=3000000
+          )
+          declare -A BUDGET_LABELS=(
+            ["hot_path/get_file_comments_large"]="20 ms"
+            ["matching/50_comments_1000_lines"]="5 ms"
+            ["fold_regions/large_100kb_jsonlike/default"]="5 ms"
+            ["parse_kql/pipeline_50_steps"]="1 ms"
+            ["strip_json_comments/large_100kb"]="3 ms"
+          )
+
+          fmt_ns() {
+            local ns=$1
+            if [ "$ns" -ge 1000000 ]; then
+              awk "BEGIN { printf \"%.2f ms\", $ns/1000000 }"
+            elif [ "$ns" -ge 1000 ]; then
+              awk "BEGIN { printf \"%.2f us\", $ns/1000 }"
+            else
+              echo "${ns} ns"
+            fi
+          }
+
+          # Parse bencher output: "test <name> ... bench:   N,NNN ns/iter (+/- M)"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^test[[:space:]](.+)[[:space:]]...[[:space:]]bench:[[:space:]]+([0-9,]+)[[:space:]]ns/iter ]]; then
+              name="${BASH_REMATCH[1]}"
+              ns=$(echo "${BASH_REMATCH[2]}" | tr -d ',')
+              budget="${BUDGETS[$name]:-}"
+              if [ -n "$budget" ]; then
+                measured=$(fmt_ns "$ns")
+                budget_label="${BUDGET_LABELS[$name]}"
+                if [ "$ns" -le "$budget" ]; then
+                  status="✅"
+                else
+                  status="⚠️ over budget"
+                fi
+                echo "| \`$name\` | $measured | $budget_label | $status |" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          done < bench-output.txt
+
+          {
+            echo ""
+            echo "<details><summary>Full bench output</summary>"
+            echo ""
+            echo '```'
+            cat bench-output.txt
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bench output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-output
+          path: bench-output.txt
+          retention-days: 14
 
   # ─────────────────────────────────────────────────────────────────────────
   # Rust tests (Windows) — exercises `#[cfg(target_os = "windows")]` and
