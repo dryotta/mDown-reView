@@ -319,14 +319,15 @@ jobs:
         # Populates target/bench-fixtures/ (gitignored) used by matching_bench,
         # hot_path_bench, sidecar_bench, and scanner_bench. Must run before
         # `cargo bench` so fixture-dependent benches don't panic/skip.
-        working-directory: src-tauri
-        run: cargo run --example generate_bench_fixtures --profile release-ci
+        run: cargo run --manifest-path src-tauri/Cargo.toml --example generate_bench_fixtures --profile release-ci
 
       - name: Run benchmarks
-        working-directory: src-tauri
+        # Outputs bench-output.txt at the repo root (default working directory)
+        # so subsequent steps reference it without path gymnastics.
         run: |
-          cargo bench --profile release-ci -- --output-format bencher 2>&1 \
-            | tee ../bench-output.txt
+          cargo bench --manifest-path src-tauri/Cargo.toml \
+            --profile release-ci -- --output-format bencher 2>&1 \
+            | tee bench-output.txt
 
       - name: Write perf summary
         if: always()
