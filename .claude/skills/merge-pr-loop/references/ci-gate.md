@@ -132,10 +132,10 @@ Step 3.5 in [`SKILL.md`](../SKILL.md) does an inline clean rebase before reachin
 
 ## Branch-protection + check-name contract
 
-The single required status check is **`Test (Linux)`** — the aggregate-gate job inside `ci.yml`. It runs `if: always()` and depends on every other job in the workflow, so:
+The single required status check is **`CI gate`** — the aggregate-gate job inside `ci.yml`. It runs `if: always()` and depends on every other job in the workflow, so:
 
-- For code PRs: every heavy job must succeed → `Test (Linux)` succeeds.
-- For docs-only PRs: `changes` job sets `code=false` → all heavy jobs are correctly skipped → `Test (Linux)` accepts skip-on-skip and reports green in <30 s.
+- For code PRs: every heavy job must succeed → `CI gate` succeeds.
+- For docs-only PRs: `changes` job sets `code=false` → all heavy jobs are correctly skipped → `CI gate` accepts skip-on-skip and reports green in <30 s.
 
 The `gh run list --workflow=CI` poll above watches the **whole CI workflow run**. The aggregate-gate job's success implies every required job succeeded — which is exactly what branch protection enforces. No need to query individual job statuses; the workflow-level `conclusion=success` is sufficient.
 

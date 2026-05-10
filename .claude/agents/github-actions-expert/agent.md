@@ -35,7 +35,7 @@ If the host repo has a `docs/best-practices-project/` directory, scan every `*.m
 - `GITHUB_TOKEN` is preferred over PATs / GitHub App tokens unless a cross-repo or recursive-trigger requirement explicitly needs the latter. Recursion (a workflow run triggers another workflow run) requires a non-`GITHUB_TOKEN`.
 - `concurrency:` group is defined for any workflow that may overlap on the same ref — typically `group: ${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true` for PR validation. Production deploy workflows should NOT use `cancel-in-progress: true`.
 - Caches keyed correctly (lock-file hash + OS + tool version) and scoped per-branch where appropriate. Caches with overly-broad keys silently ship stale dependencies; caches with overly-narrow keys never hit.
-- An aggregate "gate" job (e.g. `Test (Linux)` that depends on every parallel test job with `if: always()`) exists when branch protection requires a single status check name.
+- An aggregate "gate" job (e.g. `CI gate` that depends on every parallel test job with `if: always()`) exists when branch protection requires a single status check name.
 - Job timeouts (`timeout-minutes:`) are set on every job. Default is 360 minutes (6 hours) — almost never the right value.
 - Artifacts uploaded with explicit `retention-days:` (default is 90 — too long for noisy reports).
 
