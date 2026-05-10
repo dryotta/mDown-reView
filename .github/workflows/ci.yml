@@ -468,12 +468,23 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           PROFILE="${{ steps.paths.outputs.profile }}"
+          # When sign=false (PR/push) we must suppress updater artefact creation
+          # — tauri.conf.json sets `createUpdaterArtifacts: "v1Compatible"` so
+          # the bundler tries to sign with an empty key and aborts with
+          # "failed to decode secret key". Passing a `--config` JSON patch
+          # that flips the flag to `false` keeps PR builds unsigned without
+          # touching the committed config.
+          if [ "${{ inputs.sign }}" = "true" ]; then
+            CONFIG_OVERRIDE=""
+          else
+            CONFIG_OVERRIDE='--config {"bundle":{"createUpdaterArtifacts":false}}'
+          fi
           # Retry to absorb the well-known macOS bundle_dmg.sh / hdiutil /
           # AppleScript flakiness (tauri-apps/tauri#3055).
           attempt=1
           max_attempts=2
           while [ $attempt -le $max_attempts ]; do
-            echo "::group::Build attempt $attempt of $max_attempts (profile=$PROFILE)"
+            echo "::group::Build attempt $attempt of $max_attempts (profile=$PROFILE, sign=${{ inputs.sign }})"
             if [ "$RUNNER_OS" = "macOS" ]; then
               killall Finder 2>/dev/null || true
               hdiutil info | awk '/image-path/ {print $NF}' | while read -r p; do
@@ -482,7 +493,7 @@ jobs:
               rm -rf "src-tauri/target/$PROFILE/bundle/dmg" src-tauri/target/*/"$PROFILE"/bundle/dmg 2>/dev/null || true
             fi
             # `tauri build` flags before `--`; cargo runner flags after `--`.
-            if npx tauri build ${{ matrix.tauri_args }} -- --profile "$PROFILE"; then
+            if npx tauri build ${{ matrix.tauri_args }} $CONFIG_OVERRIDE -- --profile "$PROFILE"; then
               echo "::endgroup::"
               exit 0
             fi
