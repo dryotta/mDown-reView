@@ -201,11 +201,11 @@ Never put a secret value into an artifact name (or path). Artifact names appear 
 
 ### `gate-aggregate-job`
 
-When branch protection requires a single status check name (e.g. `Test (Linux)`), but the actual testing is sharded across multiple parallel jobs, add a no-op aggregate job:
+When branch protection requires a single status check name (e.g. `CI gate`), but the actual testing is sharded across multiple parallel jobs, add a no-op aggregate job:
 
 ```yaml
 test-gate:
-  name: Test (Linux)
+  name: CI gate
   if: always()
   needs: [rust-test, vitest, e2e-browser, bindings-drift]
   runs-on: ubuntu-latest

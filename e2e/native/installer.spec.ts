@@ -7,12 +7,16 @@ import * as fs from "node:fs";
 // .exe, and PATH manipulation hits HKCU\Environment which only exists on
 // Windows. Skipping on macOS / Linux runners keeps the suite green there.
 test.skip(process.platform !== "win32", "Windows-only installer test");
-// In release-gate the installer .exe is already produced and validated by the
-// CI `build (windows-x64)` job on the same commit, so we skip the 10-minute
-// rebuild here. Set MDR_NATIVE_SKIP_INSTALLER=0 (or unset) to run locally.
+// CI `installer-e2e` job sets MDR_INSTALLER_PATH to a downloaded build
+// artefact and runs this spec against it. When MDR_INSTALLER_PATH is set,
+// MDR_NATIVE_SKIP_INSTALLER is ignored — an explicit path is a stronger
+// signal than the legacy skip flag. Set MDR_NATIVE_SKIP_INSTALLER=0 (or
+// unset) plus no MDR_INSTALLER_PATH to run locally against a freshly built
+// bundle.
 test.skip(
-  process.env.MDR_NATIVE_SKIP_INSTALLER === "1",
-  "installer build validated by CI build job",
+  process.env.MDR_NATIVE_SKIP_INSTALLER === "1" &&
+    !process.env.MDR_INSTALLER_PATH,
+  "installer skipped — set MDR_INSTALLER_PATH to run against a downloaded artefact",
 );
 
 function readUserPath(): string {
@@ -23,22 +27,34 @@ function readUserPath(): string {
 }
 
 test("NSIS installer adds and removes per-user PATH cleanly", async () => {
-  // Locate latest built installer. Tauri emits both per-target and default
-  // bundle dirs depending on whether --target was passed; check both.
-  const candidateDirs = [
-    path.resolve("src-tauri/target/release/bundle/nsis"),
-    path.resolve("src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"),
-    path.resolve("src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis"),
-  ];
-  const bundleDir = candidateDirs.find((d) => fs.existsSync(d));
-  if (!bundleDir) {
-    throw new Error(
-      `No NSIS bundle dir found. Looked in:\n  ${candidateDirs.join("\n  ")}`,
-    );
+  // Two resolution paths:
+  //  1. CI: `installer-e2e` job downloads the build artefact and points
+  //     MDR_INSTALLER_PATH at the .exe directly. Avoids a ~10-min rebuild.
+  //  2. Local: scan the Tauri bundle output dirs (per-target + default).
+  let installerPath: string;
+  if (process.env.MDR_INSTALLER_PATH) {
+    installerPath = path.resolve(process.env.MDR_INSTALLER_PATH);
+    if (!fs.existsSync(installerPath)) {
+      throw new Error(
+        `MDR_INSTALLER_PATH=${installerPath} does not exist`,
+      );
+    }
+  } else {
+    const candidateDirs = [
+      path.resolve("src-tauri/target/release/bundle/nsis"),
+      path.resolve("src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"),
+      path.resolve("src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis"),
+    ];
+    const bundleDir = candidateDirs.find((d) => fs.existsSync(d));
+    if (!bundleDir) {
+      throw new Error(
+        `No NSIS bundle dir found. Looked in:\n  ${candidateDirs.join("\n  ")}`,
+      );
+    }
+    const installer = fs.readdirSync(bundleDir).find((f) => f.endsWith(".exe"));
+    if (!installer) throw new Error(`No NSIS installer .exe in ${bundleDir}`);
+    installerPath = path.join(bundleDir, installer);
   }
-  const installer = fs.readdirSync(bundleDir).find((f) => f.endsWith(".exe"));
-  if (!installer) throw new Error(`No NSIS installer .exe in ${bundleDir}`);
-  const installerPath = path.join(bundleDir, installer);
   const installPrefix = path.join(
     process.env.TEMP ?? "C:\\Windows\\Temp",
     `mdr-test-${Date.now()}`,

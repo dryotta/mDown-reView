@@ -8,10 +8,29 @@ name: CI
 #   - workflow_call: invoked by canary.yml and release.yml with sign=true and
 #     profile=release to produce signed updater artefacts.
 #
-# Branch-protection contract: the aggregate gate `Test (Linux)` is the single
+# Branch-protection contract: the aggregate gate `CI gate` is the single
 # required check. It runs on EVERY PR (no path filter) so the gate always
 # reports a status — docs-only PRs see all heavy jobs skipped via the
 # `changes` job's `code` output, and the gate accepts skip-on-skip.
+#
+# Parallelism: every heavy job runs in parallel under `needs: changes`.
+# `installer-e2e` is the only job with a further `needs:` edge (on `build`)
+# because it consumes the windows-x64 installer artefact. Critical path is
+# bounded by the slowest of {build matrix, native-e2e}.
+#
+# Jobs (all parallel under `changes` unless noted):
+#   - lint-and-vitest (ubuntu)      — eslint, vitest, frontend build, bundle gates
+#   - rust-test (ubuntu)             — clippy + cargo test + `cargo bench --no-run`
+#   - rust-test-windows (win-2022)   — clippy + cargo test (Windows-cfg code)
+#   - rust-test-macos (macos-14)     — clippy + cargo test (macOS-cfg code)
+#   - bindings-drift (ubuntu)
+#   - e2e-browser (ubuntu)
+#   - native-e2e (win-2022)          — CDP-attached Playwright
+#   - build (matrix)                 — windows-x64, windows-arm64, macos-arm64
+#   - installer-e2e (win-2022)       — NSIS install/uninstall against win-x64
+#                                      build artefact (`needs: build`)
+#   - release-preflight (ubuntu)     — only when sign=true
+#   - test-gate (ubuntu, `CI gate`)  — aggregate; required check.
 
 on:
   pull_request:
@@ -176,6 +195,116 @@ jobs:
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           version: 1.0
+
+      - name: Stage CLI binary (needed by Tauri externalBin during cargo test)
+        run: npm run stage:cli
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D clippy::dbg_macro -D clippy::todo
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Compile-gate benches (cargo bench --no-run)
+        # Catches bench code rot. `cargo test` does NOT compile benches/;
+        # only `cargo bench` (or `--all-targets`) does. Running with
+        # `--no-run` skips execution while still catching API drift in
+        # `benches/{matching,scanner,sidecar,threads,parsers,hot_path}.rs`
+        # and `benches/generate_fixtures.rs`.
+        working-directory: src-tauri
+        run: cargo bench --no-run
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Rust tests (Windows) — exercises `#[cfg(target_os = "windows")]` and
+  # `#[cfg(windows)]` code paths that the Linux `rust-test` job cannot
+  # compile. Includes tests in cli_shim/windows.rs, core/security/
+  # system_locations_tests.rs (windows arms), core/paths_tests.rs (windows
+  # arms), and registry.rs (windows arms).
+  # ─────────────────────────────────────────────────────────────────────────
+  rust-test-windows:
+    name: Rust tests (Windows)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Distinct prefix-key — must not evict the matrix `build` cache
+          # nor the bindings-drift cache.
+          prefix-key: rust-test-windows
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Stage CLI binary (needed by Tauri externalBin during cargo test)
+        run: npm run stage:cli
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D clippy::dbg_macro -D clippy::todo
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Rust tests (macOS) — exercises `#[cfg(target_os = "macos")]` code paths
+  # that the Linux `rust-test` job cannot compile. Includes tests in
+  # cli_shim/macos.rs, default_handler/macos arms, config/macos arms, and
+  # the macOS RunEvent handlers in lib.rs.
+  # ─────────────────────────────────────────────────────────────────────────
+  rust-test-macos:
+    name: Rust tests (macOS)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      # Match the release-build deployment target so cfg gates compile
+      # against the same minimum macOS version as the shipped binary.
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          prefix-key: rust-test-macos
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
 
       - name: Stage CLI binary (needed by Tauri externalBin during cargo test)
         run: npm run stage:cli
@@ -647,6 +776,92 @@ jobs:
           retention-days: 14
 
   # ─────────────────────────────────────────────────────────────────────────
+  # Installer E2E (Windows) — NSIS install/uninstall round-trip against the
+  # build artefact produced by `build (windows-x64)`. Validates HKCU PATH
+  # mutation + restoration, the `installer-hooks.nsh` PRE/POST logic, and
+  # silent install/uninstall exit codes. Closes the gap where the spec
+  # existed (`e2e/native/installer.spec.ts` + `playwright.installer.config.ts`)
+  # but was never wired into CI.
+  # ─────────────────────────────────────────────────────────────────────────
+  # `needs: build` waits for the whole matrix, but in practice this job is
+  # gated only on the windows-x64 leg's artefact. Runs in parallel with
+  # `native-e2e`, `rust-test*`, etc.; only its execution waits.
+  installer-e2e:
+    name: Installer E2E (Windows)
+    needs: [changes, build]
+    # Only runs on PR / push (sign=false). On sign=true the build matrix
+    # uploads a `.nsis.zip` updater bundle (no standalone setup.exe), so
+    # installer-e2e has nothing to consume — release-preflight covers the
+    # signed-artefact contract instead.
+    if: needs.changes.outputs.code == 'true' && inputs.sign != true
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Node.js (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download windows-x64 build artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: artefacts/windows-x64/
+
+      - name: Resolve installer path
+        id: installer
+        shell: bash
+        run: |
+          set -e
+          exe="artefacts/windows-x64/mdownreview-windows-x64.exe"
+          if [ ! -s "$exe" ]; then
+            echo "::error::Installer .exe missing or empty at $exe"
+            exit 1
+          fi
+          abs=$(cygpath -w "$(pwd)/$exe" 2>/dev/null || echo "$(pwd)/$exe")
+          echo "path=$abs" >> "$GITHUB_OUTPUT"
+          echo "Resolved installer path: $abs"
+
+      - name: Get Playwright version
+        id: pw-version
+        shell: bash
+        run: echo "version=$(npx playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/AppData/Local/ms-playwright
+          key: playwright-Windows-${{ steps.pw-version.outputs.version }}
+
+      - name: Install Playwright (Chromium only)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Installer E2E (NSIS round-trip)
+        env:
+          MDR_INSTALLER_PATH: ${{ steps.installer.outputs.path }}
+        run: npm run test:e2e:native:installer
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-installer-e2e
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────
   # Release preflight — only when sign=true (canary/release callers).
   # ─────────────────────────────────────────────────────────────────────────
   # Validates every updater asset the manifest will reference exists and is
@@ -695,22 +910,28 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Aggregate gate — REQUIRED by branch protection as `Test (Linux)`.
+  # Aggregate gate — REQUIRED by branch protection as `CI gate`.
   # ─────────────────────────────────────────────────────────────────────────
   # Always runs (`if: always()`). For docs-only PRs every heavy job is
   # skipped → the gate accepts skip-on-skip. For code PRs every heavy job
-  # must succeed. release-preflight is required only when sign=true.
+  # must succeed. `release-preflight` is required only when sign=true.
+  # `installer-e2e` is required only when sign != true (canary/release skip
+  # it because the build matrix emits a `.zip` updater bundle, not a setup
+  # `.exe` — release-preflight covers the signed-artefact contract).
   test-gate:
-    name: Test (Linux)
+    name: CI gate
     if: always()
     needs:
       - changes
       - lint-and-vitest
       - rust-test
+      - rust-test-windows
+      - rust-test-macos
       - bindings-drift
       - e2e-browser
       - native-e2e
       - build
+      - installer-e2e
       - release-preflight
     runs-on: ubuntu-22.04
     timeout-minutes: 5
@@ -731,6 +952,8 @@ jobs:
           jobs=(
             "lint-and-vitest:${{ needs.lint-and-vitest.result }}"
             "rust-test:${{ needs.rust-test.result }}"
+            "rust-test-windows:${{ needs.rust-test-windows.result }}"
+            "rust-test-macos:${{ needs.rust-test-macos.result }}"
             "bindings-drift:${{ needs.bindings-drift.result }}"
             "e2e-browser:${{ needs.e2e-browser.result }}"
             "native-e2e:${{ needs.native-e2e.result }}"
@@ -738,6 +961,8 @@ jobs:
           )
           if [ "${{ inputs.sign }}" = "true" ]; then
             jobs+=("release-preflight:${{ needs.release-preflight.result }}")
+          else
+            jobs+=("installer-e2e:${{ needs.installer-e2e.result }}")
           fi
           failed=0
           for entry in "${jobs[@]}"; do
