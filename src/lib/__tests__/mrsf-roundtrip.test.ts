@@ -8,7 +8,7 @@ const fixturesDir = join(__dirname, "../../__tests__/fixtures/mrsf");
 
 describe("MRSF round-trip", () => {
   it("parses architecture.md.review.yaml", () => {
-    const raw = readFileSync(join(fixturesDir, "architecture.md.review.yaml"), "utf-8");
+    const raw = readFileSync(join(fixturesDir, "architecture.md.review.yaml.fixture"), "utf-8");
     const sidecar = yaml.load(raw) as MrsfSidecar;
     expect(sidecar.mrsf_version).toBe("1.0");
     expect(sidecar.document).toContain("architecture.md");
@@ -16,7 +16,7 @@ describe("MRSF round-trip", () => {
   });
 
   it("parses contributing.md.review.yaml with threading", () => {
-    const raw = readFileSync(join(fixturesDir, "contributing.md.review.yaml"), "utf-8");
+    const raw = readFileSync(join(fixturesDir, "contributing.md.review.yaml.fixture"), "utf-8");
     const sidecar = yaml.load(raw) as MrsfSidecar;
     expect(sidecar.mrsf_version).toBe("1.0");
     expect(sidecar.comments.length).toBeGreaterThanOrEqual(3);
@@ -26,7 +26,7 @@ describe("MRSF round-trip", () => {
   });
 
   it("round-trips YAML → object → YAML preserving required fields", () => {
-    const raw = readFileSync(join(fixturesDir, "architecture.md.review.yaml"), "utf-8");
+    const raw = readFileSync(join(fixturesDir, "architecture.md.review.yaml.fixture"), "utf-8");
     const sidecar = yaml.load(raw) as MrsfSidecar;
     const rewritten = yaml.dump(sidecar, { quotingType: '"', forceQuotes: false });
     const reparsed = yaml.load(rewritten) as MrsfSidecar;
@@ -41,7 +41,7 @@ describe("MRSF round-trip", () => {
   });
 
   it("all fixture comments have required MRSF fields", () => {
-    for (const fixture of ["architecture.md.review.yaml", "contributing.md.review.yaml"]) {
+    for (const fixture of ["architecture.md.review.yaml.fixture", "contributing.md.review.yaml.fixture"]) {
       const raw = readFileSync(join(fixturesDir, fixture), "utf-8");
       const sidecar = yaml.load(raw) as MrsfSidecar;
       for (const c of sidecar.comments) {

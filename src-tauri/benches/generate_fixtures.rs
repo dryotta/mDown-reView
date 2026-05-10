@@ -2,7 +2,10 @@
 //!
 //! Run with: `cargo run --example generate_bench_fixtures`
 //!
-//! Generates MRSF YAML sidecars and source files in `benches/fixtures/`.
+//! Generates MRSF YAML sidecars and source files into the cargo target
+//! directory at `<manifest>/target/bench-fixtures/` (gitignored). This keeps
+//! the generated tree out of the working copy so it does not pollute the
+//! `mdownreview-cli` view of the repo when developers comment on it.
 
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -436,7 +439,9 @@ pub fn generate_fixtures(output_dir: &Path) -> std::io::Result<()> {
 
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-    let output_dir = PathBuf::from(manifest_dir).join("benches").join("fixtures");
+    let output_dir = PathBuf::from(manifest_dir)
+        .join("target")
+        .join("bench-fixtures");
 
     if output_dir.exists() {
         fs::remove_dir_all(&output_dir).expect("failed to clean existing fixtures");
