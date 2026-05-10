@@ -1,3 +1,21 @@
+## v0.4.4 — 2026-05-10
+
+### Features
+- **Drag-and-drop file/folder support** — drop files or folders onto a window to open them; routed through the same chokepoint as CLI launch / single-instance forwarding / macOS `RunEvent::Opened`. (#372)
+- **Out-of-workspace file viewing** — files outside the active workspace folder now load in the viewer, with relative-image embedding resolving correctly against the file's containing folder. (#362)
+
+### Fixes
+- Cold-start light-theme window flash eliminated — initial window background is painted from the persisted theme before WebView2 attaches, so dark-mode sessions no longer flash white during launch. (#363)
+
+### Other
+- **CI build pipeline overhaul** — single converged `ci.yml` gates every PR; `release.yml` + `canary.yml` reuse it via `workflow_call`. New `[profile.release-ci]` (LTO off, codegen-units 16) makes PR validation ~5× faster than production `release` while shipped artefacts retain ThinLTO + strip + opt-level=s. (#376)
+- **PR build matrix dep-compile collapse** — staged CLI sidecar profile is now aligned with the active GUI build profile, and `cargo build --bins --features tauri/custom-protocol` compiles both bins in one shared dep graph. Eliminates the duplicate-profile dep-graph compile previously costing 5–8 min per Windows shard on cold cache. (#378)
+- Native E2E watcher-allowlist stratification — addresses the real RCA behind the historical CI test-flakiness in #366. (#371)
+- `merge-pr-loop` skill now polls the auto-triggered CI run on the PR head SHA instead of dispatching the deleted `release-gate` workflow. (#377)
+- Auto-improve pass on CI / release-gate test flakiness (closes #364, #366). (#367)
+- Portable expert agents with tag + manifest knowledge loading — review agents now declare `knowledge_tags` / `project_docs` in their frontmatter so they can be dropped into other repos cleanly. (#374)
+- New `tauri-build-expert` and `github-actions-expert` review agents. (#375)
+
 ## v0.4.3 — 2026-05-03
 
 ### Features
