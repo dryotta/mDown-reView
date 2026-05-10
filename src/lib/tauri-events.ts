@@ -5,6 +5,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { debug } from "@/logger";
 
 export type { UnlistenFn };
@@ -120,6 +121,16 @@ export interface EventPayloads {
    * window comes to the front even when minimized / hidden.
    */
   "focus-tab": string;
+  /**
+   * PR #372 — drag-drop classification rejected the entire drop
+   * because no path resolved to a usable file or folder (deleted,
+   * renamed, broken symlink, NTFS-ADS, etc.). Emitted by
+   * `commands::drag_drop::handle_dropped_paths` so the renderer can
+   * surface a transient toast — without it the overlay just hides
+   * on Drop and the user sees no explanation
+   * (bug-expert PR #372 #2 / product-expert #9).
+   */
+  "drag-drop-rejected": { count: number; reason: string };
 }
 
 export type EventName = keyof EventPayloads;
@@ -161,4 +172,54 @@ export function listenEvent<K extends EventName>(
     },
     { target: { kind: "WebviewWindow", label } },
   );
+}
+
+/**
+ * Webview-level drag-drop event payload, re-exported from
+ * `@tauri-apps/api/webview` so production code touches the upstream
+ * type — never a hand-rolled clone — and any future Tauri renaming of
+ * a discriminator (e.g. `type: "drop"` → `type: "dropped"`) breaks
+ * compilation here, not silently in production. Citation: see
+ * `@tauri-apps/api/webview` `DragDropEvent` (re-exported alongside
+ * `onDragDropEvent`'s `EventCallback<DragDropEvent>` signature).
+ */
+export type { DragDropEvent } from "@tauri-apps/api/webview";
+
+/**
+ * Subscribe to webview drag-drop events for the current window.
+ *
+ * The actual file-open work happens **in Rust**: WebView2 / WKWebView's
+ * native DnD delivers the OS file paths to `WindowEvent::DragDrop`,
+ * which `commands::drag_drop::handle_dropped_paths` funnels through
+ * `route_args_through_registry` — identical semantics to CLI launch,
+ * single-instance forwarding, and macOS `RunEvent::Opened`. This
+ * JS-side listener is for **visual feedback only** (overlay show/hide).
+ *
+ * Per `mac-webview-drag-drop` rule in
+ * `docs/best-practices-common/tauri/macos-platform.md`, handling
+ * drops on the Rust side avoids WKWebView's unreliable HTML5
+ * `drop`-event propagation.
+ *
+ * Routed through this chokepoint so `getCurrentWebview` is imported
+ * in exactly one production file (mirrors `listenEvent`'s discipline
+ * for `@tauri-apps/api/event`); enforced by
+ * `src/__tests__/event-chokepoint.test.ts`.
+ *
+ * `over` events fire continuously during drag (mouse-move cadence) so
+ * are NOT logged — only state-changing transitions (`enter`, `drop`,
+ * `leave`). Otherwise the rotating log file fills with hundreds of
+ * lines per drag, drowning useful signal.
+ */
+export function listenDragDrop(
+  callback: (payload: import("@tauri-apps/api/webview").DragDropEvent) => void,
+): Promise<UnlistenFn> {
+  const label = currentLabel();
+  return getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type !== "over") {
+      void debug(
+        `[tauri-events] received drag-drop type=${event.payload.type} window-label=${label}`,
+      );
+    }
+    callback(event.payload);
+  });
 }

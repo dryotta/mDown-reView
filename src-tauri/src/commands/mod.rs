@@ -9,6 +9,7 @@ pub mod close_flush;
 pub mod comments;
 pub mod config;
 pub mod default_handler;
+pub mod drag_drop;
 pub mod file_viewer_prefs;
 pub mod fs;
 pub mod fs_write;

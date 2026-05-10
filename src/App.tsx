@@ -13,6 +13,7 @@ import { useFocusTab } from "@/hooks/useFocusTab";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useOnboardingBootstrap } from "@/hooks/useOnboardingBootstrap";
 import { useCrossWindowPrefsSync } from "@/hooks/useCrossWindowPrefsSync";
+import { useDragDropOverlay } from "@/hooks/useDragDropOverlay";
 import { useAuthor } from "@/lib/vm/useAuthor";
 import { useThemePref } from "@/lib/vm/useThemePref";
 import { FolderTree } from "@/components/FolderTree/FolderTree";
@@ -28,6 +29,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FolderPaneShell } from "@/components/FolderPaneShell";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { WelcomeView } from "@/components/WelcomeView";
+import { DragDropOverlay } from "@/components/DragDropOverlay";
 import { basename } from "@/lib/path-utils";
 import { isSidecarFile } from "@/lib/file-types";
 import { IconFile, IconFolder, IconComment } from "@/components/Icons";
@@ -192,6 +194,16 @@ export default function App() {
   // Sync global prefs (theme, author, recents…) across open windows
   useCrossWindowPrefsSync();
 
+  // Drag-drop visual overlay. The actual file-open work is in Rust
+  // (`WindowEvent::DragDrop` → `commands::drag_drop::handle_dropped_paths`
+  // → `launch_routing::route_args_to_window`); this hook only drives
+  // the affordance. Suppress the overlay while a modal is open
+  // (Settings / About) so the user is not surprised by a drop landing
+  // behind the modal — bug-expert PR #372 review (#7) flagged
+  // modal-occlusion as a silent-success UX trap.
+  const { isDragging: isDraggingRaw, lastRejection } = useDragDropOverlay();
+  const isDragging = isDraggingRaw && !aboutOpen && !settingsDialogOpen;
+
   // Hydrate the persisted display name from disk so new comments get the
   // OS-user fallback even before the user opens Settings (AC #71/F7).
   useAuthor();
@@ -289,6 +301,11 @@ export default function App() {
 
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       {settingsDialogOpen && <SettingsView onClose={closeSettings} />}
+      <DragDropOverlay
+        isDragging={isDragging}
+        hasWorkspace={root !== null}
+        lastRejection={lastRejection}
+      />
     </div>
   );
 }

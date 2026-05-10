@@ -50,6 +50,102 @@ pub fn parse_trace_flag(args: &[String]) -> Option<bool> {
     None
 }
 
+/// Reject a path component containing `:` (NTFS Alternate Data Stream).
+///
+/// On Windows the colon at index 1 of an absolute path is the drive
+/// separator (e.g. `C:\…`), which is legitimate; any colon elsewhere
+/// in any component is the ADS marker. The check is OS-agnostic so a
+/// macOS / Linux user dropping a file named `report.md:hidden` (rare
+/// but legal on those filesystems) is also rejected — the
+/// canonicalisation that follows would normalise the bytes, but the
+/// renderer's `read_text_file` chokepoint would happily read the ADS
+/// stream on Windows. Symmetric with the write-side guard in
+/// `commands::fs_write::ensure_writable` (rule 29(a) in `docs/security.md`).
+///
+/// Returns `true` when the path is safe to pass to `canonicalize` /
+/// `metadata`; `false` when an ADS marker is present.
+fn path_has_no_ads(s: &str) -> bool {
+    // Strip a leading `<drive>:` (e.g. `C:`) — that single colon at
+    // index 1 of an absolute Windows path is the drive separator,
+    // not ADS.
+    let rest = if cfg!(windows)
+        && s.len() >= 2
+        && s.as_bytes()[1] == b':'
+        && s.as_bytes()[0].is_ascii_alphabetic()
+    {
+        &s[2..]
+    } else {
+        s
+    };
+    !rest.contains(':')
+}
+
+/// If `p` is a sidecar (`*.review.yaml` / `*.review.json`) and the
+/// source file it annotates exists on disk, redirect to the source.
+/// Otherwise return `p` unchanged. Drops of a sidecar file are a
+/// common workflow gesture (agents place sidecars next to source files;
+/// the user drops the sidecar to "open the review") — this redirect
+/// surfaces the reviewed source instead of the raw YAML/JSON, with the
+/// reviewed comments rendered via the standard MarkdownViewer/SourceView.
+///
+/// Two layout modes:
+///
+/// 1. **Co-located** (default): `<dir>/foo.md.review.yaml` annotates
+///    `<dir>/foo.md`. Suffix-strip + `exists()`.
+///
+/// 2. **Configured `sidecar_root`**: `.mrsf.yaml` at some workspace
+///    ancestor configures `sidecar_root: <rel>`. The sidecar lives at
+///    `<workspace>/<sidecar_root>/<rel>/foo.md.review.yaml` and the
+///    source lives at `<workspace>/<rel>/foo.md` — the suffix-strip
+///    alone yields a path inside the redirect folder where no source
+///    file exists, so the canonical mapping in
+///    [`crate::core::paths::source_for_sidecar_with_config`] is needed.
+///
+/// We try (1) first (fast path), then walk up looking for `.mrsf.yaml`
+/// for (2). Falls through transparently for non-sidecar paths and for
+/// orphan sidecars whose source no longer exists (the user gets to
+/// see the YAML — preferable to silent failure).
+fn redirect_sidecar_to_source(p: std::path::PathBuf) -> std::path::PathBuf {
+    // Fast path: co-located sidecar, suffix-stripped source exists.
+    if let Some(source) = crate::core::paths::source_for_sidecar(&p) {
+        if source.exists() {
+            return source;
+        }
+    }
+    // Slow path: walk up to find `.mrsf.yaml` and use the configured
+    // `sidecar_root`-aware redirect.
+    if let Some(redirected) = redirect_via_mrsf_config(&p) {
+        if redirected.exists() {
+            return redirected;
+        }
+    }
+    p
+}
+
+/// Walk up from `sidecar_path` looking for `.mrsf.yaml`. If found and
+/// it configures `sidecar_root`, return the configured source path
+/// (caller still verifies `exists()`). Returns `None` if no
+/// `.mrsf.yaml` is found, the config has no `sidecar_root`, or the
+/// path is not a sidecar.
+fn redirect_via_mrsf_config(sidecar_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = sidecar_path.parent()?;
+    loop {
+        if dir.join(".mrsf.yaml").exists() {
+            // load_mrsf_config returns Ok(None) when the file is
+            // present but omits sidecar_root; treat that and any
+            // load error as "no config" and stop walking.
+            let sidecar_root =
+                crate::core::sidecar::config::load_mrsf_config(dir).ok().flatten()?;
+            return crate::core::paths::source_for_sidecar_with_config(
+                sidecar_path,
+                dir,
+                Some(&sidecar_root),
+            );
+        }
+        dir = dir.parent()?;
+    }
+}
+
 /// Parse CLI-style launch arguments into a `LaunchArgs` struct.
 ///
 /// Supports `--folder <path>`, `--file <path>`, and positional auto-detect
@@ -58,6 +154,17 @@ pub fn parse_trace_flag(args: &[String]) -> Option<bool> {
 ///   2. Resolve `--file` and positional paths against the **first** collected
 ///      folder (if any) — otherwise against `cwd`. Absolute paths bypass this
 ///      base and are canonicalized as-is.
+///
+/// **Sidecar redirect** — any path that resolves to an existing
+/// `*.review.yaml` / `*.review.json` is silently mapped to its source
+/// file (when the source exists). Drag-drop, CLI launch, and OS
+/// file-open all benefit. See [`redirect_sidecar_to_source`].
+///
+/// **NTFS Alternate Data Stream rejection** — any path containing a `:`
+/// outside the Windows drive-letter prefix is silently dropped. Mirrors
+/// the write-side guard in `commands::fs_write::ensure_writable` (rule
+/// 29(a) in `docs/security.md`); review of PR #372 (security M1) flagged
+/// the read/write asymmetry.
 ///
 /// Non-existent paths are silently dropped (canonicalize fails). Unknown flags
 /// (anything starting with `-` other than `--folder`/`--file`) are ignored —
@@ -73,9 +180,13 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
         if args[i] == "--folder" {
             i += 1;
             if let Some(val) = args.get(i) {
-                let resolved = crate::core::paths::resolve_path(val, None, cwd);
-                if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
-                    folders.push(canon.to_string_lossy().into_owned());
+                if !path_has_no_ads(val) {
+                    log::warn!("[launch] rejecting NTFS-ADS path: {val}");
+                } else {
+                    let resolved = crate::core::paths::resolve_path(val, None, cwd);
+                    if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
+                        folders.push(canon.to_string_lossy().into_owned());
+                    }
                 }
             }
         }
@@ -97,18 +208,30 @@ pub fn parse_launch_args(args: &[String], cwd: &Path) -> LaunchArgs {
         if arg == "--file" {
             i += 1;
             if let Some(val) = args.get(i) {
-                let resolved = crate::core::paths::resolve_path(val, folder_opt, cwd);
-                if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
-                    files.push(canon.to_string_lossy().into_owned());
+                if !path_has_no_ads(val) {
+                    log::warn!("[launch] rejecting NTFS-ADS path: {val}");
+                } else {
+                    let resolved = crate::core::paths::resolve_path(val, folder_opt, cwd);
+                    if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
+                        let final_path = redirect_sidecar_to_source(canon);
+                        files.push(final_path.to_string_lossy().into_owned());
+                    }
                 }
             }
         } else if !arg.starts_with('-') {
-            let resolved = crate::core::paths::resolve_path(arg, folder_opt, cwd);
-            if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
-                match std::fs::metadata(&canon) {
-                    Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
-                    Ok(_) => files.push(canon.to_string_lossy().into_owned()),
-                    Err(_) => {}
+            if !path_has_no_ads(arg) {
+                log::warn!("[launch] rejecting NTFS-ADS path: {arg}");
+            } else {
+                let resolved = crate::core::paths::resolve_path(arg, folder_opt, cwd);
+                if let Ok(canon) = canonicalize_no_verbatim(&resolved) {
+                    match std::fs::metadata(&canon) {
+                        Ok(meta) if meta.is_dir() => folders.push(canon.to_string_lossy().into_owned()),
+                        Ok(_) => {
+                            let final_path = redirect_sidecar_to_source(canon);
+                            files.push(final_path.to_string_lossy().into_owned());
+                        }
+                        Err(_) => {}
+                    }
                 }
             }
         }
@@ -516,5 +639,224 @@ mod tests {
         let expected: Vec<String> = names.iter().map(|n| canon(cwd.path().join(n))).collect();
         assert_eq!(out.files.len(), 10);
         assert_eq!(out.files, expected);
+    }
+
+    // ── PR #372 review fixes ──────────────────────────────────────────────
+
+    /// D5 (product-expert) — dropping `foo.md.review.yaml` should open
+    /// the SOURCE `foo.md`, not the raw YAML, when the source exists.
+    #[test]
+    fn parse_launch_args_redirects_yaml_sidecar_to_source() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("foo.md"), "source").unwrap();
+        fs::write(cwd.path().join("foo.md.review.yaml"), "y").unwrap();
+
+        let out = parse_launch_args(&[s(cwd.path().join("foo.md.review.yaml").to_str().unwrap())], cwd.path());
+        assert_eq!(out.files, vec![canon(cwd.path().join("foo.md"))]);
+    }
+
+    /// D5 — `.review.json` legacy sidecar form gets the same redirect.
+    #[test]
+    fn parse_launch_args_redirects_json_sidecar_to_source() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("foo.md"), "source").unwrap();
+        fs::write(cwd.path().join("foo.md.review.json"), "y").unwrap();
+
+        let out = parse_launch_args(&[s(cwd.path().join("foo.md.review.json").to_str().unwrap())], cwd.path());
+        assert_eq!(out.files, vec![canon(cwd.path().join("foo.md"))]);
+    }
+
+    /// D5 — orphan sidecar (source missing) opens as the sidecar
+    /// itself; the user gets to see the YAML which is at least
+    /// recoverable via Save As. Silent failure would be worse.
+    #[test]
+    fn parse_launch_args_keeps_orphan_sidecar() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("foo.md.review.yaml"), "y").unwrap();
+        // foo.md does NOT exist.
+
+        let out = parse_launch_args(&[s(cwd.path().join("foo.md.review.yaml").to_str().unwrap())], cwd.path());
+        assert_eq!(out.files, vec![canon(cwd.path().join("foo.md.review.yaml"))]);
+    }
+
+    /// D5 — non-sidecar paths pass through unchanged.
+    #[test]
+    fn parse_launch_args_non_sidecar_unchanged() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("notes.md"), "x").unwrap();
+
+        let out = parse_launch_args(&[s("notes.md")], cwd.path());
+        assert_eq!(out.files, vec![canon(cwd.path().join("notes.md"))]);
+    }
+
+    /// S5 (security-expert) — NTFS Alternate Data Stream rejection.
+    /// Symmetric with the write-side guard in
+    /// `commands::fs_write::ensure_writable` (rule 29(a) in
+    /// `docs/security.md`).
+    #[test]
+    #[cfg(windows)]
+    fn parse_launch_args_rejects_ntfs_ads_path() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("foo.md"), "x").unwrap();
+
+        // The drive-letter colon at index 1 is NOT ADS; only colons
+        // beyond it are. Constructing an actual ADS path on disk is
+        // platform-/perm-dependent, but `parse_launch_args` rejects
+        // BEFORE canonicalize so a string-only check is sufficient.
+        let absolute = cwd.path().join("foo.md");
+        let mut ads = absolute.to_string_lossy().into_owned();
+        ads.push_str(":hidden");
+        let out = parse_launch_args(&[ads.clone()], cwd.path());
+        assert!(out.files.is_empty(), "ADS path {ads:?} should be rejected; got {out:?}");
+    }
+
+    /// S5 — drive-letter colon (e.g. `C:\foo`) MUST NOT be rejected as ADS.
+    #[test]
+    #[cfg(windows)]
+    fn parse_launch_args_accepts_drive_letter_colon() {
+        let cwd = tempdir().unwrap();
+        fs::write(cwd.path().join("foo.md"), "x").unwrap();
+        let absolute = cwd.path().join("foo.md").to_string_lossy().into_owned();
+        let out = parse_launch_args(&[absolute], cwd.path());
+        assert_eq!(out.files.len(), 1);
+    }
+
+    /// S5 — on POSIX, a colon in a filename is rare but legal; the
+    /// guard rejects it for symmetry. Better to over-reject than to
+    /// miss the Windows variant.
+    #[test]
+    #[cfg(not(windows))]
+    fn parse_launch_args_rejects_colon_in_filename_posix() {
+        let cwd = tempdir().unwrap();
+        // We can't actually create a colon-named file on macOS HFS+,
+        // but we can synthesize the string and verify the guard runs
+        // before canonicalize so a hostile drag source can't bypass.
+        let out = parse_launch_args(&[s("foo:hidden.md")], cwd.path());
+        assert!(out.files.is_empty(), "POSIX colon-in-filename should be rejected");
+    }
+
+    // ── path_has_no_ads unit tests (S5) ───────────────────────────────────
+
+    #[test]
+    fn path_has_no_ads_accepts_normal_paths() {
+        assert!(path_has_no_ads("foo.md"));
+        assert!(path_has_no_ads("/usr/local/foo.md"));
+        assert!(path_has_no_ads("./foo.md"));
+        assert!(path_has_no_ads("../foo.md"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn path_has_no_ads_accepts_drive_letter() {
+        assert!(path_has_no_ads("C:\\Users\\dev\\foo.md"));
+        assert!(path_has_no_ads("D:/projects/foo.md"));
+    }
+
+    #[test]
+    fn path_has_no_ads_rejects_ads_marker() {
+        assert!(!path_has_no_ads("foo.md:hidden"));
+        assert!(!path_has_no_ads("/usr/local/foo.md:secret"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn path_has_no_ads_rejects_ads_after_drive_letter() {
+        // Drive letter is fine; subsequent colons are ADS.
+        assert!(!path_has_no_ads("C:\\Users\\dev\\foo.md:hidden"));
+    }
+
+    // ── H5 (test-expert): redirect_sidecar_to_source honours .mrsf.yaml ──
+
+    /// `sidecar_root: .reviews` workspace — sidecar lives under
+    /// `<workspace>/.reviews/foo.md.review.yaml` and the source lives
+    /// at `<workspace>/foo.md`. Suffix-strip alone yields a path
+    /// inside the redirect folder where no source exists, so the
+    /// fallback walks up to `.mrsf.yaml` and uses
+    /// `source_for_sidecar_with_config` to compute the real source
+    /// location.
+    #[test]
+    fn parse_launch_args_redirects_sidecar_via_mrsf_config() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        // Write `.mrsf.yaml` configuring `sidecar_root: .reviews`.
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        // Source lives at the workspace root.
+        fs::write(ws.join("foo.md"), "source").unwrap();
+        // Sidecar lives under `.reviews/`.
+        fs::create_dir_all(ws.join(".reviews")).unwrap();
+        fs::write(ws.join(".reviews").join("foo.md.review.yaml"), "y").unwrap();
+
+        let sidecar = ws.join(".reviews").join("foo.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(
+            out.files,
+            vec![canon(ws.join("foo.md"))],
+            "config-aware redirect should map .reviews/foo.md.review.yaml → foo.md",
+        );
+    }
+
+    /// `sidecar_root: .reviews` with a nested source —
+    /// `<ws>/.reviews/sub/bar.md.review.yaml` annotates
+    /// `<ws>/sub/bar.md`. Verifies the relative path inside the
+    /// sidecar tree maps correctly.
+    #[test]
+    fn parse_launch_args_redirects_nested_sidecar_via_mrsf_config() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        fs::create_dir_all(ws.join("sub")).unwrap();
+        fs::write(ws.join("sub").join("bar.md"), "src").unwrap();
+        fs::create_dir_all(ws.join(".reviews").join("sub")).unwrap();
+        fs::write(
+            ws.join(".reviews").join("sub").join("bar.md.review.yaml"),
+            "y",
+        )
+        .unwrap();
+
+        let sidecar = ws.join(".reviews").join("sub").join("bar.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(
+            out.files,
+            vec![canon(ws.join("sub").join("bar.md"))],
+            "nested redirect must preserve the relative path",
+        );
+    }
+
+    /// Co-located sidecar still wins when both are present (matches
+    /// `resolve_sidecar_with_config`'s "co-located wins until
+    /// migrated" rule). The sidecar lives next to a real source —
+    /// fast path returns immediately, no walk-up needed.
+    #[test]
+    fn parse_launch_args_co_located_redirect_unaffected_by_mrsf_config() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        fs::write(ws.join("foo.md"), "src").unwrap();
+        fs::write(ws.join("foo.md.review.yaml"), "y").unwrap();
+
+        let sidecar = ws.join("foo.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(out.files, vec![canon(ws.join("foo.md"))]);
+    }
+
+    /// Orphan sidecar in a `sidecar_root` workspace — neither the
+    /// co-located source NOR the configured source exists. Returns
+    /// the sidecar itself rather than silently failing.
+    #[test]
+    fn parse_launch_args_orphan_sidecar_in_mrsf_workspace_returns_sidecar() {
+        let cwd = tempdir().unwrap();
+        let ws = cwd.path();
+        fs::write(ws.join(".mrsf.yaml"), "sidecar_root: .reviews\n").unwrap();
+        fs::create_dir_all(ws.join(".reviews")).unwrap();
+        fs::write(ws.join(".reviews").join("foo.md.review.yaml"), "y").unwrap();
+        // Neither <ws>/foo.md nor <ws>/.reviews/foo.md exist.
+
+        let sidecar = ws.join(".reviews").join("foo.md.review.yaml");
+        let out = parse_launch_args(&[s(sidecar.to_str().unwrap())], ws);
+        assert_eq!(
+            out.files,
+            vec![canon(&sidecar)],
+            "orphan sidecar must still open as the sidecar so the user sees something",
+        );
     }
 }

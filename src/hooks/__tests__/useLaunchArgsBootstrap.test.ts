@@ -13,6 +13,7 @@ vi.mock("@/lib/tauri-events", () => ({
     if (event === "args-received") argsListeners.push(cb);
     return Promise.resolve(mockUnlisten);
   }),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 const mockGetLaunchArgs = vi.fn();

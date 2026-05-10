@@ -9,6 +9,7 @@ import { warn } from "@/logger";
 vi.mock("@tauri-apps/api/core");
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn().mockResolvedValue(() => {}),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock("@/logger");
 

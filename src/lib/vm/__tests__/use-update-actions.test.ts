@@ -27,6 +27,7 @@ vi.mock("@/lib/tauri-events", () => ({
     listenCallback = cb;
     return Promise.resolve(mockUnlisten);
   }),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 const initialState = useStore.getState();

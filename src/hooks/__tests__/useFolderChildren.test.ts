@@ -10,6 +10,7 @@ import { folderChanged } from "@/__tests__/fixtures/ipc-event-fixtures";
 vi.mock("@/lib/tauri-commands");
 vi.mock("@/lib/tauri-events", () => ({
   listenEvent: vi.fn(() => Promise.resolve(() => {})),
+  listenDragDrop: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock("@/logger", () => ({
   error: vi.fn(),
