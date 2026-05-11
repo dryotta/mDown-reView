@@ -93,17 +93,33 @@ pub struct RegisterWindowFileResult {
 ///
 /// Security:
 /// - Canonicalises the input via `canonicalize_no_verbatim` (rejects `..`,
-///   relative, verbatim).
+///   relative, verbatim — those are integrity checks, not policy).
 /// - Classifies the canonical path via
-///   `core::security::system_locations::classify` and rejects `Tier::System`
-///   with the sentinel "system path blocked" matching
-///   `commands::fs::mod::ensure_readable`'s vocabulary.
-/// - Returns the canonical path plus a `PathClassification` so the renderer
-///   can derive `readOnly` atomically with the tab insert (AC7 — eliminates
-///   the `classifyAndMarkReadOnly` race).
+///   `core::security::system_locations::classify` and returns the resulting
+///   `PathClassification` to the renderer so it can paint the read-only
+///   badge for outside-workspace tabs (AC7 — eliminates the
+///   `classifyAndMarkReadOnly` race).
+/// - Does **NOT** reject `Tier::System` paths. User-initiated opens (OS file
+///   dialog, CLI argument, OS double-click, tree click) carry explicit user
+///   intent and override the content-policy DENY list — see rule 17b in
+///   `docs/security.md`. The override applies UNIFORMLY across every
+///   `Tier::System` sub-location and flavor (POSIX, Windows, UNC); there
+///   is no per-prefix carve-out. The system-locations DENY list is
+///   enforced exclusively at the content-initiated chokepoints
+///   (`useLinkRouter` consuming `commands::path_classify` for markdown
+///   anchor clicks, `core::html_assets::resolve_local_assets` for
+///   HTML-preview `<img>` / `<link>` inlining), which protect against
+///   hallucinating-LLM smuggling.
 ///
-/// Cite: docs/architecture.md rule 1 (chokepoint discipline) +
-/// docs/security.md rule 17 (asset-scope vs watcher-allowlist split).
+/// ## Chokepoint discipline
+/// Rule 1 of [`docs/architecture.md`](../../../../docs/architecture.md)
+/// names a single chokepoint per IPC; rule 17b of
+/// [`docs/security.md`](../../../../docs/security.md) layers a
+/// deliberate per-surface policy divergence (content vs user) ON TOP
+/// of that single chokepoint. The two coexist: there is still one
+/// Rust function that owns the user-initiated file-open contract; that
+/// function's policy bit happens to differ from the content-initiated
+/// chokepoints'.
 #[mdr_command]
 pub fn register_window_file(
     window: tauri::Window,
@@ -124,7 +140,7 @@ pub fn register_window_file_inner(
     state: &crate::watcher::WatcherState,
     kind: Option<&crate::registry::WindowKind>,
 ) -> Result<RegisterWindowFileResult, String> {
-    use crate::core::security::system_locations::{classify, tier_to_wire, Tier};
+    use crate::core::security::system_locations::{classify, tier_to_wire};
 
     let raw = std::path::Path::new(path_str);
     let canonical = crate::core::paths::canonicalize_no_verbatim(raw).map_err(|e| {
@@ -154,20 +170,17 @@ pub fn register_window_file_inner(
     // below, so the second-and-later file opened in a FileOnly window does
     // NOT get classified against the first file's parent dir (the iter-2
     // bug surfaced by user testing).
+    //
+    // `Tier::System` is intentionally NOT rejected here — see the doc-
+    // comment block above and rule 17b of `docs/security.md`. The
+    // classification still surfaces to the renderer (currently rendered as
+    // the read-only / outside-workspace badge in `RegisterWindowFileResult`).
     use crate::registry::WindowKind;
     let workspace_root: std::path::PathBuf = match kind {
         Some(WindowKind::Folder(root)) => root.clone(),
         Some(WindowKind::FileOnly) | None => canonical.clone(),
     };
     let classification = match classify(&canonical, &workspace_root) {
-        Ok(Tier::System { .. }) => {
-            tracing::warn!(
-                target: "fs-guard",
-                "[fs-guard] register_window_file system path blocked: {}",
-                canonical.display()
-            );
-            return Err("system path blocked".into());
-        }
         Ok(tier) => tier_to_wire(&tier, &canonical),
         Err(e) => {
             tracing::warn!(
@@ -199,18 +212,27 @@ pub fn register_window_file_inner(
 }
 
 /// Extend per-window scope (BOTH asset-protocol scope AND watcher allowlist)
-/// for the given paths' canonical parents. Used by:
-///   1. The "Allow for this session" banner click in the markdown viewer
-///      (AC3) — grants asset scope to embedded image directories.
-///   2. Future single-window deferred grants. Idempotent.
+/// for the given paths' canonical parents. **Renderer IPC only** — the sole
+/// runtime caller is the "Allow for this session" banner click in the
+/// markdown viewer (AC3), which grants asset scope to embedded image
+/// directories outside the workspace. CLI / single-instance / drag-drop /
+/// `RunEvent::Opened` paths bypass this helper entirely and call
+/// `window_scope::extend_window_scope(..., ScopeGrant::FilesParents(_))`
+/// directly from `launch_routing.rs` — see rule 17 in `docs/security.md`
+/// for that chokepoint enumeration.
 ///
-/// Each path is canonicalized and classified. `Tier::System` paths are
-/// rejected with the "system path blocked" sentinel; non-canonical paths
-/// with "path not canonicalizable". On any per-path rejection, the IPC
-/// returns Err and no partial mutation occurs (atomic — collect all
-/// canonicals first, then call `extend_window_scope` once).
+/// Each path is canonicalized; non-canonical paths are rejected with
+/// "path not canonicalizable". `Tier::System` paths are **accepted** —
+/// the banner click carries explicit user intent (the user just read the
+/// banner and clicked it) and overrides the content-policy DENY list. See
+/// rule 17b of `docs/security.md` for the user-intent vs content-load
+/// asymmetry; the override applies uniformly across `Tier::System` flavors.
+/// On any per-path rejection, the helper returns Err and no partial
+/// mutation occurs (atomic — collect all canonicals first, then call
+/// `extend_window_scope` once).
 ///
-/// Cite: docs/security.md rule 17 (asset-scope chokepoint, banner opt-in).
+/// Cite: docs/security.md rule 17 (asset-scope chokepoint, banner opt-in) +
+/// rule 17b (user-intent vs content-load asymmetry).
 #[mdr_command]
 pub fn extend_window_scope_files(
     window: tauri::Window,
@@ -235,7 +257,7 @@ pub fn extend_window_scope_files(
 pub fn collect_canonicals_for_extend(
     paths: &[String],
 ) -> Result<Vec<std::path::PathBuf>, String> {
-    use crate::core::security::system_locations::{classify, Tier};
+    use crate::core::security::system_locations::classify;
 
     let mut canonicals: Vec<std::path::PathBuf> = Vec::with_capacity(paths.len());
     for path_str in paths {
@@ -248,15 +270,13 @@ pub fn collect_canonicals_for_extend(
             );
             "canonicalize failed".to_string()
         })?;
+        // `Tier::System` is intentionally accepted — see the doc-comment
+        // above and rule 17b of `docs/security.md`. The classify call is
+        // retained as the integrity gate for `..`, relative, and verbatim
+        // forms (those `NonCanonicalErr` reasons are unreachable here in
+        // practice because `canonicalize_no_verbatim` ran above, but the
+        // fail-closed guard remains for defense-in-depth).
         match classify(&canonical, &canonical) {
-            Ok(Tier::System { .. }) => {
-                tracing::warn!(
-                    target: "fs-guard",
-                    "[fs-guard] extend_window_scope_files system path blocked: {}",
-                    canonical.display()
-                );
-                return Err("system path blocked".into());
-            }
             Ok(_) => canonicals.push(canonical),
             Err(_) => return Err("path not canonicalizable".into()),
         }

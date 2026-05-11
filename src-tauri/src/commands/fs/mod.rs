@@ -60,42 +60,49 @@ pub fn check_path_exists(path: String) -> PathKind {
     }
 }
 
-/// Reject a read request whose canonical path is either outside the watcher
-/// allowlist OR inside a system-locations bucket per
-/// [`crate::core::security::system_locations`]. Used by [`read_text_file`] and
-/// [`read_binary_file`] to close the "no workspace guard" gap called out in
-/// issue #338's review of the existing IPC surface.
+/// Reject a read request whose canonical path is outside the watcher
+/// allowlist. Used by [`read_text_file`] and [`read_binary_file`] to close
+/// the "no workspace guard" gap called out in issue #338's review of the
+/// existing IPC surface.
 ///
 /// Returns the canonical [`PathBuf`] on success so callers perform the actual
 /// I/O against the canonicalized form (defense-in-depth against TOCTOU
 /// symlink swaps between the guard check and the read).
 ///
-/// All rejection paths return one of four distinct sentinels so tests (and
-/// the renderer's CommentsPanel filter) can identify which guard fired:
+/// All rejection paths return one of three distinct sentinels so tests
+/// can identify which guard fired:
 ///
 /// * `"path not in workspace"` — both `is_path_allowed` checks (raw and
 ///   post-canonicalize containment). Matched verbatim by
 ///   `src/components/comments/CommentsPanel.tsx`.
 /// * `"canonicalize failed"` — `canonicalize_no_verbatim` errored.
-/// * `"system path blocked"` — classify returned `Tier::System` (post
-///   containment, the OS-locations DENY list fired).
-/// * `"path not canonicalizable"` — classify returned a `NonCanonicalErr`.
+/// * `"path not canonicalizable"` — `classify` returned a `NonCanonicalErr`.
+///
+/// **Tier::System paths are NOT rejected here.** The watcher allowlist
+/// (`is_path_allowed`) is only seeded through user-initiated chokepoints
+/// (`register_window_file`, `extend_window_scope_files`, the renderer's
+/// folder open), so any path reaching the read path with a positive
+/// `is_path_allowed` result has already been claimed by an explicit user
+/// gesture. Trust the upstream gate; do not second-guess user intent on
+/// every read. The system-locations DENY list is enforced exclusively at
+/// the content-initiated chokepoints (`useLinkRouter` consuming
+/// `commands::path_classify`, `core::html_assets::resolve_local_assets`
+/// for HTML-preview `<img>` / `<link>` inlining). See rule 17b of
+/// `docs/security.md`.
 ///
 /// Workspace-root semantics (issue #338 / iter-1 forward-fix):
 /// `is_path_allowed` is the source of truth for containment — it scans every
-/// window's tree-watched-dirs and watched-paths. Once that has accepted the
-/// path, `classify` is invoked **only** to enforce the system-locations
-/// DENY list (Tier::System). The `workspace_root` argument to `classify`
-/// therefore becomes irrelevant for the Inside/Outside discriminator; we
-/// pass the canonical path itself so the discriminator collapses to
-/// Inside (`canonical.starts_with(canonical)` is always true) and only the
-/// Tier::System branch can reject. Group B's per-window state lands a
-/// proper per-window workspace_root.
+/// window's tree-watched-dirs and watched-paths. `classify` is invoked
+/// **only** to enforce the integrity guards (`..`, relative, verbatim) via
+/// the `NonCanonicalErr` branch; in practice these are unreachable because
+/// `canonicalize_no_verbatim` already simplified the path. The branch is
+/// kept as a fail-closed guard against future refactors that might bypass
+/// the canonicalize step.
 pub fn ensure_readable(
     path_str: &str,
     state: &crate::watcher::WatcherState,
 ) -> Result<std::path::PathBuf, String> {
-    use crate::core::security::system_locations::{classify, Tier};
+    use crate::core::security::system_locations::classify;
 
     let raw = std::path::Path::new(path_str);
     // First containment check on the raw path (cheap; matches the existing
@@ -104,7 +111,7 @@ pub fn ensure_readable(
         tracing::warn!(target: "fs-guard", "[fs-guard] path outside workspace: {}", path_str);
         return Err("path not in workspace".into());
     }
-    // Then canonicalize and re-check containment + system-locations.
+    // Then canonicalize and re-check containment.
     let canonical = canonicalize_no_verbatim(raw)
         .map_err(|e| {
             tracing::warn!(target: "fs-guard", "[fs-guard] canonicalize failed for {}: {e}", path_str);
@@ -114,25 +121,15 @@ pub fn ensure_readable(
         tracing::warn!(target: "fs-guard", "[fs-guard] canonical path outside workspace: {}", canonical.display());
         return Err("path not in workspace".into());
     }
-    // `is_path_allowed` has already vetted containment in some window's
-    // tree. We pass `&canonical` as the workspace_root placeholder so the
-    // Inside/Outside discriminator collapses to Inside; only the
-    // Tier::System branch can reject from here. See the doc comment above.
+    // `is_path_allowed` has vetted containment. `classify` is retained as
+    // the fail-closed integrity gate for `..`, relative, and verbatim
+    // forms (unreachable through the public IPC contract because
+    // `canonicalize_no_verbatim` ran above; kept defensively per rule 11a
+    // of `docs/architecture.md`). `Tier::System` is intentionally accepted
+    // — see the doc-comment block above and rule 17b of
+    // `docs/security.md`.
     match classify(&canonical, &canonical) {
-        Ok(Tier::System { flavor }) => {
-            tracing::warn!(target: "fs-guard", "[fs-guard] system path blocked ({:?}): {}", flavor, canonical.display());
-            Err("system path blocked".into())
-        }
-        Ok(Tier::Inside) | Ok(Tier::Outside) => Ok(canonical),
-        // Defensive branch: per docs/architecture.md rule 11a, every path
-        // reaching `classify(canonical, _)` here has already passed
-        // `canonicalize_no_verbatim` above — so `Tier::classify`'s
-        // `NonCanonicalErr` (rejecting `..`, relative, or verbatim-form
-        // input) is unreachable in practice. Kept as a fail-closed guard
-        // against future refactors that might bypass the canonicalize step.
-        // Per test-expert review iter 1: this branch is intentionally
-        // untested because it is unreachable through the public IPC
-        // contract.
+        Ok(_) => Ok(canonical),
         Err(e) => {
             tracing::warn!(target: "fs-guard", "[fs-guard] non-canonical: {} reason={:?}", canonical.display(), e);
             Err("path not canonicalizable".into())

@@ -137,6 +137,28 @@ describe("useLinkRouter", () => {
     expect(mockedWarn).toHaveBeenCalledWith(expect.stringContaining("system path blocked"));
   });
 
+  it("workspace + tier=system flavor=windows → still blocked at content chokepoint", async () => {
+    // Companion to the posix test above — pins the asymmetry codified
+    // in rule 17b of `docs/security.md`: even after user-initiated opens
+    // (file picker, CLI, drag-drop) now accept Tier::System paths
+    // including AppData / `C:\Windows\` / UNC, the content-initiated
+    // path (`useLinkRouter` → `path_classify`) MUST still reject them.
+    // A markdown link to a Windows system path is the muscle-memory-
+    // phishing vector the DENY list defends against.
+    const { openFile } = setupStore();
+    mockedPathClassify.mockResolvedValueOnce({
+      status: "ok",
+      data: { tier: "system", flavor: "windows" },
+    });
+    const dispatch = getDispatch();
+    await dispatch("./somewhere/that-resolves-to-appdata.md", { filePath: "/ws/a.md" });
+
+    expect(openFile).not.toHaveBeenCalled();
+    expect(mockedWarn).toHaveBeenCalledWith(
+      expect.stringContaining("system path blocked (flavor=windows)"),
+    );
+  });
+
   it("path_classify IPC error → fail-closed (no openFile, warn)", async () => {
     const { openFile } = setupStore();
     mockedPathClassify.mockResolvedValueOnce({ status: "error", error: "boom" });

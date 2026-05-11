@@ -214,13 +214,17 @@ describe("openFile async ordering (issue #359)", () => {
   it("onRegisterReject_doesNotInsertTab: rejection from register_window_file leaves tabs untouched and rethrows", async () => {
     invokeMock.mockImplementationOnce(async (cmd) => {
       if (cmd === "register_window_file") {
-        throw "system path blocked";
+        // `canonicalize failed` is the canonical post-rule-17b rejection
+        // sentinel for register_window_file (relative paths, `..`-traversal
+        // that can't simplify, or non-existent paths). The path below is
+        // shaped consistently with that rejection class.
+        throw "canonicalize failed";
       }
       return undefined;
     });
     const before = useStore.getState().tabs.length;
     await expect(
-      useStore.getState().openFile("/sys/restricted.md", { recordHistory: false }),
+      useStore.getState().openFile("../nope/missing.md", { recordHistory: false }),
     ).rejects.toBeDefined();
     // Tab NOT inserted.
     expect(useStore.getState().tabs.length).toBe(before);

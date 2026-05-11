@@ -5,15 +5,14 @@
 //! on `kind === "outside-workspace"` instead of grepping. The
 //! `OutsideWorkspace` variant carries the offending path so the renderer can
 //! self-heal (e.g. set `tab.readOnly = true`) without a separate IPC
-//! round-trip — this is the Group B foundation for AC11 (system-locations
-//! hard-block) and AC3 (workspace-rejection self-heal).
+//! round-trip — this is the Group B foundation for AC3 (workspace-rejection
+//! self-heal).
 //!
 //! Rust-internal cases (`Io`) are kept as a catch-all variant so existing
 //! string-only error returns from helpers like `with_sidecar_mut` /
 //! `update_comment_apply` continue to flow through `?` via the
-//! `From<String>` blanket below — only the `OutsideWorkspace` and
-//! `SystemBlocked` cases become tagged. Future iters can split `Io` further
-//! as call-site value emerges.
+//! `From<String>` blanket below — only the `OutsideWorkspace` case is tagged.
+//! Future iters can split `Io` further as call-site value emerges.
 //!
 //! ## Why no `thiserror`
 //! `cli_shim.rs` already establishes the pattern of manual `Display`
@@ -36,10 +35,6 @@ pub enum CommentError {
     /// corresponding tab without a separate IPC round-trip.
     OutsideWorkspace { path: String },
 
-    /// Canonical path matches the system-locations DENY list.
-    /// AC11 of #338: tier-3 hard-block, no allow-toggle.
-    SystemBlocked,
-
     /// I/O or sidecar-shape failure. Catch-all for now; future iters may
     /// split this further. Carries the original error text so the renderer
     /// can surface it verbatim in a toast (matches the pre-#338 string
@@ -53,7 +48,6 @@ impl std::fmt::Display for CommentError {
             CommentError::OutsideWorkspace { path } => {
                 write!(f, "outside workspace: {path}")
             }
-            CommentError::SystemBlocked => write!(f, "system path blocked"),
             CommentError::Io { message } => write!(f, "io: {message}"),
         }
     }
@@ -75,8 +69,6 @@ impl From<String> for CommentError {
     fn from(message: String) -> Self {
         if message == "path not in workspace" {
             CommentError::OutsideWorkspace { path: String::new() }
-        } else if message == "system path blocked" {
-            CommentError::SystemBlocked
         } else {
             CommentError::Io { message }
         }
@@ -101,7 +93,6 @@ impl From<CommentError> for String {
     fn from(err: CommentError) -> Self {
         match err {
             CommentError::OutsideWorkspace { .. } => "path not in workspace".to_string(),
-            CommentError::SystemBlocked => "system path blocked".to_string(),
             CommentError::Io { message } => message,
         }
     }
@@ -117,13 +108,6 @@ mod tests {
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("\"kind\":\"outside-workspace\""), "got: {json}");
         assert!(json.contains("\"path\":\"/tmp/x\""), "got: {json}");
-    }
-
-    #[test]
-    fn system_blocked_serializes_with_kebab_kind_tag() {
-        let err = CommentError::SystemBlocked;
-        let json = serde_json::to_string(&err).unwrap();
-        assert_eq!(json, "{\"kind\":\"system-blocked\"}");
     }
 
     #[test]
@@ -144,12 +128,6 @@ mod tests {
     }
 
     #[test]
-    fn from_string_system_sentinel_maps_to_system_blocked() {
-        let err: CommentError = "system path blocked".to_string().into();
-        assert!(matches!(err, CommentError::SystemBlocked));
-    }
-
-    #[test]
     fn from_string_unknown_falls_back_to_io() {
         let err: CommentError = "sidecar not found".to_string().into();
         match err {
@@ -162,12 +140,6 @@ mod tests {
     fn into_string_preserves_legacy_workspace_sentinel() {
         let s: String = CommentError::OutsideWorkspace { path: "/x".into() }.into();
         assert_eq!(s, "path not in workspace");
-    }
-
-    #[test]
-    fn into_string_preserves_legacy_system_sentinel() {
-        let s: String = CommentError::SystemBlocked.into();
-        assert_eq!(s, "system path blocked");
     }
 
     #[test]

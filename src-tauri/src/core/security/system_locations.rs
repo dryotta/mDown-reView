@@ -1,12 +1,24 @@
 //! System-location classifier — foundation for the tiered link & asset policy
-//! (issue #338, rule 13 of `docs/security.md`).
+//! (issue #338, rule 17b of `docs/security.md`).
 //!
 //! Given a *canonical* (absolute, dot-dot-free, non-verbatim) path and the
 //! workspace root, classifies the path into one of three tiers:
 //!
 //! * [`Tier::Inside`]  — inside the workspace (allowed by default).
-//! * [`Tier::System`]  — sensitive system / user-secret location (always blocked).
+//! * [`Tier::System`]  — sensitive system / user-secret location (blocked by
+//!   **content-initiated** chokepoints only — see rule 17b).
 //! * [`Tier::Outside`] — outside the workspace, not system (caller decides).
+//!
+//! Per rule 17b in `docs/security.md`, `Tier::System` is rejected ONLY at the
+//! content-initiated chokepoints (`useLinkRouter` consuming
+//! `commands::path_classify` for markdown anchor clicks,
+//! `core::html_assets::resolve_local_assets` for HTML-preview `<img>` /
+//! `<link>` inlining). User-initiated chokepoints
+//! (`commands::window_register::register_window_file`,
+//! `commands::window_register::extend_window_scope_files`,
+//! `commands::fs::ensure_readable`) accept `Tier::System` because the user's
+//! explicit gesture overrides the content-policy DENY list. The override
+//! applies uniformly across `Tier::System` sub-locations and flavors.
 //!
 //! This module is **Rust-internal**: the [`Tier`], [`SystemFlavor`] and
 //! [`NonCanonicalErr`] types are `pub(crate)` and never cross the IPC boundary
@@ -17,10 +29,10 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 // ---------------------------------------------------------------------------
-// Const tables — audited as part of rule 13 of `docs/security.md`.
+// Const tables — audited as part of rule 17b of `docs/security.md`.
 // ---------------------------------------------------------------------------
 
-/// POSIX system locations — rule 13 of `docs/security.md`.
+/// POSIX system locations — rule 17b of `docs/security.md`.
 const POSIX_SYSTEM_PREFIXES: &[&str] = &[
     "/etc/",
     "/proc/",
@@ -48,7 +60,7 @@ const HOME_RELATIVE_DIR_PREFIXES: &[&str] = &[
 /// HOME-relative literal-file matches.
 const HOME_RELATIVE_FILES: &[&str] = &[".netrc", ".pgpass", ".bash_history", ".zsh_history"];
 
-/// Windows system locations — rule 13 of `docs/security.md`.
+/// Windows system locations — rule 17b of `docs/security.md`.
 const WINDOWS_SYSTEM_PREFIXES: &[&str] = &[r"C:\Windows\", r"C:\ProgramData\"];
 
 /// Substring marker for per-user AppData (joined under `C:\Users\<user>\AppData\`).

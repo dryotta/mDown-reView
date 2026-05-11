@@ -10,7 +10,8 @@
 //! "inside").
 //!
 //! See `docs/architecture.md` rule 1 (Rust owns the policy decision) and
-//! `docs/security.md` rule 13 (system-locations blocklist).
+//! `docs/security.md` rule 17b (system-locations DENY list applies to
+//! content-initiated chokepoints only).
 
 use std::path::{Path, PathBuf};
 
