@@ -94,20 +94,19 @@ describe("extendScopeForTab (issue #359 / AC3)", () => {
 
   it("on IPC reject does NOT flip the flag and rethrows", async () => {
     invokeMock.mockImplementationOnce(async (cmd) => {
-      // Any IPC reject path exercises the renderer's error handling. We
-      // pick "canonicalize failed" because the legacy "system path blocked"
-      // sentinel is no longer emitted by user-initiated chokepoints after
-      // the rule 17b change in `docs/security.md` — `extend_window_scope_files`
-      // now accepts Tier::System paths for explicit user intent (drag-drop /
-      // banner click / CLI forward). A canonicalize failure remains a real
-      // rejection sentinel for this IPC.
+      // `canonicalize failed` is the canonical post-rule-17b rejection
+      // sentinel for extend_window_scope_files (a relative or `..`-bearing
+      // path that the IPC's `canonicalize_no_verbatim` integrity gate
+      // rejects). The IPC no longer rejects `Tier::System` paths — those
+      // are accepted via the user-intent override — so the input path is
+      // shape-matched to the canonicalize rejection class for coherence.
       if (cmd === "extend_window_scope_files") throw "canonicalize failed";
       return undefined;
     });
     await expect(
-      useStore.getState().extendScopeForTab("/sys/x.md"),
+      useStore.getState().extendScopeForTab("../nope/missing.md"),
     ).rejects.toBeDefined();
     // Flag must remain unset so the banner stays visible.
-    expect(useStore.getState().allowOutsideWorkspace.has("/sys/x.md")).toBe(false);
+    expect(useStore.getState().allowOutsideWorkspace.has("../nope/missing.md")).toBe(false);
   });
 });

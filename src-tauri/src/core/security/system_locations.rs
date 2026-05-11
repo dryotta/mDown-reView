@@ -10,12 +10,15 @@
 //! * [`Tier::Outside`] — outside the workspace, not system (caller decides).
 //!
 //! Per rule 17b in `docs/security.md`, `Tier::System` is rejected ONLY at the
-//! content-initiated chokepoints (`commands::path_classify` consumed by
-//! `useLinkRouter`, `core::html_assets`). User-initiated chokepoints
+//! content-initiated chokepoints (`useLinkRouter` consuming
+//! `commands::path_classify` for markdown anchor clicks,
+//! `core::html_assets::resolve_local_assets` for HTML-preview `<img>` /
+//! `<link>` inlining). User-initiated chokepoints
 //! (`commands::window_register::register_window_file`,
 //! `commands::window_register::extend_window_scope_files`,
 //! `commands::fs::ensure_readable`) accept `Tier::System` because the user's
-//! explicit gesture overrides the content-policy DENY list.
+//! explicit gesture overrides the content-policy DENY list. The override
+//! applies uniformly across `Tier::System` sub-locations and flavors.
 //!
 //! This module is **Rust-internal**: the [`Tier`], [`SystemFlavor`] and
 //! [`NonCanonicalErr`] types are `pub(crate)` and never cross the IPC boundary

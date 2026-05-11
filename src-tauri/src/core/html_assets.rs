@@ -11,11 +11,28 @@
 //! - `http://`, `https://`, `data:`, and protocol-relative `//` URLs are left
 //!   intact.
 //! - On any per-asset error (read fails, etc.) the original tag is preserved.
+//!
+//! ## Content-initiated `Tier::System` block (rule 17b of `docs/security.md`)
+//!
+//! Asset paths resolved here are **content-initiated** — they come from the
+//! `src` / `href` attributes of HTML the renderer asked us to preview, NOT
+//! from an explicit user gesture. They therefore enforce the system-locations
+//! DENY list: any `<img>` / `<link>` whose canonical path classifies as
+//! `Tier::System` is **skipped** (the original tag is preserved, identical to
+//! the I/O-failure path). This blocks the smuggling vector described in issue
+//! #338: a hostile HTML preview embedding `<img src="../../../home/me/.ssh/id_rsa">`
+//! to exfiltrate credential bytes as a base64 data URI in the rendered DOM.
+//!
+//! The renderer-side companion is `useLinkRouter` (anchor click → `path_classify`
+//! IPC → tier:system warn + abort).
 
 use base64::Engine;
 use regex::Regex;
 use std::path::Path;
 use std::sync::OnceLock;
+
+use crate::core::paths::canonicalize_no_verbatim;
+use crate::core::security::system_locations::{classify, Tier};
 
 /// Map of file extension (lowercase, with leading dot) to MIME type.
 fn mime_for(ext: &str) -> &'static str {
@@ -97,6 +114,40 @@ fn link_href_first_re() -> &'static Regex {
     })
 }
 
+/// Reject content-smuggling asset paths — rule 17b of `docs/security.md`.
+/// Returns `true` if the asset should be skipped (kept as the original tag).
+///
+/// Policy:
+///   1. If the canonical resolved path is a **descendant of `html_dir`'s
+///      canonical form**, allow it. The user opened the HTML there, so
+///      sibling / descendant assets are part of the same user-intent
+///      zone — even if `html_dir` itself lives under `%TEMP%` /
+///      `%LOCALAPPDATA%` / another `Tier::System` sub-location.
+///   2. Otherwise classify the resolved path; if `Tier::System`, block.
+///      This catches the smuggling vector (`<img src="../../etc/passwd">`,
+///      absolute `<img src="/etc/hosts">`) without false-positive-ing on
+///      legitimate sibling assets in tempdir-rooted previews.
+///   3. Canonicalize failure → fall through to the I/O attempt (the
+///      existing `Err(_) => continue` arm preserves the original tag).
+///   4. Classifier `NonCanonicalErr` (`..`, relative, verbatim survivor)
+///      → block (fail-closed).
+fn is_system_blocked(abs: &str, html_dir: &Path) -> bool {
+    let canonical_abs = match canonicalize_no_verbatim(Path::new(abs)) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    if let Ok(canonical_html) = canonicalize_no_verbatim(html_dir) {
+        if canonical_abs.starts_with(&canonical_html) {
+            return false; // descendant of html_dir → trusted user-intent zone.
+        }
+    }
+    match classify(&canonical_abs, &canonical_abs) {
+        Ok(Tier::System { .. }) => true,
+        Ok(_) => false,
+        Err(_) => true,
+    }
+}
+
 /// Resolve `<img>` tags: inline as data URIs.
 fn resolve_images(html: &str, html_dir: &Path) -> Vec<Replacement> {
     let mut out = Vec::new();
@@ -109,6 +160,9 @@ fn resolve_images(html: &str, html_dir: &Path) -> Vec<Replacement> {
             continue;
         }
         let abs = resolve_path(src, html_dir);
+        if is_system_blocked(&abs, html_dir) {
+            continue; // rule 17b: keep original tag, do not inline.
+        }
         let bytes = match std::fs::read(&abs) {
             Ok(b) => b,
             Err(_) => continue, // keep original
@@ -140,6 +194,9 @@ fn resolve_stylesheets(html: &str, html_dir: &Path) -> Vec<Replacement> {
                 continue;
             }
             let abs = resolve_path(href, html_dir);
+            if is_system_blocked(&abs, html_dir) {
+                continue; // rule 17b: keep original tag, do not inline.
+            }
             let css = match std::fs::read_to_string(&abs) {
                 Ok(s) => s,
                 Err(_) => continue, // keep original
@@ -395,5 +452,83 @@ mod tests {
         let html = r#"<img src='p.png'>"#;
         let out = resolve_local_assets(html, tmp.path());
         assert_eq!(out, html);
+    }
+
+    // ── rule 17b — content-initiated Tier::System block ────────────────────
+
+    #[cfg(unix)]
+    #[test]
+    fn img_src_to_unix_system_path_preserves_original_tag() {
+        // Regression coverage for rule 17b of `docs/security.md`: a hostile
+        // HTML preview embedding `<img src="/etc/passwd">` MUST NOT inline
+        // the bytes as a base64 data URI. The original tag is preserved
+        // identically to the I/O-failure path so observers can't distinguish
+        // "file exists but blocked" from "file missing".
+        let tmp = TempDir::new().unwrap();
+        let html = r#"<img src="/etc/hosts">"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html, "system-path <img> must NOT be inlined");
+        assert!(!out.contains("data:"), "no data URI must leak");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn img_src_relative_traversal_to_system_path_preserves_original_tag() {
+        // The smuggling vector from issue #338: a workspace-shaped relative
+        // href that canonicalizes onto `/etc/`. Canonicalize-then-classify
+        // catches it where the raw-string match would not.
+        let tmp = TempDir::new().unwrap();
+        // Build "<tmp>/<n-up>../etc/hosts" — enough `..` to land at root.
+        let depth = tmp.path().components().count();
+        let mut href = String::new();
+        for _ in 0..depth {
+            href.push_str("../");
+        }
+        href.push_str("etc/hosts");
+        let html = format!(r#"<img src="{href}">"#);
+        let out = resolve_local_assets(&html, tmp.path());
+        assert_eq!(out, html, "relative traversal to /etc/* must not inline");
+        assert!(!out.contains("data:"), "no data URI must leak");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn link_href_to_unix_system_path_preserves_original_tag() {
+        // Same threat model, stylesheet vector: inlining the bytes as
+        // `<style>...</style>` is just as harmful as the data-URI form.
+        let tmp = TempDir::new().unwrap();
+        let html = r#"<link rel="stylesheet" href="/etc/hosts">"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html, "system-path <link> must NOT be inlined");
+        assert!(!out.contains("<style>"), "no <style> block must leak");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn img_src_to_windows_system_path_preserves_original_tag() {
+        // Windows variant — `C:\Windows\` classifies as Tier::System.
+        let tmp = TempDir::new().unwrap();
+        let html = r#"<img src="C:\Windows\System32\drivers\etc\hosts">"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert_eq!(out, html, "Windows system <img> must NOT be inlined");
+        assert!(!out.contains("data:"), "no data URI must leak");
+    }
+
+    #[test]
+    fn descendant_of_html_dir_inlines_even_when_html_dir_is_system() {
+        // Companion to the system-path tests above: on Windows, tempfile
+        // tempdirs live under %LOCALAPPDATA%\Temp — itself classified as
+        // Tier::System. A sibling asset inside the same tempdir MUST still
+        // inline (descendant-of-html_dir rule). This pins the false-positive
+        // avoidance baked into `is_system_blocked`.
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("nested")).unwrap();
+        write(&tmp.path().join("nested"), "asset.png", b"PNGDATA");
+        let html = r#"<img src="./nested/asset.png">"#;
+        let out = resolve_local_assets(html, tmp.path());
+        assert!(
+            out.contains(&format!("data:image/png;base64,{}", b64(b"PNGDATA"))),
+            "sibling asset under same html_dir must inline, got: {out}"
+        );
     }
 }

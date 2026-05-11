@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fixes
+- **Open files under `%LOCALAPPDATA%` / system locations no longer fail silently.** User-initiated opens (file picker, CLI argv, OS double-click, tree click, drag-drop, banner "Allow once" click) now accept paths the classifier flags as `Tier::System` (e.g. AI-tool outputs under `C:\Users\<user>\AppData\Local\<vendor>\…`, `~/Library/Caches/…`, `C:\Windows\…`, UNC shares). The system-locations DENY list still hard-blocks **content-initiated** loads (markdown anchor clicks via `useLinkRouter`, HTML-preview `<img>` / `<link>` inlining via `core::html_assets`) — the threat model that motivated #338 is preserved. New `docs/security.md` rule 17b documents the asymmetry. (#389)
+- **HTML-preview content-DENY enforcement closed.** `core::html_assets::resolve_local_assets` now canonicalises and classifies each `<img src>` / `<link href>` before reading; `Tier::System` paths are skipped (original tag preserved, identical to the I/O-failure path), blocking the data-URI exfiltration vector. (#389)
+
 ## v0.4.5 — 2026-05-10
 
 ### Fixes

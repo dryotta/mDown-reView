@@ -119,7 +119,17 @@ fn test_read_binary_file_outside_workspace_rejects() {
     assert_eq!(err, "path not in workspace");
 }
 
-// ── system-locations guard ─────────────────────────────────────────────────
+// ── system-locations × workspace-allowlist interaction ────────────────────
+//
+// Pre-rule-17b, `ensure_readable` rejected `Tier::System` paths outright. Post-
+// 17b, the system-locations DENY list applies to content-initiated chokepoints
+// only — `ensure_readable` (the read-path defense-in-depth) trusts the watcher
+// allowlist. These tests pin the new semantic:
+//   * A `Tier::System` path NOT in the allowlist → rejected as "path not in
+//     workspace" (containment, not classification).
+//   * A `Tier::System` path SEEDED into the allowlist via a user-initiated
+//     chokepoint → accepted (the dedicated `_inside_allowlist_succeeds` tests
+//     in `user-intent overrides` section below).
 
 #[cfg(unix)]
 #[test]
@@ -127,9 +137,9 @@ fn test_read_text_file_system_path_rejects() {
     let workspace = workspace_tempdir();
     let state = state_with_workspace(workspace.path());
 
-    // /etc/hosts exists on every supported Unix variant. Even if it didn't,
-    // is_path_allowed fails closed on canonicalize errors so the assertion
-    // still holds.
+    // /etc/hosts is not in the workspace allowlist → rejected for being
+    // outside the allowlist, NOT because it's Tier::System. This is the
+    // post-17b semantic.
     let err = ensure_readable("/etc/hosts", &state).unwrap_err();
     assert_eq!(err, "path not in workspace");
 }
@@ -148,8 +158,8 @@ fn test_read_text_file_symlink_to_system_rejects() {
     }
 
     // canonicalize_no_verbatim resolves the symlink to /etc/hosts which is
-    // outside the workspace AND on the system blocklist, so the guard
-    // returns the workspace-rejection sentinel.
+    // outside the watched workspace, so the guard returns the
+    // workspace-rejection sentinel.
     let err = ensure_readable(link.to_str().unwrap(), &state).unwrap_err();
     assert_eq!(err, "path not in workspace");
 }
@@ -268,7 +278,11 @@ fn test_read_text_file_appdata_path_inside_allowlist_succeeds() {
     let local_appdata = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
         .expect("LOCALAPPDATA env var");
-    let dir = local_appdata.join("mdownreview-test-fs-guard");
+    // Process-id suffix so concurrent test invocations do not collide.
+    let dir = local_appdata.join(format!(
+        "mdownreview-test-fs-guard-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("create dir under LOCALAPPDATA");
     let file = dir.join("brief.md");
     std::fs::write(&file, b"# Hello").expect("write file");
@@ -297,4 +311,39 @@ fn test_read_text_file_appdata_path_inside_allowlist_succeeds() {
         .expect("user-initiated open of AppData path");
     let expected = canonicalize_no_verbatim(&file).unwrap();
     assert_eq!(canonical, expected);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_read_text_file_windows_system_path_inside_allowlist_succeeds() {
+    // Regression coverage for rule 17b uniform-override across Tier::System
+    // flavors. Pairs with the AppData variant above (same chokepoint, different
+    // sub-location). `C:\Windows\System32\drivers\etc\hosts` classifies as
+    // Tier::System { flavor: Windows } via the `C:\Windows\` prefix in the
+    // const table. The user-intent gate must accept it identically to the
+    // AppData case — there is no per-prefix carve-out.
+    let path = r"C:\Windows\System32\drivers\etc\hosts";
+    if !std::path::Path::new(path).exists() {
+        return; // hardened image — skip gracefully.
+    }
+    let canonical_path = canonicalize_no_verbatim(std::path::Path::new(path))
+        .expect("canonicalize hosts");
+
+    let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+    let state = WatcherState::new(tx);
+    // Seed the parent dir into tree_watched_dirs so containment passes —
+    // simulates the seed that `register_window_file_inner` would have
+    // performed on user-initiated open.
+    let parent = canonical_path.parent().expect("hosts has a parent");
+    state
+        .set_tree_watched_dirs(
+            "main",
+            parent.to_string_lossy().into_owned(),
+            vec![parent.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+
+    let canonical = ensure_readable(path, &state)
+        .expect("user-initiated open of C:\\Windows\\ path");
+    assert_eq!(canonical, canonical_path);
 }

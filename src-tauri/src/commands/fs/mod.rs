@@ -85,9 +85,10 @@ pub fn check_path_exists(path: String) -> PathKind {
 /// `is_path_allowed` result has already been claimed by an explicit user
 /// gesture. Trust the upstream gate; do not second-guess user intent on
 /// every read. The system-locations DENY list is enforced exclusively at
-/// the content-initiated chokepoints (`commands::path_classify` consumed
-/// by `useLinkRouter`, `core::html_assets` for `<img>` / `<iframe>` /
-/// `<audio>` / `<video>`). See rule 17b of `docs/security.md`.
+/// the content-initiated chokepoints (`useLinkRouter` consuming
+/// `commands::path_classify`, `core::html_assets::resolve_local_assets`
+/// for HTML-preview `<img>` / `<link>` inlining). See rule 17b of
+/// `docs/security.md`.
 ///
 /// Workspace-root semantics (issue #338 / iter-1 forward-fix):
 /// `is_path_allowed` is the source of truth for containment — it scans every

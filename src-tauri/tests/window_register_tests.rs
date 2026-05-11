@@ -260,7 +260,12 @@ mod group_b {
         let local_appdata = std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)
             .expect("LOCALAPPDATA env var");
-        let dir = local_appdata.join("mdownreview-test-window-register");
+        // Process-id suffix so concurrent test invocations (e.g. retries
+        // on the same Windows runner) do not race on a fixed dir name.
+        let dir = local_appdata.join(format!(
+            "mdownreview-test-window-register-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).expect("create dir under LOCALAPPDATA");
         let file = dir.join("brief.md");
         std::fs::write(&file, b"# Hello").expect("write file");
@@ -281,6 +286,33 @@ mod group_b {
         assert!(state.is_path_allowed(&file));
         // Classification surfaces System (informational only — the read is
         // permitted).
+        assert!(
+            matches!(result.classification, PathClassification::System { .. }),
+            "expected System classification, got {:?}",
+            result.classification,
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn register_window_file_windows_system_path_succeeds_via_user_intent() {
+        // Regression coverage for rule 17b user-intent override applied
+        // UNIFORMLY across Tier::System flavors — not just AppData.
+        // `C:\Windows\System32\drivers\etc\hosts` exists on every Windows
+        // install and classifies as Tier::System { flavor: Windows }
+        // because the path starts with `C:\Windows\`. A user-initiated
+        // open of this path MUST succeed (e.g. a developer reviewing a
+        // hosts file diff via `mdownreview-cli C:\Windows\System32\drivers\etc\hosts`).
+        let path = r"C:\Windows\System32\drivers\etc\hosts";
+        if !std::path::Path::new(path).exists() {
+            // Hardened images may strip drivers\etc; skip rather than fail.
+            return;
+        }
+
+        let state = empty_state();
+        let result = register_window_file_inner("w1", path, &state, None)
+            .expect("user-initiated open of C:\\Windows\\ path succeeds");
+        assert!(state.is_path_allowed(std::path::Path::new(path)));
         assert!(
             matches!(result.classification, PathClassification::System { .. }),
             "expected System classification, got {:?}",
@@ -454,11 +486,14 @@ mod group_b {
     #[test]
     fn collect_canonicals_for_extend_accepts_appdata_path_via_user_intent() {
         // Regression coverage for rule 17b on Windows: AppData files
-        // forwarded via drag-drop / banner click / CLI MUST be accepted.
+        // forwarded via the banner-click IPC MUST be accepted.
         let local_appdata = std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)
             .expect("LOCALAPPDATA env var");
-        let appdata_dir = local_appdata.join("mdownreview-test-collect");
+        let appdata_dir = local_appdata.join(format!(
+            "mdownreview-test-collect-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&appdata_dir).expect("create dir under LOCALAPPDATA");
         let appdata_file = appdata_dir.join("brief.md");
         std::fs::write(&appdata_file, b"x").expect("write file");
@@ -483,6 +518,31 @@ mod group_b {
         assert_eq!(canonicals.len(), 2);
         let expected_appdata = canonicalize_no_verbatim(&appdata_file).unwrap();
         assert!(canonicals.iter().any(|p| p == &expected_appdata));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn collect_canonicals_for_extend_accepts_windows_system_path_via_user_intent() {
+        // Regression coverage for rule 17b: the user-intent override
+        // applies UNIFORMLY across Tier::System flavors. A `C:\Windows\`
+        // path supplied by the banner-click IPC (the only renderer-side
+        // caller) MUST be accepted.
+        let path = r"C:\Windows\System32\drivers\etc\hosts";
+        if !std::path::Path::new(path).exists() {
+            return; // hardened image — skip gracefully.
+        }
+
+        let dir = workspace_tempdir();
+        let f1 = write_file(dir.path(), "a.md", b"a");
+        let inputs = vec![
+            f1.to_string_lossy().into_owned(),
+            path.to_string(),
+        ];
+        let canonicals = collect_canonicals_for_extend(&inputs)
+            .expect("Windows system path accepted via user intent");
+        assert_eq!(canonicals.len(), 2);
+        let expected = canonicalize_no_verbatim(std::path::Path::new(path)).unwrap();
+        assert!(canonicals.iter().any(|p| p == &expected));
     }
 }
 
