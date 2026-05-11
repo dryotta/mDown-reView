@@ -248,7 +248,13 @@ fn test_read_text_file_system_path_inside_allowlist_succeeds() {
 
     let canonical =
         ensure_readable("/etc/hosts", &state).expect("user-initiated open of system path");
-    assert_eq!(canonical, std::path::Path::new("/etc/hosts"));
+    // On macOS, `/etc` is a symlink to `/private/etc`; `canonicalize_no_verbatim`
+    // resolves symlinks, so the returned path is `/private/etc/hosts`. Compare
+    // against the same canonicalization the production code performs rather
+    // than the input literal.
+    let expected = canonicalize_no_verbatim(std::path::Path::new("/etc/hosts"))
+        .expect("canonicalize /etc/hosts");
+    assert_eq!(canonical, expected);
 }
 
 #[cfg(windows)]
