@@ -567,17 +567,23 @@ async unregisterWindowFolder() : Promise<Result<null, string>> {
  * 
  * Security:
  * - Canonicalises the input via `canonicalize_no_verbatim` (rejects `..`,
- * relative, verbatim).
+ * relative, verbatim — those are integrity checks, not policy).
  * - Classifies the canonical path via
- * `core::security::system_locations::classify` and rejects `Tier::System`
- * with the sentinel "system path blocked" matching
- * `commands::fs::mod::ensure_readable`'s vocabulary.
- * - Returns the canonical path plus a `PathClassification` so the renderer
- * can derive `readOnly` atomically with the tab insert (AC7 — eliminates
- * the `classifyAndMarkReadOnly` race).
+ * `core::security::system_locations::classify` and returns the resulting
+ * `PathClassification` to the renderer so it can paint the read-only
+ * badge for outside-workspace tabs (AC7 — eliminates the
+ * `classifyAndMarkReadOnly` race).
+ * - Does **NOT** reject `Tier::System` paths. User-initiated opens (OS file
+ * dialog, CLI argument, OS double-click, tree click, drag-drop) carry
+ * explicit user intent and override the content-policy DENY list — see
+ * rule 17b in `docs/security.md`. The system-locations DENY list is
+ * enforced by the **content-initiated** chokepoints (`commands::path_classify`
+ * consumed by `useLinkRouter`, `core::html_assets` for `<img>` /
+ * `<iframe>`), which protect against hallucinating-LLM smuggling.
  * 
  * Cite: docs/architecture.md rule 1 (chokepoint discipline) +
- * docs/security.md rule 17 (asset-scope vs watcher-allowlist split).
+ * docs/security.md rule 17 (asset-scope vs watcher-allowlist split) +
+ * docs/security.md rule 17b (user-intent vs content-load asymmetry).
  */
 async registerWindowFile(path: string) : Promise<Result<RegisterWindowFileResult, string>> {
     try {
@@ -592,15 +598,22 @@ async registerWindowFile(path: string) : Promise<Result<RegisterWindowFileResult
  * for the given paths' canonical parents. Used by:
  * 1. The "Allow for this session" banner click in the markdown viewer
  * (AC3) — grants asset scope to embedded image directories.
- * 2. Future single-window deferred grants. Idempotent.
+ * 2. CLI / single-instance / drag-drop forwarding (via
+ * `route_args_through_registry::AddToWindow` /
+ * `route_args_to_window`).
+ * 3. Future single-window deferred grants. Idempotent.
  * 
- * Each path is canonicalized and classified. `Tier::System` paths are
- * rejected with the "system path blocked" sentinel; non-canonical paths
- * with "path not canonicalizable". On any per-path rejection, the IPC
- * returns Err and no partial mutation occurs (atomic — collect all
- * canonicals first, then call `extend_window_scope` once).
+ * Each path is canonicalized; non-canonical paths are rejected with
+ * "path not canonicalizable". `Tier::System` paths are **accepted** — all
+ * three call sites carry explicit user intent (banner click, OS file open,
+ * drag) and override the content-policy DENY list. See rule 17b of
+ * `docs/security.md` for the user-intent / content-load asymmetry. On any
+ * per-path rejection, the helper returns Err and no partial mutation
+ * occurs (atomic — collect all canonicals first, then call
+ * `extend_window_scope` once).
  * 
- * Cite: docs/security.md rule 17 (asset-scope chokepoint, banner opt-in).
+ * Cite: docs/security.md rule 17 (asset-scope chokepoint, banner opt-in) +
+ * rule 17b (user-intent vs content-load asymmetry).
  */
 async extendWindowScopeFiles(paths: string[]) : Promise<Result<null, string>> {
     try {
