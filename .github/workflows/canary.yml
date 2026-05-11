@@ -82,6 +82,18 @@ jobs:
   ci:
     name: CI (signed, release profile)
     needs: prepare
+    # `ci-gate-inputs` inside ci.yml declares per-job `actions: read` +
+    # `pull-requests: read` (needed only on push-to-main for the squash-merge
+    # tree-hash skip path). When ci.yml is invoked via workflow_call, the
+    # called workflow's per-job permissions cannot exceed those of the
+    # calling job — so we must grant these scopes here even though the skip
+    # path is a no-op on workflow_call. Omitting this caused canary runs
+    # after PR #386 to fail with `startup_failure` (zero jobs spawned) before
+    # the `prepare` job's commit could be tested.
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.prepare.outputs.patched_branch }}
