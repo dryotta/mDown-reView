@@ -1,6 +1,6 @@
 ---
 name: publish-release
-description: Use when the user says "release", "tag", "publish", "ship a new version", "bump version", or runs `/publish-release [major|minor|patch]`. Fully autonomous — never prompts. Default bump: patch.
+description: 'Use when the user says "release", "tag", "publish", "ship a new version", "bump version", or runs `/publish-release [major|minor|patch]`. Fully autonomous — never prompts. Default bump: patch.'
 ---
 
 **RIGID. Fully autonomous — never calls `ask_user`.** Owns the full release lifecycle: version bump → CHANGELOG → release PR → tag → signed installers → published GitHub release. Pairs with `ci.yml` (called from `release.yml` via `workflow_call`).
