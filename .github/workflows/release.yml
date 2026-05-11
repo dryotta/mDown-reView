@@ -114,6 +114,16 @@ jobs:
   ci:
     name: CI (signed, release profile)
     needs: resolve-tag
+    # `ci-gate-inputs` inside ci.yml declares per-job `actions: read` +
+    # `pull-requests: read` (needed only on push-to-main for the squash-merge
+    # tree-hash skip path). When ci.yml is invoked via workflow_call, the
+    # called workflow's per-job permissions cannot exceed those of the
+    # calling job — so we must grant these scopes here even though the skip
+    # path is a no-op on workflow_call. Mirrors the same block in canary.yml.
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.resolve-tag.outputs.tag }}
