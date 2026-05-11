@@ -466,9 +466,8 @@ mod group_b {
     #[cfg(unix)]
     #[test]
     fn collect_canonicals_for_extend_accepts_system_path_via_user_intent() {
-        // Regression coverage for rule 17b: drag-drop / "Allow for this
-        // session" banner click / CLI forwarding all flow through this
-        // helper and all carry explicit user intent.
+        // Regression coverage for rule 17b: the banner-click IPC carries
+        // explicit user intent and accepts Tier::System paths.
         let dir = workspace_tempdir();
         let f1 = write_file(dir.path(), "a.md", b"a");
 
@@ -479,7 +478,13 @@ mod group_b {
         let canonicals = collect_canonicals_for_extend(&inputs)
             .expect("system path accepted via user intent");
         assert_eq!(canonicals.len(), 2);
-        assert!(canonicals.iter().any(|p| p == std::path::Path::new("/etc/passwd")));
+        // On macOS, `/etc` is a symlink to `/private/etc`; canonicalize
+        // resolves symlinks so the canonical form differs from the input
+        // literal. Compare against the same canonicalize used by the
+        // helper under test.
+        let expected = canonicalize_no_verbatim(std::path::Path::new("/etc/passwd"))
+            .expect("canonicalize /etc/passwd");
+        assert!(canonicals.iter().any(|p| p == &expected));
     }
 
     #[cfg(windows)]
