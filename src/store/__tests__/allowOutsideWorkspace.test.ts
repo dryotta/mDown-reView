@@ -94,7 +94,14 @@ describe("extendScopeForTab (issue #359 / AC3)", () => {
 
   it("on IPC reject does NOT flip the flag and rethrows", async () => {
     invokeMock.mockImplementationOnce(async (cmd) => {
-      if (cmd === "extend_window_scope_files") throw "system path blocked";
+      // Any IPC reject path exercises the renderer's error handling. We
+      // pick "canonicalize failed" because the legacy "system path blocked"
+      // sentinel is no longer emitted by user-initiated chokepoints after
+      // the rule 17b change in `docs/security.md` — `extend_window_scope_files`
+      // now accepts Tier::System paths for explicit user intent (drag-drop /
+      // banner click / CLI forward). A canonicalize failure remains a real
+      // rejection sentinel for this IPC.
+      if (cmd === "extend_window_scope_files") throw "canonicalize failed";
       return undefined;
     });
     await expect(

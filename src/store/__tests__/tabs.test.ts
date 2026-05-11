@@ -214,7 +214,12 @@ describe("openFile async ordering (issue #359)", () => {
   it("onRegisterReject_doesNotInsertTab: rejection from register_window_file leaves tabs untouched and rethrows", async () => {
     invokeMock.mockImplementationOnce(async (cmd) => {
       if (cmd === "register_window_file") {
-        throw "system path blocked";
+        // Any IPC reject path exercises the renderer's error handling.
+        // The legacy "system path blocked" sentinel is no longer emitted
+        // by user-initiated chokepoints after the rule 17b change in
+        // `docs/security.md`. `canonicalize failed` remains a real
+        // rejection sentinel for this IPC.
+        throw "canonicalize failed";
       }
       return undefined;
     });

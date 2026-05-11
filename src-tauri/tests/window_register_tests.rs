@@ -225,30 +225,67 @@ mod group_b {
 
     #[cfg(unix)]
     #[test]
-    fn register_window_file_system_path_blocked() {
+    fn register_window_file_system_path_succeeds_via_user_intent() {
+        // Regression coverage for rule 17b in `docs/security.md`:
+        // user-initiated opens (file picker, CLI arg, OS double-click)
+        // carry explicit intent and bypass the system-locations DENY list.
+        // The content-policy path (`useLinkRouter` via
+        // `commands::path_classify`) still enforces Tier::System.
         let state = empty_state();
-        let err = register_window_file_inner("w1", "/etc/passwd", &state, None).unwrap_err();
-        assert_eq!(err, "system path blocked");
-        // Watcher state UNCHANGED: no entry inserted under "w1".
-        assert!(dirs_for(&state, "w1").is_empty());
+        let result = register_window_file_inner("w1", "/etc/passwd", &state, None)
+            .expect("user-initiated open of system path succeeds");
+        // Watcher state seeded so subsequent `ensure_readable` passes.
+        assert!(state.is_path_allowed(std::path::Path::new("/etc/passwd")));
+        // Classification still surfaces — the renderer is free to paint a
+        // "system" badge if it chooses; the read is permitted regardless.
+        match result.classification {
+            PathClassification::System { .. } | PathClassification::Inside { .. } => {}
+            other => panic!(
+                "expected System or Inside classification, got {other:?}"
+            ),
+        }
     }
 
     #[cfg(windows)]
     #[test]
-    fn register_window_file_system_path_blocked() {
-        // C:\Windows\System32\drivers\etc\hosts canonicalizes cleanly on
-        // Windows and matches the Windows system-prefix list (rule fired
-        // by `WINDOWS_SYSTEM_PREFIXES` containing `C:\Windows\`).
+    fn register_window_file_appdata_path_succeeds_via_user_intent() {
+        // Regression coverage for rule 17b in `docs/security.md` —
+        // mirrors the user-reported `harbin\…\brief.md` bug:
+        // user-initiated open of a file under `C:\Users\<user>\AppData\…`
+        // (which the system-locations classifier flags as Tier::System)
+        // MUST succeed because the user explicitly opened it. The
+        // content-policy path (`useLinkRouter` via
+        // `commands::path_classify`) still enforces Tier::System for
+        // content-initiated links.
+        let local_appdata = std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .expect("LOCALAPPDATA env var");
+        let dir = local_appdata.join("mdownreview-test-window-register");
+        std::fs::create_dir_all(&dir).expect("create dir under LOCALAPPDATA");
+        let file = dir.join("brief.md");
+        std::fs::write(&file, b"# Hello").expect("write file");
+
+        struct Cleanup<'a>(&'a std::path::Path);
+        impl Drop for Cleanup<'_> {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(self.0);
+            }
+        }
+        let _cleanup = Cleanup(&dir);
+
         let state = empty_state();
-        let err = register_window_file_inner(
-            "w1",
-            r"C:\Windows\System32\drivers\etc\hosts",
-            &state,
-            None,
-        )
-        .unwrap_err();
-        assert_eq!(err, "system path blocked");
-        assert!(dirs_for(&state, "w1").is_empty());
+        let result =
+            register_window_file_inner("w1", file.to_str().unwrap(), &state, None)
+                .expect("user-initiated open of AppData path succeeds");
+        // Watcher state seeded.
+        assert!(state.is_path_allowed(&file));
+        // Classification surfaces System (informational only — the read is
+        // permitted).
+        assert!(
+            matches!(result.classification, PathClassification::System { .. }),
+            "expected System classification, got {:?}",
+            result.classification,
+        );
     }
 
     #[test]
@@ -396,7 +433,10 @@ mod group_b {
 
     #[cfg(unix)]
     #[test]
-    fn collect_canonicals_for_extend_system_path_blocked_atomic() {
+    fn collect_canonicals_for_extend_accepts_system_path_via_user_intent() {
+        // Regression coverage for rule 17b: drag-drop / "Allow for this
+        // session" banner click / CLI forwarding all flow through this
+        // helper and all carry explicit user intent.
         let dir = workspace_tempdir();
         let f1 = write_file(dir.path(), "a.md", b"a");
 
@@ -404,24 +444,45 @@ mod group_b {
             f1.to_string_lossy().into_owned(),
             "/etc/passwd".to_string(),
         ];
-        let err = collect_canonicals_for_extend(&inputs).unwrap_err();
-        assert_eq!(err, "system path blocked");
-        // Atomic — caller never observes a partial vec; the helper
-        // returned Err so no `extend_window_scope` dispatch occurs.
+        let canonicals = collect_canonicals_for_extend(&inputs)
+            .expect("system path accepted via user intent");
+        assert_eq!(canonicals.len(), 2);
+        assert!(canonicals.iter().any(|p| p == std::path::Path::new("/etc/passwd")));
     }
 
     #[cfg(windows)]
     #[test]
-    fn collect_canonicals_for_extend_system_path_blocked_atomic() {
+    fn collect_canonicals_for_extend_accepts_appdata_path_via_user_intent() {
+        // Regression coverage for rule 17b on Windows: AppData files
+        // forwarded via drag-drop / banner click / CLI MUST be accepted.
+        let local_appdata = std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .expect("LOCALAPPDATA env var");
+        let appdata_dir = local_appdata.join("mdownreview-test-collect");
+        std::fs::create_dir_all(&appdata_dir).expect("create dir under LOCALAPPDATA");
+        let appdata_file = appdata_dir.join("brief.md");
+        std::fs::write(&appdata_file, b"x").expect("write file");
+
+        struct Cleanup<'a>(&'a std::path::Path);
+        impl Drop for Cleanup<'_> {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(self.0);
+            }
+        }
+        let _cleanup = Cleanup(&appdata_dir);
+
         let dir = workspace_tempdir();
         let f1 = write_file(dir.path(), "a.md", b"a");
 
         let inputs = vec![
             f1.to_string_lossy().into_owned(),
-            r"C:\Windows\System32\drivers\etc\hosts".to_string(),
+            appdata_file.to_string_lossy().into_owned(),
         ];
-        let err = collect_canonicals_for_extend(&inputs).unwrap_err();
-        assert_eq!(err, "system path blocked");
+        let canonicals = collect_canonicals_for_extend(&inputs)
+            .expect("AppData path accepted via user intent");
+        assert_eq!(canonicals.len(), 2);
+        let expected_appdata = canonicalize_no_verbatim(&appdata_file).unwrap();
+        assert!(canonicals.iter().any(|p| p == &expected_appdata));
     }
 }
 
