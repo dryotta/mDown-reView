@@ -11,17 +11,17 @@ name: CI
 # Branch-protection contract: the aggregate gate `CI gate` is the single
 # required check. It runs on EVERY PR (no path filter) so the gate always
 # reports a status — docs-only PRs see all heavy jobs skipped via the
-# `changes` job's `code` output, and the gate accepts skip-on-skip.
+# `ci-gate-inputs` job's `code` output, and the gate accepts skip-on-skip.
 #
-# Parallelism: every heavy job runs in parallel under `needs: changes`.
+# Parallelism: every heavy job runs in parallel under `needs: ci-gate-inputs`.
 # `installer-e2e` is the only job with a further `needs:` edge (on `build`)
 # because it consumes the windows-x64 installer artefact. Critical path is
 # bounded by the slowest of {build matrix, native-e2e}.
 #
-# Jobs (all parallel under `changes` unless noted):
-#   - changes (ubuntu)               — docs-vs-code path filter
-#   - check-redundant (ubuntu)       — tree-hash skip on push-to-main
-#                                      (no-op for PR / workflow_call)
+# Jobs (all parallel under `ci-gate-inputs` unless noted):
+#   - ci-gate-inputs (ubuntu)        — docs-vs-code path filter (PR)
+#                                      + tree-hash skip (push-to-main).
+#                                      Disjoint event contexts, single job.
 #   - lint-and-vitest (ubuntu)      — eslint, vitest, frontend build, bundle gates
 #   - rust-test (ubuntu)             — clippy + cargo test (Linux)
 #   - rust-test-windows (win-2022)   — clippy + cargo test (Windows-cfg code)
@@ -76,22 +76,55 @@ concurrency:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  # Changes — compute whether anything outside docs/agent-config changed.
+  # CI gate inputs — one ubuntu job that computes the two booleans every
+  # downstream job consults to decide whether to run:
+  #
+  #   code (PR docs-only filter):
+  #     - pull_request: `true` if any non-docs file changed; else `false`.
+  #     - push / workflow_call: always `true` (canary/release need every
+  #       artefact regardless of what changed).
+  #
+  #   skip (push-to-main tree-hash skip):
+  #     - push to main: `true` if the post-squash tree is byte-identical
+  #       to a PR head SHA whose ci.yml run already concluded `success`.
+  #       Falls open on every ambiguity (non-squash merge, direct push,
+  #       lookup error, stale PR CI) so the safety net is never weaker
+  #       than today.
+  #     - pull_request / workflow_call: always `false`.
+  #
+  # The two signals operate in disjoint event contexts (`code` only matters
+  # on PR; `skip` only matters on push-to-main) so a single job with two
+  # outputs captures both without coupling — saves a parallel job slot and
+  # the duplicate ubuntu-latest checkout.
+  #
+  # Downstream contract:
+  #   needs: ci-gate-inputs
+  #   if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
+  # The aggregate `test-gate` accepts skip-on-skip for both reasons.
+  #
+  # Coordination: this job replaces the prior `changes` + `check-redundant`
+  # split — see commit history if archaeology is needed.
   # ─────────────────────────────────────────────────────────────────────────
-  # Docs-only PRs (no source code touched) skip every heavy job and the
-  # aggregate gate accepts skip-on-skip. Code PRs run the full matrix.
-  # On push to main and workflow_call we always run the full matrix
-  # because canary/release need every artefact regardless of what changed.
-  changes:
-    name: Compute changed paths
+  ci-gate-inputs:
+    name: Compute CI gate inputs
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      skip: ${{ steps.compare.outputs.skip }}
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
+          # depth 0 is the superset needed by the PR-diff `git diff
+          # BASE...HEAD` (otherwise BASE may be unreachable). The push /
+          # workflow_call branch only needs HEAD + commit subject so the
+          # extra history costs nothing meaningful (~1s on a small repo).
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
 
       - id: filter
         shell: bash
@@ -117,29 +150,6 @@ jobs:
           done <<< "$CHANGED"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Heavy jobs will run: $CODE"
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Check-redundant — skip heavy jobs on push-to-main when the post-squash
-  # commit's tree is byte-identical to a PR head SHA whose ci.yml run already
-  # concluded `success`. Falls open on every ambiguity (non-squash merge,
-  # direct push, lookup error, stale PR CI) so the safety net is never
-  # weaker than today. See `test-gate` for the skip-on-skip contract.
-  # ─────────────────────────────────────────────────────────────────────────
-  check-redundant:
-    name: Check if tree already tested
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    outputs:
-      skip: ${{ steps.compare.outputs.skip }}
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          ref: ${{ inputs.ref || github.ref }}
 
       - id: compare
         env:
@@ -212,8 +222,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   lint-and-vitest:
     name: Lint + Vitest (Linux)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -260,8 +270,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   rust-test:
     name: Rust tests (Linux)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -318,8 +328,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   bench-compile-gate:
     name: Bench compile gate (Linux)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
@@ -362,9 +372,18 @@ jobs:
         # `--no-run` skips execution while still catching API drift in
         # `benches/{matching,scanner,sidecar,threads,parsers,hot_path}.rs`
         # and `benches/generate_fixtures.rs`.
+        #
         # `--profile release-ci` uses lto=off + codegen-units=16 (vs the
         # default bench profile which inherits lto=thin + codegen-units=1
         # from [profile.release]), cutting compile time ~5×.
+        #
+        # The lib + both bins carry `bench = false` in Cargo.toml so
+        # cargo only compiles the six explicit `[[bench]]` targets —
+        # avoiding the panic-strategy collision between
+        # `[profile.release-ci].panic = "abort"` and cargo's implicit
+        # `panic = "unwind"` for lib-as-bench / bin-as-bench targets.
+        # See `[lib].bench = false` in src-tauri/Cargo.toml for the full
+        # rationale.
         working-directory: src-tauri
         run: cargo bench --no-run --profile release-ci
 
@@ -389,8 +408,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   bench-report:
     name: Perf bench report (non-blocking)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true'
     runs-on: ubuntu-22.04
     continue-on-error: true
     timeout-minutes: 30
@@ -439,6 +458,9 @@ jobs:
       - name: Run benchmarks
         # Outputs bench-output.txt at the repo root (default working directory)
         # so subsequent steps reference it without path gymnastics.
+        # The lib + both bins carry `bench = false` in Cargo.toml so this
+        # only executes the six explicit `[[bench]]` targets — see
+        # bench-compile-gate's comment for the panic-strategy rationale.
         run: |
           cargo bench --manifest-path src-tauri/Cargo.toml \
             --profile release-ci -- --output-format bencher 2>&1 \
@@ -530,8 +552,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   rust-test-windows:
     name: Rust tests (Windows)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -579,8 +601,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   rust-test-macos:
     name: Rust tests (macOS)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: macos-14
     timeout-minutes: 30
     env:
@@ -628,8 +650,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   bindings-drift:
     name: Bindings drift check (#263)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -683,8 +705,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   e2e-browser:
     name: E2E browser (Linux)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
@@ -741,8 +763,8 @@ jobs:
   # specs share a single CDP-attached debug binary. Sharding deferred.
   native-e2e:
     name: Native E2E (Windows)
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -814,8 +836,8 @@ jobs:
   # canary / release callers: `profile: release` + `sign: true` — ~10-12 min.
   build:
     name: Build (${{ matrix.name }})
-    needs: [changes, check-redundant]
-    if: needs.changes.outputs.code == 'true' && needs.check-redundant.outputs.skip != 'true'
+    needs: ci-gate-inputs
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -1093,12 +1115,12 @@ jobs:
   # `native-e2e`, `rust-test*`, etc.; only its execution waits.
   installer-e2e:
     name: Installer E2E (Windows)
-    needs: [changes, check-redundant, build]
+    needs: [ci-gate-inputs, build]
     # Only runs on PR / push (sign=false). On sign=true the build matrix
     # uploads a `.nsis.zip` updater bundle (no standalone setup.exe), so
     # installer-e2e has nothing to consume — release-preflight covers the
     # signed-artefact contract instead.
-    if: needs.changes.outputs.code == 'true' && inputs.sign != true && needs.check-redundant.outputs.skip != 'true'
+    if: needs.ci-gate-inputs.outputs.code == 'true' && inputs.sign != true && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
@@ -1175,8 +1197,8 @@ jobs:
   # files (the High finding from `tauri-build-expert`).
   release-preflight:
     name: Release preflight
-    needs: [changes, check-redundant, build]
-    if: needs.changes.outputs.code == 'true' && inputs.sign == true && needs.check-redundant.outputs.skip != 'true'
+    needs: [ci-gate-inputs, build]
+    if: needs.ci-gate-inputs.outputs.code == 'true' && inputs.sign == true && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
@@ -1224,14 +1246,13 @@ jobs:
   # it because the build matrix emits a `.zip` updater bundle, not a setup
   # `.exe` — release-preflight covers the signed-artefact contract).
   # On push-to-main the gate also accepts skip-on-skip when
-  # `check-redundant` proved the post-squash tree was already tested green
+  # `ci-gate-inputs` proved the post-squash tree was already tested green
   # on its source PR — see that job's comment block.
   test-gate:
     name: CI gate
     if: always()
     needs:
-      - changes
-      - check-redundant
+      - ci-gate-inputs
       - lint-and-vitest
       - rust-test
       - rust-test-windows
@@ -1249,15 +1270,15 @@ jobs:
       - name: Check job results
         shell: bash
         run: |
-          [ "${{ needs.changes.result }}" = "success" ] || {
-            echo "::error::changes job did not succeed (got ${{ needs.changes.result }})"
+          [ "${{ needs.ci-gate-inputs.result }}" = "success" ] || {
+            echo "::error::ci-gate-inputs job did not succeed (got ${{ needs.ci-gate-inputs.result }})"
             exit 1
           }
-          if [ "${{ needs.check-redundant.outputs.skip }}" = "true" ]; then
+          if [ "${{ needs.ci-gate-inputs.outputs.skip }}" = "true" ]; then
             echo "Post-squash tree already tested green on source PR — heavy jobs correctly skipped. Gate green."
             exit 0
           fi
-          CODE="${{ needs.changes.outputs.code }}"
+          CODE="${{ needs.ci-gate-inputs.outputs.code }}"
           echo "code_changed=$CODE"
           if [ "$CODE" != "true" ]; then
             echo "Docs-only PR — heavy jobs correctly skipped. Gate green."

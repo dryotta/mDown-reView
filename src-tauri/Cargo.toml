@@ -20,10 +20,29 @@ autobenches = false
 [lib]
 name = "mdown_review_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+# Suppress cargo's implicit "lib-as-bench" target so `cargo bench` does
+# not compile this lib in panic=unwind mode alongside the explicit
+# [[bench]] targets (which inherit panic=abort via [profile.release-ci]
+# → [profile.release]). The mismatch fails the link step with
+# "the crate `mdown_review_lib` requires panic strategy `abort` ...
+# incompatible with this crate's strategy of `unwind`" plus ~50
+# transitive-dep variants. No `#[bench]` items live in this crate so
+# the implicit lib-as-bench target had no value to begin with.
+bench = false
+
+[[bin]]
+name = "mdownreview"
+path = "src/main.rs"
+# Same rationale as [lib].bench = false above. The default-run GUI
+# binary has no `#[bench]` items; cargo's implicit "bin-as-bench"
+# target only triggered the panic-strategy link failure.
+bench = false
 
 [[bin]]
 name = "mdownreview-cli"
 path = "src/bin/cli.rs"
+# Same rationale as [lib].bench = false above.
+bench = false
 
 [[example]]
 name = "generate_bench_fixtures"
