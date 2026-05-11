@@ -1,4 +1,4 @@
-## Unreleased
+## v0.4.6 — 2026-05-11
 
 ### Fixes
 - **Open files under `%LOCALAPPDATA%` / system locations no longer fail silently.** User-initiated opens (file picker, CLI argv, OS double-click, tree click, drag-drop, banner "Allow once" click) now accept paths the classifier flags as `Tier::System` (e.g. AI-tool outputs under `C:\Users\<user>\AppData\Local\<vendor>\…`, `~/Library/Caches/…`, `C:\Windows\…`, UNC shares). The system-locations DENY list still hard-blocks **content-initiated** loads (markdown anchor clicks via `useLinkRouter`, HTML-preview `<img>` / `<link>` inlining via `core::html_assets`) — the threat model that motivated #338 is preserved. New `docs/security.md` rule 17b documents the asymmetry. (#389)
