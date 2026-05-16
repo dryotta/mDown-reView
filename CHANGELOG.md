@@ -1,3 +1,14 @@
+## v0.4.7 — 2026-05-16
+
+### Features
+- host updater manifest on Pages, redesign tag schema (#397) (e95e3cf)
+- perf-trend  render bench history report across recent main CI runs (#396) (f8b6641)
+
+### Fixes
+- deploy manifest directly to Pages (branch protection blocks bot push) (#398) (a148ee4)
+- draft -> upload -> undraft to satisfy release immutability (#394) (b53d02f)
+- cap WM_SETTINGCHANGE broadcast to skip hung windows (#393) (93c1e8d)
+
 ## v0.4.6 — 2026-05-11
 
 ### Fixes
