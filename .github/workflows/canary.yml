@@ -2,10 +2,21 @@ name: Canary Build
 
 # Push-to-main canary release. Delegates build + signing + verification to
 # ci.yml via workflow_call. Wrapper handles version-patching the source
-# tree, creating the canary GitHub release, asset rename + upload, and
-# updater-manifest publish. The mutable `canary` tag is updated last so
-# auto-update clients only see the new version after every artefact is
-# verified present.
+# tree, creating immutable per-build canary releases, asset rename +
+# upload, and updater-manifest publish.
+#
+# The "latest canary" pointer is hosted as a tracked file at
+# `site/canary-latest.json` (deployed by pages.yml) rather than as a
+# mutable `canary` release/tag — the mutable-pointer pattern is
+# incompatible with GitHub's Release Immutability feature, which
+# permanently reserves the tag-name of any release it ever protects.
+# Every canary tag below is unique-per-build and never moved.
+#
+# Recovery contract: if the Pages-hosted manifest is ever unreachable,
+# canary users can switch to the Stable channel in the About dialog,
+# pick up the next stable release (which always has a working
+# CANARY_ENDPOINT baked in), then switch back to Canary. See
+# `docs/features/updates.md`.
 
 on:
   push:
@@ -48,7 +59,13 @@ jobs:
         run: |
           BASE=$(node -p "require('./package.json').version")
           VERSION="${BASE}-${GITHUB_RUN_NUMBER}"
-          TAG="canary-${GITHUB_RUN_NUMBER}"
+          # Tag schema: canary-{YYYYMMDDHHMMSS}-{run}-{shortsha}
+          # Unique per build (no name reservation risk under Release
+          # Immutability), lex-sortable, traceable to commit. See header
+          # comment + docs/features/updates.md for the rationale.
+          TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          TAG="canary-${TIMESTAMP}-${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Canary version: ${VERSION} (tag: ${TAG})"
@@ -172,18 +189,29 @@ jobs:
           # release.yml.
           gh release edit "$TAG" --draft=false
 
-  # ── Update mutable `canary` tag → manifest pointer ──────────────────────
+  # ── Publish canary-latest.json via GitHub Pages ─────────────────────────
+  # The manifest is a tracked file at site/canary-latest.json. We commit
+  # it on main; pages.yml (triggered by `site/**`) deploys it to
+  # https://dryotta.github.io/mdownreview/canary-latest.json.
+  #
+  # The commit DOES NOT re-trigger this workflow because `site/**` is in
+  # canary.yml's paths-ignore (above). No mutable release/tag involved —
+  # immune to GitHub Release Immutability reservations.
   publish-canary-manifest:
     name: Publish canary manifest
     needs: [prepare, publish-canary-release]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: write       # for the manifest commit + push to main
+      actions: write        # for `gh workflow run pages.yml` dispatch
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
 
-      - name: Build + publish canary-latest.json
+      - name: Build + commit canary-latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -212,7 +240,8 @@ jobs:
           WIN_ARM64_SIG=$(read_sig "${NAME}-windows-arm64.zip.sig")
           MAC_ARM64_SIG=$(read_sig "${NAME}-macos-arm64.app.tar.gz.sig")
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          cat > /tmp/canary-latest.json <<EOF
+          mkdir -p site
+          cat > site/canary-latest.json <<EOF
           {
             "version": "${VERSION}",
             "notes": "Canary build from main (${GITHUB_SHA::7})",
@@ -233,30 +262,50 @@ jobs:
             }
           }
           EOF
-          gh release delete canary --yes 2>/dev/null || true
-          git tag -f canary
-          git push origin canary --force
-          # Create as draft so the manifest upload succeeds under
-          # "Enable release immutability"; undraft only after the manifest
-          # is attached so auto-update clients never observe a half-published
-          # canary pointer.
-          gh release create canary \
-            --draft \
-            --prerelease \
-            --title "Canary (latest)" \
-            --notes "Points to the latest canary build. Auto-updated on each main push."
-          gh release upload canary /tmp/canary-latest.json --clobber
-          gh release edit canary --draft=false
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/canary-latest.json
+          if git diff --cached --quiet; then
+            echo "site/canary-latest.json unchanged — nothing to commit or deploy"
+          else
+            git commit -m "chore(canary): update canary-latest.json -> ${VERSION}
+
+          Auto-generated by canary workflow. Points at release ${TAG}.
+          Deployed to https://dryotta.github.io/mdownreview/canary-latest.json
+          via pages.yml.
+
+          Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+            # Push with rebase fallback for races with concurrent main pushes.
+            # The concurrency group serializes canary runs but does NOT block
+            # human commits to main; rebase + retry handles that case.
+            for attempt in 1 2 3; do
+              if git push origin main; then
+                break
+              fi
+              echo "Push attempt ${attempt} failed; rebasing onto origin/main"
+              git fetch origin main
+              git rebase origin/main
+            done
+            # GITHUB_TOKEN-driven pushes do NOT auto-trigger other workflows,
+            # so pages.yml would not fire on its own. Explicitly dispatch it
+            # (workflow_dispatch IS allowed from GITHUB_TOKEN contexts) so
+            # the manifest is deployed to Pages within ~30s of this commit.
+            gh workflow run pages.yml --ref main
+          fi
           echo "Published canary-latest.json pointing to ${TAG}"
 
-      - name: Clean up old canary releases (keep last 5)
+      - name: Clean up old canary releases (keep last 10)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # New tag schema: canary-{YYYYMMDDHHMMSS}-{run}-{shortsha}
+          # Filter strictly so legacy `canary-{N}` releases left over from
+          # the pre-redesign era are not deleted by this job — clean those
+          # up manually (or wait for repo-wide retention review).
           RELEASES=$(gh release list --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | startswith("canary-"))] | sort_by(.createdAt) | .[].tagName')
-          COUNT=$(echo "$RELEASES" | wc -l)
-          KEEP=5
+            --jq '[.[] | select(.tagName | test("^canary-[0-9]{14}-[0-9]+-[0-9a-f]{7}$"))] | sort_by(.createdAt) | .[].tagName')
+          COUNT=$(echo "$RELEASES" | grep -c . || true)
+          KEEP=10
           if [ "$COUNT" -gt "$KEEP" ]; then
             DELETE_COUNT=$((COUNT - KEEP))
             echo "Cleaning up ${DELETE_COUNT} old canary releases (keeping last ${KEEP})"
@@ -265,7 +314,7 @@ jobs:
               gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
             done
           else
-            echo "Only ${COUNT} canary releases, nothing to clean up"
+            echo "Only ${COUNT} canary releases in new schema, nothing to clean up"
           fi
 
   # ── Clean up the patched-version branch ─────────────────────────────────
