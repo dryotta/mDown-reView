@@ -9,7 +9,7 @@ members = ["mdr-macros"]
 
 [package]
 name = "mdownreview"
-version = "0.4.6"
+version = "0.4.6-196"
 description = "A desktop markdown reviewer for developers"
 license = "MIT"
 authors = ["davidzh"]
