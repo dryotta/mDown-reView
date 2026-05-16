@@ -58,6 +58,36 @@
   StrCpy ${OUTVAR} $R6
 !macroend
 
+; --- Helper: notify shell that HKCU\Environment changed --------------------
+; ${MdrBroadcastEnvChange}
+;   Broadcasts WM_SETTINGCHANGE("Environment") so Explorer (and other
+;   well-behaved listeners) re-merge HKCU\Environment + HKLM\Environment
+;   into their in-memory env block. New shells spawned afterwards inherit
+;   the updated PATH without a logoff. Already-running shells keep their
+;   inherited copy either way — that is a Windows process-model invariant,
+;   not a broadcast issue.
+;
+;   Uses SendMessageTimeoutW with SMTO_ABORTIFHUNG (0x0002) so a single
+;   hung neighbour window cannot stall the installer for the full timeout.
+;   1 s per cooperative window is generous; Explorer / conhost /
+;   Cmd Shell host all respond in milliseconds. The previous
+;   `SendMessage … /TIMEOUT=5000` (which lowers to SMTO_NORMAL) made the
+;   silent-install path sit on the "Installing" page for ~60 s on busy
+;   desktops because Windows applies the timeout per non-responsive
+;   top-level window when target = HWND_BROADCAST.
+;
+;   Mirrors `broadcast_environment_change` in
+;   `src-tauri/src/commands/cli_shim/windows.rs`, which performs the
+;   same broadcast from Rust when the user toggles "Add mdownreview-cli
+;   to your PATH" in Settings. Keeping both writers symmetric is
+;   important: the install-time and runtime paths must behave the same.
+;
+;   HWND_BROADCAST = 0xFFFF, WM_SETTINGCHANGE = 0x001A, SMTO_ABORTIFHUNG = 0x0002.
+;   Scratch register $0 is clobbered.
+!macro MdrBroadcastEnvChange
+  System::Call 'user32::SendMessageTimeoutW(p 0xFFFF, i 0x001A, p 0, t "Environment", i 0x0002, i 1000, *p .r0)'
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   ; --- Add $INSTDIR to per-user PATH (HKCU\Environment) ---
   ; Read existing PATH; if missing, ReadRegStr leaves $R0 empty.
@@ -74,8 +104,10 @@
     StrCpy $R2 "$R1;$INSTDIR"
   ${EndIf}
   WriteRegExpandStr HKCU "Environment" "Path" "$R2"
-  ; Tell already-running shells to refresh their environment (no logoff).
-  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+  ; Tell Explorer to re-read the env block so new shells inherit the
+  ; updated PATH without a logoff. See MdrBroadcastEnvChange above for
+  ; the SMTO_ABORTIFHUNG rationale.
+  !insertmacro MdrBroadcastEnvChange
 
   ; File-association open-command override managed at runtime via IPC
   ; commands (commands/default_handler.rs).
@@ -95,7 +127,7 @@
   ${Else}
     WriteRegExpandStr HKCU "Environment" "Path" "$R1"
   ${EndIf}
-  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+  !insertmacro MdrBroadcastEnvChange
 
   ; File-association cleanup managed at runtime.
 !macroend
