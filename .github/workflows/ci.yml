@@ -26,11 +26,19 @@ name: CI
 #   - rust-test (ubuntu)             — clippy + cargo test (Linux)
 #   - rust-test-windows (win-2022)   — clippy + cargo test (Windows-cfg code)
 #   - rust-test-macos (macos-14)     — clippy + cargo test (macOS-cfg code)
-#   - bench-compile-gate (ubuntu)    — `cargo bench --no-run --profile release-ci`
-#                                      (parallel with rust-test; catches bench API drift)
-#   - bench-report (ubuntu)          — runs benchmarks, compares against docs/performance.md
-#                                      budgets, posts summary to job page. Non-blocking
-#                                      (`continue-on-error: true`, not in test-gate).
+#   - bench (ubuntu)                 — single job that does both:
+#                                      1. `cargo bench --no-run --profile release-ci`
+#                                         as a BLOCKING gate (catches bench API drift),
+#                                      2. then runs benchmarks (reusing the just-compiled
+#                                         target/) and posts a perf summary vs
+#                                         docs/performance.md budgets to the job page.
+#                                      Bench-execution / summary / upload steps carry
+#                                      step-level `continue-on-error: true` so a slow
+#                                      bench fails loudly (red ❌ step) without taking
+#                                      the job — or the merge gate — down. Replaces the
+#                                      former `bench-compile-gate` + `bench-report` split
+#                                      (which double-compiled the six bench targets in
+#                                      two independent prefix-keyed caches).
 #   - bindings-drift (ubuntu)
 #   - e2e-browser (ubuntu)
 #   - native-e2e (win-2022)          — CDP-attached Playwright
@@ -315,103 +323,55 @@ jobs:
         run: cargo test
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Bench compile gate (Linux). Separate parallel job so the bench compile
-  # (release profile, 6 criterion binaries) does not block the rust-test
-  # critical path.
+  # Bench compile gate + perf report (Linux).
   #
-  # Uses --profile release-ci (lto=off, codegen-units=16) rather than the
-  # default bench/release profile (lto=thin, codegen-units=1) — captures
-  # the same API-drift signal at ~5× lower compile cost.
+  # Single job that does two things in sequence on one warm target/:
   #
-  # `cargo bench --no-run` compiles benches/ but skips execution; it is the
-  # only cargo invocation that compiles bench harnesses (cargo test does not).
-  # ─────────────────────────────────────────────────────────────────────────
-  bench-compile-gate:
-    name: Bench compile gate (Linux)
-    needs: ci-gate-inputs
-    if: needs.ci-gate-inputs.outputs.code == 'true'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-
-      - name: Set up Rust (stable)
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          workspaces: src-tauri
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Distinct prefix-key so the release-ci bench cache does not evict
-          # the test-profile cache used by rust-test.
-          prefix-key: bench-compile-gate
-
-      - name: Cache Linux system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
-        with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-          version: 1.0
-
-      - name: Stage placeholder CLI binary for Tauri externalBin check
-        # tauri-build's externalBin existence check (Path::exists() +
-        # Path::is_file()) is satisfied by a 0-byte file at the staged path
-        # — see scripts/stage-cli.mjs comment around the writeFileSync
-        # placeholder. Benches do not link the CLI bin, so the full
-        # `npm run stage:cli` (which actually builds mdownreview-cli) would
-        # be wasted work in this compile-only gate.
-        run: |
-          mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/mdownreview-cli-x86_64-unknown-linux-gnu
-
-      - name: Compile-gate benches (cargo bench --no-run)
-        # Catches bench code rot. `cargo test` does NOT compile benches/;
-        # only `cargo bench` (or `--all-targets`) does. Running with
-        # `--no-run` skips execution while still catching API drift in
-        # `benches/{matching,scanner,sidecar,threads,parsers,hot_path}.rs`
-        # and `benches/generate_fixtures.rs`.
-        #
-        # `--profile release-ci` uses lto=off + codegen-units=16 (vs the
-        # default bench profile which inherits lto=thin + codegen-units=1
-        # from [profile.release]), cutting compile time ~5×.
-        #
-        # The lib + both bins carry `bench = false` in Cargo.toml so
-        # cargo only compiles the six explicit `[[bench]]` targets —
-        # avoiding the panic-strategy collision between
-        # `[profile.release-ci].panic = "abort"` and cargo's implicit
-        # `panic = "unwind"` for lib-as-bench / bin-as-bench targets.
-        # See `[lib].bench = false` in src-tauri/Cargo.toml for the full
-        # rationale.
-        working-directory: src-tauri
-        run: cargo bench --no-run --profile release-ci
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Perf bench report (Linux, non-blocking).
+  #   1. BLOCKING gate — `cargo bench --no-run --profile release-ci`.
+  #      Compiles benches/ (cargo test does not). Failure here is a hard
+  #      red on the merge gate. This is the only cargo invocation that
+  #      compiles bench harnesses.
   #
-  # Generates bench fixtures, runs all criterion benchmarks with
-  # `--output-format bencher`, then parses the output against the numeric
-  # budgets declared in docs/performance.md and writes a markdown pass/fail
-  # table to the job summary page (visible on the PR checks tab). Raw bench
-  # output is uploaded as a 14-day artifact for trend inspection.
+  #   2. NON-BLOCKING perf report — generates fixtures, runs criterion
+  #      benches with `--output-format bencher`, parses against
+  #      docs/performance.md budgets, and writes a pass/fail table to the
+  #      job summary page. Raw output uploaded as a 14-day artifact.
+  #      Step-level `continue-on-error: true` lets these steps fail
+  #      visibly (red ❌ step inside a green job) without taking the
+  #      merge gate down.
   #
-  # `continue-on-error: true` + absent from `test-gate` → purely advisory.
-  # A slow bench or fixture-gen failure never blocks a merge.
+  # Compile artifacts produced by step 1 live in target/release-ci and
+  # are reused by step 2's `cargo bench` invocation — the bench harnesses
+  # are not recompiled. This is the whole reason the two former jobs
+  # (`bench-compile-gate` + `bench-report`) were merged: each previously
+  # ran an independent prefix-keyed cache and compiled the six bench
+  # targets twice per PR.
   #
-  # Budgets (release-ci profile — lto=off, codegen-units=16):
+  # Profile choice: `release-ci` uses lto=off + codegen-units=16 (vs the
+  # default bench profile which inherits lto=thin + codegen-units=1 from
+  # [profile.release]), cutting compile time ~5×. Per docs/performance.md
+  # this profile runs ~1.5–2× slower than the production `release`
+  # profile — budgets below are calibrated for `release-ci`.
+  #
+  # Cargo Bench setup: lib + both bins carry `bench = false` in Cargo.toml
+  # so cargo only compiles the six explicit `[[bench]]` targets, avoiding
+  # the panic-strategy collision between `[profile.release-ci].panic =
+  # "abort"` and cargo's implicit `panic = "unwind"` for lib-as-bench /
+  # bin-as-bench targets. See `[lib].bench = false` in src-tauri/Cargo.toml
+  # for the full rationale.
+  #
+  # Budgets (release-ci profile):
   #   hot_path/get_file_comments_large          < 20 ms
   #   matching/50_comments_1000_lines           <  5 ms
   #   fold_regions/large_100kb_jsonlike/default <  5 ms
   #   parse_kql/pipeline_50_steps               <  1 ms
   #   strip_json_comments/large_100kb           <  3 ms
   # ─────────────────────────────────────────────────────────────────────────
-  bench-report:
-    name: Perf bench report (non-blocking)
+  bench:
+    name: Bench compile gate + perf report (Linux)
     needs: ci-gate-inputs
-    if: needs.ci-gate-inputs.outputs.code == 'true'
+    if: needs.ci-gate-inputs.outputs.code == 'true' && needs.ci-gate-inputs.outputs.skip != 'true'
     runs-on: ubuntu-22.04
-    continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -426,10 +386,11 @@ jobs:
         with:
           workspaces: src-tauri
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Distinct prefix-key so the bench-report release-ci cache does not
-          # evict the test-profile cache used by rust-test or the compile-only
-          # cache used by bench-compile-gate.
-          prefix-key: bench-report
+          # Single prefix-key for the unified bench job — distinct from
+          # rust-test's default test-profile cache so they don't evict
+          # each other. The former `bench-compile-gate` + `bench-report`
+          # caches are now orphaned and will LRU-evict naturally.
+          prefix-key: bench
 
       - name: Cache Linux system dependencies
         uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
@@ -439,28 +400,44 @@ jobs:
 
       - name: Stage placeholder CLI binary for Tauri externalBin check
         # tauri-build's externalBin existence check (Path::exists() +
-        # Path::is_file()) is satisfied by a 0-byte file at the staged path
-        # — see scripts/stage-cli.mjs comment around the writeFileSync
-        # placeholder. The example and benches do not link the CLI bin,
-        # so the full `npm run stage:cli` (which actually builds
-        # mdownreview-cli in debug profile) would just add wasted work
-        # on a separate cargo-fingerprint to this release-ci job.
+        # Path::is_file()) is satisfied by a 0-byte file at the staged
+        # path — see scripts/stage-cli.mjs comment around the
+        # writeFileSync placeholder. Benches and the bench-fixture
+        # example do not link the CLI bin, so the full `npm run
+        # stage:cli` (which actually builds mdownreview-cli) would be
+        # wasted work in this release-ci job.
         run: |
           mkdir -p src-tauri/binaries
           touch src-tauri/binaries/mdownreview-cli-x86_64-unknown-linux-gnu
 
+      # ── BLOCKING compile gate ───────────────────────────────────────────
+      # Catches bench code rot. Failure here = job fails = merge gate red.
+      # Produces release-ci bench binaries into target/ for reuse below.
+      - name: Compile-gate benches (cargo bench --no-run)
+        working-directory: src-tauri
+        run: cargo bench --no-run --profile release-ci
+
+      # ── NON-BLOCKING perf report ────────────────────────────────────────
+      # Every step from here uses step-level `continue-on-error: true`:
+      # a failure marks the step red on the PR Checks tab but the job
+      # result stays `success`, so test-gate (which keys on
+      # `needs.bench.result`) remains green. This is strictly more
+      # visible than the previous job-level continue-on-error, which
+      # hid bench regressions behind an "advisory" label.
+
       - name: Generate bench fixtures
-        # Populates target/bench-fixtures/ (gitignored) used by matching_bench,
-        # hot_path_bench, sidecar_bench, and scanner_bench. Must run before
-        # `cargo bench` so fixture-dependent benches don't panic/skip.
+        # Populates target/bench-fixtures/ (gitignored) used by
+        # matching_bench, hot_path_bench, sidecar_bench, and
+        # scanner_bench. Must run before `cargo bench` so
+        # fixture-dependent benches don't panic/skip.
+        continue-on-error: true
         run: cargo run --manifest-path src-tauri/Cargo.toml --example generate_bench_fixtures --profile release-ci
 
       - name: Run benchmarks
-        # Outputs bench-output.txt at the repo root (default working directory)
-        # so subsequent steps reference it without path gymnastics.
-        # The lib + both bins carry `bench = false` in Cargo.toml so this
-        # only executes the six explicit `[[bench]]` targets — see
-        # bench-compile-gate's comment for the panic-strategy rationale.
+        # Reuses the bench binaries compiled by the gate step above — no
+        # recompile. Outputs bench-output.txt at the repo root so the
+        # summary step references it without path gymnastics.
+        continue-on-error: true
         run: |
           cargo bench --manifest-path src-tauri/Cargo.toml \
             --profile release-ci -- --output-format bencher 2>&1 \
@@ -468,6 +445,7 @@ jobs:
 
       - name: Write perf summary
         if: always()
+        continue-on-error: true
         shell: bash
         run: |
           {
@@ -537,6 +515,7 @@ jobs:
 
       - name: Upload bench output
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: bench-output
@@ -1257,7 +1236,7 @@ jobs:
       - rust-test
       - rust-test-windows
       - rust-test-macos
-      - bench-compile-gate
+      - bench
       - bindings-drift
       - e2e-browser
       - native-e2e
@@ -1289,7 +1268,7 @@ jobs:
             "rust-test:${{ needs.rust-test.result }}"
             "rust-test-windows:${{ needs.rust-test-windows.result }}"
             "rust-test-macos:${{ needs.rust-test-macos.result }}"
-            "bench-compile-gate:${{ needs.bench-compile-gate.result }}"
+            "bench:${{ needs.bench.result }}"
             "bindings-drift:${{ needs.bindings-drift.result }}"
             "e2e-browser:${{ needs.e2e-browser.result }}"
             "native-e2e:${{ needs.native-e2e.result }}"
