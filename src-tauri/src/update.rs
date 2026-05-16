@@ -6,7 +6,7 @@ use crate::mdr_command;
 const STABLE_ENDPOINT: &str =
     "https://github.com/dryotta/mdownreview/releases/latest/download/latest.json";
 const CANARY_ENDPOINT: &str =
-    "https://github.com/dryotta/mdownreview/releases/download/canary/canary-latest.json";
+    "https://dryotta.github.io/mdownreview/canary-latest.json";
 
 /// Holds the Update object between check and install so the frontend
 /// can show a banner and the user can decide when to install.

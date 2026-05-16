@@ -12,6 +12,29 @@ Check logic is offline-tolerant: a failed check logs and backs off; it never blo
 
 Release CI produces one installer per channel per platform; the GitHub release that matches the current channel is the update source.
 
+## Channel hosting
+
+| Channel | Endpoint | Hosting |
+|---|---|---|
+| stable | `https://github.com/dryotta/mdownreview/releases/latest/download/latest.json` | GitHub Releases — `latest.json` is attached as an asset of each `v*.*.*` release; GitHub's `releases/latest/` alias resolves to the most-recent non-prerelease. |
+| canary | `https://dryotta.github.io/mdownreview/canary-latest.json` | GitHub Pages — `site/canary-latest.json` is tracked in the repo and deployed by `pages.yml`. |
+
+The canary channel uses Pages (not a mutable release tag) because GitHub's **Release Immutability** feature permanently reserves the tag-name of any release it ever protects. A mutable `canary` release/tag would be locked the first time immutability is enabled and could not be recreated even after the setting is disabled. The Pages-tracked-file design is independent of the release subsystem and works regardless of repo-level immutability settings.
+
+### Canary tag schema
+
+Per-build canary releases use the schema `canary-{YYYYMMDDHHMMSS}-{run}-{shortsha}` (e.g. `canary-20260516181801-198-3be43cf`). Every tag is unique-per-build and never moved or recreated, so the immutability reservation problem cannot recur. The schema is lex-sortable, traceable to a commit, and human-readable at a glance.
+
+### Recovery contract
+
+If the Pages-hosted canary manifest is ever unreachable (Pages outage, hosting migration, etc.), canary users can recover by:
+
+1. Open About dialog → switch **Update channel** from Canary to Stable
+2. Check for Updates → install latest stable (which always has a working `CANARY_ENDPOINT` baked in)
+3. Switch back to Canary → resume canary auto-updates
+
+This is codified as the system's intentional recovery mechanism — no maintainer intervention required.
+
 ```mermaid
 flowchart TD
     Start(["app startup"]) --> Detect["detect channel<br/>from pre-release suffix<br/>(stable / canary)"]
