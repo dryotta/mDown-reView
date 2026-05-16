@@ -32,6 +32,28 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      # Preserve canary-latest.json across pages.yml deploys.
+      #
+      # The canary updater manifest is published to Pages by canary.yml (not
+      # tracked in main). If pages.yml deployed site/ as-tracked, every
+      # docs/site update would wipe the canary manifest from Pages, breaking
+      # auto-update for every canary client until the next push to main.
+      #
+      # Fetching the live manifest from Pages before each deploy makes the
+      # current Pages deployment the single source of truth — both
+      # canary.yml and pages.yml preserve it across their respective
+      # deploys. First-ever deploy is a no-op (404 from curl → skip).
+      - name: Preserve canary-latest.json from current Pages deployment
+        run: |
+          set -e
+          mkdir -p site
+          if curl -fsSL "https://dryotta.github.io/mdownreview/canary-latest.json" \
+              -o site/canary-latest.json; then
+            echo "Preserved canary-latest.json ($(wc -c < site/canary-latest.json) bytes)"
+          else
+            echo "No live canary-latest.json on Pages yet — first deploy?"
+            rm -f site/canary-latest.json
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
