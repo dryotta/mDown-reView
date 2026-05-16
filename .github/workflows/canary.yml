@@ -127,8 +127,13 @@ jobs:
         run: |
           set -e
           NAME="mdownreview-${VERSION}"
+          # Create as draft so subsequent `gh release upload` calls succeed
+          # under "Enable release immutability" — published releases reject
+          # asset uploads (HTTP 422). The release is undrafted in a follow-up
+          # step after every asset is verified present, mirroring release.yml.
           gh release view "$TAG" &>/dev/null || \
           gh release create "$TAG" \
+            --draft \
             --prerelease \
             --title "Canary Build #${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes "Canary build from main at \`${GITHUB_SHA::7}\`."
@@ -161,6 +166,11 @@ jobs:
                 ;;
             esac
           done
+          # Undraft only after every asset is uploaded — required by
+          # "Enable release immutability" (published releases reject further
+          # uploads). Matches the draft → upload → undraft pattern in
+          # release.yml.
+          gh release edit "$TAG" --draft=false
 
   # ── Update mutable `canary` tag → manifest pointer ──────────────────────
   publish-canary-manifest:
@@ -226,11 +236,17 @@ jobs:
           gh release delete canary --yes 2>/dev/null || true
           git tag -f canary
           git push origin canary --force
+          # Create as draft so the manifest upload succeeds under
+          # "Enable release immutability"; undraft only after the manifest
+          # is attached so auto-update clients never observe a half-published
+          # canary pointer.
           gh release create canary \
+            --draft \
             --prerelease \
             --title "Canary (latest)" \
             --notes "Points to the latest canary build. Auto-updated on each main push."
           gh release upload canary /tmp/canary-latest.json --clobber
+          gh release edit canary --draft=false
           echo "Published canary-latest.json pointing to ${TAG}"
 
       - name: Clean up old canary releases (keep last 5)
