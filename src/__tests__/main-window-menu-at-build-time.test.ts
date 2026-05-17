@@ -110,26 +110,24 @@ describe("main window — menu attached at build time (cold-start flicker fix)",
       // Iter-1 of PR #363 deleted the hard-coded `WINDOW_BG` constant.
       // Both window builders now resolve the OS-frame background AND
       // the OS-chrome theme dynamically from the persisted
-      // `OnboardingState.theme` via `commands::config::resolve_window_bg`,
+      // `OnboardingState.theme` via `commands::theme::resolve_persisted_theme`
+      // (single disk read returning `PersistedTheme { bg, theme, raw_pref }`),
       // so light-theme users no longer get a dark-background flash on
       // cold start. The previous regex (`const WINDOW_BG: Color = …`
       // and `.background_color(WINDOW_BG)`) is now a counter-assertion.
       expect(libRs).not.toMatch(/const WINDOW_BG\b/);
 
-      // Both factories must call into `resolve_window_bg(handle)` to
-      // get the persisted (bg, theme) pair, then thread BOTH into the
-      // builder. Fail fast if a future change drops either side of the
-      // pair: `.background_color(bg)` alone is the original PR #265 fix
-      // (FOUC mitigation), `.theme(Some(theme))` is the PR #363
-      // extension that also paints the OS title-bar / menu chrome to
-      // match.
+      // Both factories must call into `resolve_persisted_theme(handle)`
+      // (the single-disk-read resolver that replaced the previous
+      // `resolve_window_bg` + `persisted_theme_pref` pair, eliminating
+      // the duplicate disk read flagged by the security-perf review).
       const mainBody = buildMainBody();
       expect(mainBody, "build_main_window function body").not.toBeNull();
       expect(mainBody!).toMatch(
-        /let \(bg, theme\) = commands::config::resolve_window_bg\(handle\);/,
+        /let pref = commands::theme::resolve_persisted_theme\(handle\);/,
       );
-      expect(mainBody!).toMatch(/\.background_color\(bg\)/);
-      expect(mainBody!).toMatch(/\.theme\(Some\(theme\)\)/);
+      expect(mainBody!).toMatch(/\.background_color\(pref\.bg\)/);
+      expect(mainBody!).toMatch(/\.theme\(Some\(pref\.theme\)\)/);
 
       // Same invariant for the secondary-window factory used by
       // `open_new_window` / CLI-driven additional windows. Without
@@ -141,10 +139,75 @@ describe("main window — menu attached at build time (cold-start flicker fix)",
       expect(endIdx).toBeGreaterThan(-1);
       const createBody = libRs.slice(startIdx, endIdx + 3);
       expect(createBody).toMatch(
-        /let \(bg, theme\) = commands::config::resolve_window_bg\(handle\);/,
+        /let pref = commands::theme::resolve_persisted_theme\(handle\);/,
       );
-      expect(createBody).toMatch(/\.background_color\(bg\)/);
-      expect(createBody).toMatch(/\.theme\(Some\(theme\)\)/);
+      expect(createBody).toMatch(/\.background_color\(pref\.bg\)/);
+      expect(createBody).toMatch(/\.theme\(Some\(pref\.theme\)\)/);
+    });
+
+    it("calls apply_theme_to_window AFTER builder.build() for muda HMENU + popup theme", () => {
+      // Regression guard for the dark-popup-menu / stale-titlebar bug
+      // family (initial fix iter-1 + iter-2). `WebviewWindowBuilder::theme()`
+      // pre-build only flips Windows DWM immersive-dark-mode on the
+      // title bar — it does NOT route through muda (per-window HMENU
+      // theme) and on Windows it does NOT set the process-wide popup
+      // `SetPreferredAppMode`. The post-build
+      // `apply_theme_to_window(&window, native)` call is the chokepoint
+      // that does both. Removing it silently re-introduces the original
+      // bug (dropdown popups stay OS-themed even when app pref is
+      // explicit light/dark; per-window preferred_theme short-circuits
+      // event-loop runtime updates so the title bar never refreshes).
+      const mainBody = buildMainBody();
+      expect(mainBody, "build_main_window function body").not.toBeNull();
+      const buildIdx = mainBody!.indexOf(".build()");
+      const applyIdx = mainBody!.indexOf("apply_theme_to_window");
+      expect(buildIdx, ".build() must be present").toBeGreaterThan(-1);
+      expect(applyIdx, "apply_theme_to_window must be present").toBeGreaterThan(-1);
+      expect(
+        applyIdx,
+        "apply_theme_to_window MUST be called AFTER builder.build() — pre-build it cannot reach the HWND",
+      ).toBeGreaterThan(buildIdx);
+
+      // Same invariant for create_app_window.
+      const startIdx = libRs.indexOf("fn create_app_window");
+      expect(startIdx).toBeGreaterThan(-1);
+      const endIdx = libRs.indexOf("\n}\n", startIdx);
+      const createBody = libRs.slice(startIdx, endIdx + 3);
+      const createBuildIdx = createBody.indexOf(".build()");
+      const createApplyIdx = createBody.indexOf("apply_theme_to_window");
+      expect(createBuildIdx).toBeGreaterThan(-1);
+      expect(createApplyIdx).toBeGreaterThan(-1);
+      expect(createApplyIdx).toBeGreaterThan(createBuildIdx);
+    });
+
+    it("on macOS, applies the theme AFTER app.set_menu so NSApp.appearance flips with the menu attached", () => {
+      // Architecture-review HIGH finding: on macOS the global menu bar
+      // belongs to NSApp, and its appearance can be snapshotted at the
+      // moment `set_menu` attaches. If we flip NSApp.appearance BEFORE
+      // `set_menu`, the menu colour can latch wrong. The setup() block
+      // must do `app.set_menu(...)` first, THEN call
+      // `apply_theme_to_window(...)` against the main window.
+      //
+      // We assert on the cfg-gated macOS block in `setup()`: find the
+      // `#[cfg(target_os = "macos")]` block that wraps `app.set_menu`
+      // and verify that block ALSO contains an `apply_theme_to_window`
+      // call AFTER the `set_menu` line.
+      const macosBlockStart = libRs.indexOf("app.set_menu(main_menu)");
+      expect(
+        macosBlockStart,
+        "setup() must attach the global menu on macOS via app.set_menu(main_menu)",
+      ).toBeGreaterThan(-1);
+
+      // Look forward from `app.set_menu` to the end of the enclosing
+      // macOS block (the next column-0 `}`). The
+      // `apply_theme_to_window` call must appear inside that window.
+      const blockEnd = libRs.indexOf("\n            }", macosBlockStart);
+      expect(blockEnd).toBeGreaterThan(macosBlockStart);
+      const macosBlock = libRs.slice(macosBlockStart, blockEnd);
+      expect(
+        macosBlock,
+        "macOS setup block must call apply_theme_to_window AFTER app.set_menu so NSApp.appearance flips with the menu in place",
+      ).toMatch(/apply_theme_to_window/);
     });
   });
 });

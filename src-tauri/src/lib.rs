@@ -280,14 +280,19 @@ pub(crate) fn create_app_window(
     label: &str,
     title: &str,
 ) -> tauri::Result<tauri::WebviewWindow> {
-    let (bg, theme) = commands::config::resolve_window_bg(handle);
+    // SINGLE disk read for the cold-start hot path — bg + theme + raw
+    // pref all come from one `default_path + load_at` round-trip rather
+    // than the two separate calls the initial fix used (flagged by the
+    // security-perf review).
+    let pref = commands::theme::resolve_persisted_theme(handle);
+    let native = commands::theme::theme_to_tauri(&pref.raw_pref);
     let builder =
         tauri::WebviewWindowBuilder::new(handle, label, tauri::WebviewUrl::App("index.html".into()))
             .title(title)
             .inner_size(1100.0, 750.0)
             .min_inner_size(600.0, 400.0)
-            .background_color(bg)
-            .theme(Some(theme));
+            .background_color(pref.bg)
+            .theme(Some(pref.theme));
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -295,7 +300,16 @@ pub(crate) fn create_app_window(
         builder.menu(menu)
     };
 
-    builder.build()
+    let window = builder.build()?;
+    // Pass the already-resolved `native` so the helper doesn't re-read
+    // disk. On macOS the caller may want to defer this until after
+    // `app.set_menu()` — currently `create_app_window` is only invoked
+    // on Windows-style menu attach (per-window `.menu()` above), so the
+    // ordering concern only applies to `build_main_window` /
+    // `setup()`. See `apply_theme_to_window` rustdoc for the macOS
+    // ordering invariant.
+    commands::theme::apply_theme_to_window(&window, native);
+    Ok(window)
 }
 
 /// Build the main window programmatically with its menu pre-attached
@@ -316,22 +330,27 @@ pub(crate) fn create_app_window(
 /// On macOS, `WindowBuilder::menu` is a documented no-op (the menu bar
 /// belongs to NSApp, not NSWindow), so we skip `.menu()` here and let
 /// setup() install the global menu via `AppHandle::set_menu` instead.
-/// macOS does not exhibit the Windows HMENU client-rect-shrink behavior,
-/// so the post-build app.set_menu path is flicker-free there.
+/// **The native theme MUST be applied AFTER `app.set_menu()` on macOS**
+/// (NSApp.appearance can be snapshotted by the menu at attach time);
+/// `setup()` handles that ordering by calling
+/// `apply_theme_to_window` after `set_menu`, NOT here.
 ///
 /// Sizes mirror the previous `tauri.conf.json::app.windows[0]` block.
 /// The window background + OS chrome theme come from
-/// `commands::config::resolve_window_bg`, which preserves PR #265's
-/// cold-start FOUC fix and extends it to light-theme users.
+/// `commands::theme::resolve_persisted_theme` (single disk read).
+/// On Windows/Linux, `apply_theme_to_window` is called here post-build
+/// so muda's HMENU + (on Windows) the popup-menu `SetPreferredAppMode`
+/// match the rest of the chrome.
 fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
-    let (bg, theme) = commands::config::resolve_window_bg(handle);
+    let pref = commands::theme::resolve_persisted_theme(handle);
+    let native = commands::theme::theme_to_tauri(&pref.raw_pref);
     let builder =
         tauri::WebviewWindowBuilder::new(handle, "main", tauri::WebviewUrl::App("index.html".into()))
             .title("mdownreview")
             .inner_size(1200.0, 800.0)
             .min_inner_size(800.0, 600.0)
-            .background_color(bg)
-            .theme(Some(theme));
+            .background_color(pref.bg)
+            .theme(Some(pref.theme));
 
     #[cfg(not(target_os = "macos"))]
     let builder = {
@@ -339,7 +358,23 @@ fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
         builder.menu(menu)
     };
 
-    builder.build()
+    let window = builder.build()?;
+    // On Windows/Linux the menu is already attached via the builder, so
+    // applying the theme now updates muda's HMENU theme (and on Windows
+    // the popup `SetPreferredAppMode`) for the freshly-built menu.
+    // On macOS the global menu doesn't exist yet — `setup()` calls
+    // `app.set_menu(...)` AFTER this function returns, then immediately
+    // calls `apply_theme_to_window(&window, native)` to flip
+    // NSApp.appearance with the menu in place.
+    #[cfg(not(target_os = "macos"))]
+    commands::theme::apply_theme_to_window(&window, native);
+    #[cfg(target_os = "macos")]
+    {
+        // Suppress unused-binding warning on macOS where the post-build
+        // theme application is deferred to `setup()` (after app.set_menu).
+        let _ = native;
+    }
+    Ok(window)
 }
 
 /// Shared logic for opening a new empty window. Used by the native menu handler.
@@ -423,7 +458,7 @@ pub fn build_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
                 commands::comments::badges::get_file_badges,
                 commands::config::set_author,
                 commands::config::get_author,
-                commands::config::set_theme,
+                commands::theme::set_theme,
                 commands::search::search_in_document,
                 commands::html::compute_fold_regions,
                 commands::search::parse_kql,
@@ -688,6 +723,18 @@ pub fn run() {
             {
                 let main_menu = build_window_menu(app, "main")?;
                 app.set_menu(main_menu)?;
+                // macOS ordering invariant: apply the native theme to
+                // the main window AFTER `set_menu` so NSApp.appearance
+                // is updated with the menu already attached. If we
+                // flipped NSApp.appearance before the menu attached,
+                // the global menu bar could snapshot the wrong colour
+                // — the architecture-review HIGH finding from the
+                // initial fix.
+                let main_window = app.get_webview_window("main")
+                    .expect("main window built above");
+                let pref = commands::theme::resolve_persisted_theme(app.handle());
+                let native = commands::theme::theme_to_tauri(&pref.raw_pref);
+                commands::theme::apply_theme_to_window(&main_window, native);
             }
             // Record `WebviewReady` AFTER `.build()` (and the macOS app.set_menu)
             // returns successfully, so the phase bookmarks "user can see a stable

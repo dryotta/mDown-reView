@@ -23,7 +23,15 @@ pub enum MenuEventDelivery<'a> {
     /// label, and `MenuEventDelivery` does not need to distinguish.
     Targeted(&'a str),
     /// Broadcast to every window (`app.emit(…)`). Reserved for
-    /// genuinely cross-window state changes — currently theme-*.
+    /// genuinely cross-window state changes that don't already have a
+    /// chokepoint IPC iterating windows. **Currently unused** — theme
+    /// switching was migrated from `Broadcast` to `Targeted` (the
+    /// `set_theme` IPC chokepoint iterates windows itself, so a
+    /// broadcast produces O(N²) IPC calls). Variant retained because
+    /// the `MenuEventDelivery` enum is part of the testable routing
+    /// surface; future cross-window actions that don't have an IPC
+    /// chokepoint may use it.
+    #[allow(dead_code)]
     Broadcast,
 }
 
@@ -55,8 +63,18 @@ pub fn menu_event_delivery<'a>(
         _ => return None,
     };
     let delivery = match event_name {
+        // Theme events: Targeted to the firing window. The renderer-side
+        // `useThemePref::setTheme` calls the `set_theme` IPC which is the
+        // chokepoint that iterates EVERY window applying the native
+        // theme — so cross-window native chrome/menu is handled by the
+        // one IPC call, not by re-broadcasting the menu event. The
+        // other windows pick up the renderer-side state change via
+        // `useCrossWindowPrefsSync` listening on localStorage `storage`
+        // events. Previously this used `Broadcast`, producing N IPC
+        // calls × N windows each (O(N²)) for a single user click —
+        // flagged by the security-perf and architecture reviews.
         "menu-theme-system" | "menu-theme-light" | "menu-theme-dark" => {
-            MenuEventDelivery::Broadcast
+            MenuEventDelivery::Targeted(firing_label)
         }
         "menu-check-updates" => MenuEventDelivery::Targeted("main"),
         _ => MenuEventDelivery::Targeted(firing_label),
