@@ -107,6 +107,61 @@ describe("useCrossWindowPrefsSync", () => {
     expect(useStore.getState().authorName).toBe("Alice");
   });
 
+  it("cross-window theme change drives the renderer's <html data-theme> via useApplyTheme", async () => {
+    // End-to-end propagation: storage event -> useCrossWindowPrefsSync ->
+    // Zustand theme update -> any component consuming `theme` (e.g.
+    // useApplyTheme inside App.tsx) repaints data-theme. This test
+    // composes both hooks so the renderer-side DOM effect is verified,
+    // closing the gap test-coverage-r2 NEW-GAP-2 flagged: Zustand was
+    // tested in isolation but the load-bearing DOM application was not.
+    const { useApplyTheme } = await import("../useApplyTheme");
+
+    // useApplyTheme calls window.matchMedia — jsdom doesn't provide it
+    // by default. Install a minimal stub matching the shape used by
+    // useApplyTheme.test.ts; the actual systemPrefersDark value
+    // doesn't matter here because we drive an explicit "light" then
+    // "dark" pref (system-mode resolution is covered by useApplyTheme's
+    // own suite).
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+
+    document.documentElement.removeAttribute("data-theme");
+    useStore.setState({ theme: "light" });
+
+    // Render both hooks together — useCrossWindowPrefsSync subscribes
+    // to the storage event, useApplyTheme subscribes to the store and
+    // mirrors `theme` into `<html data-theme>`.
+    const { rerender } = renderHook(
+      ({ themePref }: { themePref: "system" | "light" | "dark" }) => {
+        useCrossWindowPrefsSync();
+        useApplyTheme(themePref);
+      },
+      { initialProps: { themePref: useStore.getState().theme } },
+    );
+
+    // Sanity: initial state.
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+
+    // Cross-window storage event flips the store to "dark".
+    act(() => {
+      fireStorageEvent("mdownreview-ui", payload({ theme: "dark" }));
+    });
+    expect(useStore.getState().theme).toBe("dark");
+
+    // useApplyTheme is a `useEffect([theme])`-driven hook. App.tsx
+    // re-runs it whenever the store theme changes; mirror that by
+    // re-rendering with the new pref, then assert the DOM updated.
+    rerender({ themePref: useStore.getState().theme });
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
   it("skips setState when incoming values match current state (ping-pong guard)", () => {
     useStore.setState({ theme: "dark", authorName: "Alice" });
     renderHook(() => useCrossWindowPrefsSync());

@@ -302,12 +302,15 @@ pub(crate) fn create_app_window(
 
     let window = builder.build()?;
     // Pass the already-resolved `native` so the helper doesn't re-read
-    // disk. On macOS the caller may want to defer this until after
-    // `app.set_menu()` — currently `create_app_window` is only invoked
-    // on Windows-style menu attach (per-window `.menu()` above), so the
-    // ordering concern only applies to `build_main_window` /
-    // `setup()`. See `apply_theme_to_window` rustdoc for the macOS
-    // ordering invariant.
+    // disk. On macOS the per-window `WebviewWindow::set_theme` flips
+    // NSApp.appearance app-wide via tao's `set_ns_theme`. **No
+    // ordering concern here** because `create_app_window` is only
+    // invoked for SECONDARY windows opened after cold-start — the
+    // global menu bar is already attached (via `setup()`'s
+    // `app.set_menu(main_menu)` on macOS), so NSApp.appearance is
+    // stable. The macOS-specific "apply AFTER set_menu" ordering
+    // invariant only applies to the MAIN window's initial theme
+    // application in `setup()`.
     commands::theme::apply_theme_to_window(&window, native);
     Ok(window)
 }
@@ -341,7 +344,15 @@ pub(crate) fn create_app_window(
 /// On Windows/Linux, `apply_theme_to_window` is called here post-build
 /// so muda's HMENU + (on Windows) the popup-menu `SetPreferredAppMode`
 /// match the rest of the chrome.
-fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+///
+/// **Returns** `(WebviewWindow, PersistedTheme)` so the caller (`setup()`)
+/// can reuse the resolved theme for the macOS post-`app.set_menu`
+/// `apply_theme_to_window` call without re-reading `onboarding.json` from
+/// disk. Eliminates the macOS duplicate-disk-read regression flagged by
+/// the round-2 architecture + security-perf reviews.
+fn build_main_window(
+    handle: &tauri::AppHandle,
+) -> tauri::Result<(tauri::WebviewWindow, commands::theme::PersistedTheme)> {
     let pref = commands::theme::resolve_persisted_theme(handle);
     let native = commands::theme::theme_to_tauri(&pref.raw_pref);
     let builder =
@@ -364,8 +375,9 @@ fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
     // the popup `SetPreferredAppMode`) for the freshly-built menu.
     // On macOS the global menu doesn't exist yet — `setup()` calls
     // `app.set_menu(...)` AFTER this function returns, then immediately
-    // calls `apply_theme_to_window(&window, native)` to flip
-    // NSApp.appearance with the menu in place.
+    // calls `apply_theme_to_window(&window, native)` using the `pref`
+    // returned here (no second disk read) to flip NSApp.appearance with
+    // the menu in place.
     #[cfg(not(target_os = "macos"))]
     commands::theme::apply_theme_to_window(&window, native);
     #[cfg(target_os = "macos")]
@@ -374,7 +386,7 @@ fn build_main_window(handle: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
         // theme application is deferred to `setup()` (after app.set_menu).
         let _ = native;
     }
-    Ok(window)
+    Ok((window, pref))
 }
 
 /// Shared logic for opening a new empty window. Used by the native menu handler.
@@ -718,7 +730,7 @@ pub fn run() {
             //
             // `push_args("main", …)` above runs BEFORE this build so pending
             // args are queued before React mounts and calls `get_launch_args`.
-            build_main_window(app.handle())?;
+            let (_main_window_handle, _main_pref) = build_main_window(app.handle())?;
             #[cfg(target_os = "macos")]
             {
                 let main_menu = build_window_menu(app, "main")?;
@@ -730,11 +742,21 @@ pub fn run() {
                 // the global menu bar could snapshot the wrong colour
                 // — the architecture-review HIGH finding from the
                 // initial fix.
-                let main_window = app.get_webview_window("main")
-                    .expect("main window built above");
-                let pref = commands::theme::resolve_persisted_theme(app.handle());
-                let native = commands::theme::theme_to_tauri(&pref.raw_pref);
-                commands::theme::apply_theme_to_window(&main_window, native);
+                //
+                // **Reuse `_main_pref`** instead of calling
+                // `resolve_persisted_theme` again — that would re-read
+                // `onboarding.json` from disk on the cold-start hot
+                // path (the macOS-duplicate-read regression flagged
+                // by round-2 arch + security-perf reviews).
+                let native = commands::theme::theme_to_tauri(&_main_pref.raw_pref);
+                commands::theme::apply_theme_to_window(&_main_window_handle, native);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Suppress unused-variable warnings on non-macOS: the
+                // post-build theme application happens inside
+                // `build_main_window` itself there.
+                let _ = (&_main_window_handle, &_main_pref);
             }
             // Record `WebviewReady` AFTER `.build()` (and the macOS app.set_menu)
             // returns successfully, so the phase bookmarks "user can see a stable

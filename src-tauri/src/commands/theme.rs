@@ -1,6 +1,17 @@
-// Theme persistence, native chrome/menu application, and cold-start
-// resolver. Split out of commands/config.rs (architecture rule 23
-// file-size budget).
+// Theme application (runtime native chrome + menu + popup-menu mode)
+// and cold-start resolver. Split out of commands/config.rs (architecture
+// rule 23 file-size budget).
+//
+// **Ownership boundary**: `commands::config` owns disk validation
+// (`set_theme_at` rejects values outside `{system,light,dark}` + writes
+// to `onboarding.json`) and the typed `ConfigError`. `commands::theme`
+// owns everything that ACTS on a theme value: the `ThemeApplier` trait,
+// the `set_theme` IPC (which calls `config::set_theme_at` first then
+// drives the applier), the per-window `apply_theme_to_window` post-build
+// helper, the cold-start `resolve_persisted_theme` (single disk read
+// returning bg + theme + raw_pref for the window builder + post-build
+// helper combo), and the Windows-only `popup_theme` FFI for the
+// uxtheme `SetPreferredAppMode` + `FlushMenuThemes` ordinals.
 
 use crate::commands::config::{default_path, set_theme_at, ConfigError};
 use crate::core::onboarding::{load_at, OnboardingState};
@@ -135,9 +146,13 @@ pub fn dispatch_set_theme<A: ThemeApplier>(applier: &A, theme_pref: &str) {
     applier.apply_theme(native);
 }
 
-/// IPC chokepoint: persist the pref to disk, then drive the
-/// `ThemeApplier` to flip every window's native chrome + menu live (and
-/// on Windows the process-wide popup-menu mode).
+/// **Side-effect IPC** (Rust-First pattern): persist the pref to disk,
+/// then drive the `ThemeApplier` to flip every window's native chrome +
+/// menu live (and on Windows the process-wide popup-menu mode). The
+/// native-side mutation is NOT visible in the TypeScript signature
+/// (`set_theme(theme: string) -> Result<(), ConfigError>` reads like a
+/// pure persist) — call sites in `useThemePref.ts` rely on this rustdoc
+/// for the full contract.
 ///
 /// Cross-window propagation: this IPC is invoked ONCE per user action,
 /// not N times. The menu fires `menu-theme-*` as a Targeted event
@@ -149,6 +164,20 @@ pub fn dispatch_set_theme<A: ThemeApplier>(applier: &A, theme_pref: &str) {
 /// call iterates every native window and applies the theme. Reduces
 /// what would have been N IPCs x N windows each (O(N^2)) to one IPC x
 /// N windows (O(N)).
+///
+/// **Windows "system" mode limitation**: when the user's preference is
+/// `"system"`, the menu BAR is snapshotted from the OS theme at the
+/// time this IPC fires. If the OS theme changes WHILE the app is
+/// running (without the user reopening the View menu), the menu bar
+/// stays at the snapshotted theme until the next `set_theme` call.
+/// **Popup menus DO follow OS changes** because we set
+/// `PreferredAppMode::AllowDark`, which lets uxtheme track the OS.
+/// **The renderer DOM (`<html data-theme>`) also follows OS changes**
+/// because `useApplyTheme` listens to the `prefers-color-scheme` media
+/// query (which fires in both WebView2 and WKWebView on OS theme
+/// switches). Adding a `WM_SETTINGCHANGE` listener in Rust to fix the
+/// menu-bar mismatch is tracked as a follow-up — the asymmetry is
+/// small (only the menu bar) and recoverable (user toggles preference).
 #[mdr_command]
 pub fn set_theme(app: AppHandle, theme: String) -> Result<(), ConfigError> {
     let path = default_path(&app)?;
@@ -237,7 +266,26 @@ pub fn apply_persisted_theme_to_window(app: &AppHandle, window: &tauri::WebviewW
 // the next call. `FlushMenuThemes` invalidates uxtheme's cached menu
 // data so the change takes effect for the NEXT popup. Currently-open
 // popups are NOT repainted - they live in their own OS-owned window
-// class.
+// class (matches Windows Terminal / VS Code behaviour).
+//
+// **Windows version requirement**: ordinals 135 + 136 are stable on
+// Windows 10 1903+ (build 18362) and Windows 11. On older builds
+// (Win10 1809-1903) `GetProcAddress` returns None and `apply` becomes
+// a no-op — popups silently stay following the OS theme. The
+// `PreferredAppMode` enum values (0=Default, 1=AllowDark, 2=ForceDark,
+// 3=ForceLight) are validated against the win32-darkmode reference
+// implementation (https://github.com/ysc3839/win32-darkmode) and
+// Windows Terminal source. tao only defines Default + AllowDark; the
+// ForceDark / ForceLight extension is what makes this module necessary.
+//
+// **DLL planting**: `LoadLibraryA("uxtheme.dll")` resolves via the
+// standard DLL search path, which on its face could be hijacked by a
+// malicious DLL placed in the app directory. **In practice this is
+// blocked by Windows' Known DLLs list** (HKLM\SYSTEM\CurrentControlSet
+// \Control\Session Manager\KnownDLLs), which includes uxtheme.dll —
+// the loader short-circuits to `C:\Windows\System32\uxtheme.dll`
+// regardless of the search path. We are also at parity with tao's
+// `allow_dark_mode_for_app` which uses the same `LoadLibraryA` pattern.
 //
 // Idempotent and gracefully degrades: when the ordinals are absent
 // (very old Windows, future API removal) the calls become no-ops and
@@ -518,5 +566,71 @@ mod tests {
     fn detect_os_theme_returns_known_value() {
         let v = detect_os_theme();
         assert!(v == "light" || v == "dark", "got {v}");
+    }
+
+    // popup_theme FFI smoke test (Windows-only).
+    //
+    // The popup_theme module is 65 lines of `unsafe` FFI calling
+    // undocumented uxtheme ordinals 135 + 136. Without a smoke test
+    // a future regression in the OnceLock init, ordinal numbers, or
+    // transmute signatures would crash at runtime instead of failing
+    // CI. This test exercises every variant of `apply` to verify the
+    // FFI is callable without panic on Windows builds.
+    //
+    // Gracefully degrades on Win10 < 1903 (ordinals absent → no-op).
+    // No assertion on what `SetPreferredAppMode` actually did — the
+    // OS state mutation is invisible to test (popup menus aren't
+    // open). The crash-free pass is the contract being tested.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn popup_theme_apply_each_variant_does_not_panic() {
+        super::popup_theme::apply(Some(tauri::Theme::Light));
+        super::popup_theme::apply(Some(tauri::Theme::Dark));
+        super::popup_theme::apply(None);
+        // Second pass to verify the OnceLock cached state still works.
+        super::popup_theme::apply(Some(tauri::Theme::Light));
+    }
+
+    // Error-swallow discipline source-text guard.
+    //
+    // `apply_theme_to_window` MUST log-and-swallow `window.set_theme`
+    // errors so a transient race during window construction doesn't
+    // abort the build. If a future maintainer "improves" the function
+    // to `.unwrap()` or `.expect()`, this test fails — surfacing the
+    // contract violation at CI time instead of cold-start panic time.
+    // Mirrors the structural-guard pattern in
+    // `src/__tests__/main-window-menu-at-build-time.test.ts`.
+    #[test]
+    fn apply_theme_to_window_swallows_set_theme_errors() {
+        let src = include_str!("theme.rs");
+        let start = src
+            .find("pub fn apply_theme_to_window(")
+            .expect("apply_theme_to_window must exist");
+        // Take a slice large enough to cover the function body but
+        // small enough to avoid matching the next function. The
+        // function is ~10 lines; 600 chars is comfortable margin.
+        let body_window = &src[start..start.saturating_add(600).min(src.len())];
+
+        assert!(
+            body_window.contains("window.set_theme"),
+            "apply_theme_to_window must call window.set_theme"
+        );
+        assert!(
+            body_window.contains("if let Err(e) = window.set_theme"),
+            "apply_theme_to_window MUST handle window.set_theme errors with `if let Err`, \
+             not unwrap/expect, so cold-start construction races don't crash the window"
+        );
+        assert!(
+            body_window.contains("log::warn!"),
+            "apply_theme_to_window MUST log set_theme errors at warn level for diagnosability"
+        );
+        assert!(
+            !body_window.contains(".unwrap()"),
+            "apply_theme_to_window MUST NOT use .unwrap() — see error-swallow rationale"
+        );
+        assert!(
+            !body_window.contains(".expect("),
+            "apply_theme_to_window MUST NOT use .expect() — see error-swallow rationale"
+        );
     }
 }
