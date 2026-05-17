@@ -23,6 +23,7 @@ pub mod search;
 pub mod startup;
 pub mod system;
 pub mod sidecar_config;
+pub mod theme;
 pub mod window_register;
 pub mod word_tokens;
 

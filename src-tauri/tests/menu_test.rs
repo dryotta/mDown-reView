@@ -22,7 +22,7 @@ const FIRING: &str = "secondary-window-7";
 
 #[test]
 fn routing_table_pinned() {
-    use MenuEventDelivery::{Broadcast, Targeted};
+    use MenuEventDelivery::Targeted;
     let cases: &[(&str, Option<(&'static str, MenuEventDelivery<'_>)>)] = &[
         // Window-scoped (firing window).
         ("open-file", Some(("menu-open-file", Targeted(FIRING)))),
@@ -39,10 +39,15 @@ fn routing_table_pinned() {
         // The "main" literal is justified for the updater backend
         // (process-global; UpdateBanner only mounts in main).
         ("check-updates", Some(("menu-check-updates", Targeted("main")))),
-        // Broadcast (cross-window preference).
-        ("theme-system", Some(("menu-theme-system", Broadcast))),
-        ("theme-light", Some(("menu-theme-light", Broadcast))),
-        ("theme-dark", Some(("menu-theme-dark", Broadcast))),
+        // Targeted to firing window — the IPC chokepoint iterates every
+        // window applying the native theme, and the firing window's
+        // Zustand update propagates renderer-side via
+        // `useCrossWindowPrefsSync`'s localStorage event. Previously
+        // Broadcast, but that produced O(N²) IPC calls (every window
+        // re-firing the IPC each time the firing window updated).
+        ("theme-system", Some(("menu-theme-system", Targeted(FIRING)))),
+        ("theme-light", Some(("menu-theme-light", Targeted(FIRING)))),
+        ("theme-dark", Some(("menu-theme-dark", Targeted(FIRING)))),
         // Rust-handled — never produce a frontend event.
         ("new-window", None),
         ("win-minimize", None),
@@ -117,15 +122,23 @@ fn dispatch_check_updates_targets_main_regardless_of_firing_window() {
 }
 
 #[test]
-fn dispatch_theme_action_broadcasts_not_emit_to() {
-    // The flip side of the bug-1 guard: if the dispatcher wrongly
-    // routed theme-* through emit_to(label, …), we'd see Targeted
-    // instead of Broadcast. Pin the broadcast shape too.
+fn dispatch_theme_action_targets_firing_window_not_broadcast() {
+    // O(N²) regression guard: theme actions MUST be Targeted to the
+    // firing window, not Broadcast. The `set_theme` IPC is the
+    // chokepoint that iterates every window applying the native
+    // theme — so cross-window propagation happens once via the IPC,
+    // not N times via N renderers each re-firing the IPC. If a
+    // future refactor flips theme back to Broadcast, every menu
+    // click produces N IPC calls × N windows each (O(N²)) instead
+    // of one IPC × N windows (O(N)). See
+    // `menu.rs::menu_event_delivery` and the security-perf /
+    // architecture reviews of the initial fix.
     let emitter = RecordingEmitter::default();
     let forwarded = dispatch_menu_event(&emitter, "theme-light", "w2");
     assert!(forwarded);
     let calls = emitter.calls.borrow();
-    assert_eq!(calls[0].0, Shape::Broadcast);
+    assert_eq!(calls[0].0, Shape::Targeted);
+    assert_eq!(calls[0].1, "w2");
     assert_eq!(calls[0].2, "menu-theme-light");
 }
 

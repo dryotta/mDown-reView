@@ -361,6 +361,40 @@ async getAuthor() : Promise<Result<string, ConfigError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * **Side-effect IPC** (Rust-First pattern): persist the pref to disk,
+ * then drive the `ThemeApplier` to flip every window's native chrome +
+ * menu live (and on Windows the process-wide popup-menu mode). The
+ * native-side mutation is NOT visible in the TypeScript signature
+ * (`set_theme(theme: string) -> Result<(), ConfigError>` reads like a
+ * pure persist) — call sites in `useThemePref.ts` rely on this rustdoc
+ * for the full contract.
+ * 
+ * Cross-window propagation: this IPC is invoked ONCE per user action,
+ * not N times. The menu fires `menu-theme-*` as a Targeted event
+ * (per `menu.rs::menu_event_delivery`) so only the firing window's
+ * `useMenuListeners` calls `setTheme`. The firing window's Zustand
+ * update propagates to other renderers via `useCrossWindowPrefsSync`'s
+ * localStorage `storage` event - those renderers update their own
+ * `<html data-theme>` without calling the IPC. Meanwhile this one IPC
+ * call iterates every native window and applies the theme. Reduces
+ * what would have been N IPCs x N windows each (O(N^2)) to one IPC x
+ * N windows (O(N)).
+ * 
+ * **Windows "system" mode limitation**: when the user's preference is
+ * `"system"`, the menu BAR is snapshotted from the OS theme at the
+ * time this IPC fires. If the OS theme changes WHILE the app is
+ * running (without the user reopening the View menu), the menu bar
+ * stays at the snapshotted theme until the next `set_theme` call.
+ * **Popup menus DO follow OS changes** because we set
+ * `PreferredAppMode::AllowDark`, which lets uxtheme track the OS.
+ * **The renderer DOM (`<html data-theme>`) also follows OS changes**
+ * because `useApplyTheme` listens to the `prefers-color-scheme` media
+ * query (which fires in both WebView2 and WKWebView on OS theme
+ * switches). Adding a `WM_SETTINGCHANGE` listener in Rust to fix the
+ * menu-bar mismatch is tracked as a follow-up — the asymmetry is
+ * small (only the menu bar) and recoverable (user toggles preference).
+ */
 async setTheme(theme: string) : Promise<Result<null, ConfigError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_theme", { theme }) };
